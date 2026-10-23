@@ -16,6 +16,7 @@ import {
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { parsePublicSharePolicy, requirePublicShareBody } from '@/app/lib/public-sharing/share-policy-input';
+import { publicShareWriterFailure } from '@/app/lib/public-sharing/writer';
 
 function parseStatus(value: string | null): PublicShareStatus | 'all' {
   if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
@@ -40,7 +41,7 @@ function parsePathFilters(searchParams: URLSearchParams): string[] {
   return Array.from(new Set([
     ...searchParams.getAll('path'),
     ...searchParams.getAll('paths').flatMap((value) => value.split('\n')),
-  ].map((value) => value.trim()).filter(Boolean)));
+  ].filter((value) => value.length > 0)));
 }
 
 function requestWorkspaceId(request: NextRequest): string | null {
@@ -89,7 +90,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
+  const original = new NextRequest(request.url,{method:request.method,headers:new Headers(request.headers)});
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canCreatePublicLinks' });
   if (workspaceResult.response) return workspaceResult.response;
   const { session, workspace } = workspaceResult;
 
@@ -100,10 +102,11 @@ export async function POST(request: NextRequest) {
   });
   if (!limited.ok) return limited.response;
 
+  let paths: string[], policy: ReturnType<typeof parsePublicSharePolicy>;
   try {
     const body = requirePublicShareBody(await request.json());
     const pathsValue = body.paths ?? body.path;
-    const paths = Array.isArray(pathsValue)
+    paths = Array.isArray(pathsValue)
       ? pathsValue.filter((value): value is string => typeof value === 'string')
       : typeof pathsValue === 'string'
         ? [pathsValue]
@@ -113,13 +116,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'At least one file path is required.' }, { status: 400 });
     }
 
+    policy = parsePublicSharePolicy(body);
+  } catch (error) {
+    return NextResponse.json({success:false,error:error instanceof Error ? error.message : 'Invalid public share request.'},{status:400});
+  }
+  try {
     const result = await createPublicFileShares({
-      paths,
-      createdByUserId: session.user.id,
-      workspace,
-      source: 'ui',
+      paths, request: original, workspaceId: workspace.workspaceId,
       defaultExpiresAt: new Date(Date.now() + 30 * 86_400_000),
-      ...parsePublicSharePolicy(body),
+      ...policy,
       confirmPublicExposure: true,
       baseUrl: getPublicRequestOrigin(request),
     });
@@ -147,7 +152,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create public shares.';
-    return NextResponse.json({ success: false, error: message }, { status: 400 });
+    const failure = publicShareWriterFailure(error);
+    return NextResponse.json({success:false,error:failure?.message ?? 'The public link action could not be confirmed.',
+      ...(failure ? {code:failure.code} : {})},{status:failure?.status ?? 503});
   }
 }

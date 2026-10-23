@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { createAuthenticatedContext, enterMarkdownEditMode, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 const CODE = 'First line\nSecond line\n\nOne empty line\n\n\n\nThree empty lines\n  Indented <tag> & text\n- literal bullet\n1. literal number';
@@ -163,9 +163,9 @@ for (const viewport of [
       }, workspace.id);
       await uploadWorkspaceTextFile({ request: context.request, workspaceId: workspace.id, filePath, content: MARKDOWN });
       await page.goto(`/en/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Read', exact: true }).click();
-      await checkCodeBlockCopy(page, page.getByTestId('markdown-code-block-copy'));
-      await enterMarkdownEditMode(page);
+      const editor = page.getByRole('tabpanel', { name: filePath, exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+      await expect(editor).toBeVisible();
+      await expect(editor).toHaveAttribute('contenteditable', 'true');
       await checkCodeBlockCopy(page, page.getByTestId('markdown-editor-code-block-copy'));
       await page.screenshot({ path: info.outputPath(`code-block-editor-${viewport.name}.png`), animations: 'disabled' });
       const persisted = await context.request.get('/api/files/read', { headers: { 'x-canvas-workspace-id': workspace.id }, params: { path: filePath } });
@@ -182,7 +182,7 @@ for (const viewport of [
       const assistant = page.getByTestId('chat-message-assistant');
       await expect(assistant).toHaveCount(1, { timeout: 30_000 });
       await checkCodeBlockCopy(page, assistant.getByTestId('chat-code-block-copy'));
-      await assistant.hover();
+      await assistant.getByTestId('chat-code-block-copy').hover();
       const messageCopy = page.getByTestId('chat-message-actions-assistant').getByRole('button', { name: 'Copy formatted', exact: true });
       await messageCopy.click();
       await expect(page.getByTestId('chat-message-actions-assistant').getByRole('button', { name: 'Copied', exact: true })).toBeVisible();

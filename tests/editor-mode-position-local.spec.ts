@@ -8,7 +8,7 @@ import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/m
 
 const fixtureUrl = 'http://editor-local-mode.test/';
 const imageUrl = 'https://editor-mode-position.test/delayed.svg';
-type Mode = 'Read' | 'Edit' | 'Source';
+type Mode = 'Rich' | 'Source';
 let bundle: string;
 let css: string;
 const browserErrors = new WeakMap<Page, string[]>();
@@ -64,7 +64,7 @@ function documentContent(delayedImage = false) {
   return content;
 }
 
-async function mount(page: Page, content: string, initialMode: 'read' | 'source' = 'read') {
+async function mount(page: Page, content: string, initialMode: 'rich' | 'source' = 'rich') {
   await page.route(`${fixtureUrl}api/**`, route => route.fulfill({ json: {
     success: true, data: [], links: [], backlinks: [], files: [],
   } }));
@@ -76,8 +76,7 @@ async function mount(page: Page, content: string, initialMode: 'read' | 'source'
 }
 
 function view(page: Page, mode: Mode) {
-  return page.locator(mode === 'Read' ? '.markdown-read-viewport'
-    : mode === 'Edit' ? '[data-testid="markdown-scroll-container"]' : '.markdown-source-shell .cm-scroller');
+  return page.locator(mode === 'Rich' ? '[data-testid="markdown-scroll-container"]' : '.markdown-source-shell .cm-scroller');
 }
 
 function anchor(page: Page, mode: Mode, number: number, suffix = '') {
@@ -108,11 +107,11 @@ async function locationOffset(page: Page, mode: Mode, number: number, suffix = '
 }
 
 async function switchMode(page: Page, mode: Mode) {
-  const button = page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: mode, exact: true });
-  await button.click();
-  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  const button = page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Source', exact: true });
+  if (await button.getAttribute('aria-pressed') !== String(mode === 'Source')) await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', String(mode === 'Source'));
   await expect(view(page, mode)).toBeVisible();
-  if (mode !== 'Read') await expect(page.locator(mode === 'Edit' ? '.ProseMirror' : '.cm-content')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator(mode === 'Rich' ? '.ProseMirror' : '.cm-content')).toHaveAttribute('contenteditable', 'true');
 }
 
 async function expectPosition(page: Page, mode: Mode, number: number, expectedOffset: number, suffix = '') {
@@ -127,8 +126,10 @@ test.describe('Local MarkdownEditor uses the real rich and source editor binding
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await mount(page, documentContent());
-    const expectedOffset = await position(page, 'Read', 21);
-    for (const mode of ['Edit', 'Source', 'Read', 'Source', 'Edit', 'Read'] as const) {
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+    const expectedOffset = await position(page, 'Rich', 21);
+    for (const mode of ['Source', 'Rich', 'Source', 'Rich'] as const) {
       await switchMode(page, mode); await expectPosition(page, mode, 21, expectedOffset);
     }
     await switchMode(page, 'Source');
@@ -136,19 +137,17 @@ test.describe('Local MarkdownEditor uses the real rich and source editor binding
     await anchor(page, 'Source', 21).click();
     await page.keyboard.press('End'); await page.keyboard.insertText(' source change');
     await expect(page.getByTestId('local-saved-markdown')).toContainText('## Local landmark 21 source change');
-    await switchMode(page, 'Read');
-    await expectPosition(page, 'Read', 21, expectedOffset, ' source change');
-    await switchMode(page, 'Edit');
-    await expectPosition(page, 'Edit', 21, expectedOffset, ' source change');
-    await anchor(page, 'Edit', 21, ' source change').click();
+    await switchMode(page, 'Rich');
+    await expectPosition(page, 'Rich', 21, expectedOffset, ' source change');
+    await anchor(page, 'Rich', 21, ' source change').click();
     await page.keyboard.press('ControlOrMeta+z');
     await expect(page.getByTestId('local-saved-markdown')).not.toContainText('source change');
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await expect(page.getByTestId('local-saved-markdown')).toContainText('source change');
-    await anchor(page, 'Edit', 21, ' source change').click();
+    await anchor(page, 'Rich', 21, ' source change').click();
     await page.keyboard.press('End'); await page.keyboard.insertText(' rich change');
     await expect(page.getByTestId('local-saved-markdown')).toContainText('source change rich change');
-    const afterRichEditOffset = await position(page, 'Edit', 21, ' source change rich change');
+    const afterRichEditOffset = await position(page, 'Rich', 21, ' source change rich change');
     await switchMode(page, 'Source');
     await expectPosition(page, 'Source', 21, afterRichEditOffset, ' source change rich change');
     await anchor(page, 'Source', 21, ' source change rich change').click();
@@ -156,22 +155,20 @@ test.describe('Local MarkdownEditor uses the real rich and source editor binding
     await expect(page.getByTestId('local-saved-markdown')).toContainText('source change');
     await expect(page.getByTestId('local-saved-markdown')).not.toContainText('rich change');
     const afterUndoOffset = await position(page, 'Source', 21, ' source change');
-    await switchMode(page, 'Read');
-    await expectPosition(page, 'Read', 21, afterUndoOffset, ' source change');
+    await switchMode(page, 'Rich');
+    await expectPosition(page, 'Rich', 21, afterUndoOffset, ' source change');
     await page.screenshot({ path: info.outputPath('local-source-and-rich-roundtrip.png') });
     expect(errors).toEqual([]);
   });
 
-  test('normalization keeps the source location when Edit prepares formatted text', async ({ page }) => {
+  test('explicit normalization keeps the source location before formatted editing', async ({ page }) => {
     const content = documentContent().replace('- First item\n- Second item', '1. First item\n1. Second item');
     expect(analyzeMarkdownRichMode(content).mode).toBe('normalizable');
     await mount(page, content, 'source');
     const expectedOffset = await position(page, 'Source', 21);
-    await switchMode(page, 'Edit');
-    await expectPosition(page, 'Edit', 21, expectedOffset);
+    await page.getByTestId('markdown-normalize-rich-text').click();
+    await expectPosition(page, 'Rich', 21, expectedOffset);
     await expect(page.getByTestId('local-saved-markdown')).toContainText('2. Second item');
-    await switchMode(page, 'Read');
-    await expectPosition(page, 'Read', 21, expectedOffset);
     await switchMode(page, 'Source');
     await expectPosition(page, 'Source', 21, expectedOffset);
   });
@@ -180,24 +177,18 @@ test.describe('Local MarkdownEditor uses the real rich and source editor binding
     const content = `${documentContent()}\n\n<!-- paginate: true -->\n`;
     expect(analyzeMarkdownRichMode(content).mode).toBe('source');
     await mount(page, content);
-    const initialOffset = await position(page, 'Read', 21);
-    await switchMode(page, 'Source');
-    await expectPosition(page, 'Source', 21, initialOffset);
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Source', exact: true }))
-      .toHaveAttribute('aria-pressed', 'true');
-    await expectPosition(page, 'Source', 21, initialOffset);
+    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true');
+    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
     const newerOffset = await position(page, 'Source', 24);
-    await switchMode(page, 'Read');
-    await expectPosition(page, 'Read', 24, newerOffset);
+    await expectPosition(page, 'Source', 24, newerOffset);
     await expect(page.getByTestId('local-saved-markdown')).toHaveText(content);
   });
 
   test('the document beginning and frontmatter stay at the top in every mode', async ({ page }) => {
     await mount(page, documentContent());
-    await expect(view(page, 'Read')).toBeVisible();
-    expect(await view(page, 'Read').evaluate(element => element.scrollTop)).toBe(0);
-    for (const mode of ['Source', 'Edit', 'Read', 'Edit', 'Source', 'Read'] as const) {
+    await expect(view(page, 'Rich')).toBeVisible();
+    expect(await view(page, 'Rich').evaluate(element => element.scrollTop)).toBe(0);
+    for (const mode of ['Source', 'Rich', 'Source', 'Rich'] as const) {
       await switchMode(page, mode);
       expect(await view(page, mode).evaluate(element => element.scrollTop)).toBe(0);
       if (mode === 'Source') await expect(page.locator('.cm-line').filter({ hasText: /^title: Local position test$/u })).toBeInViewport();
@@ -219,25 +210,25 @@ test.describe('Local MarkdownEditor uses the real rich and source editor binding
       try {
         await mount(page, documentContent(true), 'source');
         const expectedOffset = await position(page, 'Source', 19);
-        await switchMode(page, 'Read');
-        await expectPosition(page, 'Read', 19, expectedOffset);
+        await switchMode(page, 'Rich');
+        await expectPosition(page, 'Rich', 19, expectedOffset);
         await expect.poll(() => requested).toBe(true);
         let afterUserScrollOffset = expectedOffset;
         if (userScrolls) {
-          const box = (await view(page, 'Read').boundingBox())!;
+          const box = (await view(page, 'Rich').boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.mouse.wheel(0, 180);
-          await expect.poll(async () => Math.abs(await locationOffset(page, 'Read', 19) - expectedOffset)).toBeGreaterThan(100);
-          afterUserScrollOffset = await locationOffset(page, 'Read', 19);
+          await expect.poll(async () => Math.abs(await locationOffset(page, 'Rich', 19) - expectedOffset)).toBeGreaterThan(100);
+          afterUserScrollOffset = await locationOffset(page, 'Rich', 19);
         }
         release();
         await expect(page.getByRole('img', { name: 'Delayed mode image' })).toHaveCount(1);
         await expect.poll(() => page.getByRole('img', { name: 'Delayed mode image' }).evaluate(image =>
           (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalHeight > 0)).toBe(true);
-        await expect.poll(async () => Math.abs(await locationOffset(page, 'Read', 19) - afterUserScrollOffset)).toBeLessThanOrEqual(36);
+        await expect.poll(async () => Math.abs(await locationOffset(page, 'Rich', 19) - afterUserScrollOffset)).toBeLessThanOrEqual(36);
         // Observe after the image's own layout and the controller's pending animation frames.
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-        expect(Math.abs(await locationOffset(page, 'Read', 19) - afterUserScrollOffset)).toBeLessThanOrEqual(36);
+        expect(Math.abs(await locationOffset(page, 'Rich', 19) - afterUserScrollOffset)).toBeLessThanOrEqual(36);
       } finally { release(); }
     });
   }

@@ -72,6 +72,9 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: externalPackages,
   outputFileTracingIncludes: {
+    ...(['darwin', 'linux'].includes(process.platform) && ['arm64', 'x64'].includes(process.arch) ? {
+      '/*': [`./native/fd-publication/${process.platform}-${process.arch}/**/*`],
+    } : {}),
     '/api/chat/tool-apps': ['./public/_canvas-tool-apps/*.html'],
     '/api/mobile/v1/sessions/*/mcp-apps/render': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],
     '/__preview/*/mobile-mcp/*': ['./public/_canvas-tool-apps/mobile-mcp-host-v1.js'],

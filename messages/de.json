@@ -1287,6 +1287,11 @@
     "fileOperationLinksUnverified": "Linkstatus: unvollständig geprüft. Prüfe die betroffenen Markdown-Dateien.",
     "fileOperationPreviewReadiness": "Vorschau-Status: {readiness}",
     "fileOperationPreviewReady": "bereit",
+    "fileOperationPreviewImportRequired": "bereit zur Übernahme vorhandener Markdown-Dateien",
+    "fileOperationImportSummary": "{count} vorhandene Markdown-Datei(en) werden bei dieser Aktion als Notizen übernommen.",
+    "fileOperationImportLinks": "{count} Link(s) in diesen Dateien müssen angepasst werden.",
+    "fileOperationImportRevalidate": "Dateien und Links werden vor der Ausführung erneut geprüft. Die Vorschau verändert sie nicht.",
+    "fileOperationLinkRemoved": "Link entfernt",
     "fileOperationPreviewBlocked": "blockiert",
     "fileOperationPreviewSummary": "Geplant: {paths} Pfadänderung(en), {links} Link-Änderung(en).",
     "fileOperationPreviewCoverage": "Workspace-Linkprüfung: {coverage}. Ausgelassene Dateien: {omitted}; ungelöste Links: {unresolved}.",
@@ -1354,6 +1359,18 @@
     "extensionAdded": "Wird erstellt als \"{name}\"",
     "saveIn": "Speichern in",
     "createFailed": "Element konnte nicht erstellt werden.",
+    "markdownCreatePendingTitle": "Ausstehende Dokumenterstellungen",
+    "markdownCreateResume": "Erstellung erneut prüfen",
+    "markdownCreateHide": "Eintrag ausblenden",
+    "markdownCreateHideHint": "Ausblenden entfernt nur diese lokale Erinnerung. Das Dokument kann bereits bestehen.",
+    "markdownCreateOtherWorkspace": "In einem anderen Arbeitsbereich",
+    "markdownCreateChecking": "Dokumenterstellung wird geprüft…",
+    "markdownCreateUnconfirmed": "Die Dokumenterstellung ist noch nicht bestätigt. Prüfe dieselbe Erstellung erneut, bevor du das Dokument öffnest.",
+    "markdownCreateProjectionPending": "Das Dokument wird gespeichert. Prüfe die Erstellung erneut, um zu bestätigen, dass es bereit ist.",
+    "markdownCreateRecoveryRequired": "Die Dokumenterstellung muss geprüft werden, bevor das Dokument geöffnet werden kann.",
+    "markdownCreateUnavailable": "Die Dokumenterstellung ist derzeit nicht verfügbar. Du kannst diese Erstellung später erneut prüfen.",
+    "markdownCreateLimit": "Prüfe die ausstehenden Dokumenterstellungen, bevor du ein weiteres Dokument erstellst.",
+    "markdownCreateScopeChanged": "Konto oder Workspace haben sich geändert. Öffne den Erstellungsdialog erneut im richtigen Workspace.",
     "excalidrawInvalidTitle": "Excalidraw-Datei kann nicht geöffnet werden",
     "excalidrawInvalidDescription": "Diese Datei hat die Endung .excalidraw, enthält aber kein gültiges Excalidraw-JSON. Der Inhalt wurde nicht überschrieben.",
     "openAsText": "Als Text öffnen",
@@ -1385,6 +1402,10 @@
     "uploadCollecting": "Dateien erfassen",
     "uploadPreparing": "Upload vorbereiten",
     "uploadReconciling": "Dateien abgleichen",
+    "uploadMarkdownPending": "Der Import ist noch nicht bestätigt. Die Uploadquelle bleibt für denselben Versuch erhalten.",
+    "uploadMarkdownUnavailable": "Der Import ist derzeit nicht verfügbar. Die Uploadquelle bleibt erhalten.",
+    "uploadMarkdownResume": "Abschluss erneut prüfen",
+    "uploadMarkdownChecking": "Abschluss wird geprüft …",
     "liveUpdatesConnected": "Live verbunden",
     "uploadCurrentFile": "Aktuell: {name}",
     "uploadRetryingFile": "Erneuter Versuch für {name} (Versuch {attempt})",
@@ -1624,6 +1645,7 @@
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {Keine Dokumente} one {# Dokument} other {# Dokumente}} · {references, plural, =0 {keine Verweise} one {# Verweis} other {# Verweise}}",
     "markdownEditorBacklinksLoading": "Dokumentverbindungen werden geladen…",
     "markdownEditorBacklinksUnavailable": "Verbindungen nicht verfügbar",
+    "markdownEditorBacklinksPartial": "Der Dokumentindex ist unvollständig. Einige Dokumente oder Verbindungen können fehlen.",
     "markdownEditorBacklinksLoadError": "Dokumentverbindungen konnten nicht geladen werden.",
     "markdownEditorBacklinksIncoming": "Links zu diesem Dokument ({count})",
     "markdownEditorBacklinksOutgoing": "Ausgehende Links ({count})",
@@ -3036,6 +3058,7 @@
       "description": "Lösche Ordner- oder Tag-Filter oder aktiviere unverlinkte und fehlende Ziele, um Knoten wieder anzuzeigen."
     },
     "warnings": {
+      "incomplete": "Der Dokumentindex ist unvollständig. Einige Dokumente oder Verbindungen können fehlen.",
       "omitted": "{count, plural, one {# Markdown-Dokument wurde übersprungen, weil es zu groß oder nicht lesbar ist.} other {# Markdown-Dokumente wurden übersprungen, weil sie zu groß oder nicht lesbar sind.}}"
     },
     "errors": {
@@ -3867,6 +3890,10 @@
       "license": "Team-Lizenzereignis"
     },
     "filePathOperations": {
+      "pending": {
+        "title": "{action}: Vorbereitung wartet",
+        "detail": "Die ursprüngliche Auswahl ist gespeichert. Öffne die Vorbereitung, um ihren Status zu prüfen und sie ausdrücklich fortzusetzen."
+      },
       "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
       "kind_move": "Verschieben",
       "kind_rename": "Umbenennen",
@@ -3956,6 +3983,20 @@
     }
   },
   "workspacePathOperationStatus": {
+    "preparation": {
+      "status": {
+        "reserved": "Dateiaktion wird vorbereitet",
+        "draining": "Ausstehende Dokumentänderungen werden gesichert",
+        "recovery_required": "Vorbereitung muss geprüft werden",
+        "aborted": "Vorbereitung beendet"
+      },
+      "guidance": {
+        "reserved": "Die ursprüngliche Auswahl ist gespeichert. Es gibt noch keinen fertig gebundenen Dateiaktionsauftrag. Nutze Fortsetzen, um genau diese Vorbereitung weiterzuführen.",
+        "draining": "Bereits angenommene Änderungen werden gesichert. Aktualisieren liest nur den Status; Fortsetzen führt dieselbe Vorbereitung weiter.",
+        "recovery_required": "Die Vorbereitung konnte nicht sicher abgeschlossen werden. Prüfe den aktuellen Stand und den Fehler; dieser Dialog setzt sie nicht automatisch fort.",
+        "aborted": "Diese Vorbereitung wird nicht ausgeführt. Prüfe die aktuellen Dateien vor einer neuen Anfrage."
+      }
+    },
     "openFile": "Betroffene Datei öffnen",
     "recheck": "Erneut prüfen",
     "openStatus": "Aktionsstatus ansehen",
@@ -5906,6 +5947,18 @@
             "title": "Dateiinhalte bearbeiten",
             "description": "Erlaubt exakte, konfliktgeschützte Änderungen an sichtbaren Textdateien nach einer ausdrücklichen Freigabe durch die Administration."
           },
+          "copy_knowledge_source": {
+            "title": "Dateien und Dokumente kopieren",
+            "description": "Kopiert sichtbare Dateien, Ordner und native Dokumente über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Benötigt Lesezugriff auf die Quelle und Schreibzugriff auf das Ziel."
+          },
+          "move_knowledge_source": {
+            "title": "Dateien und Dokumente verschieben",
+            "description": "Verschiebt unterstützte Workspace-Pfade über den zentralen nativen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Belegte Ziele sind Konflikte. Benötigt Lese-, Schreib- und Löschrechte."
+          },
+          "delete_knowledge_source": {
+            "title": "Native Dokumente löschen",
+            "description": "Archiviert ein natives Dokument, aktualisiert eingehende Links und entfernt Dateiannotationen über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Datei-Undo ist nicht verfügbar. Benötigt Lese-, Schreib- und Löschrechte."
+          },
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
@@ -6709,9 +6762,18 @@
           "cancel": "Abbrechen",
           "accessTitle": "Zugriff für {name} festlegen",
           "accessDescription": "Der Workspace ist erstellt. Füge jetzt Nutzer hinzu und passe ihre Zugriffsrollen an.",
-          "createdTitle": "{name} ist bereit",
+          "createdTitle": "{name} wurde erstellt",
           "createdDescription": "Der Workspace wurde erstellt und verwendet seine Farbe bereits als Canvas-Akzent.",
           "done": "Fertig"
+        },
+        "starterInitialization": {
+          "pendingTitle": "Starterdokument noch nicht bestätigt",
+          "pendingDescription": "Der Workspace wurde erstellt. Die Einrichtung von „Erste Schritte.md“ ist noch nicht bestätigt. Prüfe den Status oder setze die Einrichtung hier fort.",
+          "blockedTitle": "Starterdokument konnte nicht eingerichtet werden",
+          "blockedDescription": "Der Workspace wurde erstellt. Die Einrichtung von „Erste Schritte.md“ ist blockiert. Prüfe den Status und versuche es nach Beheben des Problems erneut.",
+          "requestFailed": "Der Status konnte nicht bestätigt werden. Der Workspace bleibt erhalten. Du kannst die Prüfung erneut versuchen.",
+          "check": "Status prüfen",
+          "resume": "Einrichtung fortsetzen"
         },
         "editDialog": {
           "title": "Workspace bearbeiten",
@@ -6761,6 +6823,7 @@
           }
         },
         "errors": {
+          "createdRefreshFailed": "Der Workspace wurde erstellt. Die Workspace-Liste konnte nicht aktualisiert werden. Lade sie erneut, bevor du einen weiteren Workspace anlegst.",
           "nameRequired": "Name ist erforderlich.",
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
           "descriptionTooLong": "Die Kurzbeschreibung darf höchstens {max} Zeichen lang sein.",

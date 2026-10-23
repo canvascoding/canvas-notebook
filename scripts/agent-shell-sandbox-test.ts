@@ -278,7 +278,7 @@ process.stderr.write('stderr preserved');
     assert.equal(node.stderr, 'stderr preserved');
     assert.equal(await fs.readFile(path.join(scratch, 'node-output.txt'), 'utf8'), 'Node scratch output');
     // Direct Python/Node entry points use the same kernel confinement as shell descendants.
-    const directOptions = { context, cwd: workspace, env: { NODE_ENV: 'test', PATH: process.env.PATH,
+    const directOptions = { context, cwd: workspace, env: { NODE_ENV: 'test' as const, PATH: process.env.PATH,
       LANG: 'en_US.UTF-8', CANVAS_TEST_VALUE: 'preserved value', HOME: canonicalScratch,
       ...getAgentRuntimeTempEnv(canonicalScratch) } };
     const directPython = await executeAgentSandboxedProcess({ executable: '/usr/bin/python3', args: ['-c', pythonSource] }, directOptions);

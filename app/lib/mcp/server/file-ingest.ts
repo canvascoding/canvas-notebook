@@ -4,6 +4,7 @@ import { directMcpFileLinkFields } from '@/app/lib/mcp/server/file-links';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { types } from 'node:util';
 
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
@@ -15,6 +16,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { createAtomicTempPath, resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import type { DirectMcpAccessPrincipal } from './access-token-verifier';
 import type { DirectMcpIngestContentValidation } from './ingest-validation';
+import { observeOptionalMarkdownCreateBirth } from '@/app/lib/files/markdown-create-birth';
 
 export class DirectMcpFileIngestError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'DirectMcpFileIngestError'; }
@@ -85,6 +87,31 @@ async function readRecord(recordPath: string): Promise<IngestRecord | null> {
   }
 }
 
+/** Historical dispatch facts only. The fixed caller holds the existing
+ * workspace Flock and separately establishes current authority. */
+export async function observeLegacyDirectMcpIngestOriginal(input: Readonly<{
+  operationId: string; requestFingerprint: string;
+}>): Promise<'absent' | 'legacy-original' | 'fingerprint-conflict'> {
+  if (!input || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype) {
+    throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_INPUT', 'Original import identity is invalid.');
+  }
+  const fields = Object.getOwnPropertyDescriptors(input), names = Reflect.ownKeys(fields);
+  if (names.length !== 2 || names.some(key => typeof key !== 'string' || !['operationId', 'requestFingerprint'].includes(key)
+    || !fields[key]?.enumerable || !Object.hasOwn(fields[key], 'value'))) {
+    throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_INPUT', 'Original import identity is invalid.');
+  }
+  const operationId: unknown = fields.operationId?.value, requestFingerprint: unknown = fields.requestFingerprint?.value;
+  if (typeof operationId !== 'string' || typeof requestFingerprint !== 'string'
+    || !/^[a-f0-9]{64}$/u.test(operationId) || !/^[a-f0-9]{64}$/u.test(requestFingerprint)) {
+    throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_INPUT', 'Original import identity is invalid.');
+  }
+  const previous = await readRecord(path.join(resolveCanvasDataRoot(), 'system', 'mcp-file-ingest', `${operationId}.json`));
+  if (previous && previous.fingerprint !== requestFingerprint) {
+    return 'fingerprint-conflict';
+  }
+  return previous ? 'legacy-original' : 'absent';
+}
+
 /** Durable, create-only ingestion. Network adapters supply bytes; workspace services own publication. */
 export async function createDirectMcpWorkspaceFile(input: {
   principal: DirectMcpAccessPrincipal;
@@ -105,6 +132,14 @@ export async function createDirectMcpWorkspaceFile(input: {
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     input.signal?.throwIfAborted();
     await input.verifyAuthority();
+    const nativeOriginal = await observeOptionalMarkdownCreateBirth({ workspaceRoot: input.workspace.rootPath,
+      workspaceId: input.workspace.workspaceId, operationId });
+    if (nativeOriginal) {
+      const legacyOriginal = await readRecord(recordPath);
+      throw new DirectMcpFileIngestError(legacyOriginal ? 'MCP_INGEST_RECOVERY_REQUIRED' : 'MCP_INGEST_IDEMPOTENCY_CONFLICT',
+        legacyOriginal ? 'Both native and legacy import originals exist. Inspect the operation before retrying.'
+          : 'This idempotency_key belongs to a native Markdown creation.');
+    }
     await assertWorkspacePathHasNoAliases(input.workspace, target);
     const previous = await readRecord(recordPath);
     if (previous && previous.fingerprint !== input.fingerprint) {

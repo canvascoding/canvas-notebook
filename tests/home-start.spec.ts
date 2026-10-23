@@ -167,7 +167,15 @@ for (const width of [390, 1440]) {
         paths.push(path);
         expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
       }
-      expect((await page.request.patch('/api/files/metadata', { headers, data: { path: paths[6], isFavorite: true, pinned: true } })).ok()).toBeTruthy();
+      const metadataResponse = await page.request.get(`/api/files/info?path=${encodeURIComponent(paths[6])}`, { headers });
+      let expectedTarget: unknown;
+      try {
+        expect(metadataResponse.status()).toBe(200);
+        expectedTarget = (await metadataResponse.json()).data?.metadataTarget;
+        expect(expectedTarget).toMatchObject({ version: 1, workspaceId, path: paths[6] });
+      } finally { await metadataResponse.dispose(); }
+      expect((await page.request.patch('/api/files/metadata', { headers,
+        data: { path: paths[6], expectedTarget, isFavorite: true, pinned: true } })).ok()).toBeTruthy();
       await page.goto('/de');
       const files = page.getByTestId('home-files');
       const rows = files.locator('ul > li');

@@ -3,6 +3,8 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import type http from 'node:http';
 import { createRequire } from 'node:module';
+import { createHash, randomUUID } from 'node:crypto';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import path from 'node:path';
 import ts from 'typescript';
 import { Connection, Hocuspocus, MessageType, type Document } from '@hocuspocus/server';
@@ -11,6 +13,12 @@ import { messageYjsUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 
 import type * as Direct from '../app/lib/collaboration/direct-connection';
+import type * as Notebook from '../app/lib/mobile/notebook';
+import type * as NotebookOperations from '../app/lib/mobile/notebook-operations';
+import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from '../app/lib/db/mobile-notebook-operation-migration';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
+import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { authoritativeNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { withWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../app/lib/collaboration/file-lifecycle-admission-context';
 import type {
@@ -28,7 +36,7 @@ import {
 import { createCollaborationRoomAdmissionWorker } from '../app/lib/collaboration/room-admission-worker';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import * as RoomStartup from '../app/lib/collaboration/room-startup-activity';
-import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
+import { COLLABORATION_SCHEMA_VERSION, type CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
 
@@ -155,9 +163,10 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
   | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload' | 'admission-writer-gate' | 'batch-idle-release'
-  | 'reader-normal-unload') {
+  | 'reader-normal-unload' | 'direct-activity-session' | 'direct-activity-session-close'
+  | 'direct-activity-session-unavailable' | 'native-read-busy-postgres') {
   const workspace = {
-    workspaceId: 'owner-workspace',
+    workspaceId: mode === 'native-read-busy-postgres' ? `native-busy-${randomUUID()}` : 'owner-workspace',
     organizationId: null,
     workspaceType: 'personal',
   } as WorkspaceContext;
@@ -186,6 +195,10 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let ownerRuntime!: OwnerRuntime;
   let activityAdmissionObserver: ((documentId: string) => void) | null = null;
   let direct!: Parameters<typeof Direct.installCollaborationDirectConnection>[0];
+  let activitySession!: DirectActivity.CollaborationDirectActivitySessionHandler;
+  let userAccessAllowed = true;
+  let userAccessChecks = 0;
+  let userAccessBarrier: { entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let documentReader!: Reader;
   let localRoomDrainer: ((scope: CollaborationRoomOwnerScope) => Promise<void>) | undefined;
   let localTicketDrainer: ((ticket: CollaborationAdmissionDrainTicket) => Promise<void>) | undefined;
@@ -204,8 +217,10 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let semanticConflictDetections = 0;
   const persistCalls: Array<{ documentId: string; fence: CollaborationRoomOwnerFence | undefined }> = [];
   let controlledPersist: PersistedCollaborationState | null = null;
+  let persistObserver: ((state: PersistedCollaborationState) => Promise<void>) | null = null;
   let admissionBlocked = false;
   let admissionChecks = 0;
+  const admissionLockQueries: string[] = [];
   let blockOnAdmissionCheck = 0;
   let persistFailure: Error | null = null;
   let persistBarrier: {
@@ -440,6 +455,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
           persistedAt: Date.now(),
         };
         states.set(documentId, next);
+        if (persistObserver) await persistObserver(next);
         return { ...next, persistenceDisposition: 'advanced', incomingNeedsReconcile: false };
       },
       markCollaborationDegraded: async () => { markDegradedCalls++; },
@@ -447,6 +463,26 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/direct-connection')) return {
       AgentDirectConnectionAuthorizationError,
       installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; },
+    };
+    if (name.endsWith('/direct-activity-session')) return {
+      ...DirectActivity,
+      installCollaborationDirectActivitySession: (handler: typeof activitySession) => {
+        activitySession = handler;
+        return DirectActivity.installCollaborationDirectActivitySession(handler);
+      },
+    };
+    if (name.endsWith('/connection-access')) return {
+      resolveCollaborationSessionAccess: async () => {
+        userAccessChecks++;
+        const barrier = userAccessBarrier;
+        if (barrier) {
+          userAccessBarrier = null;
+          barrier.entered.resolve();
+          await barrier.release.promise;
+        }
+        if (!userAccessAllowed) throw new AgentDirectConnectionAuthorizationError('User session revoked.');
+        return { workspace };
+      },
     };
     if (name.endsWith('/document-access')) return {
       installCollaborationDocumentReader: (reader: Reader) => { documentReader = reader; },
@@ -509,12 +545,13 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name.endsWith('/representation-drain-refusal')) return { readRepresentationDrainRequest: async () => null };
     if (name.endsWith('/room-admission')) return load(name);
     if (name.endsWith('/file-lifecycle-writer-admission')) return {
+      tryLockFileLifecycleCollaborationRoomAdmission: load('@/app/lib/collaboration/file-lifecycle-writer-admission').tryLockFileLifecycleCollaborationRoomAdmission,
       tryLockFileLifecycleCollaborationWriterAdmission: async (query: Parameters<typeof import('../app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace>[0], scope: CollaborationRoomOwnerScope) =>
         load('@/app/lib/collaboration/room-admission').tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId),
     };
     if (name === '@/app/lib/db') return { openDb: async () => ({ run: async () => {},
       all: async (sql: string) => {
-        if (sql.includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+        if (sql.includes('pg_try_advisory_xact_lock')) { admissionLockQueries.push(sql); return [{ locked: true }]; }
         if (sql.includes('FROM collaboration_admission_scopes')) {
           admissionChecks++;
           return admissionBlocked || admissionChecks === blockOnAdmissionCheck ? [{ request_id: 'pending-representation' }] : [];
@@ -526,7 +563,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   }, { exports: server }, server);
 
   const httpServer = new EventEmitter();
-  server.createCollaborationServer(httpServer as unknown as http.Server, {
+  server.createCollaborationServer(httpServer as unknown as http.Server, mode === 'direct-activity-session-unavailable' ? {} : {
     roomOwner: {
       createSession: async (onInvalidated) => {
         void onInvalidated;
@@ -644,11 +681,372 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     await turn();
     assert.equal(localRoomDrainer, undefined, 'server close uninstalls its exact local room drainer');
     assert.equal(localTicketDrainer, undefined, 'server close uninstalls its ticket-bound room drainer');
-    assert.equal(localRoomDrainerUninstalls, 1);
+    assert.equal(localRoomDrainerUninstalls, mode === 'direct-activity-session-unavailable' ? 0
+      : mode === 'direct-activity-session-close' ? 2 : 1);
     for (const document of instance.documents.values()) document.destroy();
     instance.documents.clear();
     await turn();
   };
+
+  if (mode === 'native-read-busy-postgres') {
+    const { testNativeBusyReadPostgres } = await import('./helpers/file-read-busy-postgres-fixture');
+    await testNativeBusyReadPostgres({
+      workspaceId: workspace.workspaceId, reader: documentReader,
+      room: async id => {
+        states.set(id, { ...makeState(id, 'original+latest'), workspaceId: workspace.workspaceId });
+        const document = await instance.createDocument(id, request, 'reader-loader',
+          { isAuthenticated: true, readOnly: false }, contextFor(id));
+        const state = { ...makeState(id, 'original'), workspaceId: workspace.workspaceId }; states.set(id, state);
+        return { document, state };
+      },
+      onPersist: callback => { persistObserver = callback; },
+      unload: async document => {
+        const barrier = { documentId: document.name, entered: gate(), release: gate() };
+        persistBarrier = barrier;
+        const complete = instance.unloadDocument(document);
+        return { entered: barrier.entered.promise, release: barrier.release.resolve, complete };
+      },
+    });
+    return;
+  }
+
+  if (mode === 'direct-activity-session-unavailable') {
+    await assert.rejects(activitySession({
+      documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user', actorId: 'user', actorDisplayName: 'User',
+      initiatedByUserId: 'user', actorSessionId: 'mobile-session', operationId: 'unavailable',
+    }, async () => assert.fail('a no-runtime activity pin must never succeed')),
+    (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_UNAVAILABLE');
+    console.log('PASS no RoomOwner runtime cannot report a successful ineffective activity pin');
+    return;
+  }
+
+  if (mode === 'direct-activity-session' || mode === 'direct-activity-session-close') {
+    const inputFor = (id: string): DirectActivity.CollaborationDirectActivitySessionInput => ({
+      documentId: id, documentPath: `${id}.txt`, documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace: { ...workspace }, actorType: 'user', actorId: 'user', actorDisplayName: 'User',
+      initiatedByUserId: 'user', actorSessionId: 'mobile-session', operationId: `mobile-${id}`,
+    });
+    const busy = (error: unknown) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY';
+    const source = (id: string, content = 'original') => { states.set(id, makeState(id, content)); return inputFor(id); };
+
+    if (mode === 'direct-activity-session-close') {
+      const input = source('session-close');
+      const originalHandler = activitySession;
+      const originalInstance = instance;
+      const replacementHttp = new EventEmitter();
+      await assert.rejects(activitySession(input, async session => {
+        await direct(input, () => undefined);
+        server.createCollaborationServer(replacementHttp as unknown as http.Server, {
+          roomOwner: { createSession: async () => ownerSession as never, heartbeatMs: 60_000 },
+        });
+        const replacementHandler = activitySession;
+        const replacementInstance = instance;
+        instance = originalInstance;
+        await assert.rejects(direct(input, () => assert.fail('new server must reject an old ALS continuation')));
+        assert.equal(replacementInstance.documents.size, 0, 'replaced continuation must not open a new native room');
+        httpServer.emit('close');
+        assert.equal(DirectActivity.isCollaborationDirectActivitySessionInstalled(replacementHandler), true,
+          'old server uninstaller must retain the replacement bridge');
+        await assert.rejects(session.assertOpen());
+        await assert.rejects(direct(input, () => assert.fail('closed session must not apply')));
+        replacementHttp.emit('close');
+      }));
+      await assert.rejects(originalHandler(input, async () => assert.fail('old handler must not start after close')));
+      console.log('PASS replacement server rejects old ALS; close revokes captured handlers and preserves newer bridge');
+      return;
+    }
+
+    // The original two independent Direct calls deterministically reproduce V6:
+    // the first idle callback starts final persistence while prepare yields.
+    const unpinned = source('session-old-race');
+    await direct(unpinned, doc => assert.equal(doc.getText('content').toString(), 'original'));
+    const oldStore = { documentId: unpinned.documentId, entered: gate(), release: gate() };
+    persistBarrier = oldStore;
+    await bounded(oldStore.entered.promise, 'unscoped first Direct idle final store');
+    await assert.rejects(direct(unpinned, () => assert.fail('draining second Direct must not apply')), busy);
+    const oldDocument = instance.documents.get(unpinned.documentId)!;
+    const oldDestroyed = gate();
+    oldDocument.on('destroy', oldDestroyed.resolve);
+    oldStore.release.resolve();
+    await bounded(oldDestroyed.promise, 'unscoped old room durable release');
+    console.log('PASS reproduced original two-Direct idle-drain ROOM_OWNER_BUSY with no peer');
+
+    const pinned = source('session-mobile');
+    let pinnedDoc!: Y.Doc;
+    let retainedSession!: DirectActivity.CollaborationDirectActivitySession;
+    const applied = await DirectActivity.withCollaborationDirectActivitySession(pinned, async session => {
+      retainedSession = session;
+      const prepared = await direct(pinned, doc => {
+        pinnedDoc = doc;
+        return appendUpdate(doc, '+applied');
+      });
+      const owner = fences.get(pinned.documentId)!;
+      assert.equal(pinnedDoc.isDestroyed, false);
+      const stores = persistCalls.length;
+      await turn(); // asynchronous durable preparation, outside the concrete room mutex
+      assert.equal(persistCalls.length, stores, 'group pin prevents deferred final store between phases');
+      assert.equal(fences.get(pinned.documentId), owner);
+      assert.equal(released.includes(owner), false);
+      await session.assertOpen();
+      await direct(pinned, doc => {
+        assert.equal(doc, pinnedDoc);
+        Y.applyUpdate(doc, prepared);
+      });
+      await turn(); // durable acknowledgement / private compaction can yield too
+      await session.assertOpen();
+      assert.equal(fences.get(pinned.documentId), owner);
+      assert.equal(released.includes(owner), false);
+      return documentReader(pinned.documentId, workspace.workspaceId, doc => doc.getText('content').toString());
+    });
+    assert.equal(applied, 'original+applied');
+    const groupDestroyed = gate();
+    pinnedDoc.on('destroy', groupDestroyed.resolve);
+    await bounded(groupDestroyed.promise, 'normal unload after complete Mobile activity session');
+    await assert.rejects(retainedSession.assertOpen(), busy);
+    assert.equal(userAccessChecks >= 6, true, 'session and both Direct phases revalidate real user-session access');
+    console.log('PASS pinned two-Direct prepare/apply/durability/readback preserves owner until complete');
+
+    // Exercise the actual Mobile service and its real private operation SQL,
+    // while the same real Hocuspocus runtime owns disconnect and idle unload.
+    for (const rich of [false, true]) {
+      const initialContent = rich ? '' : 'original';
+      const savedContent = rich ? '# Mobile title\n\nSaved paragraph' : 'original+mobile';
+      const mobileInput = source(rich ? 'session-mobile-rich-empty' : 'session-mobile-service', initialContent);
+      if (rich) {
+        const initial = createRichMarkdownYDoc('', 'tiptap_blocks');
+        try {
+          mobileInput.documentPath = `${mobileInput.documentId}.md`;
+          mobileInput.documentRepresentation = 'tiptap_blocks';
+          mobileInput.documentSchemaVersion = COLLABORATION_SCHEMA_VERSION;
+          states.set(mobileInput.documentId, { ...states.get(mobileInput.documentId)!, path: mobileInput.documentPath,
+            representation: 'tiptap_blocks', schemaVersion: COLLABORATION_SCHEMA_VERSION, documentSequence: 0, checkpointSequence: 0,
+            persistedAt: 0, checkpointedAt: 0, yjsState: Y.encodeStateAsUpdate(initial), stateVector: Y.encodeStateVector(initial) });
+        } finally { initial.destroy(); }
+      }
+      assert.equal(authoritativeNativeCollaborationSnapshot(states.get(mobileInput.documentId)!).schemaVersion,
+        COLLABORATION_SCHEMA_VERSION, 'the actual native snapshot validator must accept the persisted fixture');
+      const nativeContent = (doc: Y.Doc) => rich ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+      const database = new DatabaseSync(':memory:');
+      try {
+        database.exec('PRAGMA foreign_keys=ON; CREATE TABLE collaboration_yjs_states(document_id text PRIMARY KEY)');
+        database.prepare('INSERT INTO collaboration_yjs_states VALUES (?)').run(mobileInput.documentId);
+        for (const statement of MOBILE_NOTEBOOK_OPERATION_STATEMENTS) database.exec(statement);
+        const bindings = (values: unknown[] = []) => Object.fromEntries(values.map((value, index) =>
+          [`$${index + 1}`, value as SQLInputValue]));
+        const compile = async <T,>(relative: string, dependencies: Record<string, unknown>): Promise<T> => {
+          const absolute = path.resolve(relative);
+          const compiled = ts.transpileModule(await fs.readFile(absolute, 'utf8'), {
+            compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+          });
+          const exports = {};
+          new Function('require', 'module', 'exports', compiled.outputText)((name: string) =>
+            name === 'server-only' ? {} : name in dependencies ? dependencies[name] : createRequire(absolute)(name),
+          { exports }, exports);
+          return exports as T;
+        };
+        const operations = await compile<typeof NotebookOperations>('app/lib/mobile/notebook-operations.ts', {
+          '@/app/lib/db': { openDb: async () => ({
+            get: async (sql: string, values?: unknown[]) => database.prepare(sql).get(bindings(values)),
+            run: async (sql: string, values?: unknown[]) => {
+              const result = database.prepare(sql).run(bindings(values));
+              if (sql.startsWith('INSERT INTO mobile_notebook_operations')) {
+                assert.equal(nativeContent(instance.documents.get(mobileInput.documentId)!), initialContent);
+                await turn(); // persisted prepared row yields before live apply
+                assert.equal(instance.documents.has(mobileInput.documentId), true);
+                assert.equal(fences.has(mobileInput.documentId), true);
+              }
+              return result;
+            },
+            close: async () => {},
+          }) },
+        });
+        const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+        let mobileDirectCalls = 0;
+        const notebook = await compile<typeof Notebook>('app/lib/mobile/notebook.ts', {
+          './notebook-operations': operations,
+          '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: async (_id: string, operation: () => Promise<unknown>) => operation() },
+          '@/app/lib/filesystem/workspace-files': {
+            getFileStats: async () => ({ size: Buffer.byteLength(initialContent), modified: Date.now() / 1_000 }),
+            readFile: async () => Buffer.from(initialContent),
+          },
+          '@/app/lib/files/collaboration-policy': {
+            getFileCollaborationState: async () => ({ document: { id: mobileInput.documentId },
+              latestRevision: { id: 'revision' }, strategy: 'crdt_text', requiresRevisionCheck: true }),
+            ensureFileRevisionForCurrentContent: async () => ({ id: 'revision' }),
+          },
+          '@/app/lib/files/revision-guard': { sha256Buffer: hash },
+          '@/app/lib/files/write-service': { writeWorkspaceFileContent: () => assert.fail('native service must not fall back to a physical writer') },
+          '@/app/lib/collaboration/document-state-service': {
+            selectInitialTextCollaborationRepresentation: () => mobileInput.documentRepresentation,
+            resolveTextCollaborationState: async () => ({ state: states.get(mobileInput.documentId)! }),
+          },
+          '@/app/lib/collaboration/persistence': { sha256Text: hash, loadCollaborationState: async (id: string) => states.get(id) },
+          '@/app/lib/collaboration/agent-file-edits': {
+            readCurrentCollaborationTextSnapshot: async () => documentReader(mobileInput.documentId, workspace.workspaceId,
+              doc => { const content = nativeContent(doc); return { content, sha256: hash(content) }; }),
+          },
+          '@/app/lib/collaboration/direct-activity-session': DirectActivity,
+          '@/app/lib/collaboration/direct-connection': {
+            runCollaborationDirectConnection: async (input: Direct.AgentDirectConnectionInput, apply: (doc: Y.Doc) => unknown) => {
+              if (++mobileDirectCalls === 2) assert.ok(database.prepare('SELECT yjs_update FROM mobile_notebook_operations').get()?.yjs_update);
+              return direct(input, apply);
+            },
+          },
+        });
+        const result = await notebook.saveMobileNotebookDocument({
+          workspace: { ...workspace, permissions: { canRead: true, canWrite: true } } as WorkspaceContext,
+          fileOptions: {}, actorUserId: 'user', actorSessionId: 'mobile-session', path: mobileInput.documentPath,
+          content: savedContent, expectedSha256: hash(initialContent), baseRevisionId: 'revision',
+          idempotencyKey: 'session-real-mobile',
+        });
+        assert.equal(mobileDirectCalls, 2);
+        assert.equal(result.content, savedContent);
+        assert.equal(result.saveReceipt?.durable, true);
+        assert.equal(result.saveReceipt?.documentSequence, states.get(mobileInput.documentId)!.documentSequence);
+        assert.equal(database.prepare('SELECT yjs_update FROM mobile_notebook_operations').get()?.yjs_update, null,
+          'only the durable prepared update is compacted after real server persistence');
+        console.log(`PASS actual Mobile ${rich ? 'sequence-zero empty Rich' : 'Plain'} service persists SQL before real Direct apply and durable readback`);
+      } finally { database.close(); }
+    }
+
+    const binding = source('session-binding');
+    await assert.rejects(activitySession({ ...binding, actorId: 'forged-display-actor' },
+      async () => assert.fail('user session must be bound to its own authenticated actor')), AgentDirectConnectionAuthorizationError);
+    await activitySession(binding, async () => {
+      const changes: Array<Partial<DirectActivity.CollaborationDirectActivitySessionInput>> = [
+        { documentId: 'foreign' }, { documentPath: 'other.txt' }, { documentRepresentation: 'tiptap_blocks' },
+        { documentLifecycleGeneration: 2 }, { documentSchemaVersion: 2 }, { actorId: 'other' },
+        { actorSessionId: 'other' }, { initiatedByUserId: 'other' }, { operationId: 'other' },
+        { workspace: { ...workspace, workspaceId: 'foreign' } },
+        { workspace: { ...workspace, organizationId: 'foreign' } },
+      ];
+      for (const change of changes) {
+        const acquisitions = events.filter(event => event.startsWith('acquire:')).length;
+        await assert.rejects(direct({ ...binding, ...change }, () => assert.fail('changed session input must not apply')),
+          AgentDirectConnectionAuthorizationError);
+        assert.equal(events.filter(event => event.startsWith('acquire:')).length, acquisitions);
+      }
+      await assert.rejects(documentReader('foreign', workspace.workspaceId, () => assert.fail('foreign reader visitor must not run')),
+        AgentDirectConnectionAuthorizationError);
+      await assert.rejects(documentReader(binding.documentId, 'foreign', () => assert.fail('foreign workspace visitor must not run')),
+        AgentDirectConnectionAuthorizationError);
+      const originalState = states.get(binding.documentId)!;
+      for (const change of [{ path: 'foreign.txt' }, { organizationId: 'foreign' },
+        { representation: 'tiptap_blocks' as const }, { lifecycleGeneration: 2 }, { schemaVersion: 2 }]) {
+        states.set(binding.documentId, { ...originalState, ...change });
+        await assert.rejects(documentReader(binding.documentId, workspace.workspaceId,
+          () => assert.fail('changed native read identity visitor must not run')), AgentDirectConnectionAuthorizationError);
+        states.set(binding.documentId, originalState);
+      }
+      const input = { ...binding };
+      const auth = { entered: gate(), release: gate() };
+      userAccessBarrier = auth;
+      const pending = direct(input, () => assert.fail('input changed during auth await must not apply'));
+      await bounded(auth.entered.promise, 'Direct actor validation paused');
+      input.operationId = 'changed-after-entry';
+      auth.release.resolve();
+      await assert.rejects(pending, AgentDirectConnectionAuthorizationError);
+      assert.equal(await documentReader(binding.documentId, workspace.workspaceId, doc => doc.getText('content').toString()), 'original');
+    });
+    console.log('PASS actor/operation/read/native identity changes, including during async admission, cannot reuse a session');
+
+    const saturated = source('session-capacity');
+    const activities = Array.from({ length: 128 }, () => ownerRuntime.admitActivity(saturated.documentId));
+    try {
+      await assert.rejects(activitySession(saturated, async () => assert.fail('capacity must not bypass gate')), busy);
+    } finally { for (const activity of activities) activity.release(); }
+    console.log('PASS logical session retains normal activity capacity rejection');
+
+    const detached = source('session-detached');
+    const continuation = gate();
+    let late!: Promise<void>;
+    await activitySession(detached, async () => {
+      late = continuation.promise.then(async () => {
+        await assert.rejects(direct(detached, () => assert.fail('detached Direct must not apply')), busy);
+        await assert.rejects(documentReader(detached.documentId, workspace.workspaceId, () => undefined), busy);
+      });
+    });
+    continuation.resolve();
+    await bounded(late, 'revoked detached continuation');
+    console.log('PASS detached ALS continuations retain revoked session rather than re-admit');
+
+    const thrown = source('session-sync-throw');
+    await assert.rejects(activitySession(thrown, () => { throw new Error('deliberate synchronous callback failure'); }),
+      /deliberate synchronous callback failure/u);
+    const thrownDrain = ownerRuntime.beginActivityDrain(thrown.documentId);
+    await bounded(thrownDrain.idle, 'synchronously failed callback releases activity exactly once');
+    thrownDrain.finish();
+    console.log('PASS synchronous callback failure releases its logical activity without a retained slot');
+
+    const drained = source('session-drain');
+    let drain!: ReturnType<OwnerRuntime['beginActivityDrain']>;
+    await assert.rejects(activitySession(drained, async session => {
+      await direct(drained, () => undefined);
+      drain = ownerRuntime.beginActivityDrain(drained.documentId);
+      let idle = false;
+      void drain.idle.then(() => { idle = true; });
+      await turn();
+      assert.equal(idle, false, 'explicit drain waits for complete logical session');
+      await assert.rejects(direct(drained, () => assert.fail('explicit drain must not apply')), busy);
+      await session.assertOpen();
+    }), busy);
+    await bounded(drain.idle, 'failed session finally releases explicit drain');
+    drain.finish();
+    await instance.unloadDocument(instance.documents.get(drained.documentId)!);
+    console.log('PASS explicit drain revokes session, blocks new apply and quiesces after finally');
+
+    const reserved = source('session-reservation');
+    await assert.rejects(activitySession(reserved, async session => {
+      await direct(reserved, () => undefined);
+      admissionBlocked = true;
+      await assert.rejects(direct(reserved, () => assert.fail('foreign reservation must not apply')));
+      await session.assertOpen();
+    }));
+    admissionBlocked = false;
+    const revoked = source('session-access-revoked');
+    await assert.rejects(activitySession(revoked, async session => {
+      await direct(revoked, () => undefined);
+      userAccessAllowed = false;
+      await assert.rejects(direct(revoked, () => assert.fail('revoked actor must not apply')), AgentDirectConnectionAuthorizationError);
+      await assert.rejects(documentReader(revoked.documentId, workspace.workspaceId,
+        () => assert.fail('revoked readback visitor must not run')), AgentDirectConnectionAuthorizationError);
+      await session.assertOpen();
+    }), AgentDirectConnectionAuthorizationError);
+    userAccessAllowed = true;
+    const changed = source('session-generation');
+    await assert.rejects(activitySession(changed, async session => {
+      await direct(changed, () => undefined);
+      states.set(changed.documentId, { ...states.get(changed.documentId)!, lifecycleGeneration: 2 });
+      await session.assertOpen();
+    }), AgentDirectConnectionAuthorizationError);
+    console.log('PASS reservation, fresh session revocation and changed lifecycle deny post-prepare continuation');
+
+    const replaced = source('session-replaced');
+    const oldHandler = activitySession;
+    const replacement: DirectActivity.CollaborationDirectActivitySessionHandler = async () => 'replacement' as never;
+    let uninstallReplacement!: () => void;
+    await assert.rejects(oldHandler(replaced, async session => {
+      uninstallReplacement = DirectActivity.installCollaborationDirectActivitySession(replacement);
+      await session.assertOpen();
+    }));
+    assert.equal(DirectActivity.isCollaborationDirectActivitySessionInstalled(replacement), true);
+    uninstallReplacement();
+    DirectActivity.installCollaborationDirectActivitySession(oldHandler);
+    console.log('PASS handler replacement revokes old sessions without granting a new native authority');
+
+    const lost = source('session-owner-lost');
+    await assert.rejects(activitySession(lost, async session => {
+      await direct(lost, () => undefined);
+      sessionActive = false;
+      await assert.rejects(direct(lost, () => assert.fail('lost owner must not apply')));
+      await session.assertOpen();
+    }), (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST');
+    console.log('PASS owner loss rejects complete session before another apply or success');
+    return;
+  }
 
   if (mode === 'reader-normal-unload') {
     const leaseFor = (): WorkspaceFileLifecycleLease => ({ active: true, verify: async () => true });
@@ -889,6 +1287,9 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     assert.equal(document.getText('content').toString(), before);
     assert.equal(ownerRuntime.fence(document), fence);
     assert.equal(sessionActive, true, 'Admission busy does not quarantine unrelated owner authority.');
+    assert.ok(admissionLockQueries.length > 0, 'Direct open and post-open revalidation reach admission.');
+    assert.ok(admissionLockQueries.every(sql => sql === 'SELECT pg_try_advisory_xact_lock($1::bigint) AS locked'),
+      'Every Direct open and post-open revalidation retains strict exclusive writer admission.');
     console.log('PASS pending admission fences retained Direct open and final transact without changing bytes or owner');
     return;
   }
@@ -1692,7 +2093,14 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 }
 
 async function run() {
+  if (process.argv[2] === '--native-read-busy-postgres') {
+    await main('native-read-busy-postgres');
+    return;
+  }
   const modes = [
+    'direct-activity-session',
+    'direct-activity-session-close',
+    'direct-activity-session-unavailable',
     'admission-writer-gate',
     'batch-idle-release',
     'reader-normal-unload',

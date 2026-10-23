@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import type { WorkspaceContext, WorkspacePathResolution } from './types';
+import { isCanonicalMarkdownWorkspacePath } from './path-identity';
 
 interface NormalizedWorkspacePath {
   relativePath: string;
@@ -26,7 +27,7 @@ function createWorkspacePathError(
 }
 
 function normalizeRelativeWorkspacePath(userPath: string): NormalizedWorkspacePath {
-  const trimmed = userPath.trim();
+  const trimmed = isCanonicalMarkdownWorkspacePath(userPath as unknown) ? userPath : userPath.trim();
   if (!trimmed) {
     return { relativePath: '.', segments: [] };
   }

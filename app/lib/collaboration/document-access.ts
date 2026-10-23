@@ -2,13 +2,13 @@ import 'server-only';
 
 import type * as YTypes from 'yjs';
 
-import { loadCollaborationState } from './persistence';
+import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
 import { Y } from './server-runtime';
 
 type CollaborationDocumentReader = <T>(
   documentId: string,
   workspaceId: string,
-  read: (doc: YTypes.Doc) => T,
+  read: (doc: YTypes.Doc, persistedState?: PersistedCollaborationState) => T,
   loadState?: typeof loadCollaborationState,
 ) => Promise<T>;
 
@@ -38,7 +38,8 @@ export function installCollaborationDocumentReader(handler: CollaborationDocumen
 export async function readCurrentCollaborationDocument<T>(input: {
   documentId: string;
   workspaceId: string;
-  read: (doc: YTypes.Doc) => T;
+  /** State belongs to this same ownership-checked read, not a previous metadata lookup. */
+  read: (doc: YTypes.Doc, persistedState?: PersistedCollaborationState) => T;
   /** Internal transaction owner supplies its own state read; default callers retain ordinary reads. */
   loadState?: typeof loadCollaborationState;
 }): Promise<T> {
@@ -52,7 +53,7 @@ export async function readCurrentCollaborationDocument<T>(input: {
   const doc = new Y.Doc({ gc: true });
   try {
     Y.applyUpdate(doc, state.yjsState);
-    return input.read(doc);
+    return input.read(doc, state);
   } finally {
     doc.destroy();
   }

@@ -1,15 +1,21 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { promisify } from 'node:util';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
+import { installOwnedGuestStaleUpdate } from './helpers/owned-guest-stale-update';
+import { fileGuestCookieName } from '../app/lib/file-guests/types';
+import type { FileGuestDocumentResponse } from '../app/lib/file-guests/content-contract';
+import { removeOwnedFileGuestFixtureProjection, seedOwnedFileGuestFixture } from '../scripts/lib/owned-file-guest-fixture';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type Response as BrowserResponse } from '@playwright/test';
 import * as Y from 'yjs';
+import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 
 type Invitation = { id: string; policyRevision: number; email: string; url: string };
-type EditorElement = HTMLElement & { editor: { isEditable: boolean; isDestroyed: boolean; state: { doc: { content: { size: number } } };
+type EditorElement = HTMLElement & { editor: { isEditable: boolean; isDestroyed: boolean; state: { doc: { content: { size: number }; textContent: string } };
   commands: { insertContentAt: (position: number, text: string) => boolean } } };
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3100';
 const execFileAsync = promisify(execFile);
@@ -43,20 +49,23 @@ async function text(editor: Locator) {
   });
 }
 
-async function verifyGuest(page: Page, invitation: Invitation, workspaceId: string, filePath: string, displayName: string) {
+async function verifyGuest(page: Page, invitation: Invitation, workspaceId: string, filePath: string, displayName: string, ownedNativeFixture = false) {
   let deliveredCode: string | undefined;
   // Replace only outbound mail transport. The actual service persists a random challenge/hash,
   // and the real browser verify route consumes it and issues the ordinary HttpOnly guest cookie.
   await page.route(`**/api/guest/files/${invitation.id}/challenge`, async (route) => {
     try {
       const encoded = Buffer.from(JSON.stringify({ invitationId: invitation.id, workspaceId, path: filePath, email: invitation.email })).toString('base64url');
-      const { stdout } = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
-        ['--conditions', 'react-server', 'scripts/collaboration-guest-challenge-driver.ts', encoded],
+      // Direct Node loading avoids tsx CLI's Unix socket under the long private
+      // macOS TMPDIR while retaining the original driver and all its checks.
+      const { stdout } = await execFileAsync(process.execPath,
+        ['--conditions=react-server', '--import', 'tsx', '--import', './scripts/helpers/owned-application-esm-driver.mjs', ownedNativeFixture
+          ? 'scripts/owned-file-guest-challenge-driver.ts' : 'scripts/collaboration-guest-challenge-driver.ts', encoded],
         { env: process.env, maxBuffer: 64 * 1024 });
       const result = stdout.split('\n').find(line => line.startsWith('CANVAS_GUEST_CHALLENGE_RESULT='));
       if (!result) throw new Error('Challenge driver returned no result.');
       deliveredCode = (JSON.parse(result.slice('CANVAS_GUEST_CHALLENGE_RESULT='.length)) as { code: string }).code;
-      expect(deliveredCode).toMatch(/^\d{6}$/u);
+      expect(typeof deliveredCode === 'string' && /^\d{6}$/u.test(deliveredCode), 'The delivered fixture code must be six digits.').toBe(true);
       await route.fulfill({ status: 200, json: { success: true, message: 'Der Code wurde an die eingeladene E-Mail-Adresse gesendet.' } });
     } catch (error) {
       const diagnostics = (error as { stderr?: string }).stderr || (error instanceof Error ? error.name : 'Unknown error');
@@ -72,21 +81,133 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
   await page.getByRole('button', { name: 'Code per E-Mail anfordern' }).click();
   await expect(page.getByLabel('Sechsstelliger Code')).toBeVisible({ timeout: 30_000 });
   expect(Boolean(deliveredCode), 'The real service must deliver the fixture challenge.').toBe(true);
+  const cookieName = fileGuestCookieName(invitation.id);
+  const submit = page.getByRole('button', { name: 'Datei öffnen' });
+  const isVerification = (response: BrowserResponse) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'POST' && url.origin === targetOrigin.origin
+      && url.pathname === `/api/guest/files/${invitation.id}/verify`;
+  };
+  let busyResubmitted = false;
+  const submitVerification = async (expectedCode: string): Promise<BrowserResponse> => {
+    const pending = page.waitForResponse(isVerification);
+    await submit.click();
+    const response = await pending;
+    if (response.status() !== 409) return response;
+    const body: unknown = await response.json().catch(() => null);
+    const actualBusy = Boolean(body && typeof body === 'object'
+      && Reflect.get(body, 'success') === false && Reflect.get(body, 'code') === 'PRINCIPAL_BUSY');
+    expect(actualBusy, 'Only an actual named PRINCIPAL_BUSY response permits the explicit UI resubmit.').toBe(true);
+    expect(busyResubmitted, 'Wrong-code and valid-code submission share one resubmit allowance for this login.').toBe(false);
+    await expect(page.locator('section [role="alert"]')).toHaveText('Datei oder Berechtigung wird gerade geändert. Bitte den aktuellen Stand neu laden.');
+    const setGuestCookie = (await response.headerValues('set-cookie')).some(value => value.split('=', 1)[0].trim() === cookieName);
+    expect(setGuestCookie, 'Busy must not issue an invitation cookie.').toBe(false);
+    const hasGuestCookie = (await page.context().cookies()).some(cookie => cookie.name === cookieName);
+    expect(hasGuestCookie, 'Busy must leave the browser without an invitation cookie.').toBe(false);
+    let submittedBody: unknown;
+    try { submittedBody = response.request().postDataJSON(); } catch { submittedBody = null; }
+    expect(Boolean(submittedBody && typeof submittedBody === 'object'
+      && Reflect.get(submittedBody, 'code') === expectedCode && Reflect.get(submittedBody, 'displayName') === displayName),
+    'The actual busy request must carry the expected code and display name.').toBe(true);
+    expect((await page.getByLabel('Sechsstelliger Code').inputValue()) === expectedCode, 'Busy must preserve the submitted code.').toBe(true);
+    expect((await page.getByLabel('Dein Anzeigename').inputValue()) === displayName, 'Busy must preserve the display name.').toBe(true);
+    await expect(submit).toBeEnabled();
+    busyResubmitted = true;
+    const resubmitted = page.waitForResponse(isVerification);
+    await submit.click(); // One real user action, with the unchanged inputs.
+    const result = await resubmitted;
+    let resubmittedBody: unknown;
+    try { resubmittedBody = result.request().postDataJSON(); } catch { resubmittedBody = null; }
+    expect(Boolean(resubmittedBody && typeof resubmittedBody === 'object'
+      && Reflect.get(resubmittedBody, 'code') === expectedCode && Reflect.get(resubmittedBody, 'displayName') === displayName),
+    'The one actual resubmitted request must preserve the code and display name.').toBe(true);
+    return result;
+  };
   await page.getByLabel('Dein Anzeigename').fill(displayName);
+  const wrongCode = deliveredCode === '000000' ? '111111' : '000000';
+  await page.getByLabel('Sechsstelliger Code').fill(wrongCode);
+  const rejected = await submitVerification(wrongCode);
+  expect(rejected.status()).toBe(401);
+  await expect(page.locator('section [role="alert"]')).toHaveText('Der Code ist ungültig oder abgelaufen. Bitte einen neuen anfordern.');
+  expect((await rejected.headerValues('set-cookie')).some(value => value.split('=', 1)[0].trim() === cookieName)).toBe(false);
+  expect((await page.context().cookies()).some(cookie => cookie.name === fileGuestCookieName(invitation.id))).toBe(false);
   await page.getByLabel('Sechsstelliger Code').fill(deliveredCode!);
-  const verified = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
-  await page.getByRole('button', { name: 'Datei öffnen' }).click();
-  expect((await verified).ok()).toBe(true);
+  const verified = await submitVerification(deliveredCode!);
+  expect(verified.ok()).toBe(true);
   const editor = page.locator('.tiptap-editor-shell .ProseMirror');
   await expect(editor).toBeVisible({ timeout: 30_000 });
   return editor;
+}
+
+async function ownedGuestWorkspace(owner: Page) {
+  await requireOwnedYjsQaTarget();
+  await authenticateManagedTestPage(owner);
+  const reviewOff = await owner.request.patch('/api/admin/experimental-settings', {
+    headers: { Origin: BASE_URL }, data: { documentReviewEnabled: false },
+  });
+  expect(reviewOff.ok()).toBe(true);
+  expect(await reviewOff.json()).toMatchObject({ success: true, data: { documentReviewEnabled: false } });
+  const settings = await owner.request.get('/api/server-settings');
+  expect(settings.ok()).toBe(true); expect((await settings.json()).data.documentReviewEnabled).toBe(false);
+  const response = await owner.request.get('/api/workspaces'); expect(response.ok()).toBe(true);
+  const workspaces = (await response.json()).workspaces as Array<{ id: string; name: string; permissions: { canWrite: boolean; canCreatePublicLinks: boolean } }>;
+  const workspace = workspaces.find(candidate => candidate.name === 'Shared Test Workspace');
+  expect(workspace?.permissions).toMatchObject({ canWrite: true, canCreatePublicLinks: true });
+  await owner.context().addInitScript(id => {
+    localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false');
+  }, workspace!.id);
+  return workspace!;
+}
+
+async function openActualPeopleDialog(owner: Page, workspaceId: string, filePath: string) {
+  await owner.goto('/notebook', { waitUntil: 'domcontentloaded' });
+  const row = owner.locator(`[data-file-path=${JSON.stringify(filePath)}][data-file-type="file"]`);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click({ button: 'right' });
+  const info = owner.waitForResponse(response => response.request().method() === 'GET'
+    && new URL(response.url()).pathname === '/api/files/info' && new URL(response.url()).searchParams.get('path') === filePath);
+  await owner.getByRole('menuitem', { name: /^(Share|Teilen)$/u }).click();
+  const response = await info; expect(response.ok()).toBe(true);
+  const target = (await response.json()).data.metadataTarget;
+  expect(target).toMatchObject({ version: 1, workspaceId, path: filePath });
+  const dialog = owner.getByRole('dialog').filter({ has: owner.getByRole('tab', { name: /^(People|Personen)$/u }) });
+  await expect(dialog).toBeVisible(); await dialog.getByRole('tab', { name: /^(People|Personen)$/u }).click();
+  return { dialog, target };
+}
+
+async function createActualPeopleInvitation(owner: Page, workspaceId: string, filePath: string, permission: 'read' | 'write', kind: 'filesystem' | 'native_file') {
+  const { dialog, target } = await openActualPeopleDialog(owner, workspaceId, filePath);
+  expect(target.kind).toBe(kind);
+  const email = `guest-${randomUUID()}@example.invalid`;
+  const form = dialog.locator('form:has(input[type="email"])');
+  await form.locator('input[type="email"]').fill(email); await form.locator('select').selectOption(permission);
+  const created = owner.waitForResponse(response => response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/security/file-guests');
+  await form.locator('button[type="submit"]').click();
+  const response = await created;
+  expect(response.request().postDataJSON()).toMatchObject({ path: filePath, email, permission });
+  expect(response.request().postDataJSON().expectedTarget).toEqual(target);
+  expect(response.ok(), 'The actual People panel must create the bound invitation through the ordinary API.').toBe(true);
+  const invitation = (await response.json()).invitation as Invitation;
+  expect(invitation.email).toBe(email);
+  await owner.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
+  return invitation;
+}
+
+async function actualGuestContent(page: Page, invitation: Invitation): Promise<FileGuestDocumentResponse> {
+  const response = await page.request.get(`/api/guest/files/${invitation.id}`); expect(response.ok()).toBe(true);
+  const result = await response.json() as FileGuestDocumentResponse;
+  expect(result.bootstrap.kind).toBe('native_document');
+  expect(Object.hasOwn(result, 'markdown')).toBe(false);
+  return result;
 }
 
 test.describe('real file guest collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed Team fixture and isolated email transport.');
   test.setTimeout(180_000);
   test('inserts guest Markdown without Source mode, enforces read-only and revokes an already open writer', async ({ browser }, testInfo) => {
-    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+    else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     else {
       const allowedOrigin = process.env.CANVAS_LOCAL_TEAM_SEAT_HOST_DEV === 'true'
         ? 'http://127.0.0.1:3000' : 'http://127.0.0.1:3100';
@@ -95,6 +216,7 @@ test.describe('real file guest collaboration', () => {
     const ownerContext = await fixtureContext(browser);
     const writerContext = await fixtureContext(browser);
     const readerContext = await fixtureContext(browser);
+    const staleUpdate = await installOwnedGuestStaleUpdate(writerContext);
     const owner = await ownerContext.newPage();
     const writer = await writerContext.newPage();
     const reader = await readerContext.newPage();
@@ -103,6 +225,14 @@ test.describe('real file guest collaboration', () => {
     let workspaceId = '';
     try {
       await authenticateManagedTestPage(owner);
+      const reviewOff = await owner.request.patch('/api/admin/experimental-settings', {
+        headers: { Origin: BASE_URL }, data: { documentReviewEnabled: false },
+      });
+      expect(reviewOff.ok()).toBe(true);
+      expect(await reviewOff.json()).toMatchObject({ success: true, data: { documentReviewEnabled: false } });
+      const settings = await owner.request.get('/api/server-settings');
+      expect(settings.ok()).toBe(true);
+      expect((await settings.json()).data.documentReviewEnabled).toBe(false);
       const workspaces = (await (await owner.request.get('/api/workspaces')).json()).workspaces as Array<{
         id: string; name: string; permissions: { canWrite: boolean; canCreatePublicLinks: boolean } }>;
       const workspace = workspaces.find((candidate) => candidate.name === 'Shared Test Workspace');
@@ -113,8 +243,12 @@ test.describe('real file guest collaboration', () => {
         files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from('Guest paragraph\n\nOwner paragraph\n') } } });
       expect(uploaded.ok()).toBe(true);
       for (const permission of ['write', 'read']) {
+        const info = await owner.request.get('/api/files/info', { headers, params: { path: filePath } });
+        expect(info.ok()).toBe(true);
+        const expectedTarget = (await info.json()).data.metadataTarget;
+        expect(expectedTarget).toMatchObject({ version: 1, workspaceId, path: filePath });
         const invitation = await owner.request.post('/api/security/file-guests', { headers,
-          data: { path: filePath, email: `guest-${randomUUID()}@example.invalid`, permission } });
+          data: { path: filePath, expectedTarget, email: `guest-${randomUUID()}@example.invalid`, permission } });
         expect(invitation.ok(), 'Normal invitation creation, including the real Team entitlement, must succeed.').toBe(true);
         invitations.push((await invitation.json()).invitation);
       }
@@ -124,8 +258,7 @@ test.describe('real file guest collaboration', () => {
       }, workspaceId);
       await owner.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       const ownerEditor = owner.locator('.tiptap-editor-shell .ProseMirror');
-      await owner.getByRole('group', { name: /Document view|Dokumentansicht/u })
-        .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+      await expect(owner.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten)$/u })).toHaveCount(0);
       await expect(ownerEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       const guestEditor = await verifyGuest(writer, invitations[0], workspaceId, filePath, 'Fixture Guest Writer');
       await expect(guestEditor).toHaveAttribute('contenteditable', 'true');
@@ -180,25 +313,57 @@ test.describe('real file guest collaboration', () => {
       expect(readerSession.ok()).toBe(true);
       expect((await readerSession.json()).permission).toBe('read');
       const beforeRevoke = await text(ownerEditor);
-      const revoked = await owner.request.delete(`/api/security/file-guests/${invitations[0].id}`, { headers,
-        data: { policyRevision: invitations[0].policyRevision } });
-      expect(revoked.ok()).toBe(true);
-      // Exercise a real stale editor transaction after revocation; server checks must reject its update.
+      const content = await actualGuestContent(writer, invitations[0]);
+      expect(content.session.representation).toBe('tiptap_blocks');
+      const beforeLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      const beforeClock = Y.decodeStateVector(Buffer.from(beforeLocal.stateVector, 'base64')).get(beforeLocal.localClient) ?? 0;
+      staleUpdate.arm(content.session.documentName);
+      // Create the genuine local edit while authorized, holding its original
+      // outgoing update until the actual owner revoke has committed.
       const attempted = await guestEditor.evaluate((element) => {
         const editor = (element as EditorElement).editor;
         const wasEditable = editor.isEditable;
         const wasDestroyed = editor.isDestroyed;
         const applied = !wasDestroyed && editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'REVOKED_GUEST_UPDATE');
-        return { applied, wasEditable, wasDestroyed, localMutation: element.textContent?.includes('REVOKED_GUEST_UPDATE') };
+        return { applied, wasEditable, wasDestroyed, localMutation: element.textContent?.includes('REVOKED_GUEST_UPDATE'),
+          editorStateMutation: editor.state.doc.textContent.includes('REVOKED_GUEST_UPDATE') };
       });
-      expect(attempted, 'This scenario must actually attempt a stale local mutation; an already destroyed editor needs a separate fixture.').toMatchObject({
-        applied: true, wasDestroyed: false, localMutation: true,
+      expect(attempted, 'The held update must originate in a real editable ProseMirror transaction.').toMatchObject({
+        applied: true, wasEditable: true, wasDestroyed: false, localMutation: true, editorStateMutation: true,
+      });
+      const afterLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      expect(afterLocal.guid).toBe(beforeLocal.guid); expect(afterLocal.localClient).toBe(beforeLocal.localClient);
+      expect(afterLocal.stateProof).not.toBe(beforeLocal.stateProof);
+      expect(JSON.stringify(afterLocal.document)).toContain('REVOKED_GUEST_UPDATE');
+      const afterClock = Y.decodeStateVector(Buffer.from(afterLocal.stateVector, 'base64')).get(afterLocal.localClient) ?? 0;
+      expect(afterClock).toBeGreaterThan(beforeClock);
+      const mutation = { localClient: afterLocal.localClient, beforeClock, afterClock, marker: 'REVOKED_GUEST_UPDATE' };
+      await expect.poll(() => staleUpdate.mutation(mutation), 'The held frame must be the original marker-bearing native Yjs update.').not.toBeNull();
+      const held = staleUpdate.mutation(mutation)!;
+      expect(await text(ownerEditor)).toBe(beforeRevoke);
+      expect(await text(readerEditor)).toBe(beforeRevoke);
+      staleUpdate.beginRevoke();
+      const revoked = await owner.request.delete(`/api/security/file-guests/${invitations[0].id}`, { headers,
+        data: { policyRevision: invitations[0].policyRevision } });
+      expect(revoked.status()).toBe(200);
+      const release = staleUpdate.releaseAfterRevoke(revoked.status());
+      expect(release).toMatchObject({ markerFrameAttempts: 1, markerFrameSha256: held.markerFrameSha256, sendIsDeliveryReceipt: false });
+      expect(release.originalFrameAttempts).toBe(held.frames);
+      // A Hocuspocus logical CLOSE carries a reason, not a physical 4403 code.
+      // Denial may arrive during the revoke HTTP request, before its response.
+      await expect.poll(() => {
+        const evidence = staleUpdate.evidence();
+        return evidence.accessRevoked.length > 0 && evidence.logicalClose.length > 0;
+      }, 'The original bound server connection must actually deny the revoked document.').toBe(true);
+      await testInfo.attach('original guest update release and actual server denial', {
+        body: Buffer.from(JSON.stringify({ held, release, evidence: staleUpdate.evidence() })), contentType: 'application/json',
       });
       await expect(guestEditor).toHaveAttribute('contenteditable', 'false', { timeout: 25_000 });
       await expect(writer.getByTestId('markdown-save-state')).toBeVisible();
       const deniedSession = await writer.request.post(`/api/guest/files/${invitations[0].id}/session`, { headers: { Origin: BASE_URL }, data: {} });
       expect([403, 410]).toContain(deniedSession.status());
       expect(await text(ownerEditor)).toBe(beforeRevoke);
+      expect(await text(readerEditor)).toBe(beforeRevoke);
       await expect.poll(async () => {
         const response = await owner.request.get('/api/files/read', { headers, params: { path: filePath } });
         return (await response.json()).data.content as string;
@@ -212,10 +377,15 @@ test.describe('real file guest collaboration', () => {
       expect(backup.suggestedFilename()).toBe('canvas-recovery.yjs');
       const bytes = await readFile((await backup.path())!);
       const recovery = new Y.Doc();
-      try { Y.applyUpdate(recovery, bytes); expect(recovery.store.clients.size).toBeGreaterThan(0); }
+      try {
+        Y.applyUpdate(recovery, bytes); expect(recovery.store.clients.size).toBeGreaterThan(0);
+        expect(JSON.stringify(readRichDocumentJson(recovery))).toContain('REVOKED_GUEST_UPDATE');
+        expect(Y.decodeStateVector(Y.encodeStateVector(recovery)).get(afterLocal.localClient) ?? 0).toBeGreaterThanOrEqual(afterClock);
+      }
       finally { recovery.destroy(); }
       await testInfo.attach('guest editor after revocation', { body: await writer.screenshot(), contentType: 'image/png' });
     } finally {
+      staleUpdate.discard();
       if (workspaceId) {
         const headers = { 'x-canvas-workspace-id': workspaceId, Origin: BASE_URL };
         for (const invitation of invitations) await owner.request.delete(`/api/security/file-guests/${invitation.id}`, {
@@ -223,6 +393,133 @@ test.describe('real file guest collaboration', () => {
         }).catch(() => undefined);
         await owner.request.delete('/api/files/delete', { headers, data: { path: filePath } }).catch(() => undefined);
       }
+      await Promise.all([ownerContext.close(), writerContext.close(), readerContext.close()]);
+    }
+  });
+
+  test('actual People create bootstraps a physical Markdown target before any editor opens and preserves normal owner editing', async ({ browser }) => {
+    const ownerContext = await fixtureContext(browser), writerContext = await fixtureContext(browser);
+    const owner = await ownerContext.newPage(), writer = await writerContext.newPage();
+    const invitations: Invitation[] = []; let workspaceId = '';
+    try {
+      const workspace = await ownedGuestWorkspace(owner); workspaceId = workspace.id;
+      const fixture = await seedOwnedFileGuestFixture(workspaceId, 'physical_markdown');
+      const invitation = await createActualPeopleInvitation(owner, workspaceId, fixture.filePath, 'write', 'filesystem'); invitations.push(invitation);
+      const info = await owner.request.get('/api/files/info', { headers: { 'x-canvas-workspace-id': workspaceId }, params: { path: fixture.filePath } });
+      expect(info.ok()).toBe(true); expect((await info.json()).data.metadataTarget).toMatchObject({ kind: 'native_file', path: fixture.filePath });
+      const guestEditor = await verifyGuest(writer, invitation, workspaceId, fixture.filePath, 'Owned Physical Writer', true);
+      await expect(guestEditor).toHaveAttribute('contenteditable', 'true');
+      const content = await actualGuestContent(writer, invitation); expect(content.session.representation).toBe('tiptap_blocks');
+      await paragraphSelection(guestEditor.locator('p').filter({ hasText: 'Physical guest paragraph' }), true);
+      await writer.keyboard.insertText(' from physical guest');
+      await owner.goto(`/notebook?path=${encodeURIComponent(fixture.filePath)}`, { waitUntil: 'domcontentloaded' });
+      const ownerEditor = owner.locator('.tiptap-editor-shell .ProseMirror');
+      await expect(ownerEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expect(owner.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten)$/u })).toHaveCount(0);
+      await expect.poll(() => text(ownerEditor)).toContain('Physical guest paragraph from physical guest');
+      await paragraphSelection(ownerEditor.locator('p').filter({ hasText: 'Normal owner paragraph' }), true);
+      await owner.keyboard.insertText(' from normal owner');
+      await expect.poll(() => text(guestEditor)).toContain('Normal owner paragraph from normal owner');
+      const download = writer.waitForEvent('download');
+      await writer.getByRole('button', { name: /Download a copy|Kopie herunterladen/u }).click();
+      const copy = await download; expect(copy.suggestedFilename()).toBe(fixture.filePath);
+      const markdown = await readFile((await copy.path())!, 'utf8');
+      expect(markdown).toContain('from physical guest'); expect(markdown).toContain('from normal owner');
+    } finally {
+      for (const invitation of invitations) await owner.request.delete(`/api/security/file-guests/${invitation.id}`, {
+        headers: { 'x-canvas-workspace-id': workspaceId, Origin: BASE_URL }, data: { policyRevision: invitation.policyRevision },
+      }).catch(() => undefined);
+      await Promise.all([ownerContext.close(), writerContext.close()]);
+    }
+  });
+
+  test('actual People create on a projected outer-space native table preserves subsequent native-only read write assets and live revocation', async ({ browser }, testInfo) => {
+    const ownerContext = await fixtureContext(browser), writerContext = await fixtureContext(browser), readerContext = await fixtureContext(browser);
+    const staleUpdate = await installOwnedGuestStaleUpdate(writerContext);
+    const owner = await ownerContext.newPage(), writer = await writerContext.newPage(), reader = await readerContext.newPage();
+    const invitations: Invitation[] = []; let workspaceId = '';
+    try {
+      const workspace = await ownedGuestWorkspace(owner); workspaceId = workspace.id;
+      const fixture = await seedOwnedFileGuestFixture(workspaceId, 'native_table');
+      const writeInvitation = await createActualPeopleInvitation(owner, workspaceId, fixture.filePath, 'write', 'native_file'); invitations.push(writeInvitation);
+      const readInvitation = await createActualPeopleInvitation(owner, workspaceId, fixture.filePath, 'read', 'native_file'); invitations.push(readInvitation);
+      // FileTree currently exposes physical entries only. Reuse this genuinely
+      // opened People dialog for revocation; native-only UI reselection is not
+      // claimed here and a global native tree is outside this milestone.
+      const { dialog } = await openActualPeopleDialog(owner, workspaceId, fixture.filePath);
+      await expect(dialog.locator('article').filter({ hasText: writeInvitation.email })).toBeVisible();
+      await expect(dialog.locator('article').filter({ hasText: readInvitation.email })).toBeVisible();
+      await removeOwnedFileGuestFixtureProjection(fixture);
+      const guestEditor = await verifyGuest(writer, writeInvitation, workspaceId, fixture.filePath, 'Owned Native Writer', true);
+      const readerEditor = await verifyGuest(reader, readInvitation, workspaceId, fixture.filePath, 'Owned Native Reader', true);
+      await expect(guestEditor).toHaveAttribute('contenteditable', 'true'); await expect(readerEditor).toHaveAttribute('contenteditable', 'false');
+      const content = await actualGuestContent(writer, writeInvitation);
+      expect(content.path).toBe(fixture.filePath); expect(content.session.documentId).toBe(fixture.documentId);
+      expect(JSON.stringify(content.bootstrap)).toContain('"colwidth":[120]'); expect(content.assets).toContain(fixture.assetPath);
+      await expect(writer.getByRole('button', { name: /Download a copy|Kopie herunterladen/u })).toBeDisabled();
+      await expect(reader.getByRole('button', { name: /Download a copy|Kopie herunterladen/u })).toBeDisabled();
+      const assetUrl = (name: string) => `/api/guest/files/${readInvitation.id}/assets/${name.split('/').map(encodeURIComponent).join('/')}`;
+      expect((await reader.request.get(assetUrl(fixture.assetPath!))).status()).toBe(200);
+      expect((await reader.request.get(assetUrl(fixture.unapprovedAssetPath!))).status()).toBe(404);
+      await expect(readerEditor.getByAltText('Approved fixture image')).toBeVisible();
+      await paragraphSelection(guestEditor.locator('p').filter({ hasText: 'Native guest paragraph' }), true);
+      await writer.keyboard.insertText(' from native guest');
+      await expect.poll(() => text(readerEditor)).toContain('Native guest paragraph from native guest');
+      await readerEditor.click(); await reader.keyboard.type('READER_NATIVE_MUST_NOT_WRITE');
+      expect(await text(readerEditor)).not.toContain('READER_NATIVE_MUST_NOT_WRITE');
+      await expect(reader.getByTestId('markdown-toolbar-insert')).toHaveCount(0);
+      const before = await text(readerEditor);
+      const beforeLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      const beforeClock = Y.decodeStateVector(Buffer.from(beforeLocal.stateVector, 'base64')).get(beforeLocal.localClient) ?? 0;
+      staleUpdate.arm(content.session.documentName);
+      const attempted = await guestEditor.evaluate(element => {
+        const editor = (element as EditorElement).editor;
+        const wasEditable = editor.isEditable;
+        const applied = !editor.isDestroyed && editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'REVOKED_NATIVE_MUST_NOT_PERSIST');
+        return { applied, wasEditable, destroyed: editor.isDestroyed, localMutation: element.textContent?.includes('REVOKED_NATIVE_MUST_NOT_PERSIST'),
+          editorStateMutation: editor.state.doc.textContent.includes('REVOKED_NATIVE_MUST_NOT_PERSIST') };
+      });
+      expect(attempted).toMatchObject({ applied: true, wasEditable: true, destroyed: false, localMutation: true, editorStateMutation: true });
+      const afterLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      expect(afterLocal.guid).toBe(beforeLocal.guid); expect(afterLocal.localClient).toBe(beforeLocal.localClient);
+      expect(afterLocal.stateProof).not.toBe(beforeLocal.stateProof);
+      expect(JSON.stringify(afterLocal.document)).toContain('REVOKED_NATIVE_MUST_NOT_PERSIST');
+      const afterClock = Y.decodeStateVector(Buffer.from(afterLocal.stateVector, 'base64')).get(afterLocal.localClient) ?? 0;
+      expect(afterClock).toBeGreaterThan(beforeClock);
+      const mutation = { localClient: afterLocal.localClient, beforeClock, afterClock, marker: 'REVOKED_NATIVE_MUST_NOT_PERSIST' };
+      await expect.poll(() => staleUpdate.mutation(mutation), 'The native-table edit must produce its original held Yjs update.').not.toBeNull();
+      const held = staleUpdate.mutation(mutation)!;
+      expect(await text(readerEditor)).toBe(before);
+      const revoked = owner.waitForResponse(response => response.request().method() === 'DELETE'
+        && new URL(response.url()).pathname === `/api/security/file-guests/${writeInvitation.id}`);
+      staleUpdate.beginRevoke();
+      await dialog.locator('article').filter({ hasText: writeInvitation.email }).getByRole('button', { name: /Revoke|Widerrufen|widerrufen/u }).click();
+      const response = await revoked; expect(response.status()).toBe(200);
+      expect(response.request().postDataJSON()).toEqual({ policyRevision: writeInvitation.policyRevision });
+      const release = staleUpdate.releaseAfterRevoke(response.status());
+      expect(release).toMatchObject({ markerFrameAttempts: 1, markerFrameSha256: held.markerFrameSha256, sendIsDeliveryReceipt: false });
+      expect(release.originalFrameAttempts).toBe(held.frames);
+      await expect.poll(() => {
+        const evidence = staleUpdate.evidence();
+        return evidence.accessRevoked.length > 0 && evidence.logicalClose.length > 0;
+      }, 'The original native-table Guest connection must receive actual document revocation.').toBe(true);
+      await testInfo.attach('native-table original update release and actual server denial', {
+        body: Buffer.from(JSON.stringify({ held, release, evidence: staleUpdate.evidence() })), contentType: 'application/json',
+      });
+      await expect(guestEditor).toHaveAttribute('contenteditable', 'false', { timeout: 25_000 });
+      expect(await text(readerEditor)).toBe(before);
+      const denied = await writer.request.post(`/api/guest/files/${writeInvitation.id}/session`, { headers: { Origin: BASE_URL }, data: {} });
+      expect([403, 410]).toContain(denied.status());
+      const final = await actualGuestContent(reader, readInvitation);
+      expect(JSON.stringify(final.bootstrap)).toContain('from native guest');
+      expect(JSON.stringify(final.bootstrap)).toContain('"colwidth":[120]');
+      expect(JSON.stringify(final.bootstrap)).not.toContain('REVOKED_NATIVE_MUST_NOT_PERSIST');
+      expect(JSON.stringify(final.bootstrap)).not.toContain('READER_NATIVE_MUST_NOT_WRITE');
+    } finally {
+      staleUpdate.discard();
+      for (const invitation of invitations) await owner.request.delete(`/api/security/file-guests/${invitation.id}`, {
+        headers: { 'x-canvas-workspace-id': workspaceId, Origin: BASE_URL }, data: { policyRevision: invitation.policyRevision },
+      }).catch(() => undefined);
       await Promise.all([ownerContext.close(), writerContext.close(), readerContext.close()]);
     }
   });

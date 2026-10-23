@@ -4,9 +4,11 @@ import { createChainableState, getSchema, type CommandProps, type JSONContent, t
 import { isAllowedUri } from '@tiptap/extension-link';
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { EditorState } from '@tiptap/pm/state';
-import { addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, CellSelection, deleteColumn, deleteRow, deleteTable, setCellAttr } from '@tiptap/pm/tables';
+import { addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, CellSelection, deleteColumn, deleteRow, deleteTable, fixTables, setCellAttr } from '@tiptap/pm/tables';
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
+
+import { assertNativeDocumentEditWriteAuthorityActive, type NativeDocumentEditWriteAuthority } from '../documents/edit-principal';
 
 import { generateRichNodeIds } from '../editor/generate-rich-node-ids';
 import { preserveAlignedStableIds, stableIdCounts } from '../editor/rich-node-identities';
@@ -380,7 +382,11 @@ function tableCommand(doc: ProseMirrorNode, cellId: string, action: AgentTableAc
     changed = command()(props);
   }
   if (!changed) fail('target_changed');
-  return doc.type.schema.nodeFromJSON(generateRichNodeIds(tr.doc.toJSON(), richMarkdownCodecExtensions()));
+  // Offline commands lack the editor plugin's appendTransaction repair. A
+  // newly inserted row starts with null widths; retain the existing column
+  // widths before the block tree validates the resulting native table.
+  const repaired = fixTables(EditorState.create({ doc: tr.doc }));
+  return doc.type.schema.nodeFromJSON(generateRichNodeIds((repaired?.doc ?? tr.doc).toJSON(), richMarkdownCodecExtensions()));
 }
 
 /** Prepare once on an isolated replica; block IDs and Yjs clocks are fixed here. */
@@ -671,15 +677,21 @@ export function previewAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEd
 }
 
 /** Validate the entire current group, then integrate its delta as one live update. */
-export function applyAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit, origin: unknown): { reverse: PreparedAgentBlockEdit | null } {
-  return checked(() => {
+export function applyAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit, origin: unknown,
+  nativeWriteAuthority?: NativeDocumentEditWriteAuthority): { reverse: PreparedAgentBlockEdit | null } {
+  let authorityFailure: unknown;
+  try { return checked(() => {
     const candidate = candidateFor(doc, prepared);
     try {
       const reverse = prepared.kind === 'forward' ? reverseFor(doc, candidate, prepared.affectedBlockIds) : null;
       if (reverse) bounded(reverse);
       const update = Y.encodeStateAsUpdate(candidate, Y.encodeStateVector(doc));
+      if (nativeWriteAuthority) {
+        try { assertNativeDocumentEditWriteAuthorityActive(nativeWriteAuthority); }
+        catch (error) { authorityFailure = error; throw error; }
+      }
       Y.applyUpdate(doc, update, origin);
       return { reverse };
     } finally { candidate.destroy(); }
-  });
+  }); } catch (error) { throw authorityFailure ?? error; }
 }

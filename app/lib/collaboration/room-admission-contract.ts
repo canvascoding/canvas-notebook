@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { CollaborationRoomOwnerScope } from './room-owner';
+import { isCanonicalWorkspacePath } from '../workspaces/path-identity';
 
 export type CollaborationAdmissionScope = Readonly<{
   workspaceId: string;
@@ -75,9 +76,7 @@ export function collaborationAdmissionActionDigest(
 }
 
 export function isCanonicalAdmissionPath(value: unknown, allowRoot = false): value is string {
-  return typeof value === 'string' && value.length <= 4096
-    && (value === '' ? allowRoot : !/[\\\u0000-\u001f\u007f]/u.test(value)
-      && value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'));
+  return isCanonicalWorkspacePath(value, allowRoot);
 }
 
 /** Captures a new writer's exact identity; this is not mutation authority. */

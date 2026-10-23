@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import ts from 'typescript';
 import * as Y from 'yjs';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import type * as Server from '../server/collaboration-server';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
@@ -74,6 +75,7 @@ async function main() {
     if (name.endsWith('/auth')) return { auth: { api: { getSession: async () => { authCalls++; return null; } } } };
     if (name.endsWith('/runtime-state')) return { installCollaborationRoomInspector() {} };
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return { installCollaborationDirectConnection() {} };
     if (name.endsWith('/agent-operations')) return {
       recoverCollaborationAgentOperations: async () => { agentRecoveryCalls++; },

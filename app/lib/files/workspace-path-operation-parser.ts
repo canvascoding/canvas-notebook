@@ -1,3 +1,4 @@
+import { readWorkspaceImplicitMoveBinding, readWorkspaceImplicitMoveLegacyReplay } from './workspace-implicit-move-parser';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
 
 const validPath = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
@@ -6,15 +7,28 @@ const validPath = (value: unknown): value is string => typeof value === 'string'
 
 /** Validate identity and project only public fields before displaying operation details. */
 export function readWorkspacePathOperation(value: unknown,
-  expected: { workspaceId?: string | null; batchId?: string; planId?: string } = {},
+  expected: { workspaceId?: string | null; batchId?: string; planId?: string; allowPreparation?: boolean } = {},
 ): WorkspacePathOperationPublic {
   const operation = value as WorkspacePathOperationPublic | null;
+  const implicitBinding = operation?.implicitBinding === undefined ? undefined : readWorkspaceImplicitMoveBinding(operation.implicitBinding,
+    { workspaceId: expected.workspaceId ?? operation.workspaceId });
+  const legacyImplicitReplay = operation?.legacyImplicitReplay === undefined ? undefined
+    : readWorkspaceImplicitMoveLegacyReplay(operation.legacyImplicitReplay,
+      { workspaceId: expected.workspaceId ?? operation.workspaceId, batchId: operation.batchId, planId: operation.planId });
   if (!operation || typeof operation.batchId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(operation.batchId)
     || typeof operation.workspaceId !== 'string' || !operation.workspaceId.trim()
     || expected.workspaceId && operation.workspaceId !== expected.workspaceId
     || expected.batchId && operation.batchId !== expected.batchId
     || typeof operation.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.planId)
+    || operation.preparation !== undefined && (!operation.preparation || typeof operation.preparation !== 'object'
+      || Array.isArray(operation.preparation) || Object.keys(operation.preparation).length !== 1
+      || typeof operation.preparation.previewPlanId !== 'string' || !/^[a-f0-9]{64}$/u.test(operation.preparation.previewPlanId))
     || expected.planId && operation.planId !== expected.planId
+      && (!expected.allowPreparation || operation.preparation?.previewPlanId !== expected.planId)
+    || implicitBinding !== undefined && (operation.preparation !== undefined || operation.kind === 'delete'
+      || implicitBinding.workspaceId !== operation.workspaceId || legacyImplicitReplay !== undefined)
+    || legacyImplicitReplay !== undefined && (operation.preparation !== undefined || operation.kind === 'delete'
+      || legacyImplicitReplay.workspaceId !== operation.workspaceId)
     || !['move', 'rename', 'delete'].includes(operation.kind)
     || !Array.isArray(operation.selections) || operation.selections.length > 1000
     || operation.selections.some((selection) => !selection || !validPath(selection.sourcePath)
@@ -37,6 +51,9 @@ export function readWorkspacePathOperation(value: unknown,
   return { batchId: operation.batchId, planId: operation.planId, workspaceId: operation.workspaceId,
     status: operation.status, completedActions: operation.completedActions, totalActions: operation.totalActions,
     phase: operation.phase, kind: operation.kind,
+    ...(implicitBinding ? { implicitBinding } : {}),
+    ...(legacyImplicitReplay ? { legacyImplicitReplay } : {}),
+    ...(operation.preparation ? { preparation: { previewPlanId: operation.preparation.previewPlanId } } : {}),
     errorCode: typeof operation.errorCode === 'string' && /^[A-Z0-9_:-]{1,100}$/u.test(operation.errorCode)
       ? operation.errorCode : null,
     selections: operation.selections.map(({ sourcePath, destinationPath }) => ({ sourcePath,

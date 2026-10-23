@@ -1,10 +1,12 @@
 import { assertCollaborationAdmissionOpen, tryLockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
-import { tryLockFileLifecycleCollaborationWriterAdmission } from '@/app/lib/collaboration/file-lifecycle-writer-admission';
+import { tryLockFileLifecycleCollaborationRoomAdmission, tryLockFileLifecycleCollaborationWriterAdmission } from '@/app/lib/collaboration/file-lifecycle-writer-admission';
 import { readRepresentationDrainRequest, refuseRepresentationAdmissionDrain } from '@/app/lib/collaboration/representation-drain-refusal';
 import { installRichMigrationRuntime, noteRichMigrationWorkerSuccess, noteRichMigrationWorkerFailure } from '@/app/lib/collaboration/representation-migration-runtime';
 import type http from 'node:http';
 import type net from 'node:net';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { NextRequest } from 'next/server';
 
 import { Hocuspocus, MessageType, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { AuthMessageType } from '@hocuspocus/common';
@@ -13,16 +15,31 @@ import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
 import { openDb } from '@/app/lib/db';
+import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { withExistingNativeCollaborationSessionOnConnection } from '@/app/lib/collaboration/native-session-state-reader';
+import { captureNativeDocumentEditVersion } from '@/app/lib/collaboration/native-document-edit-version';
+import { assertNativeDocumentEditPrecondition } from '@/app/lib/collaboration/native-document-edit-validation';
+import { isNativeDocumentEditWriteAuthority, withNativeDocumentEditWriteAuthorityOnConnection } from '@/app/lib/documents/edit-principal';
+import { DocumentEditError } from '@/app/lib/documents/edit-contracts';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
+import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
+import { reportCollaborationStartupFailure, type CollaborationStartupPhase } from '../app/lib/collaboration/startup-diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
+import { isFileGuestInvitationReaderBusy } from '@/app/lib/file-guests/writer';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
 import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
+import { createAuthenticatedNativePeer } from '@/app/lib/collaboration/authenticated-native-peer';
+import { AuthenticatedNativeSessionTransportError,
+  disposeAuthenticatedNativeSessionTransport, isAuthenticatedNativeSessionTransportBusy,
+  type AuthenticatedNativeSessionTransport } from '@/app/lib/collaboration/authenticated-native-session-transport';
+import { authenticateNativePeerAdmission } from '@/app/lib/collaboration/authenticated-native-peer-admission';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -30,10 +47,17 @@ import {
   type AgentDirectConnectionInput,
 } from '@/app/lib/collaboration/direct-connection';
 import {
+  installCollaborationDirectActivitySession,
+  isCollaborationDirectActivitySessionInstalled,
+  type CollaborationDirectActivitySessionHandler,
+  type CollaborationDirectActivitySessionInput,
+} from '@/app/lib/collaboration/direct-activity-session';
+import {
   resolveAgentExecutionContextForStoredSession,
   workspaceFromAgentExecutionContext,
 } from '@/app/lib/pi/session-workspace-context';
 import { installCollaborationDocumentReader } from '@/app/lib/collaboration/document-access';
+import { installCollaborationSearchRoomCensus } from '../app/lib/collaboration/search-room-census';
 import { getWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
@@ -46,6 +70,7 @@ import {
   CollaborationStateInactiveError,
   CollaborationStateStaleError,
   loadCollaborationState,
+  loadCollaborationStateOnConnection,
   markCollaborationDegraded,
   persistCollaborationYDoc,
   type PersistedCollaborationState,
@@ -59,6 +84,7 @@ import {
 } from '@/app/lib/collaboration/runtime-state';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { assertNativeCollaborationUpdateComplete, CollaborationIncomingUpdatePreflightError } from '@/app/lib/collaboration/incoming-update-preflight';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
@@ -82,6 +108,7 @@ import { createCollaborationRoomStartupActivity } from '@/app/lib/collaboration/
 import { installLocalCollaborationRoomDrainer } from '@/app/lib/collaboration/local-room-drain';
 import {
   consumeMobileCollaborationTicket,
+  disposeMobileCollaborationTickets,
   hasMobileCollaborationProtocol,
   MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/collaboration-ticket';
@@ -94,6 +121,19 @@ import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-tur
 
 const COLLABORATION_PATH = '/ws/collaboration';
 const MAX_UPDATE_BYTES = 1024 * 1024;
+
+type DirectActivitySessionContext = {
+  input: Readonly<CollaborationDirectActivitySessionInput>;
+  assertOpen(): void;
+  assertCurrent(): Promise<void>;
+};
+// Shared by server generations: a continuation from a replaced server must
+// retain its revoked scope instead of becoming a standalone Direct operation.
+const directActivitySessionGlobals = globalThis as typeof globalThis & {
+  __canvasCollaborationDirectActivityContexts?: AsyncLocalStorage<DirectActivitySessionContext>;
+};
+const directActivitySessions = directActivitySessionGlobals.__canvasCollaborationDirectActivityContexts
+  ??= new AsyncLocalStorage<DirectActivitySessionContext>();
 
 function durabilitySnapshotPayload(state: PersistedCollaborationState) {
   return {
@@ -158,7 +198,10 @@ type CollaborationContext = {
   observedDocumentSequence: number | null;
   releaseRoomAdmission: (() => void) | null;
   startupActivity?: ReturnType<typeof createCollaborationRoomStartupActivity>;
-  stopAccessWatch?: () => void;
+  stopAccessWatch?: () => Promise<void>;
+  nativePeer?: ReturnType<typeof createAuthenticatedNativePeer>;
+  cleanupNativePeer?: () => Promise<void>;
+  nativePeerLifetime?: { connected: boolean; stopAccessWatch?: () => Promise<void> };
 };
 
 /** Only the stored standalone direct-apply path owns exact immutable bytes. */
@@ -272,6 +315,9 @@ function rejectCollaborationUpdate(connection: Connection<CollaborationContext>,
 }
 
 async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInput): Promise<WorkspaceContext> {
+  if (input.nativeEditAuthority || input.nativeDocumentVersion) {
+    return withNativeDirectConnectionAuthority(input, async access => access.workspace);
+  }
   if (input.mcpAuthority) {
     const { isDirectMcpEditAuthority } = await import('../app/lib/mcp/server/direct-edit-authority');
     if ((input.actorType ?? 'agent') !== 'agent' || !isDirectMcpEditAuthority(input.mcpAuthority)
@@ -323,9 +369,73 @@ async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInpu
   return input.workspace;
 }
 
+type NativeDirectAuthorityAccess = Readonly<{
+  workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
+  sessionId: string; assertActive(): void;
+}>;
+
+/** Only the fixed native principal can establish this short current-B phase.
+ * Callers acquire the workspace/actual room before using it for mutation; no
+ * client is held over queueing, room acquisition, onApplied, or persistence. */
+async function withNativeDirectConnectionAuthority<T>(input: AgentDirectConnectionInput,
+  operation: (access: NativeDirectAuthorityAccess) => Promise<T>): Promise<T> {
+  if (!input.nativeDocumentVersion || !input.nativeEditAuthority
+    || !isNativeDocumentEditWriteAuthority(input.nativeEditAuthority)) {
+    throw new AgentDirectConnectionAuthorizationError('A current native document write authority is required.');
+  }
+  const authority = input.nativeEditAuthority;
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: database => withNativeDocumentEditWriteAuthorityOnConnection(database, authority, async access => {
+      if (access.workspace.workspaceId !== input.workspace.workspaceId
+        || (access.workspace.organizationId ?? null) !== (input.workspace.organizationId ?? null)
+        || access.userId !== input.initiatedByUserId || access.actorId !== input.actorId
+        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== input.actorSessionId) {
+        throw new AgentDirectConnectionAuthorizationError('Current native write authority does not match this operation.');
+      }
+      access.assertActive();
+      return operation(access);
+    }),
+    recoverCommitted: async value => {
+      // This B holds authorization reads/locks only, never operation/Yjs DML.
+      // Verified work already happened. Confirmed discard releases the holder;
+      // an uncertain release cannot request another document mutation.
+      logCollaborationDiagnostic('warn', { event: 'agent_durability_unconfirmed',
+        operationId: input.operationId, documentId: input.documentId, workspaceId: input.workspace.workspaceId,
+        phase: 'native_write_authority_release', code: 'NATIVE_EDIT_AUTHORITY_RELEASE_UNCONFIRMED' });
+      return value;
+    },
+  });
+}
+
+/** Existing-only native identity data; current write authority is established
+ * separately. This reader never opens a live room or serializes Markdown. */
+async function readNativeDirectConnectionState(input: AgentDirectConnectionInput, workspace: WorkspaceContext) {
+  if (!input.nativeDocumentVersion) throw new DocumentEditError('INVALID_REQUEST');
+  const identity = input.nativeDocumentVersion.identity;
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: async database => {
+      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY');
+      await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'");
+      return withExistingNativeCollaborationSessionOnConnection(database, {
+        workspace, path: input.documentPath,
+        expectedIdentity: { ...identity, path: input.documentPath },
+      }, async session => {
+        if (session.snapshot.degraded) throw new DocumentEditError('DOCUMENT_STATE_INVALID');
+        const state = await loadCollaborationStateOnConnection(database, identity.documentId, true);
+        if (!state) throw new DocumentEditError('DOCUMENT_STATE_MISSING');
+        return state;
+      });
+    },
+    recoverCommitted: async (_value, error) => { throw error; },
+  });
+}
+
 async function assertDirectConnectionDocument(input: AgentDirectConnectionInput, workspace: WorkspaceContext) {
-  const state = await loadCollaborationState(input.documentId);
-  const collaboration = input.requiresFileCheckpointIdentity
+  const state = input.nativeDocumentVersion
+    ? await readNativeDirectConnectionState(input, workspace) : await loadCollaborationState(input.documentId);
+  const collaboration = input.requiresFileCheckpointIdentity && !input.nativeDocumentVersion
     ? await readFileCollaborationState({ workspace, path: input.documentPath })
     : null;
   if (!state || state.status !== 'active'
@@ -334,7 +444,7 @@ async function assertDirectConnectionDocument(input: AgentDirectConnectionInput,
     || state.representation !== input.documentRepresentation
     || state.lifecycleGeneration !== input.documentLifecycleGeneration
     || state.schemaVersion !== input.documentSchemaVersion
-    || (input.requiresFileCheckpointIdentity && (!collaboration?.document
+    || (input.requiresFileCheckpointIdentity && !input.nativeDocumentVersion && (!collaboration?.document
       || collaboration.document.id !== input.documentId
       || collaboration.document.status !== 'active'
       || collaboration.document.provider !== 'yjs'))) {
@@ -354,6 +464,21 @@ async function assertCurrentCollaborationAdmissionOpen(scope: CollaborationRoomO
     const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
     if (scope.representation === 'excalidraw_scene') await tryLockCollaborationAdmissionWorkspace(query, scope.workspaceId);
     else await tryLockFileLifecycleCollaborationWriterAdmission(query, { ...scope, representation: scope.representation });
+    await assertCollaborationAdmissionOpen(query, scope);
+    await database.run('COMMIT');
+  } finally { await database.close(new Error('Discarding admission join check session.')); }
+}
+
+/** WebSocket joins share admission with readers; direct mutations retain the strict writer check. */
+async function assertCurrentCollaborationRoomAdmissionOpen(scope: CollaborationTicketClaims): Promise<void> {
+  if (scope.representation === 'excalidraw_scene') return assertCurrentCollaborationAdmissionOpen(scope);
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await database.run("SET LOCAL statement_timeout = '5s'");
+    await database.run("SET LOCAL lock_timeout = '4s'");
+    const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
+    await tryLockFileLifecycleCollaborationRoomAdmission(query, { ...scope, representation: scope.representation });
     await assertCollaborationAdmissionOpen(query, scope);
     await database.run('COMMIT');
   } finally { await database.close(new Error('Discarding admission join check session.')); }
@@ -410,6 +535,78 @@ export function createCollaborationServer(server: http.Server, options: {
     try { return await operation(); }
     finally { activity?.release(); }
   };
+  const assertDirectActivitySession = (input: AgentDirectConnectionInput) => {
+    const session = directActivitySessions.getStore();
+    if (!session) return;
+    session.assertOpen();
+    const expected = session.input;
+    if (input.documentId !== expected.documentId || input.documentPath !== expected.documentPath
+      || input.documentRepresentation !== expected.documentRepresentation
+      || input.documentLifecycleGeneration !== expected.documentLifecycleGeneration
+      || input.documentSchemaVersion !== expected.documentSchemaVersion
+      || input.workspace.workspaceId !== expected.workspace.workspaceId
+      || (input.workspace.organizationId ?? null) !== (expected.workspace.organizationId ?? null)
+      || input.actorType !== expected.actorType || input.actorId !== expected.actorId
+      || input.initiatedByUserId !== expected.initiatedByUserId || input.actorSessionId !== expected.actorSessionId
+      || input.operationId !== expected.operationId
+      || input.requiresFileCheckpointIdentity !== expected.requiresFileCheckpointIdentity
+      || input.versionSource !== expected.versionSource || input.versionBaseRevisionId !== expected.versionBaseRevisionId
+      || input.versionSourceSessionId !== expected.versionSourceSessionId || input.agentTurnId !== expected.agentTurnId
+      || input.mcpAuthority || input.mcpPolicyFence) {
+      throw new AgentDirectConnectionAuthorizationError('Direct activity session does not match this operation.');
+    }
+  };
+  const directActivitySessionHandler: CollaborationDirectActivitySessionHandler = async (input, operation) => {
+    if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+    if (directActivitySessions.getStore() || input.actorType !== 'user' || !input.actorSessionId
+      || !input.actorId || input.actorId !== input.initiatedByUserId
+      || !input.operationId || !input.documentId || input.mcpAuthority || input.mcpPolicyFence) {
+      throw new AgentDirectConnectionAuthorizationError('Direct activity session requires one bound user operation.');
+    }
+    const bound = Object.freeze({ ...input, workspace: Object.freeze({ ...input.workspace }) });
+    const activity = roomOwners.admitActivity(bound.documentId);
+    let active = true;
+    const assertOpen = () => {
+      if (!isCollaborationDirectActivitySessionInstalled(directActivitySessionHandler)) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+      }
+      roomOwners.assertAvailable();
+      if (!active) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      try { activity.assertOpen(); }
+      catch { throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'); }
+      const room = hocuspocus.documents.get(bound.documentId);
+      if (room) roomOwners.fence(room);
+    };
+    const revalidate = async () => {
+      assertOpen();
+      const workspace = await resolveDirectConnectionWorkspace(bound);
+      if (workspace.workspaceId !== bound.workspace.workspaceId
+        || (workspace.organizationId ?? null) !== (bound.workspace.organizationId ?? null)) {
+        throw new AgentDirectConnectionAuthorizationError('Direct activity workspace scope changed.');
+      }
+      await withWorkspaceMutationLock(workspace.workspaceId, async () => {
+        const state = await assertDirectConnectionDocument(bound, workspace);
+        if ((state.organizationId ?? null) !== (workspace.organizationId ?? null)) {
+          throw new AgentDirectConnectionAuthorizationError('Direct activity document organization changed.');
+        }
+        await assertCurrentCollaborationAdmissionOpen(state);
+        assertOpen();
+      });
+    };
+    try {
+      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidate }, async () => {
+        await revalidate();
+        const result = await operation(Object.freeze({ assertOpen: revalidate }));
+        await revalidate();
+        return result;
+      });
+    } finally {
+      active = false;
+      activity.release();
+    }
+  };
+  const uninstallDirectActivitySession = installCollaborationDirectActivitySession(directActivitySessionHandler);
+  server.once('close', uninstallDirectActivitySession);
   const pendingStartups = new WeakMap<Request, Map<string, Set<ReturnType<typeof createCollaborationRoomStartupActivity>>>>();
   const startupPhases = new WeakMap<ReturnType<typeof createCollaborationRoomStartupActivity>, 'auth' | 'authenticated' | 'loading' | 'loaded'>();
   const admittedDirectCreates = new WeakSet<CollaborationContext>();
@@ -425,6 +622,10 @@ export function createCollaborationServer(server: http.Server, options: {
   // Hocuspocus serializes each socket, not all sockets of a room. For mutating
   // sync frames hold the lease beyond beforeSync, through MessageReceiver.apply.
   const messageMutationLeases = new WeakMap<Connection<CollaborationContext>, () => void>();
+  const nativePeers = new Set<ReturnType<typeof createAuthenticatedNativePeer>>();
+  const nativeCleanups = new Set<() => Promise<void>>();
+  const pendingNative = new WeakMap<Request, Set<CollaborationContext>>();
+  let nativeClosing = false;
   const matchesRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
     const identity = roomIdentities.get(document);
     return identity?.documentId === expected.documentId && identity.workspaceId === expected.workspaceId
@@ -519,6 +720,32 @@ export function createCollaborationServer(server: http.Server, options: {
   server.once('close', () => projections.dispose());
   const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
     validate: async (connection) => {
+      if (connection.context.nativePeer) {
+        if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+        try {
+          const access = await connection.context.nativePeer.check(roomOwners.fence(connection.document));
+          if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+          if (access.quarantined) {
+            connection.readOnly = true;
+            if (connection.context.claims.permission === 'write') {
+              connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+                message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+              connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            }
+          }
+          connection.context.workspace = access.workspace;
+          return;
+        } catch (error) {
+          if (error instanceof AuthenticatedNativeSessionTransportError && error.code === 'NATIVE_TRANSPORT_QUARANTINED') {
+            connection.readOnly = true;
+            connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+              message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+            connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            return;
+          }
+          throw error;
+        }
+      }
       const access = await revalidateCollaborationAccess(connection.context.claims);
       if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
       if (isCollaborationStateQuarantined(access.state)) connection.readOnly = true;
@@ -532,21 +759,93 @@ export function createCollaborationServer(server: http.Server, options: {
       }));
       connection.close({ code: 4403, reason: 'Collaboration access revoked' });
     },
+    isTransient: error => isAuthenticatedNativeSessionTransportBusy(error) || isFileGuestInvitationReaderBusy(error),
   });
-  server.once('close', () => accessMonitor.dispose());
+  // Retain this concrete frame while genuine peer/read contention clears.
+  // Each attempt finishes a fresh authorization phase; no write authority is
+  // saved. Exhaustion closes the actual socket so its state-vector handshake
+  // can recover a locally retained one-shot update on a fresh connection.
+  const retryNativePeerCheck = async <T>(connection: Connection<CollaborationContext>, operation: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        if ((connection.context.nativePeer || connection.context.claims.guestInvitationId)
+          && (nativeClosing || !connection.document.hasConnection(connection))) {
+          throw new Error('Collaboration connection is closed.');
+        }
+        return await operation();
+      } catch (error) {
+        const retryable = connection.context.nativePeer && isAuthenticatedNativeSessionTransportBusy(error)
+          || connection.context.claims.guestInvitationId && isFileGuestInvitationReaderBusy(error);
+        if (!retryable) throw error;
+        if (attempt === 2) {
+          connection.webSocket.close(1013, 'Collaboration peer busy; reconnect to synchronize');
+          throw error;
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+      }
+    }
+  };
+  const shutdownNativePeers = async () => {
+    nativeClosing = true;
+    await accessMonitor.dispose();
+    await Promise.allSettled([...nativeCleanups].map(cleanup => cleanup()));
+    disposeMobileCollaborationTickets();
+  };
+  server.once('close', () => { void shutdownNativePeers().catch(() => { console.error('[Collaboration] Peer shutdown cleanup failed.'); }); });
   const hocuspocus = new Hocuspocus<CollaborationContext>({
     debounce: 350,
     maxDebounce: 2_000,
     timeout: 30_000,
     async onAuthenticate({ token, documentName, request, requestHeaders, connectionConfig }) {
       if (!liveCollaborationRuntimeAvailable()) throw new Error('Collaboration requires Postgres.');
+      // Captured from the actual upgrade request before any authentication await.
+      const originalRequest = new NextRequest(request.url, { method: request.method, headers: new Headers(requestHeaders) });
+      let ownedTransport: AuthenticatedNativeSessionTransport | undefined;
+      let nativePeer: ReturnType<typeof createAuthenticatedNativePeer> | undefined;
+      let nativeContext: CollaborationContext | undefined;
+      // Hocuspocus spreads context additions into a new object. This private
+      // nested ownership record survives that copy and binds the actual watch.
+      const nativePeerLifetime: NonNullable<CollaborationContext['nativePeerLifetime']> = { connected: false };
+      let cleaning = false, cleanup: Promise<void> | undefined;
+      const admissionAbort = new AbortController();
+      const cleanupNativePeer = (): Promise<void> => {
+        if (cleanup) return cleanup;
+        cleaning = true; admissionAbort.abort();
+        cleanup = (async () => {
+          await nativePeerLifetime.stopAccessWatch?.();
+          if (nativePeer) await nativePeer.dispose();
+          else if (ownedTransport) await disposeAuthenticatedNativeSessionTransport(ownedTransport);
+        })().finally(() => {
+          if (nativePeer) nativePeers.delete(nativePeer);
+          if (nativeContext) pendingNative.get(request)?.delete(nativeContext);
+          nativeCleanups.delete(cleanupNativePeer);
+          request.signal.removeEventListener('abort', abortNativePeer);
+        });
+        return cleanup;
+      };
+      const abortNativePeer = () => { void cleanupNativePeer().catch(() => { console.error('[Collaboration] Peer abort cleanup failed.'); }); };
+      try {
       const protocols = requestHeaders.get('sec-websocket-protocol')
         ?.split(',')
         .map((value) => value.trim()) ?? [];
-      const mobileIdentity = protocols.includes(MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL)
+      const mobileProtocol = protocols.includes(MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL);
+      const mobileIdentity = mobileProtocol
         ? consumeMobileCollaborationTicket(token)
         : null;
-      const claims = mobileIdentity?.claims ?? verifyCollaborationTicket(token);
+      ownedTransport = mobileIdentity?.authenticatedTransport;
+      if (ownedTransport) nativeCleanups.add(cleanupNativePeer);
+      if (mobileProtocol && !mobileIdentity) throw new Error('Mobile collaboration ticket is no longer available.');
+      const claims = Object.freeze({ ...(mobileIdentity?.claims ?? verifyCollaborationTicket(token)) });
+      const native = authenticatedNativeTextSessionEnabled() && !claims.guestInvitationId
+        && claims.provider === 'yjs' && claims.representation !== 'excalidraw_scene';
+      if (ownedTransport && !native) throw new Error('Native collaboration ticket cannot join this provider.');
+      if (native && (!roomOwners || mobileProtocol && !ownedTransport || nativeClosing)) {
+        throw new Error('Native collaboration requires its original authentication and held room runtime.');
+      }
+      if (native) {
+        nativeCleanups.add(cleanupNativePeer);
+        request.signal.addEventListener('abort', abortNativePeer, { once: true });
+      }
       if (claims.documentId !== documentName) throw new Error('Collaboration document scope mismatch.');
       request.signal.throwIfAborted();
       let releaseRoomAdmission: (() => void) | null = null;
@@ -591,7 +890,7 @@ export function createCollaborationServer(server: http.Server, options: {
         } else if (mobileIdentity) {
           authenticatedUser = mobileIdentity.user;
         } else {
-          const session = await auth.api.getSession({ headers: requestHeaders });
+          const session = await auth.api.getSession({ headers: originalRequest.headers });
           const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
           if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
             throw new Error('Collaboration session is no longer authenticated.');
@@ -606,14 +905,32 @@ export function createCollaborationServer(server: http.Server, options: {
         if (authenticatedUser.id !== claims.userId) {
           throw new Error('Collaboration ticket user scope mismatch.');
         }
-        const access = await resolveCollaborationSessionAccess(claims);
-        const workspace = access.workspace;
-        authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
+        let workspace: WorkspaceContext;
+        if (native) {
+          const inherited = ownedTransport;
+          // Retain the inherited cap until the helper's synchronous adoption
+          // succeeds: startup cleanup still owns it if adoption itself rejects.
+          // The helper owns every fresh retry cap and drains its in-flight B.
+          const joined = await authenticateNativePeerAdmission({ request: originalRequest, claims,
+            ...(inherited ? { transport: inherited } : {}), signal: admissionAbort.signal });
+          ownedTransport = joined.transport;
+          if (cleaning || nativeClosing || request.signal.aborted) {
+            await disposeAuthenticatedNativeSessionTransport(joined.transport);
+            throw new Error('Native connection startup was cancelled.');
+          }
+          workspace = joined.workspace;
+          nativePeer = createAuthenticatedNativePeer({ transport: joined.transport, claims, identity: joined.identity });
+          nativePeers.add(nativePeer);
+        } else {
+          const access = await resolveCollaborationSessionAccess(claims);
+          workspace = access.workspace;
+          authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
+        }
         releaseRoomAdmission = await withWorkspaceMutationLock(
           claims.workspaceId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
-            await assertCurrentCollaborationAdmissionOpen(claims);
+            await assertCurrentCollaborationRoomAdmissionOpen(claims);
             if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);
@@ -628,7 +945,7 @@ export function createCollaborationServer(server: http.Server, options: {
           email: authenticatedUser.email,
         });
         if (startupActivity) startupPhases.set(startupActivity, 'authenticated');
-        return {
+        const context: CollaborationContext = {
           claims,
           workspace,
           user: {
@@ -647,17 +964,29 @@ export function createCollaborationServer(server: http.Server, options: {
           observedDocumentSequence: null,
           releaseRoomAdmission,
           startupActivity,
+          ...(nativePeer ? { nativePeer, cleanupNativePeer, nativePeerLifetime } : {}),
         };
+        if (nativePeer) {
+          nativeContext = context;
+          const pending = pendingNative.get(request) ?? new Set(); pending.add(context); pendingNative.set(request, pending);
+        }
+        return context;
       };
       try { return startupActivity ? await startupActivity.run(authenticate) : await authenticate(); }
       catch (error) { startupActivity?.finish(); releaseAdmission(); throw error; }
       finally { if (!startupActivity) request.signal.removeEventListener('abort', cancelStartup); }
+      } catch (error) { await cleanupNativePeer(); throw error; }
     },
     async connected({ context, connection }) {
+      if (context.nativePeerLifetime) context.nativePeerLifetime.connected = true;
+      let phase: CollaborationStartupPhase = 'connect_access';
       const connect = async () => {
         context.stopAccessWatch = accessMonitor.add(connection);
-        await accessMonitor.check(connection);
+        if (context.nativePeerLifetime) context.nativePeerLifetime.stopAccessWatch = context.stopAccessWatch;
+        await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
+        phase = 'connect_state';
         const state = await loadCollaborationState(context.claims.documentId);
+        phase = 'connect_identity';
         if (
           !state
           || state.workspaceId !== context.claims.workspaceId
@@ -675,18 +1004,26 @@ export function createCollaborationServer(server: http.Server, options: {
           connection.close();
           return;
         }
+        phase = 'connect_activity';
         context.startupActivity?.assertOpen();
+        phase = 'connect_owner';
         roomOwners?.fence(connection.document);
+        phase = 'connect_projection';
         const projectionStatus = await loadCollaborationProjectionStatus(state);
         if (isCollaborationStateQuarantined(projectionStatus)) connection.readOnly = true;
+        phase = 'connect_snapshot';
         connection.sendStateless(JSON.stringify(durabilitySnapshotPayload({ ...state, ...projectionStatus })));
       };
       try {
         if (context.startupActivity) await context.startupActivity.run(connect);
         else await connect();
       } catch (error) {
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase, documentId: context?.claims?.documentId, generation: context?.claims?.lifecycleGeneration,
+        }, error);
         connection.readOnly = true;
         connection.close();
+        await context.cleanupNativePeer?.();
         throw error;
       } finally {
         context.startupActivity?.finish();
@@ -695,6 +1032,7 @@ export function createCollaborationServer(server: http.Server, options: {
       }
     },
     async onLoadDocument({ documentName, document, context }) {
+      let phase: CollaborationStartupPhase = 'load_state';
       try {
         const state = await loadCollaborationState(documentName);
         if (!state) throw new Error('Collaboration document was not initialized.');
@@ -703,25 +1041,34 @@ export function createCollaborationServer(server: http.Server, options: {
           representation: state.representation, schemaVersion: state.schemaVersion });
         if (context?.claims) lastRoomContexts.set(document, { context, origin: null });
         if (roomOwners) {
+          phase = 'claim_owner';
           await roomOwners.claim(document, state);
           // A previous owner's last row-locked store can finish while this
           // claim waits. Never load the pre-claim snapshot into the new room.
+          phase = 'reload_owner_state';
           const latest = await loadCollaborationState(documentName);
+          phase = 'validate_owner_state';
           if (!latest || latest.status !== 'active' || !matchesRoomIdentity(document, latest)) {
             throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
           }
+          phase = 'fence_owner';
           roomOwners.fence(document);
           // Apply inside our cleanup boundary: Hocuspocus's returned-update
           // callback otherwise runs after the hook and can throw/leak a claim.
+          phase = 'apply_update';
           Y.applyUpdate(document, latest.yjsState);
           return;
         }
         return state.yjsState;
       } catch (error) {
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase, documentId: documentName, generation: context?.claims?.lifecycleGeneration,
+        }, error);
         // A failed load is not in Hocuspocus.documents yet: its normal unload
         // is a no-op, so explicitly destroy even a pre-claim failure's Doc.
         await roomOwners?.release(document).catch(() => undefined);
         document.destroy();
+        await context?.cleanupNativePeer?.();
         throw error;
       }
     },
@@ -743,7 +1090,7 @@ export function createCollaborationServer(server: http.Server, options: {
     },
     async beforeHandleMessage({ update, connection }) {
       if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
-      await accessMonitor.check(connection);
+      await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
     },
     async afterHandleMessage({ connection }) {
       const release = messageMutationLeases.get(connection);
@@ -762,9 +1109,36 @@ export function createCollaborationServer(server: http.Server, options: {
         activity?.assertOpen();
         assertRoomIdentity(document, context.claims);
         // Access can be revoked while queued behind another connection.
-        if (release) await accessMonitor.check(connection);
+        if (release) await retryNativePeerCheck(connection, () => accessMonitor.check(connection));
         activity?.assertOpen();
         roomOwners?.fence(document);
+        if (release && context.nativePeer) {
+          if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+          try { assertNativeCollaborationUpdateComplete(document, payload); }
+          catch (error) {
+            if (error instanceof CollaborationIncomingUpdatePreflightError) {
+              // Reject this frame before live apply/ACK. Keep local recovery
+              // available: update_rejected would mean permanent access denial.
+              connection.readOnly = true;
+              connection.webSocket.close(1013, 'Collaboration update requires complete resynchronization');
+            }
+            throw error;
+          }
+          try { await retryNativePeerCheck(connection, () => context.nativePeer!.authorizeWrite(roomOwners!.fence(document))); }
+          catch (error) {
+            if (error instanceof AuthenticatedNativeSessionTransportError && error.code === 'NATIVE_TRANSPORT_QUARANTINED') {
+              connection.readOnly = true;
+              connection.sendStateless(JSON.stringify({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+                message: 'The document is read-only. Reconnect to open its diagnosis.' }));
+              connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
+            }
+            throw error;
+          }
+          activity?.assertOpen();
+          assertRoomIdentity(document, context.claims);
+          roomOwners.fence(document);
+          if (!document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+        }
         if (context.claims.guestInvitationId && context.claims.permission === 'write' && release) {
           if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
           try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
@@ -902,7 +1276,8 @@ export function createCollaborationServer(server: http.Server, options: {
     async onDisconnect({ context, document }) {
       context?.startupActivity?.finish();
       context?.releaseRoomAdmission?.();
-      context?.stopAccessWatch?.();
+      await context?.stopAccessWatch?.();
+      await context?.cleanupNativePeer?.();
       if (context) context.releaseRoomAdmission = null;
       if (!context || document.getConnectionsCount() > 0) return;
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
@@ -933,8 +1308,8 @@ export function createCollaborationServer(server: http.Server, options: {
           || (!state.incomingNeedsReconcile && state.persistenceDisposition !== 'unchanged'
             && await lastContext.operationHistoryOwnership === true);
         if (state.persistenceDisposition !== 'unchanged'
-          && !(lastContext.actorType === 'agent' && !state.incomingNeedsReconcile
-            && (lastContext.agentTurnId || exactOperationHistoryOwned))) try {
+          && !(!state.incomingNeedsReconcile
+            && (exactOperationHistoryOwned || lastContext.actorType === 'agent' && lastContext.agentTurnId))) try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
@@ -1162,8 +1537,11 @@ export function createCollaborationServer(server: http.Server, options: {
       } catch (error) {
         // No disconnect hook exists when setup fails before Connection exists.
         // A shared load is awaited above before releasing its startup activity.
+        reportCollaborationStartupFailure(logCollaborationDiagnostic, {
+          phase: 'create_document', documentId: args[0], generation: args[4]?.claims?.lifecycleGeneration,
+        }, error);
         try { if (loaded) await hocuspocus.unloadDocument(loaded); }
-        finally { startup.finish(); }
+        finally { startup.finish(); await args[4]?.cleanupNativePeer?.(); }
         throw error;
       }
     };
@@ -1347,7 +1725,27 @@ export function createCollaborationServer(server: http.Server, options: {
     // until it is gone, or a new client can receive its previous representation.
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
+  const uninstallSearchCensus = installCollaborationSearchRoomCensus({
+    maps: () => ({ documents: hocuspocus.documents, loadingDocuments: hocuspocus.loadingDocuments,
+      unloadingDocuments: hocuspocus.unloadingDocuments }),
+    identity: document => roomIdentities.get(document),
+    owner: document => roomOwners?.fence(document),
+    isDraining: documentId => roomOwners?.isDraining(documentId) ?? false,
+    assertAvailable() {
+      if (nativeClosing) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+      roomOwners?.assertAvailable();
+    },
+  });
+  server.once('close', uninstallSearchCensus);
   installCollaborationDocumentReader(async (documentId, workspaceId, read, loadState = loadCollaborationState) => {
+    const session = directActivitySessions.getStore();
+    if (session) {
+      session.assertOpen();
+      if (documentId !== session.input.documentId || workspaceId !== session.input.workspace.workspaceId) {
+        throw new AgentDirectConnectionAuthorizationError('Direct activity read does not match this document.');
+      }
+      await session.assertCurrent();
+    }
     const pending = hocuspocus.unloadingDocuments.get(documentId);
     const handoff = pending && normalOwnedUnloads.get(pending);
     const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
@@ -1371,16 +1769,25 @@ export function createCollaborationServer(server: http.Server, options: {
       if (!state || state.documentId !== documentId || state.status !== 'active' || state.workspaceId !== workspaceId) {
         throw new Error('Collaboration document is unavailable or stale.');
       }
+      if (session) {
+        const expected = session.input;
+        if (state.path !== expected.documentPath || state.lifecycleGeneration !== expected.documentLifecycleGeneration
+          || state.representation !== expected.documentRepresentation || state.schemaVersion !== expected.documentSchemaVersion
+          || (state.organizationId ?? null) !== (expected.workspace.organizationId ?? null)) {
+          throw new AgentDirectConnectionAuthorizationError('Direct activity read identity changed.');
+        }
+        session.assertOpen();
+      }
       const activeDocument = hocuspocus.documents.get(documentId);
       if (activeDocument) {
         assertRoomIdentity(activeDocument, state);
-        return read(activeDocument);
+        return read(activeDocument, state);
       }
 
       const doc = new Y.Doc({ gc: true });
       try {
         Y.applyUpdate(doc, state.yjsState);
-        return read(doc);
+        return read(doc, state);
       } finally {
         doc.destroy();
       }
@@ -1393,119 +1800,145 @@ export function createCollaborationServer(server: http.Server, options: {
     console.error('[Collaboration] Proposal action recovery failed:', error);
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
-  installCollaborationDirectConnection((input, apply, onApplied) => withRoomActivity(input.documentId, async () => {
-    const actorType = input.actorType ?? 'agent';
-    let workspace = await resolveDirectConnectionWorkspace(input);
-    const { state, releaseRoomAdmission } = await withWorkspaceMutationLock(
-      workspace.workspaceId,
-      async () => {
-        const state = await assertDirectConnectionDocument(input, workspace);
-        await assertCurrentCollaborationAdmissionOpen(state);
-        return {
-          state,
-          releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
-        };
-      },
-    );
-    const context: CollaborationContext = {
-      claims: {
-        schemaVersion: state.schemaVersion,
-        issuedAt: Date.now(),
-        expiresAt: Date.now() + 60_000,
-        userId: input.initiatedByUserId,
-        sessionId: input.actorSessionId || input.operationId,
-        workspaceId: state.workspaceId,
-        organizationId: state.organizationId,
-        documentId: state.documentId,
-        path: state.path,
-        provider: 'yjs',
-        representation: state.representation,
-        permission: 'write',
-        lifecycleGeneration: state.lifecycleGeneration,
-      },
-      workspace,
-      user: { id: input.actorId, name: input.actorDisplayName, email: null },
-      actorType,
-      versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
-      versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
-      versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
-      agentTurnId: input.agentTurnId,
-      exactOperationHistoryOwned: actorType === 'agent' && Boolean(input.mcpAuthority),
-      initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
-      operationId: actorType === 'agent' ? input.operationId : null,
-      observedDocumentSequence: state.documentSequence,
-      releaseRoomAdmission,
-    };
-    admittedDirectCreates.add(context);
-    const inheritedRoom = hocuspocus.documents.has(input.documentId) || hocuspocus.loadingDocuments.has(input.documentId);
-    const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
-      (openedConnection) => {
-        context.releaseRoomAdmission?.();
-        context.releaseRoomAdmission = null;
-        return openedConnection;
-      },
-      (error) => {
-        context.releaseRoomAdmission?.();
-        context.releaseRoomAdmission = null;
-        throw error;
-      },
-    ).finally(() => { admittedDirectCreates.delete(context); });
-    let result: unknown;
-    let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
-    try {
-      const directRoom = connection.document;
-      if (roomOwners && directRoom && (!inheritedRoom || directOwnedRooms.has(directRoom))) {
-        directOwnedRooms.set(directRoom, { operationId: input.operationId, fence: roomOwners.fence(directRoom) });
-      }
-      await withWorkspaceMutationLock(workspace.workspaceId, async () => {
-        const document = connection.document;
-        if (!document) throw new Error('The direct collaboration connection is closed.');
-        await withCollaborationRoomMutationLock(document, async () => {
-          // Both fences can yield. Revalidate only after owning the workspace
-          // and concrete room; inbound peers must wait through receipt + store.
-          await assertDirectConnectionDocument(input, workspace);
-          workspace = await resolveDirectConnectionWorkspace(input);
-          context.workspace = workspace;
-          await assertCurrentCollaborationAdmissionOpen(context.claims);
-          if (onApplied && await standaloneOperationHistoryOwned(input)) {
-            context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
-          }
-          await connection.transact((liveDocument) => {
-            assertRoomIdentity(liveDocument, context.claims);
-            result = apply(liveDocument);
+  installCollaborationDirectConnection(async (input, apply, onApplied) => {
+    if (input.nativeDocumentVersion) input = { ...input,
+      nativeDocumentVersion: captureNativeDocumentEditVersion(input.nativeDocumentVersion) };
+    assertDirectActivitySession(input);
+    return withRoomActivity(input.documentId, async () => {
+      const actorType = input.actorType ?? 'agent';
+      let workspace = await resolveDirectConnectionWorkspace(input);
+      const { state, releaseRoomAdmission } = await withWorkspaceMutationLock(
+        workspace.workspaceId,
+        async () => {
+          const state = await assertDirectConnectionDocument(input, workspace);
+          await assertCurrentCollaborationAdmissionOpen(state);
+          return {
+            state,
+            releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
+          };
+        },
+      );
+      const context: CollaborationContext = {
+        claims: {
+          schemaVersion: state.schemaVersion,
+          issuedAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          userId: input.initiatedByUserId,
+          sessionId: input.actorSessionId || input.operationId,
+          workspaceId: state.workspaceId,
+          organizationId: state.organizationId,
+          documentId: state.documentId,
+          path: state.path,
+          provider: 'yjs',
+          representation: state.representation,
+          permission: 'write',
+          lifecycleGeneration: state.lifecycleGeneration,
+        },
+        workspace,
+        user: { id: input.actorId, name: input.actorDisplayName, email: null },
+        actorType,
+        versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
+        versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
+        versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
+        agentTurnId: input.agentTurnId,
+        exactOperationHistoryOwned: Boolean(input.nativeEditAuthority) || actorType === 'agent' && Boolean(input.mcpAuthority),
+        initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
+        operationId: actorType === 'agent' ? input.operationId : null,
+        observedDocumentSequence: state.documentSequence,
+        releaseRoomAdmission,
+      };
+      admittedDirectCreates.add(context);
+      const inheritedRoom = hocuspocus.documents.has(input.documentId) || hocuspocus.loadingDocuments.has(input.documentId);
+      const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
+        (openedConnection) => {
+          context.releaseRoomAdmission?.();
+          context.releaseRoomAdmission = null;
+          return openedConnection;
+        },
+        (error) => {
+          context.releaseRoomAdmission?.();
+          context.releaseRoomAdmission = null;
+          throw error;
+        },
+      ).finally(() => { admittedDirectCreates.delete(context); });
+      let result: unknown;
+      let settleHistoryOwnership: ((owned: boolean) => void) | undefined;
+      try {
+        const directRoom = connection.document;
+        if (roomOwners && directRoom && (!inheritedRoom || directOwnedRooms.has(directRoom))) {
+          directOwnedRooms.set(directRoom, { operationId: input.operationId, fence: roomOwners.fence(directRoom) });
+        }
+        await withWorkspaceMutationLock(workspace.workspaceId, async () => {
+          const document = connection.document;
+          if (!document) throw new Error('The direct collaboration connection is closed.');
+          await withCollaborationRoomMutationLock(document, async () => {
+            // Both fences can yield. Revalidate only after owning the workspace
+            // and concrete room; inbound peers must wait through receipt + store.
+            await assertDirectConnectionDocument(input, workspace);
+            workspace = await resolveDirectConnectionWorkspace(input);
+            context.workspace = workspace;
+            await assertCurrentCollaborationAdmissionOpen(context.claims);
+            if (onApplied && await standaloneOperationHistoryOwned(input)) {
+              context.operationHistoryOwnership = new Promise<boolean>(resolve => { settleHistoryOwnership = resolve; });
+            }
+            assertDirectActivitySession(input);
+            const session = directActivitySessions.getStore();
+            if (session && (workspace.workspaceId !== session.input.workspace.workspaceId
+              || (workspace.organizationId ?? null) !== (session.input.workspace.organizationId ?? null))) {
+              throw new AgentDirectConnectionAuthorizationError('Direct activity workspace scope changed.');
+            }
+            if (input.nativeEditAuthority) {
+              await withNativeDirectConnectionAuthority(input, async access => {
+                await connection.transact(liveDocument => {
+                  assertRoomIdentity(liveDocument, context.claims);
+                  access.assertActive();
+                  assertNativeDocumentEditPrecondition({ doc: liveDocument,
+                    identity: input.nativeDocumentVersion!.identity,
+                    expectedVersion: input.nativeDocumentVersion!.expectedVersion });
+                  access.assertActive();
+                  result = apply(liveDocument);
+                });
+              });
+            } else {
+              await connection.transact((liveDocument) => {
+                assertRoomIdentity(liveDocument, context.claims);
+                result = apply(liveDocument);
+              });
+            }
+            roomOwners?.fence(document);
+            if (onApplied) await onApplied(result as never);
+            assertDirectActivitySession(input);
+            if (settleHistoryOwnership) {
+              const appliedTargetIds = result && typeof result === 'object' && 'appliedTargetIds' in result
+                && Array.isArray(result.appliedTargetIds) ? result.appliedTargetIds as string[] : [];
+              settleHistoryOwnership(await standaloneOperationHistoryOwned(input, appliedTargetIds));
+            }
+            roomOwners?.fence(document);
+            // Do not acquire this room lease in onStoreDocument: disconnect
+            // awaits Hocuspocus's saveMutex, which a scheduled store may own.
+            await connection.disconnect({ unloadImmediately: true });
+            // Hocuspocus deliberately swallows store failures. A terminal owner
+            // loss must still reject this direct call, even after disconnect.
+            roomOwners?.assertAvailable();
           });
-          roomOwners?.fence(document);
-          if (onApplied) await onApplied(result as never);
-          if (settleHistoryOwnership) {
-            const appliedTargetIds = result && typeof result === 'object' && 'appliedTargetIds' in result
-              && Array.isArray(result.appliedTargetIds) ? result.appliedTargetIds as string[] : [];
-            settleHistoryOwnership(await standaloneOperationHistoryOwned(input, appliedTargetIds));
-          }
-          roomOwners?.fence(document);
-          // Do not acquire this room lease in onStoreDocument: disconnect
-          // awaits Hocuspocus's saveMutex, which a scheduled store may own.
-          await connection.disconnect({ unloadImmediately: true });
-          // Hocuspocus deliberately swallows store failures. A terminal owner
-          // loss must still reject this direct call, even after disconnect.
-          roomOwners?.assertAvailable();
         });
-      });
-    } catch (error) {
-      settleHistoryOwnership?.(false);
-      await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
-      throw error;
-    } finally {
-      settleHistoryOwnership?.(false);
-    }
-    return result as never;
-  }));
+      } catch (error) {
+        settleHistoryOwnership?.(false);
+        await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
+        throw error;
+      } finally {
+        settleHistoryOwnership?.(false);
+      }
+      return result as never;
+    });
+  });
   const wss = new WebSocketServer({ noServer: true });
   const turnRecovery = setInterval(() => {
     void agentTurnHistoryService.recoverExpired().catch(error => console.error('[Collaboration] Agent turn history recovery failed:', error));
   }, 30_000);
   turnRecovery.unref();
   wss.once('close', () => clearInterval(turnRecovery));
-  wss.once('close', () => accessMonitor.dispose());
+  wss.once('close', () => { void shutdownNativePeers().catch(() => { console.error('[Collaboration] Peer shutdown cleanup failed.'); }); });
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);
     if (!nextUrl) return;
@@ -1529,6 +1962,12 @@ export function createCollaborationServer(server: http.Server, options: {
               const address = decoding.readVarString(decoder).split('\0', 1)[0];
               if (decoding.readVarUint(decoder) === MessageType.Auth
                 && decoding.readVarUint(decoder) === AuthMessageType.PermissionDenied) {
+                for (const context of pendingNative.get(collaborationRequest) ?? []) {
+                  if (context.claims.documentId === address && !context.nativePeerLifetime?.connected
+                    && (!context.startupActivity || startupPhases.get(context.startupActivity) === 'authenticated')) {
+                    void context.cleanupNativePeer?.().catch(() => { console.error('[Collaboration] Peer setup cleanup failed.'); });
+                  }
+                }
                 // A closed socket can delete Hocuspocus's hook context after
                 // auth but before createDocument. Other phases finish in their
                 // own catch/disconnect; never settle a parallel loaded attempt.

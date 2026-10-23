@@ -6,6 +6,9 @@ import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
 import type { AgentEditFileInput } from '@/app/lib/pi/agent-file-operations';
 import { agentEditFileParameters, formatAgentEditFileValidationError } from '@/app/lib/pi/agent-file-tool-schemas';
+import { piDocumentEditToolParameters, decodePiNativeDocumentEditSelection, nativePiDocumentEditWire,
+  formatPiNativeDocumentEditResult, formatPiNativeDocumentEditError } from '@/app/lib/pi/document-edit-tool-contract';
+import { editDocumentForAgentTool, readDocumentEditStatusForAgentTool } from '@/app/lib/documents/edit-public-service';
 import { AgentShellSandboxError } from '@/app/lib/pi/agent-shell-sandbox';
 import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import {
@@ -31,6 +34,8 @@ import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
 import { createWebSearchTool, createWebFetchTool, createRipgrepTool } from '@/app/lib/pi/web-tools';
 import { createInspectDocumentRelationsTool } from '@/app/lib/pi/document-relations-tool';
+import { createDocumentReadTool } from '@/app/lib/pi/document-read-tool';
+import { createDocumentSearchTool } from '@/app/lib/pi/document-search-tool';
 import { createPdfTools } from '@/app/lib/pi/pdf-tools';
 import { createOfficeDocumentTools } from '@/app/lib/pi/office-document-tools';
 import {
@@ -152,6 +157,8 @@ export const piTools: AgentTool[] = [
   createRipgrepTool(),
   createTranscribeAudioTool(),
   createInspectDocumentRelationsTool(),
+  createDocumentReadTool(),
+  createDocumentSearchTool(),
   ...createPdfTools(),
   ...createOfficeDocumentTools(),
   {
@@ -477,15 +484,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried. After success, inspect local link diagnostics and repair missing or ambiguous targets within the task. Link warnings never require replaying the mutation or inventing missing files.',
+    description: 'Writes text content to a file, returns a diff, validates supported file types, and verifies the saved result. Legacy file edits may include a snapshot; confirmed native document creation returns its native receipt with no undo snapshot. New native Markdown files are limited to 1 MiB (1048576 UTF-8 bytes); this limit applies only to new creation, not existing-file edits or original creation retries. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. For a Markdown creation retry after an uncertain result, reuse the exact original path, content and idempotencyKey returned in the error; do not generate a new key or replay automatically. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried. After success, inspect local link diagnostics and repair missing or ambiguous targets within the task. Link warnings never require replaying the mutation or inventing missing files.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
+      idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 500,
+        description: 'Stable caller key for a Markdown creation retry. Reuse the exact original key after an uncertain result; omitted keys use this tool call ID.' })),
       expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before writing.' })),
       proposal: Type.Optional(ProposalToolEditSchemaV1),
     }),
     execute: async (toolCallId, params) => {
-      const { path: filePath, content, expectedSha256 } = params as { path: string; content: string; expectedSha256?: string };
+      const { path: filePath, content, expectedSha256, idempotencyKey } = params as {
+        path: string; content: string; expectedSha256?: string; idempotencyKey?: string };
       try {
         const proposal = parseOptionalProposalToolEditV1(params as Record<string, unknown>);
         const [result] = await addAgentFileLinkDiagnostics([await writeAgentTextFile({
@@ -493,7 +503,7 @@ export const piTools: AgentTool[] = [
           content,
           expectedSha256,
           operation: 'write',
-          idempotencyKey: toolCallId,
+          idempotencyKey: idempotencyKey ?? toolCallId,
           ...(proposal ? { proposal } : {}),
         })]);
         return {
@@ -513,14 +523,26 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Document Review Center is experimental and disabled by default. Direct edit success confirms the physical file checkpoint. If the feature and document review are enabled, results may report review required; never assume a proposal was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects. Inspect local link diagnostics after editing; their basis identifies applied, proposed, or current content. Link warnings are informational and do not authorize inventing missing files.',
-    parameters: agentEditFileParameters,
+    description: 'Use apiVersion:1 and action:edit for native documentId/full expectedVersion patches with a stable caller idempotencyKey. Native text/block edits do not require Markdown export or a physical file projection; blocks require tiptap_blocks IDs and exact local guards. Only state:confirmed confirms persistence. Query action:status with workspaceId and operationId after pending or uncertain results, never auto-replay or replace the caller key with a tool call ID. Legacy path forms safely edit an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for legacy low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Document Review Center is experimental and disabled by default. Legacy direct edit success confirms the physical file checkpoint. If the feature and document review are enabled, legacy results may report review required; never assume a proposal was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects. Inspect legacy local link diagnostics after editing; their basis identifies applied, proposed, or current content. Link warnings are informational and do not authorize inventing missing files.',
+    parameters: piDocumentEditToolParameters,
     prepareArguments: (params) => {
+      const native = decodePiNativeDocumentEditSelection(params);
+      if (native) return nativePiDocumentEditWire(native);
       if (params && typeof params === 'object' && !Array.isArray(params)) parseOptionalProposalToolEditV1(params as Record<string, unknown>);
       if (!Value.Check(agentEditFileParameters, params)) throw new Error(formatAgentEditFileValidationError(params));
       return params as Static<typeof agentEditFileParameters>;
     },
     execute: async (toolCallId, params) => {
+      let native: ReturnType<typeof decodePiNativeDocumentEditSelection>;
+      try { native = decodePiNativeDocumentEditSelection(params); }
+      catch (error) { return formatPiNativeDocumentEditError(error); }
+      if (native) {
+        try {
+          const value = native.action === 'edit' ? await editDocumentForAgentTool(native.request)
+            : await readDocumentEditStatusForAgentTool(native.request);
+          return formatPiNativeDocumentEditResult(value);
+        } catch (error) { return formatPiNativeDocumentEditError(error); }
+      }
       const { path: filePath } = params as { path: string };
       try {
         parseOptionalProposalToolEditV1(params as Record<string, unknown>);
@@ -968,9 +990,9 @@ export const piTools: AgentTool[] = [
         throwIfAborted(signal);
         const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
-        // Use execFile to avoid shell injection via pattern or path
+        // Bind the pattern as data and prevent config from adding commands or paths.
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['-n', pattern, targetPath], { cwd: '/', signal }, (err, stdout, stderr) => {
+          execFile('rg', ['--no-config', '-n', '--', pattern, targetPath], { cwd: '/', signal }, (err, stdout, stderr) => {
             if (err && (err as NodeJS.ErrnoException & { code?: number }).code === 1) {
               resolve({ stdout: '', stderr: '' }); // no matches
             } else if (err) {
@@ -1014,9 +1036,9 @@ export const piTools: AgentTool[] = [
         throwIfAborted(signal);
         const searchRoot = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(searchRoot);
-        // Use execFile with argument array to avoid shell injection via pattern
+        // The glob is a value; inherited config must not extend the search scope.
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/', signal }, (err, stdout, stderr) => {
+          execFile('rg', ['--no-config', '--files', '-g', pattern, '--', searchRoot], { cwd: '/', signal }, (err, stdout, stderr) => {
             const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
             if (errCode === 1) {
               resolve({ stdout: '', stderr: '' });

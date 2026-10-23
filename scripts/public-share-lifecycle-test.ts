@@ -5,7 +5,7 @@ import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { Pool } from 'pg';
+import { installPglitePoolHarness, runPgliteFixture } from './helpers/pglite-pool-harness';
 
 import { parsePublicSharePolicy, requirePublicShareBody } from '../app/lib/public-sharing/share-policy-input';
 
@@ -20,19 +20,7 @@ async function main() {
   const workspaceRoot = path.join(tempRoot, 'workspace');
   await mkdir(workspaceRoot, { recursive: true });
   const postgres = new PGlite();
-  const query = async (input: string | { text: string; rowMode?: string }, values?: unknown[]) => {
-    const result = await postgres.query<Record<string, unknown>>(typeof input === 'string' ? input : input.text, values);
-    return {
-      ...result,
-      rowCount: result.affectedRows ?? result.rows.length,
-      rows: typeof input !== 'string' && input.rowMode === 'array'
-        ? result.rows.map((row) => result.fields.map((field) => row[field.name]))
-        : result.rows,
-    };
-  };
-  const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
-  Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
-  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
+  const harness = installPglitePoolHarness(postgres);
   try {
     assert.deepEqual(parsePublicSharePolicy({}), {});
     assert.deepEqual(parsePublicSharePolicy({ expiresAt: null }), { expiresAt: null });
@@ -142,7 +130,6 @@ async function main() {
       });
       assert.equal(largeHead.status, 200, 'Text above the preview limit remains downloadable');
       assert.equal(largeHead.headers.get('content-length'), String(6 * 1024 * 1024));
-      console.log(`public-share-lifecycle-test: ${provider} ok`);
     }
     const { publicRateLimit } = await import('../app/lib/security/public-rate-limit');
     let limited: Awaited<ReturnType<typeof publicRateLimit>> | undefined;
@@ -152,10 +139,11 @@ async function main() {
     assert.equal(limited?.ok, false, 'Invented cookies cannot bypass the public renderer budget');
     if (limited && !limited.ok) assert.equal(limited.response.status, 429);
   } finally {
-    Object.assign(Pool.prototype, original);
+    harness.restore();
     await postgres.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+void runPgliteFixture({ label: 'public-share-lifecycle-test', operation: main,
+  successMessage: 'public-share-lifecycle-test: postgres ok' });

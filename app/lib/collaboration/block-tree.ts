@@ -14,6 +14,9 @@ import { RICH_BLOCK_TREE_FORMAT_VERSION } from './types';
 
 export const BLOCK_TREE_FORMAT_VERSION = RICH_BLOCK_TREE_FORMAT_VERSION;
 export const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
+// Type allocation is not a user history action. Undo changes visibility or
+// text while retaining the shared parents that a delayed peer can still edit.
+export const BLOCK_TREE_ALLOCATION_ORIGIN = Symbol('block-tree-allocation');
 
 type BlockProperties = { type: string; attrs: Record<string, unknown>; inline: boolean };
 type BlockRecord = YTypes.Map<unknown>;
@@ -123,7 +126,13 @@ export class CollaborationBlockTree {
   createUndoManager(origin: unknown): YTypes.UndoManager {
     // Receipts are durable even when the corresponding operation is undone:
     // retrying that operation must not silently redo it.
-    return new Y.UndoManager([this.records, this.operations], { trackedOrigins: new Set([origin]), captureTimeout: 0 });
+    return new Y.UndoManager([this.records, this.operations], {
+      trackedOrigins: new Set([origin]), captureTimeout: 0,
+      // Inline leaves split a fragment into multiple text parents. Retain the
+      // empty text shells while undoing their characters, so delayed peers
+      // never write into a parent replaced by redo.
+      deleteFilter: (item) => !(item.content instanceof Y.ContentType && item.content.type instanceof Y.XmlText),
+    });
   }
 
   content(blockId: string): YTypes.XmlFragment {
@@ -343,10 +352,36 @@ export class CollaborationBlockTree {
     const transaction = structural ? this.stamp(prefix) : null;
     let ordinal = 0;
     const operationStamp = (id: string) => ({ ...transaction!, id, ordinal: ordinal++ });
+    const added = [...next.values()].filter((block) => !before.has(block.id));
+    const emptyTextParents = [...next.values()].filter((block) => {
+      const old = before.get(block.id);
+      return old?.node.inlineContent && block.node.inlineContent
+        && old.node.childCount === 0 && block.node.childCount > 0
+        && block.node.content.content.every((child) => child.isText)
+        && this.content(block.id).length === 0;
+    });
+    const allocation: BlockPlacementOperation | null = added.length ? {
+      ...operationStamp(`${prefix}:allocate`), kind: 'delete', blockIds: added.map((block) => block.id),
+    } : null;
+    if (allocation || emptyTextParents.length) {
+      this.doc.transact(() => {
+        for (const block of added) this.addRecord(block);
+        // Keep newly allocated records hidden until the tracked edit below.
+        // Its undo restores this ordinary placement tombstone, so redo never
+        // has to recreate a record or its content fragment.
+        if (allocation) this.recordOperation(allocation);
+        for (const block of emptyTextParents) {
+          // y-tiptap retains an existing empty XmlText when clearing a text
+          // block. Allocate that parent before the first captured character.
+          this.content(block.id).insert(0, [new Y.XmlText()]);
+        }
+      }, BLOCK_TREE_ALLOCATION_ORIGIN);
+    }
     this.doc.transact(() => {
+      if (allocation) this.operations.delete(allocation.id);
       for (const block of next.values()) {
         const old = before.get(block.id);
-        if (!old) { this.addRecord(block); continue; }
+        if (!old) continue;
         if (old.node === block.node) continue;
         const record = this.records.get(block.id)!;
         const attrs = record.get('attributes') as YTypes.Map<unknown>;

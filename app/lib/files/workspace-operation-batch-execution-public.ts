@@ -1,11 +1,16 @@
-import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchPlan, WorkspaceOperationLegacyBatchPlan, WorkspaceOperationNativeDeleteBatchPlan,
+  WorkspaceOperationBatchProgress, WorkspaceOperationBatchExecutionResult } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
 import type { WorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-public';
+import type { WorkspaceOperationOriginalDeleteObservation } from './workspace-operation-original-delete-observation';
 import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-write-groups';
+import { workspaceOperationNativeDeleteEffects, workspaceOperationNativeDeleteAppliedEffects,
+  type WorkspaceOperationNativeDeleteEffect } from './workspace-operation-native-delete-effects';
 
 type JournalStep = { key: string; state: 'intent' | 'applied'; receipt: Record<string, unknown> | null };
 export type WorkspaceOperationBatchPublicJournal = {
   status: string; steps: JournalStep[]; undoSteps: JournalStep[];
-  undoPlan: WorkspaceOperationBatchPlan['linkPlan'] | null;
+  undoPlan: WorkspaceOperationLegacyBatchPlan['linkPlan'] | null;
 };
 export type WorkspaceOperationBatchExecutionPublicInput = {
   plan: WorkspaceOperationBatchPlan; actionMode: 'apply' | 'undo'; status: string;
@@ -14,7 +19,7 @@ export type WorkspaceOperationBatchExecutionPublicInput = {
 
 /** No filesystem probes: states describe journal acknowledgments of the approved work. */
 export function projectWorkspaceOperationBatchExecution(
-  input: WorkspaceOperationBatchExecutionPublicInput,
+  input: WorkspaceOperationBatchExecutionPublicInput & { plan: WorkspaceOperationLegacyBatchPlan },
   journal: WorkspaceOperationBatchPublicJournal | null,
   unreadable = false,
 ): WorkspaceOperationBatchExecutionPublic {
@@ -94,4 +99,72 @@ export function projectWorkspaceOperationBatchExecution(
     }
     return { ...row, state, ...(openPath ? { openPath } : {}) };
   }) };
+}
+
+/** SQL evidence only. This intentionally creates neither a legacy manifest nor
+ * an afterTree; the original journal's five checked records prove finality. */
+export function projectWorkspaceOperationNativeDeleteExecution(
+  input: WorkspaceOperationBatchExecutionPublicInput & { plan: WorkspaceOperationNativeDeleteBatchPlan },
+  observation: WorkspaceOperationOriginalDeleteObservation | null,
+): WorkspaceOperationBatchExecutionPublic {
+  const mode = input.actionMode;
+  const row = { key: 'path:0', phase: 'path' as const, kind: mode === 'undo' ? 'restore' as const : 'delete' as const,
+    path: input.plan.nativeTarget.path, reviewId: input.plan.pathSteps[0]?.reviewId, state: 'pending' as const };
+  let effects: readonly WorkspaceOperationNativeDeleteEffect[] = [];
+  const rows = () => [row, ...effects.map((effect, index) => ({ key: `link:${index}`, phase: 'link' as const,
+    kind: 'link_update' as const, path: effect.path, state: 'pending' as const }))];
+  const unavailable = (): WorkspaceOperationBatchExecutionPublic => ({ mode, receiptStatus: 'unavailable', finalization: 'pending',
+    steps: rows().map(step => ({ ...step, state: 'needs_check' })) });
+  try { effects = workspaceOperationNativeDeleteEffects(input.plan); }
+  catch { return unavailable(); }
+  if (!observation || input.plan.readiness !== 'ready' || input.plan.pathSteps.length !== 1
+    || input.plan.pathSteps[0].kind !== 'delete' || input.plan.pathSteps[0].sourcePath !== row.path
+    || input.plan.previewContents.length || input.plan.linkEdits.length || input.plan.pathMappings.length) return unavailable();
+  // File Undo remains disabled. Historical no-link presentations keep their
+  // original contract; no forward unlink receipt proves an inverse link write.
+  if (mode === 'undo' && effects.length) return unavailable();
+  const complete = mode === 'undo' ? observation.undo === 'complete' && Boolean(observation.restored)
+    : observation.apply === 'complete' && Boolean(observation.deleted);
+  if (complete) {
+    if (!observation.deleted) return unavailable();
+    try { workspaceOperationNativeDeleteAppliedEffects(input.plan, observation.deleted); }
+    catch { return unavailable(); }
+    return { mode, receiptStatus: 'available', finalization: 'complete', steps: rows().map(step => ({ ...step, state: 'applied',
+      ...(step.phase === 'link' ? { openPath: step.path } : {}) })) };
+  }
+  const claimedComplete = input.completedActions > 0 || input.phase === 'complete'
+    || input.status === (mode === 'undo' ? 'undone' : 'applied');
+  if (claimedComplete) return unavailable();
+  const started = mode === 'undo' ? observation.undo === 'started' : observation.apply === 'started';
+  if (started) return { mode, receiptStatus: 'available', finalization: 'pending', steps: rows().map(step => ({ ...step, state: 'needs_check' })) };
+  if (mode === 'undo' ? observation.undo !== 'pristine' : observation.apply !== 'absent') return unavailable();
+  return { mode, receiptStatus: 'not_started', finalization: 'pending', steps: rows() };
+}
+
+export function workspaceOperationNativeDeleteMutationEvidence(observation: WorkspaceOperationOriginalDeleteObservation,
+  undo = false): WorkspaceOperationBatchMutationEvidence {
+  if (!undo) return observation.apply;
+  if (observation.undo === 'unknown') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+  return observation.undo;
+}
+
+export function workspaceOperationNativeDeleteExecutionResult(plan: WorkspaceOperationNativeDeleteBatchPlan,
+  observation: WorkspaceOperationOriginalDeleteObservation, undo = false): WorkspaceOperationBatchExecutionResult | null {
+  const state = undo ? observation.undo : observation.apply;
+  if (state === 'absent' || state === 'pristine') return null;
+  if (state === 'unknown') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+  const effects = workspaceOperationNativeDeleteEffects(plan);
+  if (undo && effects.length) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+  const complete = state === 'complete', receipt = undo ? observation.restored : observation.deleted;
+  if (complete && (!receipt || !observation.deleted)) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+  const appliedEffects = complete ? workspaceOperationNativeDeleteAppliedEffects(plan, observation.deleted!) : [];
+  const totalActions = 1 + effects.length;
+  return { status: complete ? 'applied' : 'needs_recovery', completedActions: complete ? totalActions : 0,
+    totalActions, errorCode: complete ? null : 'BATCH_RECOVERY_REQUIRED',
+    trashEntryIds: observation.deleted ? [observation.deleted.trashEntryId] : [],
+    stepResults: [{ key: 'path:0', phase: 'path', state: complete ? 'applied' : 'intent',
+      path: plan.nativeTarget.path, reviewId: plan.pathSteps[0].reviewId,
+      ...(observation.deleted ? { trashEntryId: observation.deleted.trashEntryId } : {}) },
+    ...effects.map((effect, index) => ({ key: `link:${index}`, phase: 'link' as const, state: complete ? 'applied' as const : 'intent' as const,
+      path: effect.path, ...(complete ? { updatedLinks: appliedEffects[index].updatedLinks } : {}) }))] };
 }

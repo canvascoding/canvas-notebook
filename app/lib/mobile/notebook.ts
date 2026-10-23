@@ -24,6 +24,7 @@ import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from 
 import { collaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { mobileNotebookOperationIdentity, readMobileNotebookOperation, prepareMobileNotebookOperation, compactMobileNotebookOperation, type MobileNotebookOperation } from './notebook-operations';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
+import { withCollaborationDirectActivitySession } from '@/app/lib/collaboration/direct-activity-session';
 import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
 import {
   createRichMarkdownYDoc,
@@ -427,88 +428,94 @@ async function saveMobileCollaborativeNotebookDocument(input: {
       initiatedByUserId: input.actorUserId, operationId: identity.operationId, actorType: 'user' as const,
       actorSessionId: input.actorSessionId,
     };
-    let operation = await readMobileNotebookOperation(identity.operationId);
-    if (operation && (operation.fingerprint !== identity.fingerprint || operation.user_id !== input.actorUserId
-      || operation.document_id !== input.documentId || operation.workspace_id !== input.workspace.workspaceId
-      || Number(operation.lifecycle_generation) !== persistedState.lifecycleGeneration
-      || operation.representation !== persistedState.representation || operation.document_path !== input.path)) {
-      throw new MobileNotebookError('The operation key belongs to a different edit or document lifecycle.', 409, 'IDEMPOTENCY_CONFLICT');
-    }
-    try {
-      if (!operation) {
-        if (input.currentRevisionId && input.currentRevisionId !== input.baseRevisionId) {
-          throw new FileCollaborationPolicyError({ code: 'FILE_REVISION_ID_CONFLICT', status: 409,
-            message: 'File revision conflict: reload the latest version before saving.', path: input.path,
-            currentRevisionId: input.currentRevisionId, baseRevisionId: input.baseRevisionId });
+    return withCollaborationDirectActivitySession(connection, async (session) => {
+      let operation = await readMobileNotebookOperation(identity.operationId);
+      if (operation && (operation.fingerprint !== identity.fingerprint || operation.user_id !== input.actorUserId
+        || operation.document_id !== input.documentId || operation.workspace_id !== input.workspace.workspaceId
+        || Number(operation.lifecycle_generation) !== persistedState.lifecycleGeneration
+        || operation.representation !== persistedState.representation || operation.document_path !== input.path)) {
+        throw new MobileNotebookError('The operation key belongs to a different edit or document lifecycle.', 409, 'IDEMPOTENCY_CONFLICT');
+      }
+      try {
+        if (!operation) {
+          if (input.currentRevisionId && input.currentRevisionId !== input.baseRevisionId) {
+            throw new FileCollaborationPolicyError({ code: 'FILE_REVISION_ID_CONFLICT', status: 409,
+              message: 'File revision conflict: reload the latest version before saving.', path: input.path,
+              currentRevisionId: input.currentRevisionId, baseRevisionId: input.baseRevisionId });
+          }
+          operation = await runCollaborationDirectConnection(connection, (doc): MobileNotebookOperation => {
+            const currentContent = isRichTextCollaborationRepresentation(persistedState.representation)
+              ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+            if (sha256Text(currentContent) !== input.expectedSha256) throw new MobileCollaborationRevisionConflict(sha256Text(currentContent));
+            const baseProof = collaborationStateProof(doc, Y);
+            if (!baseProof) throw new MobileNotebookError('The document is waiting for missing updates.', 409, 'COLLABORATION_STATE_STALE');
+            const planned = new Y.Doc();
+            try {
+              Y.applyUpdate(planned, Y.encodeStateAsUpdate(doc));
+              if (isRichTextCollaborationRepresentation(persistedState.representation)) {
+                const candidate = createRichMarkdownYDoc(input.content);
+                let normalized: string;
+                try { normalized = richMarkdownFromYDoc(candidate); } finally { candidate.destroy(); }
+                if (normalized !== input.content && normalized !== input.content.replace(/\n$/u, '')) {
+                  throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
+                }
+                replaceRichMarkdownInYDoc(planned, normalized, origin);
+                const validation = validateRichMarkdownYDoc(planned);
+                if (!validation.valid || validation.markdown !== normalized) {
+                  throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
+                }
+              } else {
+                planned.transact(() => {
+                  const text = planned.getText('content');
+                  if (text.length) text.delete(0, text.length);
+                  if (input.content) text.insert(0, input.content);
+                }, origin);
+              }
+              const snapshot = captureAgentStateSnapshot(planned, Y);
+              if (!snapshot) throw new MobileNotebookError('The prepared edit is incomplete.', 409, 'COLLABORATION_STATE_STALE');
+              return { operation_id: identity.operationId, document_id: input.documentId, workspace_id: input.workspace.workspaceId,
+                user_id: input.actorUserId, lifecycle_generation: persistedState.lifecycleGeneration,
+                representation: persistedState.representation, document_path: input.path, fingerprint: identity.fingerprint,
+                base_state_proof: baseProof, resulting_state_snapshot: snapshot,
+                yjs_update: Y.encodeStateAsUpdate(planned, Y.encodeStateVector(doc)) };
+            } finally { planned.destroy(); }
+          });
+          await prepareMobileNotebookOperation(operation);
         }
-        operation = await runCollaborationDirectConnection(connection, (doc): MobileNotebookOperation => {
-          const currentContent = isRichTextCollaborationRepresentation(persistedState.representation)
-            ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
-          if (sha256Text(currentContent) !== input.expectedSha256) throw new MobileCollaborationRevisionConflict(sha256Text(currentContent));
-          const baseProof = collaborationStateProof(doc, Y);
-          if (!baseProof) throw new MobileNotebookError('The document is waiting for missing updates.', 409, 'COLLABORATION_STATE_STALE');
-          const planned = new Y.Doc();
-          try {
-            Y.applyUpdate(planned, Y.encodeStateAsUpdate(doc));
-            if (isRichTextCollaborationRepresentation(persistedState.representation)) {
-              const candidate = createRichMarkdownYDoc(input.content);
-              let normalized: string;
-              try { normalized = richMarkdownFromYDoc(candidate); } finally { candidate.destroy(); }
-              if (normalized !== input.content && normalized !== input.content.replace(/\n$/u, '')) {
-                throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
-              }
-              replaceRichMarkdownInYDoc(planned, normalized, origin);
-              const validation = validateRichMarkdownYDoc(planned);
-              if (!validation.valid || validation.markdown !== normalized) {
-                throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
-              }
-            } else {
-              planned.transact(() => {
-                const text = planned.getText('content');
-                if (text.length) text.delete(0, text.length);
-                if (input.content) text.insert(0, input.content);
-              }, origin);
-            }
-            const snapshot = captureAgentStateSnapshot(planned, Y);
-            if (!snapshot) throw new MobileNotebookError('The prepared edit is incomplete.', 409, 'COLLABORATION_STATE_STALE');
-            return { operation_id: identity.operationId, document_id: input.documentId, workspace_id: input.workspace.workspaceId,
-              user_id: input.actorUserId, lifecycle_generation: persistedState.lifecycleGeneration,
-              representation: persistedState.representation, document_path: input.path, fingerprint: identity.fingerprint,
-              base_state_proof: baseProof, resulting_state_snapshot: snapshot,
-              yjs_update: Y.encodeStateAsUpdate(planned, Y.encodeStateVector(doc)) };
-          } finally { planned.destroy(); }
+        // A lifecycle drain or revoked session may have appeared during SQL prepare.
+        // The pin prevents idle unload only; it grants no permission to apply.
+        await session.assertOpen();
+        const prepared = operation;
+        await runCollaborationDirectConnection(connection, (doc) => {
+          if (mobileOperationIncluded(doc, prepared.resulting_state_snapshot)) return;
+          if (!prepared.yjs_update || collaborationStateProof(doc, Y) !== prepared.base_state_proof) {
+            const content = isRichTextCollaborationRepresentation(persistedState.representation)
+              ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+            throw new MobileCollaborationRevisionConflict(sha256Text(content));
+          }
+          // Replaying the exact server-prepared delta is idempotent, including
+          // after response loss and subsequent peer changes to its text.
+          doc.transact(() => Y.applyUpdate(doc, prepared.yjs_update!, origin), origin);
         });
-        await prepareMobileNotebookOperation(operation);
-      }
-      const prepared = operation;
-      await runCollaborationDirectConnection(connection, (doc) => {
-        if (mobileOperationIncluded(doc, prepared.resulting_state_snapshot)) return;
-        if (!prepared.yjs_update || collaborationStateProof(doc, Y) !== prepared.base_state_proof) {
-          const content = isRichTextCollaborationRepresentation(persistedState.representation)
-            ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
-          throw new MobileCollaborationRevisionConflict(sha256Text(content));
+      } catch (error) {
+        if (error instanceof MobileCollaborationRevisionConflict) {
+          throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409,
+            message: 'File revision conflict: the live document changed. Reload before saving.', path: input.path,
+            expectedSha256: input.expectedSha256, currentSha256: error.currentSha256,
+            currentStats: (await getWorkspaceFileRevision(input.path, input.fileOptions))?.stats ?? null });
         }
-        // Replaying the exact server-prepared delta is idempotent, including
-        // after response loss and subsequent peer changes to its text.
-        doc.transact(() => Y.applyUpdate(doc, prepared.yjs_update!, origin), origin);
-      });
-    } catch (error) {
-      if (error instanceof MobileCollaborationRevisionConflict) {
-        throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409,
-          message: 'File revision conflict: the live document changed. Reload before saving.', path: input.path,
-          expectedSha256: input.expectedSha256, currentSha256: error.currentSha256,
-          currentStats: (await getWorkspaceFileRevision(input.path, input.fileOptions))?.stats ?? null });
+        throw error;
       }
-      throw error;
-    }
-    const durable = await waitForMobileCollaborationDurability(operation);
-    // This is only compaction; the retained prepared delta remains safe if it fails.
-    await compactMobileNotebookOperation(operation.operation_id).catch(() => undefined);
-    return { ...await readMobileNotebookDocument(input), saveReceipt: {
-      operationId: operation.operation_id, applied: true, durable: true,
-      projectionPending: durable.checkpointSequence < durable.documentSequence,
-      documentSequence: durable.documentSequence,
-    } };
+      const durable = await waitForMobileCollaborationDurability(operation);
+      // This is only compaction; the retained prepared delta remains safe if it fails.
+      await compactMobileNotebookOperation(operation.operation_id).catch(() => undefined);
+      await session.assertOpen();
+      return { ...await readMobileNotebookDocument(input), saveReceipt: {
+        operationId: operation.operation_id, applied: true, durable: true,
+        projectionPending: durable.checkpointSequence < durable.documentSequence,
+        documentSequence: durable.documentSequence,
+      } };
+    });
   });
 }
 

@@ -60,15 +60,19 @@ export function renderInlineWithMarkedWhitespace(
   const endsLine = (index: number) => index === content.length - 1 || content[index + 1]?.type === 'hardBreak';
   const explicitBreak = (node: JSONContent, index: number) => node.type === 'hardBreak'
     && (options.inlineOnly || startsLine(index) || endsLine(index) || Boolean(node.marks?.length));
+  // Marked normalizes CR before lexing and expands literal tabs in lists.
+  // Encode authored characters before either transformation can change them.
   const unsafeSoftBreak = options.inlineOnly || options.softBreaksAsEntities
-    ? /\r?\n/gu : /(?:[ \t]{2,}\r?\n|(?:\r?\n){2,})/gu;
+    ? /[\t\r\n]/gu : /(?:[ \t]{2,}\r?\n|(?:\r?\n){2,}|[\t\r])/gu;
   const explicitCode = (node: JSONContent) => node.type === 'text'
-    && node.marks?.some((mark) => mark.type === 'code') && /^\s|\s$|[\r\n]/u.test(node.text ?? '');
+    && node.marks?.some((mark) => mark.type === 'code') && /^\s|\s$|[\t\r\n]/u.test(node.text ?? '');
   if (!content.some((node, index) => {
     if (explicitBreak(node, index) || explicitCode(node)) return true;
     if (node.type !== 'text' || node.marks?.some((mark) => mark.type === 'code')) return false;
     unsafeSoftBreak.lastIndex = 0;
     if (unsafeSoftBreak.test(node.text ?? '')) return true;
+    // Some mark delimiters (notably ==highlight==) cannot span physical lines.
+    if (node.marks?.length && /\n/u.test(node.text ?? '')) return true;
     if ((startsLine(index) && /^\s/u.test(node.text ?? ''))
       || (endsLine(index) && /\s$/u.test(node.text ?? ''))) return true;
     if (!node.marks?.length) return false;
@@ -126,7 +130,7 @@ export function renderInlineWithMarkedWhitespace(
       return { ...node, text: token, marks: node.marks.filter((mark) => !markTags[mark.type]) };
     }
     return { ...node, text: (node.text ?? '').replace(/^\s+|\s+$/gu, protectWhitespace)
-      .replace(unsafeSoftBreak, protectWhitespace) };
+      .replace(unsafeSoftBreak, protectWhitespace).replace(/\n/gu, protectWhitespace) };
   });
   return helpers.renderChildren(protectedContent).replace(new RegExp(`${prefix}(\\d+)\uE001`, 'gu'),
     (_token, index: string) => replacements[Number(index)]);

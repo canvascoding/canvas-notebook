@@ -178,26 +178,31 @@ async function run() {
     method: 'POST',
     headers: { ...workspaceHeaders, 'Content-Type': 'application/json' },
   });
-  if (!restore.response.ok || restore.body?.restored?.originalPath !== renamedPath) {
-    throw new Error(`Restore failed: ${restore.response.status}`);
+  if (restore.response.status !== 409 || restore.body?.code !== 'FILE_OPERATION_UNDO_DISABLED') {
+    throw new Error(`Undo-off restore returned an unexpected result: ${restore.response.status} ${restore.body?.code}`);
   }
 
-  const restoredRead = await request(`/api/files/read?path=${encodeURIComponent(renamedPath)}`, {
+  const deletedRead = await request(`/api/files/read?path=${encodeURIComponent(renamedPath)}`, {
     headers: workspaceHeaders,
   });
-  if (!restoredRead.response.ok || restoredRead.body?.data?.content !== 'integration test') {
-    throw new Error('Restored content mismatch');
+  if (deletedRead.response.status !== 404) {
+    throw new Error(`Deleted path must remain absent while Undo is disabled: ${deletedRead.response.status}`);
   }
 
-  for (const path of [renamedPath, copyDirectory]) {
-    const cleanup = await request('/api/files/delete', {
-      method: 'DELETE',
-      headers: { ...workspaceHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    });
-    if (!cleanup.response.ok) {
-      throw new Error(`Cleanup failed for ${path}: ${cleanup.response.status}`);
-    }
+  const copiedRead = await request(`/api/files/read?path=${encodeURIComponent(copiedPath)}`, {
+    headers: workspaceHeaders,
+  });
+  if (!copiedRead.response.ok || copiedRead.body?.data?.content !== 'integration test') {
+    throw new Error('Copied content changed after the blocked restore');
+  }
+
+  const cleanup = await request('/api/files/delete', {
+    method: 'DELETE',
+    headers: { ...workspaceHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: copyDirectory }),
+  });
+  if (!cleanup.response.ok || cleanup.body?.failed?.length > 0) {
+    throw new Error(`Cleanup failed for ${copyDirectory}: ${cleanup.response.status}`);
   }
 
   console.log('Integration test passed');

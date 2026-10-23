@@ -7,6 +7,10 @@ import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
+import { withWorkspaceOperationJobClaimScheduling } from './workspace-operation-job-phase-scheduling';
+import { createWorkspaceOperationClaimRenewals } from './workspace-operation-claim-renewals';
+import { WORKSPACE_FILE_UNDO_ENABLED, WorkspaceFileUndoDisabledError } from './workspace-file-undo-policy';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
   hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
@@ -25,6 +29,14 @@ export function projectWorkspaceOperationBatchFileViews(input: {
   invalidate?: typeof invalidateWorkspaceFileViews;
 }): void {
   if (input.undo && input.result.status !== 'applied') return;
+  // Registry-only notebook moves have no filesystem watcher event. Publish
+  // the two visible paths only after the original SQL completion is proven.
+  if (input.plan.version === 3 && !input.undo && input.result.status === 'applied') {
+    (input.invalidate ?? invalidateWorkspaceFileViews)({ fileOptions: input.scope.fileOptions, fullTree: true,
+      mutations: input.plan.pathSteps.flatMap(step => [{ path: step.sourcePath, type: 'unlink' as const },
+        { path: step.destinationPath!, type: 'add' as const }]) });
+    return;
+  }
   const receipts = input.result.stepResults?.filter((step) => step.phase === 'path' && step.state === 'applied') ?? [];
   const deleted = input.plan.pathSteps.filter((step) => step.kind === 'delete'
     && (input.result.status === 'applied' || receipts.some((receipt) => receipt.path === step.sourcePath)));
@@ -34,6 +46,7 @@ export function projectWorkspaceOperationBatchFileViews(input: {
 }
 
 async function resolveReviewerScope(batch: WorkspaceOperationBatchRecord): Promise<WorkspaceOperationBatchScope> {
+  if (batch.authorization.mode === 'direct-mcp') throw new Error('BATCH_MCP_AUTHORIZATION_REQUIRED');
   const userId = workspaceOperationBatchAuthorityUserId(batch);
   if (!userId) throw new Error('BATCH_ACCESS_DENIED');
   const db = await openDb();
@@ -89,71 +102,105 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
     async tick(): Promise<boolean> {
       if (busy) return false;
       busy = true;
-      let timer: ReturnType<typeof setInterval> | undefined;
       let batch: WorkspaceOperationBatchRecord | null = null;
-      let leaseLost = false;
-      let renewing = false;
+      let renewals: ReturnType<typeof createWorkspaceOperationClaimRenewals> | undefined;
+      const stopRenewals = async () => { await renewals?.pauseAndDrain(); };
       try {
         batch = await store.claim(owner);
         if (!batch) return false;
         const currentBatch = batch;
-        timer = setInterval(() => {
-          if (renewing) return;
-          renewing = true;
-          void store.heartbeat(currentBatch.batchId, owner).then((owned) => { if (!owned) leaseLost = true; })
-            .catch(() => { leaseLost = true; }).finally(() => { renewing = false; });
-        }, 20_000);
-        timer.unref?.();
-        await lock(batch.workspaceId, async () => {
-          const scope = await resolveScope(currentBatch);
-          const gate = async (progress?: WorkspaceOperationBatchProgress) => {
-            if (leaseLost || !await store.heartbeat(currentBatch.batchId, owner, progress)) throw new Error('BATCH_LEASE_LOST');
-            const fresh = await resolveScope(currentBatch);
-            if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
-          };
-          await gate();
-          const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId);
-          const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo');
-          if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
-            || evidence === 'absent' && (currentBatch.actionMode === 'undo'
-              || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
-            await store.finish(currentBatch.batchId, owner, { status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
+        await store.withClaim(currentBatch, async (jobClaim) => {
+          if (!WORKSPACE_FILE_UNDO_ENABLED && currentBatch.actionMode === 'undo') {
+            // A saved Undo may already have changed files. Preserve that
+            // uncertainty and its receipts; never replay it while disabled.
+            await store.finishClaim(currentBatch, { status: 'needs_recovery', phase: 'recovery',
+              errorCode: new WorkspaceFileUndoDisabledError().code });
             return;
           }
-          if (currentBatch.actionMode === 'apply' && !started) {
-            const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
-            if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
-              await store.finish(currentBatch.batchId, owner, { status: 'needs_review', errorCode: 'PREVIEW_STALE' });
-              return;
-            }
-          }
-          const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
-          const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
-          const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
-            : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
-          const result = currentBatch.actionMode === 'undo'
-            ? await undo({ batchId: currentBatch.batchId, scope, actorUserId,
-              actorDisplayName, actorId: actorUserId, actorType: 'user', onProgress: gate })
-            : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
-              actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
-              actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
-              onProgress: gate });
-          const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
-            && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
-          const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
-            : refusedUndo ? 'applied' : result.status;
-          projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
-          if (result.status === 'applied') await dependentReviews({ scope, plan: currentBatch.plan,
-            excludedReviewIds: currentBatch.reviewIds, undo: currentBatch.actionMode === 'undo' });
-          await store.finish(currentBatch.batchId, owner, { status,
-            errorCode: result.errorCode, trashEntryIds: result.trashEntryIds,
-            completedActions: result.completedActions, phase: status === 'applied' || status === 'undone' ? 'complete'
-              : result.status === 'needs_recovery' ? 'recovery' : 'preparing' });
+          const activeRenewals = createWorkspaceOperationClaimRenewals(store, currentBatch);
+          renewals = activeRenewals;
+          activeRenewals.start();
+          const finish = async (input: Parameters<WorkspaceOperationBatchStore['finishClaim']>[1]) => {
+            await stopRenewals();
+            if (activeRenewals.hasLeaseLost()) throw new Error('BATCH_LEASE_LOST');
+            return store.finishClaim(currentBatch, input);
+          };
+          try {
+            await lock(currentBatch.workspaceId, async () => {
+              const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
+              const jobScope = direct?.jobScope;
+              const assertJobScope = (scope: WorkspaceOperationBatchScope) => {
+                if (direct && (!jobScope || !workspaceOperationJobScopeMatches(jobScope, scope.workspace))) {
+                  throw new Error('BATCH_SCOPE_CHANGED');
+                }
+              };
+              const scope = await resolveScope(currentBatch);
+              assertJobScope(scope);
+              const gate = async (progress?: WorkspaceOperationBatchProgress) => {
+                if (activeRenewals.hasLeaseLost() || !await store.heartbeatClaim(currentBatch, progress)) throw new Error('BATCH_LEASE_LOST');
+                const fresh = await resolveScope(currentBatch);
+                assertJobScope(fresh);
+                if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
+              };
+              await gate();
+              const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId, scope);
+              const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo', scope);
+              if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
+                || evidence === 'absent' && (currentBatch.actionMode === 'undo'
+                  || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
+                await finish({ status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
+                return;
+              }
+              // Native plans retain their original identity-bound plan. Their genuine
+              // Owner rechecks complete source semantics and the original target
+              // projection pin on B before any intent, without a Markdown export.
+              if (currentBatch.actionMode === 'apply' && !started && currentBatch.plan.version === 1) {
+                const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
+                if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
+                  await finish({ status: 'needs_review', errorCode: 'PREVIEW_STALE' });
+                  return;
+                }
+              }
+              const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
+              const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
+                : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
+              const result = await withWorkspaceOperationJobClaimScheduling(jobClaim, {
+                pauseAndDrain: async () => {
+                  await stopRenewals();
+                  if (activeRenewals.hasLeaseLost()) throw new Error('BATCH_LEASE_LOST');
+                },
+                resume: async () => {
+                  await activeRenewals.resume();
+                },
+              }, () => currentBatch.actionMode === 'undo'
+                ? undo({ batchId: currentBatch.batchId, scope, actorUserId,
+                  actorDisplayName, actorId: actorUserId, actorType: 'user', jobClaim, onProgress: gate })
+                : execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
+                  actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
+                  actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
+                  jobClaim, onProgress: gate }));
+              const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
+                && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true, scope) === 'pristine';
+              const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
+                : refusedUndo ? 'applied' : result.status;
+              projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
+              if (result.status === 'applied') await dependentReviews({ scope, plan: currentBatch.plan,
+                excludedReviewIds: currentBatch.reviewIds, undo: currentBatch.actionMode === 'undo' });
+              await finish({ status,
+                errorCode: result.errorCode, trashEntryIds: result.trashEntryIds,
+                completedActions: result.completedActions, phase: status === 'applied' || status === 'undone' ? 'complete'
+                  : result.status === 'needs_recovery' ? 'recovery' : 'preparing' });
+            });
+          } finally { await stopRenewals(); }
         });
         return true;
       } catch (error) {
-        if (batch && !leaseLost) {
-          const evidence = await mutationEvidence(batch.batchId, batch.workspaceId, batch.actionMode === 'undo').catch(() => null);
+        if (batch && !renewals?.hasLeaseLost()) {
+          const currentBatch = batch;
+          const evidence = await (currentBatch.plan.version !== 1
+            ? resolveScope(currentBatch).then(scope => mutationEvidence(currentBatch.batchId, currentBatch.workspaceId,
+              currentBatch.actionMode === 'undo', scope))
+            : mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo')).catch(() => null);
           const current = await store.get(batch.batchId).catch(() => null);
           const prior = current ?? batch;
           const unknown = evidence === null || prior.completedActions > 0 && evidence !== 'complete'
@@ -161,12 +208,12 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
             || prior.completedActions > 0 || ['paths', 'links', 'recovery'].includes(prior.phase));
           const code = workspaceOperationBatchErrorCode(error);
           const status = workspaceOperationBatchFailureStatus(code, unknown || evidence === 'started' || evidence === 'complete');
-          await store.finish(batch.batchId, owner, { status, errorCode: code,
+          await store.finishClaim(batch, { status, errorCode: code,
             phase: status === 'needs_recovery' ? 'recovery' : 'preparing' });
         }
         return Boolean(batch);
       } finally {
-        if (timer) clearInterval(timer);
+        await stopRenewals();
         busy = false;
       }
     },

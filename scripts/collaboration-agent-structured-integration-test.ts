@@ -22,6 +22,7 @@ import type { AgentFileToolSuccess } from '../app/lib/pi/agent-file-tool-results
 import { ensureAgentGrantIntegrationFixture } from './agent-grant-integration-fixture';
 import { AgentDirectEditGrantUnavailableError, resolveAgentDirectEditGrant,
   setAgentDirectEditGrantForOperation, withAgentDirectEditGrant } from '../app/lib/collaboration/agent-direct-edit-grants';
+import { setFixtureTableColumnWidth } from './helpers/rich-markdown-projection-fixtures';
 
 async function main() {
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
@@ -55,7 +56,7 @@ async function main() {
   let beforeApply: (() => void) | null = null;
   let readGate: { promise: Promise<void>; release: () => void; count: number } | null = null;
   let applyCount = 0;
-  const uninstallRead = installCollaborationDocumentReader(async (id, workspaceId, read) => {
+  const uninstallRead = installCollaborationDocumentReader(async (id, workspaceId, read, loadState = loadCollaborationState) => {
     assert.equal(id, document.documentId); assert.equal(workspaceId, workspace.workspaceId);
     const gate = readGate;
     if (gate) {
@@ -63,7 +64,9 @@ async function main() {
       if (gate.count === 2) { readGate = null; gate.release(); }
       await gate.promise;
     }
-    return read(live);
+    const currentState = await loadState(id);
+    assert(currentState);
+    return read(live, currentState);
   });
   const uninstallDirect = installCollaborationDirectConnection(async (input, apply, onApplied) => {
     const current = await loadCollaborationState(input.documentId);
@@ -227,16 +230,23 @@ async function main() {
     success(await run('edit_file', { path: filePath, document, operations: [{ kind: 'insert_blocks', parentId: null,
       beforeId: null, blocks: [{ type: 'bulletList', content: [{ type: 'listItem', content: [
         { type: 'paragraph', content: [{ type: 'text', text: 'A' }] },
-      ] }] }] }] }));
+      ] }] }, { type: 'table', content: [
+        { type: 'tableRow', content: [{ type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Width' }] }] }] },
+        { type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cell' }] }] }] },
+      ] }] }] }));
     const list = blocks().find((block) => block.type === 'bulletList')!;
     const listItem = blocks().find((block) => block.parentId === list.id)!;
     const listParagraph = blocks().find((block) => block.parentId === listItem.id)!;
     humanText(listParagraph.id, 'A\t\nB');
+    assert.equal(validateRichMarkdownYDoc(live).valid, true, 'the codec preserves native tabs and soft LF');
+    const nativeTable = blocks().find((block) => block.type === 'table')!;
+    setFixtureTableColumnWidth(live, nativeTable.id);
     assert.equal(validateRichMarkdownYDoc(live).code, 'roundtrip_unstable');
     success(await run('edit_file', { path: filePath, document, operations: [{ kind: 'move_block', blockId: list.id,
       placementHash: blocks().find((block) => block.id === list.id)!.placementHash, parentId: null, beforeId: blocks()[0].id }] }));
     assert.equal(blocks()[0].id, list.id);
     assert.equal(validateRichMarkdownYDoc(live).code, 'roundtrip_unstable', 'the export check remains active');
+    for (const cell of blocks().filter((block) => ['tableHeader', 'tableCell'].includes(block.type))) assert.deepEqual(cell.attrs.colwidth, [120]);
     assert.equal((await loadCollaborationState(document.documentId))?.degraded, false);
     assert.equal(await fs.readFile(path.join(rootPath, filePath), 'utf8'), initialMarkdown);
 

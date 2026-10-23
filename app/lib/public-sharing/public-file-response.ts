@@ -9,7 +9,8 @@ import { Readable } from 'node:stream';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
-import { assertPublicShareStillActive, isPublicSharedTextPath, PUBLIC_SHARE_TEXT_SIZE_LIMIT, readPublicShareText } from './public-share-text';
+import { assertPublicShareStillActive, isPublicSharedTextPath, PUBLIC_SHARE_TEXT_SIZE_LIMIT, readPublicShareText, PublicShareReadError } from './public-share-text';
+import { exportNativePublicSnapshot, nativePublicExportMetadata, PublicShareNativeExportError } from './native-public-export';
 import {
   createPublicFileHeaders,
   getPublicShareMimeType,
@@ -86,7 +87,7 @@ function requestedEntryFile(resolved: Extract<PublicShareResolution, { ok: true 
 }
 
 async function resolveResponseFile(
-  resolved: Extract<PublicShareResolution, { ok: true }>,
+  resolved: Extract<PublicShareResolution, { ok: true; kind: 'physical' }>,
   requestedPathParts?: string[],
 ) {
   const interactiveHtml = isInteractiveHtmlPublicShare({
@@ -211,6 +212,33 @@ export async function publicShareFileResponse(
     return publicShareErrorResponse(resolved);
   }
 
+  if (resolved.kind === 'native') {
+    // Native documents never enter the physical/site-asset branch, even when
+    // their current filename carries a binary or HTML suffix.
+    const requested = options.requestedPathParts;
+    if (requested && (requested.length !== 1 || requested[0] !== resolved.share.fileName)) return publicShareNotFoundResponse();
+    try {
+      const exported = exportNativePublicSnapshot(resolved.snapshot, resolved.exportProfile);
+      const metadata = nativePublicExportMetadata(resolved.share.fileName, resolved.snapshot);
+      await assertPublicShareStillActive(resolved);
+      const range = parseRange(request.headers.get('range'), exported.bytes.length);
+      if (range === 'invalid') return new NextResponse(null, { status: 416, headers: {
+        'Content-Range': `bytes */${exported.bytes.length}`, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*',
+      } });
+      const headers = createPublicFileHeaders({ ...metadata, workspacePath: metadata.fileName, sizeBytes: exported.bytes.length,
+        ...(range ? { range: { ...range, total: exported.bytes.length } } : {}), securityMode: 'strict',
+        forceAttachment: request.nextUrl.searchParams.get('download') === '1' });
+      return new NextResponse(method === 'HEAD' ? null : range
+        ? exported.bytes.subarray(range.start, range.end + 1) : exported.bytes, { status: range ? 206 : 200, headers });
+    } catch (error) {
+      if (error instanceof PublicShareNativeExportError) return NextResponse.json({ success: false, error: error.message, code: error.code }, {
+        status: error.statusCode, headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Access-Control-Allow-Origin': '*' },
+      });
+      if (error instanceof PublicShareReadError) return publicShareErrorResponse({ ok: false, status: error.statusCode, error: error.message });
+      return publicShareNotFoundResponse();
+    }
+  }
+
   let responseFile: PublicShareResponseFile | null;
   try {
     responseFile = await resolveResponseFile(resolved, options.requestedPathParts);
@@ -238,8 +266,9 @@ export async function publicShareFileResponse(
     if (method === 'GET') responseFile = await openPublicShareResponseFile(responseFile);
     await assertPublicShareStillActive(resolved);
     return publicShareFileStreamResponse(request, responseFile, method, resolved.share.securityMode);
-  } catch {
+  } catch (error) {
     await responseFile.handle?.close();
+    if (error instanceof PublicShareReadError) return publicShareErrorResponse({ ok: false, status: error.statusCode, error: error.message });
     return publicShareNotFoundResponse();
   }
 }

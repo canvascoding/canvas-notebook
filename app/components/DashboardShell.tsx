@@ -458,7 +458,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const layout = useNotebookLayoutController();
   const { state, dispatch, setChatDocked } = layout;
   const [requestedDocumentFocus, setRequestedDocumentFocus] = useState(false);
-  const documentFocus = requestedDocumentFocus && !layout.isMobile && state.mainSurface === 'document';
+  const documentFocus = requestedDocumentFocus && state.mainSurface === 'document';
+  const mobileDocumentFocus = documentFocus && layout.isMobile;
   const focusContext = useMemo(() => ({ focused: documentFocus, setFocused: setRequestedDocumentFocus }), [documentFocus]);
   const explorerVisible = state.explorerOpen && !documentFocus;
   const toggleChatDock = useCallback(() => {
@@ -805,12 +806,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         const authScope = openedDocumentAuthScope();
         const timer = setTimeout(() => controller.abort(), 10_000);
         const isCurrent = () => canOpen()
+          && openedDocumentAuthScope() === authScope
           && useFileStore.getState().openFileRequestId === before.openFileRequestId
           && useFileStore.getState().fileLoadRequestId === before.fileLoadRequestId;
         try {
           const location = await requestCollaborationDocumentLocation(workspaceId, expectedDocumentId, controller.signal);
           if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-          if (!location) return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
+          if (!location) {
+            // A pinned identity miss must not fall through to a path read: that
+            // path can already belong to a different document after deletion.
+            useFileStore.setState((state) => {
+              if (!isCurrent() || state.currentFile) return state;
+              return { isLoadingFile: false, loadingFilePath: null, fileError: null,
+                fileErrorPath: null, missingFilePath: normalizedPath };
+            });
+            return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
+          }
           const tabs = documentTabsRef.current;
           if (tabs.documentIds?.[normalizedPath] === expectedDocumentId && tabs.openPaths.includes(normalizedPath)) {
             const next = adoptNotebookDocumentLocation(tabs, normalizedPath, expectedDocumentId, location.path);
@@ -1053,6 +1064,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [
     activeWorkspaceId,
     documentTabsHydratedFor,
+    layout.preferencesHydrated,
+    layout.viewportWidth,
+    workspaceReady,
     openNotebookEntry,
     routeFilePath,
     routeWorkspaceId,
@@ -1461,6 +1475,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       || isLoadingFile)
     ? pendingDocumentOpen.path : null;
   const documentLoadingPath = pendingDocumentPath ?? (isLoadingFile ? loadingFilePath : null);
+  const missingDocumentId = missingFilePath && documentTabs.activePath === missingFilePath
+    ? documentTabs.documentIds?.[missingFilePath] : undefined;
+  const missingDocumentGeneration = documentOpenGenerationRef.current;
   const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
     {documentLoadingPath
     ? <DocumentLoadingSkeleton path={documentLoadingPath} label={tNotebook('loadingPreview')} showHeader />
@@ -1469,6 +1486,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         key={activeWorkspaceId}
         onClosePreview={handleCloseDocument}
         onRevealInExplorer={() => void handleRevealCurrentDocument()}
+        onRetryMissingFile={missingFilePath && missingDocumentId ? async () => {
+          const fileState = useFileStore.getState();
+          if (!activeWorkspaceId || !notebookMountedRef.current
+            || documentOpenGenerationRef.current !== missingDocumentGeneration
+            || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId
+            || documentTabsWorkspaceIdRef.current !== activeWorkspaceId
+            || fileState.currentFile || fileState.missingFilePath !== missingFilePath
+            || documentTabsRef.current.activePath !== missingFilePath
+            || documentTabsRef.current.documentIds?.[missingFilePath] !== missingDocumentId) return;
+          // Re-enter the same pinned-ID lookup, including its fresh auth fence.
+          await openNotebookEntry(missingFilePath);
+        } : undefined}
       />
     : (
       <NotebookEmptyDocumentState
@@ -1519,8 +1548,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     <NotebookFocusContext.Provider value={focusContext}>
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
-        <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground" data-document-focus={documentFocus}>
-          <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-1.5 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4 md:gap-3">
+        <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground',
+          mobileDocumentFocus && 'pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]')}
+          data-document-focus={documentFocus}>
+          <header data-testid="notebook-header" aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus}
+            className={cn('z-40 flex h-14 shrink-0 items-center justify-between gap-1.5 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4 md:gap-3', mobileDocumentFocus && 'hidden')}>
             <div className="flex min-w-0 items-center gap-2">
               <AppBackButton fallbackHref="/" className="shrink-0 gap-2 px-2 sm:px-3" />
               <div className="hidden min-w-0 md:block">
@@ -1540,7 +1572,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             </div>
           </header>
 
-          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14" data-testid="notebook-toolbar">
+          <div aria-hidden={mobileDocumentFocus} inert={mobileDocumentFocus} data-testid="notebook-toolbar"
+            className={cn('z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14', mobileDocumentFocus && 'hidden')}>
             <TooltipProvider delayDuration={250}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1714,117 +1747,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             || (activeWorkspaceId && documentTabsHydratedFor !== activeWorkspaceId)
             || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId) ? (
             <NotebookLoadingSkeleton document={Boolean(routeFilePath) && !shouldForceChatOpen} />
-          ) : layout.isMobile ? (
-            <main className="relative min-h-0 flex-1 overflow-hidden">
-              <SurfaceLayer
-                active={state.mainSurface === 'document'}
-                labelledBy={activeDocumentTabId}
-                testId="notebook-mobile-document"
-              >
-                {documentContent}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'email'}
-                labelledBy="notebook-surface-email-tab"
-                testId="notebook-mobile-email"
-              >
-                {emailContext ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <EmailContextHeader intent={emailContext} />
-                    <div className="min-h-0 flex-1">
-                      <EmailClient contextIntent={emailContext} embedded />
-                    </div>
-                  </div>
-                ) : null}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'browser'}
-                labelledBy="notebook-surface-browser-tab"
-                testId="notebook-mobile-browser"
-              >
-                {browserContext ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <BrowserContextHeader
-                      activityControlsId="browser-agent-activity-panel"
-                      activityVisible={browserActivityVisible}
-                      context={browserContext}
-                      onToggleActivity={toggleBrowserActivity}
-                    />
-                    <div className="min-h-0 flex-1">
-                      <BrowserLabClient
-                        key={`${browserContext.agentId}:${browserContext.sessionId}`}
-                        autoConnectKey={browserContext.sessionId}
-                        enabled={state.mainSurface === 'browser'}
-                        locale={locale}
-                        presentation="embedded"
-                        variant="live"
-                        agentId={browserContext.agentId}
-                        sessionId={browserContext.sessionId}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </SurfaceLayer>
-              <SurfaceLayer
-                active={state.mainSurface === 'chat' || browserActivityUsesSheet}
-                labelledBy="notebook-chat-button"
-                testId="notebook-mobile-chat"
-                role="region"
-              >
-                <div
-                  id="browser-agent-activity-panel"
-                  data-testid={browserActivityUsesSheet
-                    ? 'browser-agent-activity-sheet'
-                    : undefined}
-                  role={browserActivityUsesSheet ? 'dialog' : undefined}
-                  aria-modal={browserActivityUsesSheet || undefined}
-                  aria-label={browserActivityUsesSheet
-                    ? tNotebook('agentActivity')
-                    : undefined}
-                  className="flex h-full min-h-0 flex-col"
-                >
-                  {browserActivityUsesSheet ? (
-                    <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
-                  ) : null}
-                  <div className="min-h-0 flex-1">
-                    {chatContent}
-                  </div>
-                </div>
-              </SurfaceLayer>
-
-              <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
-                <SheetContent
-                  side="left"
-                  showCloseButton={false}
-                  className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
-                >
-                  <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
-                        <SheetDescription className="truncate text-xs">{currentDirectoryLabel}</SheetDescription>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setMobileExplorerOpen(false)}
-                        aria-label={tNav('closeExplorer')}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </SheetHeader>
-                  <div className="min-h-0 flex-1">
-                    <SidebarProvider className="h-full min-h-0">
-                      <FileBrowser variant="mobile-sheet" onFileSelect={handleFileSelected} />
-                    </SidebarProvider>
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </main>
           ) : (
-            <main className="flex min-h-0 flex-1 overflow-hidden">
-              {state.explorerOpen ? (
+            <main className="relative flex min-h-0 flex-1 overflow-hidden">
+              {!layout.isMobile && state.explorerOpen ? (
                 <div
                   ref={desktopExplorerRef}
                   hidden={documentFocus}
@@ -1839,7 +1764,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </SidebarProvider>
                 </div>
               ) : null}
-              {explorerVisible ? (
+              {!layout.isMobile && explorerVisible ? (
                 <ResizeHandle
                   data-testid="notebook-explorer-resize-handle"
                   orientation="vertical"
@@ -1867,7 +1792,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     sidebar={<div />}
                     sidebarHidden
                     terminalVisible={terminalEnabled && state.terminalOpen}
-                    terminalHidden={documentFocus}
+                    terminalHidden={documentFocus || layout.isMobile}
                     sidebarResizeLabel={tNotebook('resizeFileTree')}
                     terminalResizeLabel={tNotebook('resizeTerminal')}
                     main={
@@ -1878,14 +1803,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         <SurfaceLayer
                           active={state.mainSurface === 'document'}
                           labelledBy={activeDocumentTabId}
-                          testId="notebook-desktop-document"
+                          testId={surfacePanelIds.document}
                         >
                           {documentContent}
                         </SurfaceLayer>
                         <SurfaceLayer
                           active={state.mainSurface === 'email'}
                           labelledBy="notebook-surface-email-tab"
-                          testId="notebook-desktop-email"
+                          testId={surfacePanelIds.email}
                         >
                           {emailContext ? (
                             <div className="flex h-full min-h-0 flex-col">
@@ -1899,7 +1824,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         <SurfaceLayer
                           active={state.mainSurface === 'browser'}
                           labelledBy="notebook-surface-browser-tab"
-                          testId="notebook-desktop-browser"
+                          testId={surfacePanelIds.browser}
                         >
                           {browserContext ? (
                             <div className="flex h-full min-h-0 flex-col">
@@ -1946,8 +1871,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
                 <div
                   ref={desktopChatRef}
-                  id="onboarding-notebook-chat"
-                  data-testid="notebook-desktop-chat"
+                  id={surfacePanelIds.chat}
+                  data-testid={layout.isMobile ? 'notebook-mobile-chat' : 'notebook-desktop-chat'}
                   data-chat-placement={state.mainSurface === 'chat'
                     ? 'main'
                     : state.chatDocked
@@ -1982,7 +1907,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       : state.chatDocked
                         ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
                         : browserActivityUsesSheet
-                          ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
+                          ? layout.isMobile
+                            ? 'absolute inset-0 z-40 w-full'
+                            : 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
                           : 'hidden',
                     documentFocus && 'hidden',
                   )}
@@ -2003,6 +1930,36 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </div>
                 </div>
               </div>
+
+              <Sheet open={layout.isMobile && mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
+                <SheetContent
+                  side="left"
+                  showCloseButton={false}
+                  className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
+                >
+                  <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
+                        <SheetDescription className="truncate text-xs">{currentDirectoryLabel}</SheetDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setMobileExplorerOpen(false)}
+                        aria-label={tNav('closeExplorer')}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </SheetHeader>
+                  <div className="min-h-0 flex-1">
+                    <SidebarProvider className="h-full min-h-0">
+                      <FileBrowser variant="mobile-sheet" onFileSelect={handleFileSelected} />
+                    </SidebarProvider>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </main>
           )}
 

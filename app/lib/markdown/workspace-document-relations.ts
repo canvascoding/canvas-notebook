@@ -1,8 +1,10 @@
 import type {
   WorkspaceLinkDocument,
-  WorkspaceLinkEdge,
-  WorkspaceLinkIndex,
 } from './workspace-link-index-core';
+import type {
+  WorkspaceLinkReadEdge as WorkspaceLinkEdge,
+  WorkspaceLinkReadIndex as WorkspaceLinkIndex,
+} from './workspace-document-link-index-contract';
 import { groupWorkspaceReferenceEdges } from './workspace-reference-groups';
 
 export type WorkspaceDocumentRelation = {
@@ -194,9 +196,7 @@ export function getWorkspaceDocumentRelations(
   const outgoingEdges = index.edges.filter((edge) => (
     edge.sourcePath === documentPath && edge.status === 'resolved' && edge.targetPath
   ));
-  const brokenEdges = index.edges.filter((edge) => (
-    edge.sourcePath === documentPath && edge.status !== 'resolved'
-  ));
+  const brokenEdges = index.brokenLinks.filter((edge) => edge.sourcePath === documentPath);
   const incomingPaths = new Set(incomingEdges.map((edge) => edge.sourcePath));
   const outgoingPaths = new Set(outgoingEdges.flatMap((edge) => edge.targetPath ? [edge.targetPath] : []));
   const bidirectionalPaths = new Set(

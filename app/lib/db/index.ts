@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   createPostgresDrizzle,
   createPostgresPool,
@@ -13,6 +14,8 @@ import {
 
 export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  /** Optional server-prepared execution; results are read fresh on this connection. */
+  getPrepared?: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
   /** A supplied error discards the connection instead of returning it to the pool. */
@@ -144,14 +147,56 @@ async function openPostgresDb(): Promise<SqlConnection> {
       throw error;
     }
   };
-  const client = await runPostgresOperation(() => pool.connect());
-  const query = (sql: string, params?: unknown[]) => runPostgresOperation(
-    () => client.query(sql, params),
-  );
+  let connectionError: DatabaseUnavailableError | undefined;
+  let closed = false;
+  let closeFailure: unknown;
+  let inFlight = 0;
+  const onClientError = (error: Error) => {
+    if (connectionError) return;
+    // Client errors can arrive between queries. Never throw from this event or
+    // mistake an unusable connection for successful transaction completion.
+    try {
+      connectionError = coerceDatabaseUnavailableError(error, { provider: 'postgres' }) ??
+        new DatabaseUnavailableError('postgres_unavailable', 'The PostgreSQL connection is unavailable.', { provider: 'postgres' }, error);
+    } catch {
+      connectionError = new DatabaseUnavailableError('postgres_unavailable', 'The PostgreSQL connection is unavailable.', { provider: 'postgres' }, error);
+    }
+  };
+  const client = await runPostgresOperation(() => new Promise<import('pg').PoolClient>((resolve, reject) => {
+    // Install synchronously in pg's callback, before promise continuations or
+    // another backend message can run after pg removes its idle listener.
+    pool.connect((error, acquired) => {
+      if (error || !acquired) { reject(error ?? new Error('PostgreSQL client acquisition failed.')); return; }
+      acquired.on('error', onClientError);
+      resolve(acquired);
+    });
+  }));
+  const assertAvailable = () => {
+    if (connectionError) throw connectionError;
+    if (closed) throw new Error('The PostgreSQL connection is closed.');
+  };
+  const query = (sql: string, params?: unknown[], prepared = false) => runPostgresOperation(async () => {
+    assertAvailable();
+    inFlight++;
+    try {
+      const result = await (prepared
+        ? client.query({ name: `canvas_sql_${createHash('sha256').update(sql).digest('base64url')}`, text: sql, values: params })
+        : client.query(sql, params));
+      assertAvailable();
+      return result;
+    } catch (error) {
+      assertAvailable();
+      throw error;
+    } finally { inFlight--; }
+  });
 
   return {
     get: async (sql: string, params?: unknown[]) => {
       const result = await query(sql, params);
+      return result.rows[0];
+    },
+    getPrepared: async (sql: string, params?: unknown[]) => {
+      const result = await query(sql, params, true);
       return result.rows[0];
     },
     run: async (sql: string, params?: unknown[]) => {
@@ -162,7 +207,26 @@ async function openPostgresDb(): Promise<SqlConnection> {
       const result = await query(sql, params);
       return result.rows;
     },
-    close: (error?: Error) => client.release(error),
+    close: (error?: Error) => {
+      if (closed) { if (closeFailure !== undefined) throw closeFailure; return; }
+      closed = true;
+      const terminal = connectionError ?? (inFlight ? new Error('The PostgreSQL connection closed with a query in flight.') : undefined);
+      const removeListener = () => { client.removeListener('error', onClientError); };
+      client.once('end', removeListener);
+      try {
+        // pg installs its idle listener synchronously during release. A caller
+        // discard must succeed even when B was poisoned, so recovery C can run.
+        client.release(error ?? terminal);
+      } catch (releaseError) {
+        closeFailure = releaseError;
+        throw releaseError;
+      }
+      client.removeListener('end', removeListener);
+      removeListener();
+      // A synchronous release observer can poison the still-active listener.
+      const completedTerminal = connectionError ?? terminal;
+      if (!error && completedTerminal) { closeFailure = completedTerminal; throw completedTerminal; }
+    },
   };
 }
 

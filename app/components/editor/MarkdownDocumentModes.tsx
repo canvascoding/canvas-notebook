@@ -2,7 +2,7 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
+import { Download, Code2, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
 import { collaborationDiagnosticsEnabled, collaborationEditorIssue, subscribeCollaborationDiagnostics } from '@/app/lib/collaboration/editor-presentation';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import * as Y from 'yjs';
@@ -84,29 +84,28 @@ export function useLiveMarkdown(collaboration: CollaborationDocument | null, fal
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-export function MarkdownModeBar({ mode, onChange, readOnly, sourceAvailable = true, wide, onWideChange, documentControls = true, actions }: {
+export function MarkdownModeBar({ mode, onChange, sourceAvailable = true, richAvailable = true, wide, onWideChange, documentControls = true, actions }: {
   mode: MarkdownDocumentMode; onChange: (mode: MarkdownDocumentMode) => void; readOnly: boolean;
   sourceAvailable?: boolean;
+  richAvailable?: boolean;
   wide: boolean; onWideChange: (wide: boolean) => void;
   documentControls?: boolean; actions?: ReactNode;
 }) {
   const t = useTranslations('notebook.editorModes');
   const focus = useContext(NotebookFocusContext);
-  return <div className="markdown-mode-bar flex shrink-0 items-center gap-1 border-b bg-background px-3 py-1.5" role="group" aria-label={t('label')}>
-    {([{ mode: 'read', icon: Eye }, { mode: 'rich', icon: Pencil }, { mode: 'source', icon: Code2 }] as const)
-      .filter((item) => item.mode !== 'source' || sourceAvailable).map((item) =>
-      <Button key={item.mode} variant={mode === item.mode ? 'secondary' : 'ghost'} size="sm"
-        className="h-8 gap-1.5 px-2.5" aria-pressed={mode === item.mode}
-        disabled={readOnly && item.mode === 'rich'} onClick={() => onChange(item.mode)}>
-        <item.icon className="size-3.5" aria-hidden="true" />{t(item.mode)}
-      </Button>)}
-    <div className="ml-auto flex items-center gap-1">
-      {documentControls && <Button size="icon-sm" variant={wide ? 'secondary' : 'ghost'} aria-label={t('wide')}
+  return <div className="markdown-mode-bar inline-flex shrink-0 items-center gap-0.5" role="group" aria-label={t('label')}>
+    {sourceAvailable && richAvailable && <Button type="button" variant={mode === 'source' ? 'secondary' : 'ghost'} size="icon-sm"
+      aria-label={t('source')} title={t('source')} aria-pressed={mode === 'source'}
+      onClick={() => onChange(mode === 'source' ? 'rich' : 'source')}>
+      <Code2 className="size-4" aria-hidden="true" />
+    </Button>}
+    <div className="flex items-center gap-0.5">
+      {documentControls && <Button type="button" size="icon-sm" variant={wide ? 'secondary' : 'ghost'} aria-label={t('wide')}
         title={t('wide')} aria-pressed={wide} onClick={() => onWideChange(!wide)} disabled={mode === 'source'}>
         <MoveHorizontal className="size-4" aria-hidden="true" />
       </Button>}
-      {documentControls && focus && <Button size="icon-sm" variant={focus.focused ? 'secondary' : 'ghost'}
-        className="hidden md:inline-flex" aria-label={t(focus.focused ? 'exitFocus' : 'focus')}
+      {documentControls && focus && <Button type="button" size="icon-sm" variant={focus.focused ? 'secondary' : 'ghost'}
+        aria-label={t(focus.focused ? 'exitFocus' : 'focus')}
         title={t(focus.focused ? 'exitFocus' : 'focus')} aria-pressed={focus.focused}
         onClick={() => focus.setFocused(!focus.focused)}>
         {focus.focused ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize2 className="size-4" aria-hidden="true" />}
@@ -116,9 +115,9 @@ export function MarkdownModeBar({ mode, onChange, readOnly, sourceAvailable = tr
   </div>;
 }
 
-export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onBusyChange, autoStart = false }: {
+export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onSourceResume, onBusyChange, autoStart = false }: {
   collaboration: CollaborationDocument; filePath: string; onReady: () => void;
-  onStart?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
+  onStart?: () => void; onSourceResume?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
 }) {
   const t = useTranslations('notebook.editorModes');
   const common = useTranslations('common');
@@ -164,6 +163,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
           && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
           safeToResume = true;
           migration.current = null;
+          if (mounted.current) onSourceResume?.();
           break;
         }
       }
@@ -178,7 +178,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       onBusyChange?.(unresolved);
       if (mounted.current) { setBusy(false); setPending(unresolved); }
     }
-  }, [canStart, collaboration, filePath, onReady, onBusyChange]);
+  }, [canStart, collaboration, filePath, onReady, onSourceResume, onBusyChange]);
   useEffect(() => {
     if (!autoStart || !canStart || autoAttempted.current) return;
     autoAttempted.current = true;

@@ -17,6 +17,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceFileEvent } from '@/app/lib/files/file-events';
+import { isWorkspaceFileInvalidation, type WorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 import { getParentDirectory, isSameOrDescendantPath } from '@/app/lib/files/path-utils';
 import { workspacePathExists } from '@/app/lib/files/client';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
@@ -217,6 +218,31 @@ export class FileWatcherClient extends EventTarget {
     });
 
     eventSource.addEventListener('heartbeat', () => {});
+
+    const onWorkspaceInvalidatedMessage = (message: Event) => {
+      if (!isCurrent()) return;
+      const data = (message as MessageEvent<unknown>).data;
+      if (typeof data !== 'string' || data.length > 4_096) return;
+      try {
+        const hint: unknown = JSON.parse(data);
+        if (!isWorkspaceFileInvalidation(hint) || hint.workspaceId !== workspaceId
+          || hint.workspaceId !== this.connectionWorkspaceId
+          || hint.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+        if (!isCurrent()) return;
+        invalidateFileReferenceValidationCache({ workspaceId: hint.workspaceId });
+        if (!isCurrent()) return;
+        useFileStore.setState((state) => ({ workspaceFileVersion: state.workspaceFileVersion + 1 }));
+        if (!isCurrent()) return;
+        void useFileStore.getState().refreshVisibleTree().catch(() => {
+          console.warn('[FileWatcherClient]', { code: 'WORKSPACE_INVALIDATION_TREE_REFRESH_FAILED' });
+        });
+        if (!isCurrent()) return;
+        this.dispatchEvent(new CustomEvent<WorkspaceFileInvalidation>('workspace-invalidated', {
+          detail: Object.freeze({ workspaceId: hint.workspaceId }),
+        }));
+      } catch { /* Invalid hints never change files or trigger document adoption. */ }
+    };
+    eventSource.addEventListener('workspace-invalidated', onWorkspaceInvalidatedMessage);
 
     eventSource.onerror = () => {
       if (!isCurrent()) return;

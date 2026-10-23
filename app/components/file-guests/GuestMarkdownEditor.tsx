@@ -19,6 +19,7 @@ import { RichMarkdownEditor, useMobileKeyboardActive, useVisualViewportBottomOff
 import { MarkdownEditorAccessContext, type MarkdownEditorAccess } from '@/app/components/editor/MarkdownEditorAccess';
 import { resolvePublicMarkdownImageWorkspacePath } from '@/app/lib/public-sharing/public-markdown-images';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
+import type { FileGuestContentBootstrap } from '@/app/lib/file-guests/content-contract';
 
 function imageUrl(source: string, path: string, invitationId: string, assets: string[], workspaceId?: string) {
   const workspacePath = resolvePublicMarkdownImageWorkspacePath(path, source, workspaceId);
@@ -51,8 +52,8 @@ function GuestSourceEditor({ collaboration, editable, value }: { collaboration: 
     basicSetup={{ history: false }} extensions={extensions} />;
 }
 
-export function GuestMarkdownEditor({ session, path, fileName, initialMarkdown, assets, onReload }: {
-  session: CollaborationSessionResponse; path: string; fileName: string; initialMarkdown: string; assets: string[]; onReload: () => void;
+export function GuestMarkdownEditor({ session, path, fileName, bootstrap, assets, onReload }: {
+  session: CollaborationSessionResponse; path: string; fileName: string; bootstrap: FileGuestContentBootstrap; assets: string[]; onReload: () => void;
 }) {
   const t = useTranslations('notebook.editorModes');
   useVisualViewportBottomOffset();
@@ -60,31 +61,37 @@ export function GuestMarkdownEditor({ session, path, fileName, initialMarkdown, 
   const guest = session.guestAccess!;
   const collaboration = useCollaborationDocument({ enabled: true, workspaceId: guest.workspaceId, path,
     representation: isRichTextCollaborationRepresentation(session.representation) ? session.representation : 'plain_text', session });
-  const live = useLiveMarkdown(collaboration, initialMarkdown);
+  const initialMarkdown = bootstrap.kind === 'markdown' ? bootstrap.markdown : null;
+  const live = useLiveMarkdown(collaboration, initialMarkdown ?? '');
+  // The hook's empty fallback is internal editor plumbing, not a native export.
+  // Native content is hydrated by the ordinary Yjs provider, never from the AST.
+  const markdownAvailable = live.available && (initialMarkdown !== null || collaboration?.clientState.indexedDbHydrated === true);
+  const downloadAvailable = markdownAvailable && live.isLossless();
   const sourceAvailable = isMarkdownSourceModeSupported(true, session.representation);
-  const [requestedMode, setRequestedMode] = useState<MarkdownDocumentMode>(session.permission === 'write' ? 'rich' : 'read');
-  const mode = requestedMode === 'source' && !sourceAvailable ? 'read' : requestedMode;
-  if (requestedMode !== mode) setRequestedMode(mode);
-  const setMode = (next: MarkdownDocumentMode) => setRequestedMode(next === 'source' && !sourceAvailable ? 'read' : next);
+  const mode: MarkdownDocumentMode = !sourceAvailable ? 'rich' : session.permission === 'write' ? 'source' : 'read';
   const denied = collaboration?.connection === 'denied';
-  const editable = session.permission === 'write' && collaboration?.session?.permission === 'write' && !denied && collaboration.durability !== 'degraded';
+  const editable = session.permission === 'write' && collaboration?.ready === true && collaboration.session?.permission === 'write' && !denied && collaboration.durability !== 'degraded';
   const download = () => {
+    if (!markdownAvailable || !live.isLossless()) return;
     const url = URL.createObjectURL(new Blob([live.content], { type: 'text/markdown;charset=utf-8' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return <section className="relative overflow-hidden rounded-xl border bg-background shadow-sm" aria-label={t('guestDocument')}
     data-document-width={wide ? 'wide' : 'page'} data-editor-layout="document" data-editor-mode={mode}>
-    <MarkdownModeBar mode={mode} onChange={setMode} readOnly={!editable} sourceAvailable={sourceAvailable} wide={wide} onWideChange={setWide}
-      actions={<Button size="sm" variant="ghost" onClick={download} disabled={!live.available}>
+    <header className="flex h-10 items-center justify-between gap-2 border-b px-3">
+    <span className="min-w-0 truncate text-sm text-muted-foreground">{fileName}</span>
+    <MarkdownModeBar mode={mode} onChange={() => {}} readOnly={!editable} sourceAvailable={false} wide={wide} onWideChange={setWide}
+      actions={<Button size="sm" variant="ghost" onClick={download} disabled={!downloadAvailable}>
         <Download className="mr-1.5 size-4" />{t('guestDownloadCopy')}
       </Button>} />
-    <MarkdownSaveState collaboration={collaboration} content={live.content} available={live.available} filePath={path} onReload={onReload} />
+    </header>
+    <MarkdownSaveState collaboration={collaboration} content={live.content} available={markdownAvailable} isSourceLossless={live.isLossless} filePath={path} onReload={onReload} />
     <div className="markdown-editor-content h-[65dvh] min-h-[20rem] overflow-hidden">
-    {!collaboration?.ready || !canRenderCollaborationDocument(collaboration, live.available) ? <p className="p-10 text-center text-muted-foreground">{t(collaboration?.ready ? 'guestDocumentUnavailable' : 'guestOpeningDocument')}</p>
+    {!collaboration?.ready || !canRenderCollaborationDocument(collaboration, markdownAvailable) ? <p className="p-10 text-center text-muted-foreground">{t(collaboration?.ready ? 'guestDocumentUnavailable' : 'guestOpeningDocument')}</p>
       : isRichTextCollaborationRepresentation(session.representation)
-        ? <GuestRichEditor collaboration={collaboration} editable={editable && mode === 'rich'} path={path} invitationId={guest.invitationId} assets={assets}
-          value={live.content} onSourceMode={() => setMode('source')} />
+        ? <GuestRichEditor collaboration={collaboration} editable={editable} path={path} invitationId={guest.invitationId} assets={assets}
+          value={live.content} onSourceMode={() => {}} />
         : mode !== 'read'
           ? <GuestSourceEditor collaboration={collaboration} editable={editable} value={live.content} />
           : <div className="canvas-document-reading h-full overflow-auto prose max-w-none break-words p-5 md:p-10"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{

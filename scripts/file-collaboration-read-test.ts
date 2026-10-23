@@ -55,7 +55,7 @@ async function main() {
       CREATE TABLE file_revisions (id text PRIMARY KEY, lineage_id text, revision_number bigint, workspace_id text,
         path text, content_hash text, size_bytes bigint, organization_id text, customer_id text, project_id text,
         workspace_type text, created_by_user_id text, created_by_actor_type text, source_session_id text,
-        base_revision_id text, created_at bigint);
+        base_revision_id text, created_at bigint, history_only boolean NOT NULL DEFAULT false);
       CREATE TABLE collaboration_documents (id text PRIMARY KEY, lineage_id text, workspace_id text, path text,
         provider text, state_version bigint, snapshot_revision_id text, status text, organization_id text,
         customer_id text, project_id text, workspace_type text, created_at bigint, updated_at bigint);

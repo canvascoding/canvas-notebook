@@ -31,6 +31,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "canvas_project_members",
   "canvas_projects",
   "canvas_workspace_members",
+  "canvas_workspace_starter_initializations",
   "canvas_workspaces",
   "capability_package_drafts",
   "capability_package_operations",
@@ -49,6 +50,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "collaboration_admission_targets",
   "collaboration_agent_direct_edit_grant_actions",
   "collaboration_agent_direct_edit_grants",
+  "collaboration_agent_native_edit_payloads",
   "collaboration_agent_operations",
   "collaboration_agent_saga_documents",
   "collaboration_agent_sagas",
@@ -57,6 +59,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "collaboration_excalidraw_agent_operations",
   "collaboration_excalidraw_assets",
   "collaboration_excalidraw_checkpoint_intents",
+  "collaboration_excalidraw_copy_receipts",
   "collaboration_excalidraw_creates",
   "collaboration_excalidraw_operations",
   "collaboration_excalidraw_restores",
@@ -64,6 +67,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "collaboration_file_projections",
   "collaboration_markdown_create_births",
   "collaboration_markdown_file_import_receipts",
+  "collaboration_native_copy_markdown_births",
   "collaboration_native_copy_receipts",
   "collaboration_native_file_operation_intents",
   "collaboration_native_file_operation_receipts",
@@ -72,6 +76,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "collaboration_native_link_mutation_receipts",
   "collaboration_native_restore_intents",
   "collaboration_native_restore_receipts",
+  "collaboration_original_markdown_imports",
   "collaboration_recovery_state_mutations",
   "collaboration_room_release_receipts",
   "collaboration_yjs_state_backups",
@@ -220,12 +225,18 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "workspace_file_operation_delete_intents",
   "workspace_file_operation_delete_receipts",
   "workspace_file_operation_delete_trash_receipts",
+  "workspace_file_operation_move_intents",
+  "workspace_file_operation_move_parent_receipts",
+  "workspace_file_operation_move_path_receipts",
+  "workspace_file_operation_move_preparations",
+  "workspace_file_operation_move_receipts",
   "workspace_file_operation_restore_intents",
   "workspace_file_operation_restore_receipts",
   "workspace_file_operation_reviews",
   "workspace_file_operation_steps",
   "workspace_file_operations",
   "workspace_file_user_states",
+  "workspace_path_import_preparations",
   "workspace_path_operation_problems",
   "workspace_trash_entries"
 ]);
@@ -237,11 +248,14 @@ export function preserveMigrationTable(name: string): boolean {
 
 export function resetMigrationTable(name: string): boolean {
   // These are durable change/review history, not live execution authority.
-  if (['collaboration_agent_operations', 'file_proposal_action_receipts', 'capability_package_operations'].includes(name)) return false;
+  if (['canvas_workspace_starter_initializations', 'collaboration_agent_operations',
+    'collaboration_agent_native_edit_payloads', 'collaboration_markdown_file_import_receipts',
+    'file_proposal_action_receipts', 'capability_package_operations'].includes(name)) return false;
   if (/^(?:composio_|integration_connection_)/u.test(name)) return true;
   return /^(?:oauth_|channel_|composio_.*oauth|composio_webhook_|mcp_.*oauth|collaboration_admission_|collaboration_agent_|collaboration_excalidraw_(?:agent_operations|checkpoint_intents|creates|operations|restores)|collaboration_native_|collaboration_markdown_create_|collaboration_room_|collaboration_recovery_|workspace_file_operation|file_guest_|file_proposal_action_receipts|mobile_push_|email_classification_(?:jobs|mailbox_sync_leases)|todo_email_reply_|automation_webhook_|capability_package_operations)/u.test(name)
     || ['session', 'verification', 'jwks', 'public_file_shares', 'file_locks', 'security_public_rate_limits',
       'mcp_revoked_access_token', 'mcp_direct_grant_revocation', 'mcp_direct_workspace_grant',
       'pi_message_delivery_receipts', 'memory_review_jobs', 'file_version_restore_receipts',
-      'collaboration_markdown_file_import_receipts', 'telegram_active_session', 'session_channel_links'].includes(name);
+      'collaboration_original_markdown_imports', 'collaboration_excalidraw_copy_receipts',
+      'workspace_path_import_preparations', 'telegram_active_session', 'session_channel_links'].includes(name);
 }

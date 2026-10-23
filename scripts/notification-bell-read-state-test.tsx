@@ -47,6 +47,10 @@ async function main() {
     item('automation:already-read', 'automation.failed', { kind: 'automation', runId: 'already-read' }, false),
     item('studio:new', 'studio.completed', { kind: 'studio', generationId: 'new' }, true),
     item('chat:new', 'chat.response', { kind: 'chat', sessionId: 'new' }, true),
+    item('file-path-preparation:11111111-2222-3333-4444-555555555555','file.operation_attention',
+      {kind:'file_path_operation',workspaceId:'workspace-one',preparationRequestId:'11111111-2222-3333-4444-555555555555',operationKind:'rename',status:'pending'},false),
+    item('file-path-preparation:66666666-7777-8888-9999-aaaaaaaaaaaa','file.operation_attention',
+      {kind:'file_path_operation',workspaceId:'workspace-one',preparationRequestId:'66666666-7777-8888-9999-aaaaaaaaaaaa',operationKind:'rename',status:'pending'},true),
   ];
   let todos = [item('todo:open', 'todo.attention', { kind: 'todo', todoId: 'open' }, false)];
   let emails = [item('email:pending', 'email.attention', { kind: 'email', scope: 'personal', caseId: 'pending' }, false)];
@@ -97,6 +101,9 @@ async function main() {
     await open();
     assert.ok(!screen.queryByRole('button', { name: /studio:already-read/u }), 'read Studio results are hidden on load');
     assert.equal(screen.queryByRole('button', { name: /automation:already-read/u }), null, 'read automation events are hidden on load');
+
+    assert.equal(document.querySelector('[data-notification-id="file-path-preparation:11111111-2222-3333-4444-555555555555"]'),null,'a read pending preparation stays hidden in the unread-only Bell');
+    assert.ok(document.querySelector('[data-notification-id="file-path-preparation:66666666-7777-8888-9999-aaaaaaaaaaaa"]'),'an unread saved preparation remains discoverable in the Bell');
     assert.ok(screen.getByRole('button', { name: /studio:new/u }));
     fireEvent.click(screen.getByRole('button', { name: /chat:new/u }));
     await settle();
@@ -110,6 +117,7 @@ async function main() {
     assert.deepEqual(mutations.at(-1), { action: 'mark_all_read' });
     assert.equal(screen.queryByRole('button', { name: /studio:new/u }), null, 'mark all read clears the notification list');
     assert.equal(document.getElementById('notification-center-notifications'), null, 'the empty section disappears');
+    assert.equal(document.querySelector('[data-notification-id^="file-path-preparation:"]'),null,'mark-all-read hides pending preparation rows without resolving the saved action');
     assert.ok(screen.getByRole('button', { name: /todo:open/u }), 'open Todos remain visible');
     assert.ok(screen.getByRole('button', { name: /email:pending/u }), 'pending email attention remains visible');
     assert.equal((screen.getByRole('button', { name: messages.notifications.markAllRead }) as HTMLButtonElement).disabled, true);
@@ -119,6 +127,7 @@ async function main() {
     await settle();
     await open();
     assert.equal(document.querySelector('[data-notification-id^="studio:"]'), null, 'read events stay hidden after remounting');
+    assert.equal(document.querySelector('[data-notification-id^="file-path-preparation:"]'),null,'read preparations stay hidden after Bell remount; Home retention is checked separately');
     notifications.push(item('studio:latest', 'studio.completed', { kind: 'studio', generationId: 'latest' }, true));
     await act(async () => { window.dispatchEvent(new CustomEvent('notification_summary_updated')); });
     await settle();

@@ -3,8 +3,9 @@ import {
   createWriteStream as createLocalWriteStream,
   promises as fs,
   accessSync,
+  constants,
 } from 'fs';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { BigIntStats } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -31,6 +32,7 @@ import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-con
 import { assertExcalidrawPublicationAllowed, ExcalidrawPublicationRequiredError } from '@/app/lib/excalidraw-collaboration/publication-context';
 import { filesystemFileVersion } from './file-version';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
+import type { WorkspaceNativeCopyDependencies } from '@/app/lib/collaboration/workspace-native-copy';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -41,7 +43,17 @@ export interface WorkspaceFileOperationOptions {
   strictMetadata?: boolean;
   includeSymlinks?: boolean;
   mutationActorUserId?: string;
+  mutationActorSessionId?: string;
+  /** Stable private operation binding supplied by the existing file-operation journal. */
+  mutationOperationId?: string;
 }
+
+/** Opaque, process-local proof of the inode published by one exclusive write. */
+export type WorkspaceExclusiveFilePublication = Readonly<object>;
+const exclusivePublications = new WeakMap<WorkspaceExclusiveFilePublication, {
+  filePath: string; fullPath: string; options?: WorkspaceFileOperationOptions;
+  device: number; inode: number; sha256: string; active: boolean;
+}>();
 
 function getDataDir(): string {
   return resolveWorkspaceDataRoot();
@@ -380,7 +392,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
 
   const parentDir = path.posix.dirname(filePath);
   if (parentDir !== '.' && parentDir !== '/') {
-    await createDirectory(parentDir, options);
+    await createWorkspaceFileParentDirectory(filePath, options);
   }
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const stagingPath = `${fullPath}.canvas-upload-${randomUUID()}.tmp`;
@@ -421,6 +433,7 @@ export async function writeFileIfAbsent(
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
   onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
+  onPublished?: (publication: WorkspaceExclusiveFilePublication) => void,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(filePath, options, async () => {
     assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
@@ -432,6 +445,7 @@ export async function writeFileIfAbsent(
       handle = await fs.open(stagingPath, 'wx', 0o666);
       await handle.writeFile(content);
       await handle.sync();
+      const publishedInode = await handle.stat();
       if (onStaged) {
         const identity = await handle.stat({ bigint: true });
         await onStaged({ dev: String(identity.dev), ino: String(identity.ino) });
@@ -443,6 +457,13 @@ export async function writeFileIfAbsent(
       // link() publishes the complete inode atomically and rejects EEXIST.
       // rename() would silently replace a concurrent creator's file.
       await fs.link(stagingPath, fullPath);
+      if (onPublished) {
+        const publication = Object.freeze({});
+        exclusivePublications.set(publication, { filePath, fullPath, options: options ? structuredClone(options) : undefined,
+          device: publishedInode.dev, inode: publishedInode.ino,
+          sha256: createHash('sha256').update(content).digest('hex'), active: true });
+        onPublished(publication);
+      }
       const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
       try {
         await directoryHandle.sync();
@@ -453,6 +474,49 @@ export async function writeFileIfAbsent(
       await handle?.close().catch(() => undefined);
       await fs.rm(stagingPath, { force: true }).catch(() => undefined);
     }
+  });
+}
+
+/** Compensation retains peer-created or replaced files, even with identical bytes. */
+export async function rollbackWorkspaceExclusiveFilePublication(
+  publication: WorkspaceExclusiveFilePublication,
+  onBeforeRemove: () => Promise<void>,
+): Promise<void> {
+  const claim = exclusivePublications.get(publication);
+  if (!claim) throw new Error('An attributable exclusive publication is required.');
+  if (!claim.active) return;
+  await withWorkspaceFileMutationLock(claim.filePath, claim.options, async () => {
+    const filename = await resolveWritableWorkspacePath(claim.filePath, claim.options);
+    if (filename !== claim.fullPath) throw new Error('Exclusive publication path changed before compensation.');
+    let handle: Awaited<ReturnType<typeof fs.open>>;
+    try { handle = await fs.open(filename, constants.O_RDONLY | constants.O_NOFOLLOW); }
+    catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        claim.active = false; return;
+      }
+      throw error;
+    }
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || before.dev !== claim.device || before.ino !== claim.inode || before.nlink !== 1) {
+        throw new Error('Exclusive publication compensation refused a different file inode.');
+      }
+      const hash = createHash('sha256');
+      for await (const chunk of handle.createReadStream({ autoClose: false })) hash.update(chunk);
+      const after = await handle.stat();
+      if (hash.digest('hex') !== claim.sha256 || before.size !== after.size || before.mtimeMs !== after.mtimeMs
+        || before.ctimeMs !== after.ctimeMs) throw new Error('Exclusive publication changed before compensation.');
+      await onBeforeRemove();
+      const current = await fs.lstat(filename);
+      if (current.dev !== claim.device || current.ino !== claim.inode || current.nlink !== 1
+        || current.size !== after.size || current.mtimeMs !== after.mtimeMs || current.ctimeMs !== after.ctimeMs) {
+        throw new Error('Exclusive publication changed before compensation removal.');
+      }
+      await fs.unlink(filename);
+      const parent = await fs.open(path.dirname(filename), 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+      claim.active = false;
+    } finally { await handle.close(); }
   });
 }
 
@@ -467,7 +531,7 @@ export async function writeWorkspaceFileFromPathIfAbsent(
     const sourceStats = await fs.stat(sourcePath);
     if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
     const parentDir = path.posix.dirname(filePath);
-    if (parentDir !== '.' && parentDir !== '/') await createDirectory(parentDir, options);
+    if (parentDir !== '.' && parentDir !== '/') await createWorkspaceFileParentDirectory(filePath, options);
     const fullPath = await resolveWritableWorkspacePath(filePath, options);
     const stagingPath = `${fullPath}.canvas-upload-create-${randomUUID()}.tmp`;
     try {
@@ -495,6 +559,20 @@ export async function writeDataFile(filePath: string, content: Buffer | string):
 
 export async function createDirectory(dirPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
   const fullPath = await resolveDirectoryCreationPath(dirPath, options);
+  await createResolvedWorkspaceDirectory(fullPath, options);
+}
+
+/** Resolve the complete file identity before deriving its parent. Normalizing
+ * the dirname separately would lose whitespace from literal Markdown paths. */
+export async function createWorkspaceFileParentDirectory(filePath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
+  if (normalizeWorkspaceRelativePath(filePath) === '.') {
+    throw new Error('A workspace file path is required to create its parent directory.');
+  }
+  const fullPath = await resolveDirectoryCreationPath(filePath, options);
+  await createResolvedWorkspaceDirectory(path.dirname(fullPath), options);
+}
+
+async function createResolvedWorkspaceDirectory(fullPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
   await fs.mkdir(fullPath, {recursive: true});
 
   const realBase = await getWorkspaceRealBase(options);
@@ -671,7 +749,7 @@ async function renameFileUnlocked(
   // Ensure parent directory exists
   const parentDir = path.dirname(newPath);
   if (parentDir && parentDir !== '.') {
-    await createDirectory(parentDir, options);
+    await createWorkspaceFileParentDirectory(newPath, options);
   }
   await resolveWritableWorkspacePath(newPath, options);
 
@@ -781,7 +859,7 @@ export interface CopyResult {
   skipped: string[];
 }
 
-function findAvailableDestName(fileName: string, fullDestDir: string): string {
+function findAvailableDestName(fileName: string, fullDestDir: string, logicalExists?: (name: string) => boolean): string {
   const ext = path.extname(fileName);
   const base = path.basename(fileName, ext);
   let candidate = fileName;
@@ -790,7 +868,7 @@ function findAvailableDestName(fileName: string, fullDestDir: string): string {
 
   while (true) {
     try {
-      accessSync(candidateFull);
+      if (!logicalExists?.(candidate)) accessSync(candidateFull);
       candidate = ext ? `${base} (${idx})${ext}` : `${base} (${idx})`;
       candidateFull = path.join(fullDestDir, candidate);
       idx++;
@@ -811,9 +889,9 @@ function isSameOrDescendantFsPath(candidatePath: string, parentPath: string): bo
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-async function assertCopyDestinationIsSafe(fullSource: string, fullDestDir: string, fullDest: string) {
-  const sourceStats = await fs.stat(fullSource);
-  if (!sourceStats.isDirectory()) return;
+async function assertCopyDestinationIsSafe(fullSource: string, fullDestDir: string, fullDest: string, nativeDirectory?: boolean) {
+  const isDirectory = nativeDirectory ?? (await fs.stat(fullSource)).isDirectory();
+  if (!isDirectory) return;
 
   if (
     isSameOrDescendantFsPath(fullDestDir, fullSource) ||
@@ -1056,25 +1134,47 @@ export async function copyFileBetweenWorkspaces(
   options: {
     source: WorkspaceFileOperationOptions;
     target: WorkspaceFileOperationOptions;
-  }
+  },
+  nativeDependencies?: WorkspaceNativeCopyDependencies,
 ): Promise<{copied: string; skipped: boolean; collaborationInitialized?: boolean; backup?: { path: string; backupId: string; contentSha256: string; sizeBytes: number }}> {
+  const sourceScope = getWorkspace(options.source); const targetScope = getWorkspace(options.target);
+  if (!sourceScope.permissions.canRead || !targetScope.permissions.canRead || !targetScope.permissions.canWrite
+    || [sourceScope, targetScope].some(workspace => workspace.status !== undefined && workspace.status !== 'active')) {
+    throw Object.assign(new Error('Current source and destination workspace permissions are required.'), { status: 403 });
+  }
   sourcePath = normalizeWorkspaceRelativePath(sourcePath);
   destDir = normalizeWorkspaceRelativePath(destDir);
   return withWorkspaceCopyMutationLocks(options.source, options.target, async () => {
-    const fullSource = await resolveExistingWorkspacePath(sourcePath, options.source);
+    const sourceWorkspace = getWorkspace(options.source); const targetWorkspace = getWorkspace(options.target);
+    const native = nativeDependencies ?? (await import('@/app/lib/collaboration/workspace-native-copy')).workspaceNativeCopyDependencies;
+    const actorUserId = options.target.mutationActorUserId ?? targetWorkspace.ownerUserId ?? undefined;
+    const operationId = `copy-${createHash('sha256').update(JSON.stringify([options.target.mutationOperationId ?? randomUUID(),
+      sourceWorkspace.workspaceId, sourcePath, targetWorkspace.workspaceId, destDir])).digest('hex')}`;
+    const inspection = await native.inspect({ sourceWorkspace, targetWorkspace, sourcePath, targetDirectory: destDir,
+      operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
+    let fullSource = validatePath(sourcePath, options.source); let sourceExists = true;
+    try { fullSource = await resolveExistingWorkspacePath(sourcePath, options.source); }
+    catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT' || !inspection.hasNativeSource) throw error;
+      sourceExists = false;
+    }
     const fullDestDir = await resolveExistingWorkspacePath(destDir, options.target);
-    const fileName = path.basename(fullSource);
+    const fileName = path.posix.basename(sourcePath);
     let destFileName = fileName;
+    const logicalExists = (name: string) => {
+      const candidate = destDir === '.' ? name : `${destDir}/${name}`;
+      return inspection.targetDocumentPaths.some(document => document === candidate || document.startsWith(`${candidate}/`));
+    };
+    if (inspection.targetDocumentPaths.includes(destDir)) throw Object.assign(new Error('A native document cannot contain a copied child.'), { status: 409 });
 
     let destExists = false;
-    if (renameOnCollision) {
-      const fullDest = path.join(fullDestDir, destFileName);
-      try {
-        await fs.access(fullDest);
-        destFileName = findAvailableDestName(fileName, fullDestDir);
-      } catch {
-        // Destination doesn't exist - use original name
+    if (inspection.resumeTargetPath) {
+      if (!options.target.mutationOperationId || normalizeWorkspaceRelativePath(path.posix.dirname(inspection.resumeTargetPath)) !== destDir) {
+        throw Object.assign(new Error('The copy recovery destination differs from this request.'), { status: 409 });
       }
+      destFileName = path.posix.basename(inspection.resumeTargetPath);
+    } else if (renameOnCollision) {
+      destFileName = findAvailableDestName(fileName, fullDestDir, logicalExists);
     } else {
       const fullDest = path.join(fullDestDir, destFileName);
       try {
@@ -1083,6 +1183,7 @@ export async function copyFileBetweenWorkspaces(
       } catch {
         // Destination doesn't exist - good
       }
+      destExists ||= logicalExists(destFileName);
 
       if (destExists) {
         if (!overwrite) {
@@ -1096,25 +1197,50 @@ export async function copyFileBetweenWorkspaces(
 
     const fullDest = path.join(fullDestDir, destFileName);
     const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
-    await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
+    await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest, sourceExists ? undefined : inspection.sourceIsDirectory);
     return withWorkspaceFileLifecycleGuards([
       { workspaceId: getWorkspace(options.source).workspaceId, paths: [sourcePath === '.' ? '' : sourcePath] },
       { workspaceId: getWorkspace(options.target).workspaceId, paths: [destRelative] },
     ], async () => {
+    // Reinspect under the actual admission barrier: pre-collision metadata granted no writer authority.
+    const currentNative = await native.inspect({ sourceWorkspace, targetWorkspace, sourcePath, targetDirectory: destDir,
+      operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
     await assertNoManagedExcalidrawCopyDestination(destRelative, options.target);
     await assertWorkspaceOfficePathMutationAllowed([destRelative], options.target);
-    const officeSources = destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
+    const officeSources = sourceExists && destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
       ? [sourcePath]
       : await collectOfficeCopyPaths(sourcePath, options.source);
     const replacedOfficePaths = destExists ? await collectOfficeCopyPaths(destRelative, options.target) : [];
     const excalidrawSources = await collectExcalidrawCopyPaths(sourcePath, options.source);
     const replacedExcalidrawPaths = destExists ? await collectExcalidrawCopyPaths(destRelative, options.target) : [];
     if (replacedExcalidrawPaths.length) throw new ExcalidrawPublicationRequiredError();
-    const excalidrawContents = new Map<string, Buffer>();
-    for (const source of excalidrawSources) excalidrawContents.set(source, await readExcalidrawCopyContent(source, options.source));
     const includesOffice = officeSources.length > 0 || replacedOfficePaths.length > 0;
     const includesExcalidraw = excalidrawSources.length > 0;
+    if (currentNative.hasNativeSource && includesExcalidraw) {
+      // The native backup publisher cannot import scene authority. Refuse this
+      // combination before even a scene read can initialize its durable state.
+      throw Object.assign(new Error('Copying mixed native text and Excalidraw folders requires the shared scene publication workflow.'),
+        { status: 409, code: 'NATIVE_COPY_MIXED_SCENE_UNSUPPORTED' });
+    }
+    const excalidrawContents = new Map<string, Buffer>();
+    for (const source of excalidrawSources) excalidrawContents.set(source, await readExcalidrawCopyContent(source, options.source));
     let backup: { path: string; backupId: string; contentSha256: string; sizeBytes: number } | undefined;
+    if (currentNative.hasNativeSource) {
+      if (!actorUserId) throw Object.assign(new Error('A user identity is required to copy native documents.'), { status: 403 });
+      if (overwrite && destExists || includesOffice) throw Object.assign(new Error('Native replacement and mixed Word/native copies require the structured lifecycle workflow.'),
+        { status: 409, code: 'NATIVE_COPY_REPLACEMENT_UNSUPPORTED' });
+      const receipt = await native.publish({ sourceWorkspace, targetWorkspace, sourcePath, targetPath: destRelative,
+        operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
+      const { bindNativeCopyReceipt } = await import('@/app/lib/collaboration/native-copy-result');
+      return bindNativeCopyReceipt({ copied: destRelative, skipped: false, collaborationInitialized: true }, receipt);
+    }
+    if (currentNative.initializedTargetPaths.some(document => document === destRelative || document.startsWith(`${destRelative}/`))) {
+      throw Object.assign(new Error('A native document projection cannot be replaced by a raw copy.'),
+        { status: 409, code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED' });
+    }
+    if (!destExists && currentNative.targetDocumentPaths.some(document => document === destRelative || document.startsWith(`${destRelative}/`))) {
+      throw Object.assign(new Error('The copy destination changed after its name was selected.'), { status: 409 });
+    }
     if (overwrite) await assertNoActiveRawCopyPath(getWorkspace(options.source), sourcePath, fullSource, new Set(excalidrawSources));
     if (destExists && overwrite) {
       await assertNoActiveRawCopyPath(getWorkspace(options.target), destRelative, fullDest);

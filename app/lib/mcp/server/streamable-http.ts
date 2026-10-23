@@ -163,7 +163,16 @@ function internalMcpErrorResponse(): Response {
 }
 
 async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> {
-  if (!request.headers.has('authorization')) return undefined;
+  if (!request.headers.has('authorization')) {
+    // Modern HTTP OAuth clients react to the actual HTTP challenge. Catalog
+    // discovery stays public; legacy clients retain tool-level challenges.
+    if (request.headers.get('mcp-method') === 'tools/call' && !await isLegacyRequest(request)) {
+      throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', {
+        challengeError: 'invalid_token',
+      });
+    }
+    return undefined;
+  }
 
   const principal = await verifyDirectMcpRequest(request);
   recordDirectMcpRequestClientName(principal.clientName);

@@ -61,7 +61,10 @@ export const CanvasParagraph = Paragraph.extend({
       return previousNodeIsEmptyParagraph ? EMPTY_PARAGRAPH_MARKDOWN : '';
     }
 
-    return escapeParagraphBlockSyntax(renderInlineWithMarkedWhitespace(content, helpers));
+    return escapeParagraphBlockSyntax(renderInlineWithMarkedWhitespace(content, helpers, {
+      // Task Markdown renders its first paragraph on the checkbox's one line.
+      softBreaksAsEntities: context.parentType === 'taskItem',
+    }));
   },
 });
 

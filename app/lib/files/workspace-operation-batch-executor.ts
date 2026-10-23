@@ -1,8 +1,19 @@
 import 'server-only';
+import { decodeWorkspaceOperationCohortDeletePlan, type WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
+import { readWorkspaceOperationCohortDeleteStatus } from './workspace-operation-cohort-delete-status';
+import { executeWorkspaceOperationCohortDelete } from './workspace-operation-cohort-delete-runner';
+import { workspaceOperationCohortDeleteExecutionResult, projectWorkspaceOperationCohortDeleteExecution } from './workspace-operation-cohort-delete-public';
+import { decodeWorkspaceOperationPhysicalDeleteBatchPlanV5, type WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
+import { readWorkspaceOperationPhysicalDeleteBatchStatusV5 } from './workspace-operation-physical-delete-status-v5';
+import { projectWorkspaceOperationPhysicalDeleteExecutionV5, workspaceOperationPhysicalDeleteMutationEvidenceV5, workspaceOperationPhysicalDeleteExecutionResultV5 } from './workspace-operation-physical-delete-execution-public-v5';
+import { assertWorkspaceFileUndoEnabled, WorkspaceFileUndoDisabledError } from './workspace-file-undo-policy';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual, types } from 'node:util';
+import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJobPrincipalCaptured,
+  type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
@@ -14,13 +25,27 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
-import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import { withWorkspaceFileLifecycleGuard, WorkspaceFileLifecycleBusyError } from './workspace-file-lifecycle-guard';
+import { getWorkspaceFileLifecycleLeases } from '@/app/lib/collaboration/file-lifecycle-admission-context';
+import { readWorkspaceOperationBatchClaimBinding, WorkspaceOperationBatchStore,
+  type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
+import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
+import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
+import { readWorkspaceOperationNativeDeleteBatchStatus } from './workspace-operation-native-delete-status';
+import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
+import { readWorkspaceOperationNativeMoveBatchStatus } from './workspace-operation-native-move-status';
+import { executeWorkspaceOperationOriginalMove } from './workspace-operation-original-move-runner';
+import { projectWorkspaceOperationNativeMoveExecution, workspaceOperationNativeMoveExecutionResult,
+  workspaceOperationNativeMoveMutationEvidence } from './workspace-operation-native-move-execution-public';
+import { assertWorkspaceOperationNativeDeleteUndoAvailable } from './workspace-operation-native-delete-undo-availability';
+import { executeWorkspaceOperationOriginalDelete, undoWorkspaceOperationOriginalDelete } from './workspace-operation-original-delete';
 import { preflightWorkspaceLinkWrites, applyWorkspaceLinkWriteGroup, probeWorkspaceLinkWriteGroup,
   type WorkspaceLinkWriteExecutorInput, type WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
 import { authoritativeCollaborationSnapshot, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
 import { ensureCollaborationDocumentIdleReleased } from '@/app/lib/collaboration/document-idle-release';
 import { loadCollaborationState, serializeCanonicalText } from '@/app/lib/collaboration/persistence';
+import { hasPendingCollaborationProjection, loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
@@ -29,11 +54,14 @@ import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspa
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
 import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
+import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
-import { projectWorkspaceOperationBatchExecution,
+import { projectWorkspaceOperationBatchExecution, projectWorkspaceOperationNativeDeleteExecution,
+  workspaceOperationNativeDeleteExecutionResult, workspaceOperationNativeDeleteMutationEvidence,
   type WorkspaceOperationBatchExecutionPublicInput } from './workspace-operation-batch-execution-public';
-import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
+import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationBatchPlan, WorkspaceOperationLegacyBatchPlan,
+  WorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationBatchProgress,
   WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -46,21 +74,27 @@ export type WorkspaceOperationBatchTransitionProof = {
   contentHash: string | null; documentId: string | null; lifecycleGeneration: number | null;
 };
 type Manifest = {
-  version: 1; batchId: string; workspaceId: string; actorUserId: string; plan: WorkspaceOperationBatchPlan;
+  version: 1; batchId: string; workspaceId: string; actorUserId: string; plan: WorkspaceOperationLegacyBatchPlan;
   actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
   status: 'preparing' | 'applying' | 'applied' | 'needs_review' | 'needs_recovery' | 'failed' | 'undoing' | 'undone';
   beforeTrees: Record<string, TreeEntry[]>; backupIds: string[]; linkPreflight: WorkspaceLinkWritePreflight | null;
-  steps: Step[]; undoSteps: Step[]; undoPlan: WorkspaceOperationBatchPlan['linkPlan'] | null;
+  steps: Step[]; undoSteps: Step[]; undoPlan: WorkspaceOperationLegacyBatchPlan['linkPlan'] | null;
   undoPreflight: WorkspaceLinkWritePreflight | null; errorCode: string | null;
   finalTransitions?: WorkspaceOperationBatchTransitionProof[];
 };
 type ExecuteInput = { batchId: string; plan: WorkspaceOperationBatchPlan; scope: WorkspaceOperationBatchScope;
   actorUserId: string; actorDisplayName: string;
   actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
+  /** Private live worker provenance; never serialized into a recovery manifest. */
+  jobClaim?: WorkspaceOperationBatchClaim;
+  /** Current MCP authority is separate from original actor/SID_A attribution. */
+  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
   onProgress?: (progress: WorkspaceOperationBatchProgress) => void | Promise<void> };
 type UndoInput = Omit<ExecuteInput, 'plan'>;
 
 type Dependencies = {
+  /** Read discrimination only; V2 authority and evidence always use the actual store. */
+  readBatch?: WorkspaceOperationBatchStore['get'];
   storageRoot?: string;
   rebuild?: typeof buildWorkspaceOperationBatchPlan;
   snapshot?: typeof buildWorkspacePlannerSnapshot;
@@ -101,7 +135,10 @@ async function checkpointBatchLink(input: WorkspaceLinkWriteExecutorInput, group
   if (diskHash !== group.beforeSha256 && diskHash !== group.afterSha256) throw new Error('BATCH_CHECKPOINT_FILE_CHANGED');
   // The queued projector cannot acquire the workspace lock while this batch owns it.
   // Reuse its transactional lifecycle/sequence fence in our reentrant lock instead.
-  if (diskHash !== group.afterSha256 || state.checkpointSequence < state.documentSequence) {
+  const projection = await loadCollaborationProjectionStatus(state);
+  // Matching bytes and sequence can precede receipt and registry finalization.
+  if (diskHash !== group.afterSha256 || state.checkpointSequence < state.documentSequence
+    || !projection.projectionFinalized || await hasPendingCollaborationProjection(state)) {
     await materializeCollaborationCheckpoint({ state, workspace: input.destination.workspace,
       actorUserId: input.actorUserId, actorType: input.actorType ?? 'user', sourceSessionId: input.actorSessionId });
   }
@@ -167,6 +204,36 @@ async function privateDirectory(directory: string): Promise<void> {
 
 /** Durable batch coordinator. Path receipts are required before a post-state can be resumed. */
 export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies = {}) {
+  const readBatch = dependencies.readBatch ?? ((batchId: string) => new WorkspaceOperationBatchStore().get(batchId));
+  const cohortStatus=async(batchId:string,scope?:WorkspaceOperationBatchScope,expectedPlan?:WorkspaceOperationCohortDeletePlan)=>{
+    const batch=await readBatch(batchId);if(!batch||batch.plan.version!==6)return null;
+    if(!scope)throw new Error('BATCH_SCOPE_REQUIRED');
+    return readWorkspaceOperationCohortDeleteStatus({batchId,scope,expectedPlan});
+  };
+  const nativeStatus = async (batchId: string, scope?: WorkspaceOperationBatchScope, expectedPlan?: WorkspaceOperationNativeDeleteBatchPlan) => {
+    const batch = await readBatch(batchId);
+    if (!batch || batch.plan.version !== 2) return null;
+    if (!scope) throw new Error('BATCH_SCOPE_CHANGED');
+    const status = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId, scope, expectedPlan });
+    if (!status || status.batch.planId !== batch.planId) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    return status;
+  };
+  const physicalStatus = async (batchId:string,scope?:WorkspaceOperationBatchScope,expectedPlan?:WorkspaceOperationPhysicalDeleteBatchPlanV5) => {
+    const batch = await readBatch(batchId);
+    if (!batch || batch.plan.version !== 5) return null;
+    if (!scope) throw new Error('BATCH_SCOPE_CHANGED');
+    const status = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({batchId,scope,expectedPlan});
+    if (!status || status.batch.planId !== batch.planId) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    return status;
+  };
+  const moveStatus = async (batchId: string, scope?: WorkspaceOperationBatchScope, expectedPlan?: WorkspaceOperationNativeMoveBatchPlan) => {
+    const batch = await readBatch(batchId);
+    if (!batch || batch.plan.version !== 3) return null;
+    if (!scope) throw new Error('BATCH_SCOPE_CHANGED');
+    const status = await readWorkspaceOperationNativeMoveBatchStatus({ batchId, scope, expectedPlan });
+    if (!status || status.batch.planId !== batch.planId) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    return status;
+  };
   const storage = dependencies.storageRoot ?? path.join(resolveCanvasDataRoot(), 'workspace-operation-batches');
   const rebuild = dependencies.rebuild ?? buildWorkspaceOperationBatchPlan;
   const snapshotFor = dependencies.snapshot ?? buildWorkspaceAuthoritativePlannerSnapshot;
@@ -222,7 +289,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       const stored = JSON.parse(await handle.readFile('utf8')) as { payload: string; sha256: string };
       if (digest(stored.payload) !== stored.sha256) throw new Error('BATCH_CORRUPT_MANIFEST');
       const manifest = JSON.parse(stored.payload) as Manifest;
-      if (manifest.version !== 1 || manifest.batchId !== batchId || manifest.workspaceId !== manifest.plan.workspaceId
+      if (manifest.version !== 1 || manifest.plan.version !== 1 || manifest.batchId !== batchId || manifest.workspaceId !== manifest.plan.workspaceId
         || computeWorkspaceOperationBatchPlanId(manifest.plan) !== manifest.plan.planId
         || computeWorkspaceFileOperationPlanId(manifest.plan.linkPlan) !== manifest.plan.linkPlan.planId) throw new Error('BATCH_CORRUPT_MANIFEST');
       return manifest;
@@ -343,7 +410,14 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     return paths.length ? withWorkspaceFileLifecycleGuard({ workspaceId: scope.workspace.workspaceId, paths },
       () => withLock(scope, operation)) : withLock(scope, operation);
   };
-  const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<void> => withLock(input.scope, async () => {
+  const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<void> => {
+    assertWorkspaceFileUndoEnabled();
+    if (await cohortStatus(input.batchId,input.scope) || await physicalStatus(input.batchId,input.scope)) throw new WorkspaceFileUndoDisabledError();
+    if (await nativeStatus(input.batchId, input.scope)) {
+      if (!await assertWorkspaceOperationNativeDeleteUndoAvailable(input)) throw new Error('BATCH_UNDO_NOT_COMPLETE');
+      return;
+    }
+    return withLock(input.scope, async () => {
     const manifest = await load(input.batchId);
     const conflict = (code: string): never => { throw Object.assign(new Error(code), { status: 409, code }); };
     if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.status !== 'applied') return conflict('BATCH_UNDO_NOT_COMPLETE');
@@ -419,9 +493,122 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
         }
       }
     }
-  });
+    });
+  };
 
-  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => withPathLifecycle(input.scope, input.plan, async () => {
+  const checkedNativeExecution = (input: UndoInput,
+    original: WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan, undo: boolean) => {
+    if (types.isProxy(input)) throw new Error('BATCH_SCOPE_CHANGED');
+    const mcpField = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
+    if (mcpField && (!mcpField.enumerable || !Object.hasOwn(mcpField, 'value'))) throw new Error('BATCH_SCOPE_CHANGED');
+    const mcpPrincipal = mcpField?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(mcpField.value);
+    assertAccess(input);
+    const claim = input.jobClaim;
+    if (!claim) throw new Error('BATCH_CLAIM_REQUIRED');
+    const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization;
+    const mode = undo ? 'undo' : 'apply';
+    if (auth.mode === 'direct-mcp') {
+      if (undo || !mcpPrincipal) throw new Error('BATCH_MCP_AUTHORIZATION_REQUIRED');
+      assertWorkspaceOperationMcpJobPrincipalCaptured(mcpPrincipal, binding);
+    } else if (mcpPrincipal !== undefined) throw new Error('BATCH_SCOPE_CHANGED');
+    if (binding.batchId !== input.batchId || binding.planId !== original.planId || binding.workspaceId !== original.workspaceId
+      || binding.actionMode !== mode || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !isDeepStrictEqual(binding.plan, original)
+      || !workspaceOperationJobScopeMatches(auth.jobScope, input.scope.workspace)
+      || !input.scope.fileOptions.workspace || !workspaceOperationJobScopeMatches(auth.jobScope, input.scope.fileOptions.workspace)
+      || input.scope.fileOptions.workspace.status !== 'active' || !input.scope.fileOptions.workspace.permissions.canRead
+      || !input.scope.fileOptions.workspace.permissions.canWrite || !input.scope.fileOptions.workspace.permissions.canDelete
+      || !isDeepStrictEqual(auth.jobScope, original.sourceEvidence.workspaceScope)
+      || input.actorUserId !== auth.actorUserId || input.scope.workspace.actor?.userId !== auth.actorUserId
+      || input.scope.fileOptions.workspace.actor?.userId !== auth.actorUserId
+      || (input.actorId ?? input.actorUserId) !== (undo ? auth.actorUserId : auth.actorId)
+      || (input.actorType ?? 'user') !== (undo ? 'user' : auth.actorType)
+      || input.actorSessionId !== (undo ? undefined : auth.actorSessionId)) throw new Error('BATCH_SCOPE_CHANGED');
+    return { claim, binding, mcpPrincipal };
+  };
+  const executeNative = async (input: UndoInput, plan: WorkspaceOperationNativeDeleteBatchPlan,
+    undo: boolean): Promise<WorkspaceOperationBatchExecutionResult> => {
+    // Reject missing/foreign capabilities before inspecting private plan data.
+    // Full plan, scope and actor validation still follows before any work.
+    if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
+    readWorkspaceOperationBatchClaimBinding(input.jobClaim);
+    const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
+    const { claim, binding, mcpPrincipal } = checkedNativeExecution(input, original, undo);
+    await input.onProgress?.({ completedActions: 0, totalActions: workspaceOperationBatchTotalActions(original), phase: 'preparing' });
+    // The original runner owns the outer lifecycle/kernel and all B phases.
+    // In particular, no legacy path guard, manifest or independent Trash writer precedes it.
+    if (undo) await undoWorkspaceOperationOriginalDelete(claim);
+    else await executeWorkspaceOperationOriginalDelete(claim, undefined, mcpPrincipal);
+    const status = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId: binding.batchId, scope: input.scope,
+      expectedPlan: original, mcpPrincipal });
+    if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    const outcome = workspaceOperationNativeDeleteExecutionResult(original, status.observation, undo);
+    if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    await input.onProgress?.({ completedActions: outcome.completedActions, totalActions: outcome.totalActions, phase: 'complete' });
+    return outcome;
+  };
+  const executeCohort=async(input:ExecuteInput&{plan:WorkspaceOperationCohortDeletePlan}):Promise<WorkspaceOperationBatchExecutionResult>=>{
+    if(!input.jobClaim)throw new Error('BATCH_CLAIM_REQUIRED');readWorkspaceOperationBatchClaimBinding(input.jobClaim);
+    const original=decodeWorkspaceOperationCohortDeletePlan(input.plan),{claim,binding,mcpPrincipal}=checkedNativeExecution(input,original,false);
+    await input.onProgress?.({completedActions:0,totalActions:workspaceOperationBatchTotalActions(original),phase:'preparing'});
+    await executeWorkspaceOperationCohortDelete({claim,workspace:input.scope.workspace,mcpPrincipal});
+    const status=await readWorkspaceOperationCohortDeleteStatus({batchId:binding.batchId,scope:input.scope,expectedPlan:original,mcpPrincipal});
+    if(!status)throw new Error('BATCH_JOURNAL_UNAVAILABLE');const outcome=workspaceOperationCohortDeleteExecutionResult(original,status.observation);
+    if(!outcome||outcome.status!=='applied')throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    await input.onProgress?.({completedActions:outcome.completedActions,totalActions:outcome.totalActions,phase:'complete'});return outcome;
+  };
+  const executePhysical = async (input:ExecuteInput & {plan:WorkspaceOperationPhysicalDeleteBatchPlanV5}):Promise<WorkspaceOperationBatchExecutionResult> => {
+    if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
+    readWorkspaceOperationBatchClaimBinding(input.jobClaim);
+    const original = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.plan);
+    const {claim,binding,mcpPrincipal} = checkedNativeExecution(input,original,false);
+    await input.onProgress?.({completedActions:0,totalActions:workspaceOperationBatchTotalActions(original),phase:'preparing'});
+    await executeWorkspaceOperationOriginalDelete(claim,undefined,mcpPrincipal);
+    const status = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({batchId:binding.batchId,scope:input.scope,expectedPlan:original,mcpPrincipal});
+    if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    const outcome = workspaceOperationPhysicalDeleteExecutionResultV5(original,status.observation);
+    if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    await input.onProgress?.({completedActions:outcome.completedActions,totalActions:outcome.totalActions,phase:'complete'});
+    return outcome;
+  };
+  const executeMove = async (input: ExecuteInput & { plan: WorkspaceOperationNativeMoveBatchPlan }): Promise<WorkspaceOperationBatchExecutionResult> => {
+    if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
+    readWorkspaceOperationBatchClaimBinding(input.jobClaim);
+    const original = decodeWorkspaceOperationNativeMoveBatchPlan(input.plan);
+    const { claim, binding, mcpPrincipal } = checkedNativeExecution(input, original, false);
+    const totalActions = workspaceOperationBatchTotalActions(original);
+    await input.onProgress?.({ completedActions: 0, totalActions, phase: 'preparing' });
+    await executeWorkspaceOperationOriginalMove({ claim, workspace: input.scope.workspace, mcpPrincipal,
+      onPathCommitted: async completedActions => {
+        await input.onProgress?.({ completedActions, totalActions, phase: 'paths' });
+      } });
+    const status = await readWorkspaceOperationNativeMoveBatchStatus({ batchId: binding.batchId, scope: input.scope,
+      expectedPlan: original, mcpPrincipal });
+    if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    const outcome = workspaceOperationNativeMoveExecutionResult(original, status.observation);
+    if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+    await input.onProgress?.({ completedActions: outcome.completedActions, totalActions, phase: 'complete' });
+    return outcome;
+  };
+
+  const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    if (input.plan.version === 6) return executeCohort({...input,plan:input.plan});
+    if (input.plan.version === 5) return executePhysical({...input,plan:input.plan});
+    if (input.plan.version === 2) return executeNative(input, input.plan, false);
+    if (input.plan.version === 3) return executeMove({ ...input, plan: input.plan });
+    if (input.mcpPrincipal !== undefined) throw new Error('BATCH_MCP_NATIVE_PLAN_REQUIRED');
+    if (input.jobClaim && readWorkspaceOperationBatchClaimBinding(input.jobClaim).plan.version !== 1
+      || ((await readBatch(input.batchId))?.plan.version ?? 1) !== 1) throw new Error('BATCH_SCOPE_CHANGED');
+    const legacyInput: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan } = { ...input, plan: input.plan };
+    return executeLegacy(legacyInput);
+  };
+  const executeLegacy = async (input: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan }): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+    // A caller's retained EXCLUSIVE session would survive our own guard's
+    // finally and block the later Shared publication guard. Reject it before
+    // any backup, journal or mutation. Lease absence grants no authority: the
+    // real lifecycle and publication guards still acquire their own locks.
+    if (getWorkspaceFileLifecycleLeases()?.get(input.scope.workspace.workspaceId)?.active === true) {
+      throw new WorkspaceFileLifecycleBusyError();
+    }
     assertAccess(input);
     let manifest = await load(input.batchId);
     if (manifest && (manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.actorUserId !== input.actorUserId
@@ -432,77 +619,85 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (manifest?.status === 'applied') return result(manifest);
     if (manifest && ['undoing', 'undone'].includes(manifest.status)) throw new Error('BATCH_ALREADY_REVERTED');
     try {
-      if (!manifest) {
-        if (input.plan.workspaceId !== input.scope.workspace.workspaceId || input.plan.readiness !== 'ready'
-          || input.plan.issues.length || computeWorkspaceOperationBatchPlanId(input.plan) !== input.plan.planId) throw new Error('BATCH_PLAN_BLOCKED');
-        const fresh = await rebuild({ scope: input.scope, actions: input.plan.actions });
-        if (fresh.readiness !== 'ready' || fresh.planId !== input.plan.planId) throw Object.assign(new Error('BATCH_PLAN_STALE'), { status: 409 });
-        manifest = { version: 1, batchId: input.batchId, workspaceId: fresh.workspaceId, actorUserId: input.actorUserId,
-          actorId: input.actorId ?? input.actorUserId, actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
-          plan: fresh, status: 'preparing', beforeTrees: {}, backupIds: [], linkPreflight: null, steps: [], undoSteps: [], undoPlan: null, undoPreflight: null, errorCode: null };
-        for (const step of fresh.pathSteps) manifest.beforeTrees[step.sourcePath] = (await pathTree(input.scope, step.sourcePath))!;
-        const groups = groupWorkspaceLinkWrites(fresh.linkPlan);
-        manifest.linkPreflight = groups.length ? await preflight(linkInput(input, manifest)) : null;
-        await progress(input, manifest, 'preparing');
-        // Capture every destructive source and every backlink before the first mutation.
-        const backupPaths = [...new Set([...fresh.pathSteps.map((step) => step.sourcePath), ...fresh.originalDocuments.map((doc) => doc.path)])]
-          .filter((candidate, _, all) => !all.some((other) => candidate !== other && samePath(candidate, other)));
-        for (const sourcePath of backupPaths) {
-          const captured = await backup({ workspace: input.scope.workspace, path: sourcePath, operationId: input.batchId });
-          manifest.backupIds.push(captured.backupId);
-        }
-        await save(manifest);
-      }
-      if (['preparing', 'failed', 'needs_review', 'needs_recovery'].includes(manifest.status)) manifest.status = 'applying';
-      if (!manifest.steps.some((step) => step.key.startsWith('path:') && step.receipt)) {
-        const fresh = await rebuild({ scope: input.scope, actions: manifest.plan.actions });
-        if (fresh.readiness !== 'ready' || fresh.planId !== manifest.plan.planId) throw new Error('BATCH_PLAN_STALE');
-      }
-      for (const [index, step] of manifest.plan.pathSteps.entries()) {
-        const key = `path:${index}`;
-        let durable = manifest.steps.find((entry) => entry.key === key);
-        const observed = await pathProbe(input, manifest, index);
-        if (durable?.state === 'applied') { if (observed !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RECEIPT'); continue; }
-        if (durable?.receipt && observed === 'after' && step.kind === 'delete') {
-          await progress(input, manifest, 'paths');
-          await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: String(durable.receipt.trashEntryId) }] });
-          await sharesDeleted([step.sourcePath], input.scope.workspace);
-          durable.state = 'applied'; await save(manifest); continue;
-        }
-        if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
-        await progress(input, manifest, 'paths');
-        if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
-        await htmlEvidenceCurrent(manifest.plan, input.scope);
-        if (step.kind === 'delete') {
-          const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
-          if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');
-          const entry = trashed.trashed[0];
-          // Persist physical receipt before retrying idempotent projection services.
-          durable.receipt = { trashEntryId: entry.id, afterTree: await treeAt(path.join(resolveWorkspaceDataRoot(), entry.trashRelativePath)) };
+      await withPathLifecycle(input.scope, input.plan, async () => {
+        if (!manifest) {
+          if (input.plan.workspaceId !== input.scope.workspace.workspaceId || input.plan.readiness !== 'ready'
+            || input.plan.issues.length || computeWorkspaceOperationBatchPlanId(input.plan) !== input.plan.planId) throw new Error('BATCH_PLAN_BLOCKED');
+          const fresh = await rebuild({ scope: input.scope, actions: input.plan.actions });
+          if (fresh.version !== 1 || fresh.readiness !== 'ready' || fresh.planId !== input.plan.planId) throw Object.assign(new Error('BATCH_PLAN_STALE'), { status: 409 });
+          manifest = { version: 1, batchId: input.batchId, workspaceId: fresh.workspaceId, actorUserId: input.actorUserId,
+            actorId: input.actorId ?? input.actorUserId, actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
+            plan: fresh, status: 'preparing', beforeTrees: {}, backupIds: [], linkPreflight: null, steps: [], undoSteps: [], undoPlan: null, undoPreflight: null, errorCode: null };
+          for (const step of fresh.pathSteps) manifest.beforeTrees[step.sourcePath] = (await pathTree(input.scope, step.sourcePath))!;
+          const groups = groupWorkspaceLinkWrites(fresh.linkPlan);
+          manifest.linkPreflight = groups.length ? await preflight(linkInput(input, manifest)) : null;
+          await progress(input, manifest, 'preparing');
+          // Capture every destructive source and every backlink before the first mutation.
+          const backupPaths = [...new Set([...fresh.pathSteps.map((step) => step.sourcePath), ...fresh.originalDocuments.map((doc) => doc.path)])]
+            .filter((candidate, _, all) => !all.some((other) => candidate !== other && samePath(candidate, other)));
+          for (const sourcePath of backupPaths) {
+            const captured = await backup({ workspace: input.scope.workspace, path: sourcePath, operationId: input.batchId });
+            manifest.backupIds.push(captured.backupId);
+          }
           await save(manifest);
-          await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: entry.id }] });
-          await sharesDeleted([step.sourcePath], input.scope.workspace);
-        } else {
-          const renamed = await rename({ workspace: input.scope.workspace, oldPath: step.sourcePath, newPath: step.destinationPath!, overwrite: false, fileOptions: input.scope.fileOptions });
-          durable.receipt = { mutationId: renamed.mutation.operationId, afterTree: await pathTree(input.scope, step.destinationPath!) };
         }
-        durable.state = 'applied';
-        await save(manifest);
-        if (await pathProbe(input, manifest, index) !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RESULT');
-      }
-      for (const [index, group] of groupWorkspaceLinkWrites(manifest.plan.linkPlan).entries()) {
-        const key = `link:${index}`;
-        let durable = manifest.steps.find((entry) => entry.key === key);
-        const observed = await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
-        if (observed === 'unknown' || durable?.state === 'applied' && observed !== 'after'
-          || !durable && observed !== 'before') throw new Error('BATCH_UNPROVEN_LINK_STATE');
-        if (durable?.state === 'applied') continue;
-        await progress(input, manifest, 'links');
-        if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
-        if (observed === 'before') durable.receipt = await applyLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
-        if (await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined }) !== 'after') throw new Error('BATCH_UNPROVEN_LINK_RESULT');
-        durable.state = 'applied'; await save(manifest);
-      }
+        if (['preparing', 'failed', 'needs_review', 'needs_recovery'].includes(manifest.status)) manifest.status = 'applying';
+        if (!manifest.steps.some((step) => step.key.startsWith('path:') && step.receipt)) {
+          const fresh = await rebuild({ scope: input.scope, actions: manifest.plan.actions });
+          if (fresh.readiness !== 'ready' || fresh.planId !== manifest.plan.planId) throw new Error('BATCH_PLAN_STALE');
+        }
+        for (const [index, step] of manifest.plan.pathSteps.entries()) {
+          const key = `path:${index}`;
+          let durable = manifest.steps.find((entry) => entry.key === key);
+          const observed = await pathProbe(input, manifest, index);
+          if (durable?.state === 'applied') { if (observed !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RECEIPT'); continue; }
+          if (durable?.receipt && observed === 'after' && step.kind === 'delete') {
+            await progress(input, manifest, 'paths');
+            await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: String(durable.receipt.trashEntryId) }] });
+            await sharesDeleted([step.sourcePath], input.scope.workspace);
+            durable.state = 'applied'; await save(manifest); continue;
+          }
+          if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
+          await progress(input, manifest, 'paths');
+          if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+          await htmlEvidenceCurrent(manifest.plan, input.scope);
+          if (step.kind === 'delete') {
+            const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
+            if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');
+            const entry = trashed.trashed[0];
+            // Persist physical receipt before retrying idempotent projection services.
+            durable.receipt = { trashEntryId: entry.id, afterTree: await treeAt(path.join(resolveWorkspaceDataRoot(), entry.trashRelativePath)) };
+            await save(manifest);
+            await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: entry.id }] });
+            await sharesDeleted([step.sourcePath], input.scope.workspace);
+          } else {
+            const renamed = await rename({ workspace: input.scope.workspace, oldPath: step.sourcePath, newPath: step.destinationPath!, overwrite: false, fileOptions: input.scope.fileOptions });
+            durable.receipt = { mutationId: renamed.mutation.operationId, afterTree: await pathTree(input.scope, step.destinationPath!) };
+          }
+          durable.state = 'applied';
+          await save(manifest);
+          if (await pathProbe(input, manifest, index) !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RESULT');
+        }
+        for (const [index, group] of groupWorkspaceLinkWrites(manifest.plan.linkPlan).entries()) {
+          const key = `link:${index}`;
+          let durable = manifest.steps.find((entry) => entry.key === key);
+          const observed = await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
+          if (observed === 'unknown' || durable?.state === 'applied' && observed !== 'after'
+            || !durable && observed !== 'before') throw new Error('BATCH_UNPROVEN_LINK_STATE');
+          if (durable?.state === 'applied') continue;
+          await progress(input, manifest, 'links');
+          if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+          if (observed === 'before') durable.receipt = await applyLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
+          if (await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined }) !== 'after') throw new Error('BATCH_UNPROVEN_LINK_RESULT');
+          durable.state = 'applied'; await save(manifest);
+        }
+      });
+      // Every path/link receipt above is durably saved before the EXCLUSIVE
+      // lifecycle session closes. Keep the outer kernel/copy fences through
+      // publication and all final checks, including recovery from this phase.
+      // The projector must acquire its actual Shared session; no inherited
+      // lease or historical receipt can bypass that publication guard.
+      if (!manifest) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
       for (const group of groupWorkspaceLinkWrites(manifest.plan.linkPlan)) {
         await progress(input, manifest, 'links');
         const documentId = manifest.linkPreflight?.sources.find((source) => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;
@@ -592,6 +787,14 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   });
 
   const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    assertWorkspaceFileUndoEnabled();
+    if (input.jobClaim) {
+      const binding = readWorkspaceOperationBatchClaimBinding(input.jobClaim);
+      if (binding.plan.version === 6 || binding.plan.version === 5) throw new WorkspaceFileUndoDisabledError();
+      if (binding.plan.version === 2) return executeNative(input, binding.plan, true);
+    }
+    if ((await readBatch(input.batchId))?.plan.version === 6 || (await readBatch(input.batchId))?.plan.version === 5) throw new WorkspaceFileUndoDisabledError();
+    if ((await readBatch(input.batchId))?.plan.version === 2) throw new Error('BATCH_CLAIM_REQUIRED');
     assertAccess(input);
     const initial = await load(input.batchId);
     if (!initial || initial.workspaceId !== input.scope.workspace.workspaceId) throw new Error('BATCH_ID_CONFLICT');
@@ -747,27 +950,70 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       const workspace = input.scope.workspace;
       if (workspace.workspaceId !== input.plan.workspaceId || workspace.status !== 'active' || !workspace.permissions.canRead
         || input.scope.fileOptions.workspace && input.scope.fileOptions.workspace.workspaceId !== workspace.workspaceId) return null;
+      if(input.plan.version===6){const cohortInput={...input,plan:input.plan};
+        try{const status=await cohortStatus(input.batchId,input.scope,input.plan);return projectWorkspaceOperationCohortDeleteExecution(cohortInput,status?.observation??null);}
+        catch{return projectWorkspaceOperationCohortDeleteExecution(cohortInput,null);}}
+      if (input.plan.version === 5) {
+        const physicalInput = {...input,plan:input.plan};
+        try { const status = await physicalStatus(input.batchId,input.scope,input.plan);
+          return projectWorkspaceOperationPhysicalDeleteExecutionV5(physicalInput,status?.observation ?? null);
+        } catch { return projectWorkspaceOperationPhysicalDeleteExecutionV5(physicalInput,null); }
+      }
+      if (input.plan.version === 2) {
+        const nativeInput = { ...input, plan: input.plan };
+        try {
+          const status = await nativeStatus(input.batchId, input.scope, input.plan);
+          return projectWorkspaceOperationNativeDeleteExecution(nativeInput, status?.observation ?? null);
+        } catch { return projectWorkspaceOperationNativeDeleteExecution(nativeInput, null); }
+      }
+      if (input.plan.version === 3) {
+        const nativeInput = { ...input, plan: input.plan };
+        try {
+          const status = await moveStatus(input.batchId, input.scope, input.plan);
+          return projectWorkspaceOperationNativeMoveExecution(nativeInput, status?.observation ?? null);
+        } catch { return projectWorkspaceOperationNativeMoveExecution(nativeInput, null); }
+      }
+      const legacyInput = { ...input, plan: input.plan };
       try {
+        if (await cohortStatus(input.batchId,input.scope) || await physicalStatus(input.batchId,input.scope) || await nativeStatus(input.batchId, input.scope) || await moveStatus(input.batchId, input.scope)) return projectWorkspaceOperationBatchExecution(legacyInput, null, true);
         const manifest = await load(input.batchId);
         if (manifest && (manifest.workspaceId !== workspace.workspaceId || manifest.plan.planId !== input.plan.planId)) {
-          return projectWorkspaceOperationBatchExecution(input, null, true);
+          return projectWorkspaceOperationBatchExecution(legacyInput, null, true);
         }
         if (manifest?.undoPlan) {
           if (computeWorkspaceFileOperationPlanId(manifest.undoPlan) !== manifest.undoPlan.planId) {
-            return projectWorkspaceOperationBatchExecution(input, null, true);
+            return projectWorkspaceOperationBatchExecution(legacyInput, null, true);
           }
           const forward = groupWorkspaceLinkWrites(manifest.plan.linkPlan);
           const inverse = groupWorkspaceLinkWrites(manifest.undoPlan);
           if (inverse.length !== forward.length || inverse.some((group, index) => group.workspaceId !== forward[index].workspaceId
             || group.path !== forward[index].path || group.afterContent !== manifest.plan.originalDocuments
               .find((document) => document.workspaceId === forward[index].sourceWorkspaceId && document.path === forward[index].sourcePathBefore)?.content)) {
-            return projectWorkspaceOperationBatchExecution(input, null, true);
+            return projectWorkspaceOperationBatchExecution(legacyInput, null, true);
           }
         }
-        return projectWorkspaceOperationBatchExecution(input, manifest);
-      } catch { return projectWorkspaceOperationBatchExecution(input, null, true); }
+        return projectWorkspaceOperationBatchExecution(legacyInput, manifest);
+      } catch { return projectWorkspaceOperationBatchExecution(legacyInput, null, true); }
     },
-    async mutationEvidence(batchId: string, workspaceId: string, undo = false): Promise<WorkspaceOperationBatchMutationEvidence> {
+    async mutationEvidence(batchId: string, workspaceId: string, undo = false,
+      scope?: WorkspaceOperationBatchScope): Promise<WorkspaceOperationBatchMutationEvidence> {
+      const move = await moveStatus(batchId, scope);
+      if (move) {
+        if (move.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return workspaceOperationNativeMoveMutationEvidence(move.observation, undo);
+      }
+      const cohort=await cohortStatus(batchId,scope);
+      if(cohort){if(cohort.batch.workspaceId!==workspaceId)throw new Error('BATCH_ID_CONFLICT');if(undo)throw new WorkspaceFileUndoDisabledError();return cohort.observation.apply;}
+      const physical = await physicalStatus(batchId,scope);
+      if (physical) {
+        if (physical.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return workspaceOperationPhysicalDeleteMutationEvidenceV5(physical.observation,undo);
+      }
+      const native = await nativeStatus(batchId, scope);
+      if (native) {
+        if (native.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return workspaceOperationNativeDeleteMutationEvidence(native.observation, undo);
+      }
       const manifest = await load(batchId);
       if (!manifest) return 'absent';
       if (manifest.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
@@ -775,15 +1021,41 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       return (undo ? manifest.undoSteps : manifest.steps).length ? 'started' : 'pristine';
     },
     async transitions(input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<WorkspaceOperationBatchTransitionProof[]> {
+      if (await cohortStatus(input.batchId,input.scope) || await physicalStatus(input.batchId,input.scope) || await nativeStatus(input.batchId, input.scope) || await moveStatus(input.batchId, input.scope)) return [];
       const manifest = await load(input.batchId);
       if (!manifest || manifest.status !== 'applied' || manifest.workspaceId !== input.scope.workspace.workspaceId
         || !input.scope.workspace.permissions.canRead) return [];
       return manifest.finalTransitions ?? [];
     },
-    async has(batchId: string, workspaceId?: string): Promise<boolean> {
+    async has(batchId: string, workspaceId?: string, scope?: WorkspaceOperationBatchScope): Promise<boolean> {
+      const move = await moveStatus(batchId, scope);
+      if (move) {
+        if (workspaceId && move.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return move.observation.apply !== 'absent';
+      }
+      const cohort=await cohortStatus(batchId,scope);
+      if(cohort){if(workspaceId&&cohort.batch.workspaceId!==workspaceId)throw new Error('BATCH_ID_CONFLICT');return cohort.observation.apply!=='absent';}
+      const physical = await physicalStatus(batchId,scope);
+      if (physical) {
+        if (workspaceId && physical.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return physical.observation.apply !== 'absent';
+      }
+      const native = await nativeStatus(batchId, scope);
+      if (native) {
+        if (workspaceId && native.batch.workspaceId !== workspaceId) throw new Error('BATCH_ID_CONFLICT');
+        return native.observation.apply !== 'absent';
+      }
       const manifest = await load(batchId); return Boolean(manifest && (!workspaceId || manifest.workspaceId === workspaceId));
     },
     async get(input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<WorkspaceOperationBatchExecutionResult | null> {
+      const move = await moveStatus(input.batchId, input.scope);
+      if (move) return workspaceOperationNativeMoveExecutionResult(move.plan, move.observation);
+      const cohort=await cohortStatus(input.batchId,input.scope);
+      if(cohort)return workspaceOperationCohortDeleteExecutionResult(cohort.plan,cohort.observation);
+      const physical = await physicalStatus(input.batchId,input.scope);
+      if (physical) return workspaceOperationPhysicalDeleteExecutionResultV5(physical.plan,physical.observation);
+      const native = await nativeStatus(input.batchId, input.scope);
+      if (native) return workspaceOperationNativeDeleteExecutionResult(native.plan, native.observation, native.batch.actionMode === 'undo');
       const manifest = await load(input.batchId);
       if (!manifest || manifest.workspaceId !== input.scope.workspace.workspaceId || !input.scope.workspace.permissions.canRead) return null;
       return result(manifest);
@@ -794,8 +1066,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
 // Resolve DATA on each entry so test/dev environment setup may happen after module import.
 export const executeWorkspaceOperationBatch = (input: ExecuteInput) => createWorkspaceOperationBatchExecutor().execute(input);
 export const undoWorkspaceOperationBatch = (input: UndoInput) => createWorkspaceOperationBatchExecutor().undo(input);
-export const hasWorkspaceOperationBatchExecution = (batchId: string, workspaceId?: string) => createWorkspaceOperationBatchExecutor().has(batchId, workspaceId);
-export const getWorkspaceOperationBatchMutationEvidence = (batchId: string, workspaceId: string, undo = false) => createWorkspaceOperationBatchExecutor().mutationEvidence(batchId, workspaceId, undo);
+export const hasWorkspaceOperationBatchExecution = (batchId: string, workspaceId?: string, scope?: WorkspaceOperationBatchScope) => createWorkspaceOperationBatchExecutor().has(batchId, workspaceId, scope);
+export const getWorkspaceOperationBatchMutationEvidence = (batchId: string, workspaceId: string, undo = false, scope?: WorkspaceOperationBatchScope) => createWorkspaceOperationBatchExecutor().mutationEvidence(batchId, workspaceId, undo, scope);
 export const getWorkspaceOperationBatchExecutionPublic = (input: WorkspaceOperationBatchExecutionPublicInput & { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().publicExecution(input);
 export const getWorkspaceOperationBatchExecution = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().get(input);
 export const assertWorkspaceOperationBatchUndoAvailable = (input: { batchId: string; scope: WorkspaceOperationBatchScope }) => createWorkspaceOperationBatchExecutor().assertUndoAvailable(input);

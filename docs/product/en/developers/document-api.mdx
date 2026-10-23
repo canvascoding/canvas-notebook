@@ -1,0 +1,481 @@
+---
+title: Document API
+description: Search, read, create, edit, copy, move, and delete native Canvas documents with stable identities, full content versions, and recorded operation status.
+section: Developers
+sectionOrder: 11
+order: 1
+locale: en
+translationKey: developers.document-api
+updatedAt: 2026-10-19
+---
+
+# Document API
+
+**Unreleased preview.** This reference describes the development API. It is not yet a publicly deployed API or a released SDK. Availability depends on the installed Canvas version, enabled native-document features, and the tools authorized for your connection.
+
+Use this sequence: search for a document, keep its stable identity, read its full version, then submit a guarded edit. A path or a Markdown file hash is not a native document version. Keep credentials outside document content and application logs.
+
+## Transports and authorization
+
+| Transport | Authentication | Available document operations |
+| --- | --- | --- |
+| REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
+| Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled Copy/Move/Delete |
+
+These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
+
+REST requests send `Content-Type: application/json` with the actual user-session cookie or `Authorization: Bearer` followed by the issued Session Bearer. Use the normal supported sign-in flow to obtain that session. Signing out its source session revokes subsequent uses; a copied Bearer is not an independent long-lived API key.
+
+For MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
+
+| Tool | Scope |
+| --- | --- |
+| `list_workspaces` | `workspace:list` |
+| `search_knowledge` | `knowledge:search` |
+| `read_knowledge_source` | `knowledge:read` |
+| `create_knowledge_source`, `import_knowledge_file`, `edit_knowledge_source` | `knowledge:write` |
+| `copy_knowledge_source` (explicit opt-in) | `knowledge:write` |
+| `move_knowledge_source`, `delete_knowledge_source` (independent explicit opt-ins) | `knowledge:write` |
+
+Search permission does not grant full-read permission. Write scope does not grant a separate read scope. Create/edit also require the current workspace read/write and agent-access permissions enforced by the MCP service. Edit status uses the same write tool and authorization as editing, even though observing status does not apply a change.
+
+Use the instance's advertised protocol and the schemas returned by `tools/list`. The current modern protocol is `2026-07-28`: discover it with `server/discover`, then use `tools/list` and `tools/call`. Do not send a legacy `initialize` handshake under a modern protocol header. Use a compatible MCP transport client rather than assuming every HTTP response is plain JSON.
+
+Examples below show REST JSON or MCP `tools/call` parameters. JavaScript variables such as `workspaceId`, `hit`, and `page` stand for actual earlier responses; they are not additional request fields or SDK methods.
+
+## Search progressively
+
+REST: `POST /api/documents/search`.
+
+```json
+{
+  "apiVersion": 1,
+  "workspaceId": "your-workspace-id",
+  "query": "Target",
+  "scopePath": ".",
+  "limit": 8
+}
+```
+
+Equivalent MCP parameters:
+
+```javascript
+{
+  name: "search_knowledge",
+  arguments: {
+    api_version: 1,
+    workspace_id: workspaceId,
+    query: "Target",
+    path: ".",
+    max_results: 8
+  }
+}
+```
+
+The query is a case-insensitive literal, not a regular expression. It needs at least two Unicode code points and at most 200 UTF-8 bytes. `scopePath` is a workspace-relative path scope; `.` means the workspace. Hidden path segments beginning with a dot are excluded from the searched corpus.
+
+Each hit contains `document`, `currency`, `matchedIn`, and a bounded `snippet`. `document` includes the stable `documentId`, `lineageId`, lifecycle generation, representation, schema version, path/title, full `version`, and separate `metadataVersion`. `matchedIn` names the matching title, path, or content fields.
+
+The first slice searches visible, initialized native Yjs text documents. It does not search physical-only files, Excalidraw scenes, or PDF bodies. Read the returned `coverage`: ranking is within each scan window, remote live coverage is always `unknown`, and `globalCurrentContent` is `not_certified`. An empty page does not establish that the entire workspace has no matches.
+
+The default result limit is 8 and the accepted range is 1–25. A scan window examines at most 8 candidates; the whole JSON page is capped at 12,000 UTF-8 bytes and each snippet at 512 bytes. Exclusions and output limits can produce fewer hits. Continue while `nextCursor` is non-null, including after an empty page. Send its exact value with the same query and scope. Do not decode or modify the cursor. `SEARCH_CORPUS_CHANGED` means start a fresh search; it is not an instruction to reuse an old cursor automatically.
+
+## Read by stable ID and full version
+
+REST: `POST /api/documents/read`. Required fields are `apiVersion: 1`, `workspaceId`, and `documentId`. Optional fields are `format`, `includeEditTargets`, `expectedVersion`, `maxBytes`, and `cursor`.
+
+MCP uses `read_knowledge_source` with these parameters:
+
+```javascript
+{
+  name: "read_knowledge_source",
+  arguments: {
+    workspace_id: workspaceId,
+    document_id: hit.document.documentId,
+    expected_version: hit.document.version,
+    format: "native",
+    max_bytes: 65536
+  }
+}
+```
+
+Use `document_id` for this branch; do not combine it with a legacy path selector. This MCP read branch does not take `api_version`. REST uses camelCase names, including `expectedVersion` and `maxBytes`.
+
+| Format | Meaning |
+| --- | --- |
+| `native` (default) | JSON with `bodyVersion`, `representation`, and native `content`; preserves native structure |
+| `text` | Semantic plain text for inspection and matching |
+| `markdown` | Explicit Markdown export; may fail with `DOCUMENT_FORMAT_UNAVAILABLE` when it cannot faithfully represent the native content |
+
+Supported text representations are `plain_text`, `tiptap_xml`, and `tiptap_blocks`. Native and text reads do not require an existing Markdown projection.
+
+The response contains `document`, `currency`, `projection`, `format`, `mediaType`, `encoding`, `fragment`, `byteOffset`, `byteLength`, `totalBytes`, `nextCursor`, and `complete`. The fragment is UTF-8 text; offsets and lengths count bytes. Default page size is 65,536 bytes, with an accepted range of 4–262,144 bytes. The response envelope is additional to this fragment limit.
+
+For a complete body, concatenate fragments in order until `nextCursor` is null. Parse native JSON only after concatenating all fragments. On subsequent pages keep the same document, format, edit-target option, and `expectedVersion`, and pass the exact cursor. Each page is freshly authorized and checked against the content, metadata, and encoded-body binding. If a version or scope conflict occurs, discard the partial body and start a new read; never combine pages from different observations.
+
+`document.version` is an opaque full native content token, including deletion evidence. `metadataVersion` separately identifies path/title metadata. `currency.observedDurable` distinguishes the observed body from a durable observation; `durableVersion` and `durableSequence` describe persistence. `projection.status` reports `current`, `pending`, or `unavailable` independently. A matching visible text string is not a substitute for these fields.
+
+## Create or import native Markdown through MCP
+
+There is no create endpoint in the REST V1 surface documented here. Use `create_knowledge_source` for complete UTF-8 Markdown or `import_knowledge_file` for a host-provided file reference. Supply `api_version: 1` to request the native result explicitly.
+
+```json
+{
+  "name": "create_knowledge_source",
+  "arguments": {
+    "api_version": 1,
+    "workspace_id": "your-workspace-id",
+    "path": "notes/example.md",
+    "idempotency_key": "create-example-001",
+    "content": "# Example\n\nOAuth edit target 😀.\n\nKeep final tail.\n"
+  }
+}
+```
+
+Creation never overwrites an existing document. Native V1 requires enabled native Markdown creation and a `.md` or `.markdown` destination. Text is limited to 512 KiB of UTF-8. The native result has exactly these top-level fields:
+
+```typescript
+{
+  apiVersion: 1;
+  operationId: string;
+  outcome: "created" | "already_created";
+  document: NativeDocumentRefV1;
+  currency: DocumentCurrencyV1;
+  projection: DocumentProjectionV1;
+}
+```
+
+`document`, `currency`, and `projection` use the same shapes as ID reads. Keep the returned identity and use `document.version` as the first read's expected version. Omitting `api_version` retains the older file-receipt response; that response is not the V1 native result. A retained physical/legacy creation is not converted by requesting V1: expect `MCP_INGEST_NATIVE_DOCUMENT_REQUIRED`.
+
+For import, replace `content` with the host's actual `file` object:
+
+```javascript
+{
+  name: "import_knowledge_file",
+  arguments: {
+    api_version: 1,
+    workspace_id: workspaceId,
+    path: "notes/imported.md",
+    idempotency_key: "import-example-001",
+    file: {
+      download_url: hostFile.download_url,
+      file_id: hostFile.file_id,
+      mime_type: "text/markdown",
+      file_name: "imported.md"
+    }
+  }
+}
+```
+
+`download_url` must be a genuine temporary HTTPS file reference supplied by the host, not a URL invented by an agent. `file_id` is required; MIME type and file name are optional. Network and content validation still apply. When the existing completion and destination can be confirmed, a completed same-key import retry returns without downloading a replacement URL. A changed original document can instead produce `MCP_INGEST_DESTINATION_CHANGED`; completion is not permission to overwrite it. An unfinished recovery may still need the original source bytes. Preserve the file identity and MIME selection on retries.
+
+## Edit native content
+
+REST: `POST /api/documents/edit`.
+
+```javascript
+{
+  apiVersion: 1,
+  workspaceId,
+  documentId: page.document.documentId,
+  expectedVersion: page.document.version,
+  idempotencyKey: "edit-example-001",
+  patch: {
+    kind: "native_text_replace",
+    edits: [{ oldText: "OAuth edit target", newText: "MCP changed target", expectedOccurrences: 1 }]
+  }
+}
+```
+
+MCP uses the same patch with explicit action and snake_case outer selectors:
+
+```javascript
+{
+  name: "edit_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "edit",
+    workspace_id: workspaceId,
+    document_id: page.document.documentId,
+    expected_version: page.document.version,
+    idempotency_key: "edit-example-001",
+    patch: {
+      kind: "native_text_replace",
+      edits: [{ oldText: "OAuth edit target", newText: "MCP changed target", expectedOccurrences: 1 }]
+    }
+  }
+}
+```
+
+`expectedVersion` is required and is checked against the full native state at the actual write. Do not replace it with a path, Markdown SHA, state vector, metadata version, or text excerpt. The request has no actor/session fields; the transport supplies current authority. Unknown fields or malformed supplied native-version selectors are rejected rather than falling back to legacy editing.
+
+`native_text_replace` matches exact visible text within actual native text targets. `oldText` must be nonempty; `newText` may be empty. `expectedOccurrences` defaults to 1 and binds the intended match count. It is not a regex or an unrestricted replace-all. The optional `blockId` restricts a compatible block document. A match cannot be assumed to span separate native text targets.
+
+### Guarded block operations
+
+For `tiptap_blocks`, read `format: "native"` with REST `includeEditTargets: true` or MCP `include_edit_targets: true`. The option is false by default and is rejected for other formats. It does not make XML/plain representations structural block documents. The reconstructed native body then includes bounded `editTargets` alongside `content`.
+
+Each target has `id`, `type`, `parentId`, `beforeId`, `attrs`, `subtreeHash`, and `placementHash`, plus `tableOperationTarget` when applicable. These guards belong to that exact native read/version. Targets omit duplicated text and private operation data. The opt-in is limited to 512 targets and 64 KiB of target metadata, with tighter native source budgets; it can reject a document that an ordinary read accepts.
+
+Use `patch.kind: "native_blocks"` and its `operations` array. Copy the actual target guards; do not derive them by hashing displayed JSON.
+
+| Operation `kind` | Required fields beyond `kind` |
+| --- | --- |
+| `move_block` | `blockId`, `placementHash`, `parentId`, `beforeId` |
+| `delete_block` | `blockId`, `subtreeHash` |
+| `insert_blocks` | `parentId`, `beforeId`, `blocks` |
+| `format_block` | `blockId`, matching `beforeAttrs` and `afterAttrs` |
+| `format_text` | `blockId`, `subtreeHash`, `from`, `to`, `mark`, `enabled`; `href` only when enabling a link |
+| `table_operation` | `cellId`, `subtreeHash`, `action`; obtain the first two from the returned `tableOperationTarget` |
+
+Use null `parentId` for the root and null `beforeId` for the end of that parent's children. Formatting attributes support one matching attribute per operation: heading `level`, task `checked`, ordered-list `start`, or code `language`. Marks are `bold`, `italic`, `strike`, `code`, or `link`. Table actions are row/column insertion, deletion, movement, table deletion, and alignment actions enumerated by the live tool schema. Native schema, URI, text-range, placement, and grapheme checks still apply.
+
+For example, after selecting two actual root-level targets from the complete native read, this patch moves one before the other. Submit it with that read's full version and a new caller key for this distinct intended move:
+
+```javascript
+{
+  kind: "native_blocks",
+  operations: [{
+    kind: "move_block",
+    blockId: movingTarget.id,
+    placementHash: movingTarget.placementHash,
+    parentId: null,
+    beforeId: beforeTarget.id
+  }]
+}
+```
+
+An edit request is capped at 512 KiB of UTF-8 JSON, 32 text edits/total text targets or 32 block operations, and 256 inserted root blocks. Deep or excessively complex JSON is also rejected. The whole patch is prepared and validated before applying its native change.
+
+## Idempotency and operation status
+
+Create/import and edit keys contain 8–128 characters matching `[A-Za-z0-9][A-Za-z0-9._:-]{7,127}`. Generate a key once for the intended request and retain it. Retry that exact request with the same key, including the original expected content version and patch. Reusing a key for different content, a different target, or a changed patch is a conflict; changing the key to resolve an unknown outcome risks a second change.
+
+For MCP retries, retain the same user, client, and workspace. A renewed actual session can authorize a retry/status call without changing the operation's original attribution. Expired or revoked credentials remain rejected. A key or historical session identity never authorizes recovery by itself.
+
+Edit/status returns `apiVersion`, `operationId`, `state`, `document`, `effect`, `persistence`, `projection`, and `history`:
+
+| Field | Interpretation |
+| --- | --- |
+| `state` | `pending`, `confirmed`, `conflict`, or `failed`; only `confirmed` has confirmed persistence |
+| `document` | Historical native identity, representation, and generation; no invented current path/title/reference |
+| `effect` | Historical `applied`/`no_change`, `beforeVersion`, `afterVersion`, and `appliedAt`, or null |
+| `persistence` | `confirmed` with recorded sequence/time, or `unconfirmed` with null confirmation fields |
+| `projection` | Recorded `checkpointed` evidence or `unconfirmed`; not a current filesystem-availability check |
+| `history` | `captured`, `unconfirmed`, or `over_limit`, with a revision ID only when captured |
+
+The whole result is bounded to 8 KiB. Do not interpret a pending effect as confirmed durability, or a historical `afterVersion` as today's document version. A fresh ID read may report later peer edits; read with `effect.afterVersion` only when you need that exact version and handle a conflict honestly.
+
+Read edit status through REST `POST /api/documents/edit/status` with exactly `apiVersion: 1`, `workspaceId`, and `operationId`, or through the same MCP edit tool:
+
+```javascript
+{
+  name: "edit_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "status",
+    workspace_id: workspaceId,
+    operation_id: editResult.operationId
+  }
+}
+```
+
+Status observes the recorded operation without applying or reconciling it. It requires fresh write authorization for the same transport owner. Preserve an `operationId` returned with an error and use it for a permitted status observation. This status endpoint covers native edits; it is not a general create/import status endpoint.
+
+## Native Copy through MCP
+
+`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. All four actions require `knowledge:write`, current client/user grants and access to both workspaces: source Read and destination Read/Write with agent access. The same-workspace case uses the stronger destination policy. Preview, Apply and Recover additionally require the native feature gate. A renewed session for the same authorized client/user can inspect or recover its existing operation; an operation ID grants no access by itself.
+
+Start with a Preview using the actual workspace IDs and canonical workspace-relative paths:
+
+```javascript
+{
+  name: "copy_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    source_workspace_id: sourceWorkspaceId,
+    destination_workspace_id: destinationWorkspaceId,
+    selections: [{ source_path: "notes/a.md", destination_path: "copies/a.md" }],
+    rename_on_collision: true
+  }
+}
+```
+
+The response contains `apiVersion: 1`, `action: "preview"` and the full public V4, V5 or V6 `preview`. Preserve its `planId`. For each original selected root, match `sourceWorkspaceId`, its exact `sourcePath` and `destinationWorkspaceId` in `preview.pathMappings`, then retain the resolved `destinationPath` in the original selection order. Reject a missing, ambiguous or foreign-workspace root mapping. The mappings are sorted by source and include descendants; do not submit every mapping as a selection or use their order instead of the original root order.
+
+HTML-aware plans return public Preview V5 or V6, which preserve `sourceCoverage` for each inspected workspace. A supported copy beside unrelated HTML can have `coverage.complete: false` while `linkAssessment.complete: true`: original sources still have coverage gaps, but the selected operation has no link blocker. Inspect the preserved warnings, including `unaffected-existing-link` and `unaffected-explicit-html-link`; do not turn a complete link assessment into a claim that every workspace source was fully inspected.
+
+Persist a caller-selected operation ID and the exact Apply request before sending it. Use the resolved root paths and set `rename_on_collision: false` or omit that field. Apply and Recover reject `true`; a retry must retain the already chosen destination name.
+
+```javascript
+{
+  name: "copy_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "apply",
+    source_workspace_id: sourceWorkspaceId,
+    destination_workspace_id: destinationWorkspaceId,
+    operation_id: callerOperationId,
+    plan_id: previewResult.preview.planId,
+    selections: resolvedRootSelections,
+    rename_on_collision: false
+  }
+}
+```
+
+Operation IDs contain 16–128 ASCII characters, start with a letter or digit, and otherwise allow letters, digits, `_` and `-`; a caller-generated UUID fits. A plan ID is the returned 64-character lowercase hexadecimal value. The tool never generates a replacement operation ID for a client.
+
+Apply/Recover returns `execution`, `copied` paths and `alreadyKnown`. Inspect `execution.status`: `complete`, `needs_recovery` or `failed`. A successful HTTP/MCP response does not imply complete publication. The result supplies no new document IDs; use native search and a returned stable ID/full version when reading a resulting native document.
+
+For a pure status observation send only `api_version`, `action: "status"`, both workspace IDs and `operation_id`. Status does not apply or repair an operation and remains readable when the native mutation gate is off, while still requiring the enabled tool and the same current Write-scope/source-Read/destination-Write policy. `operation.completion.status: "confirmed"` is historical completion evidence; journal labels alone do not prove completion or current file contents. `COPY_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new operation ID.
+
+Explicit Recover uses the exact retained Apply request with `action: "recover"`, including its original operation ID, plan ID and resolved selections. It continues an existing operation only. `COPY_OPERATION_NOT_FOUND` never starts a replacement copy. Keep the original request and ID after `COPY_OUTCOME_UNCONFIRMED`, a transport failure or a late output-size error.
+
+The request is bounded to 65,536 escaped UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. Workspace IDs are at most 200 JavaScript UTF-16 units and path fields at most 1,024; text must be well-formed Unicode. Workspace IDs must equal their ECMAScript-trimmed value, while canonical relative paths preserve whitespace. Selection paths must be nonempty; optional `destination_directory: ""` means the root. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
+
+The central Copy owner imports supported selected physical `.md`/`.markdown` files as new native destination documents, including supported Markdown beside unrelated HTML. The source remains unchanged. Copying one raw Markdown file with its own fully inspected static HTML or external HTML links is supported only within the same workspace and requires a safe HTML assessment; its own local HTML links remain blocked in this MVP. Affected HTML links that cannot be safely interpreted, unsupported source nodes or unresolved selected-source links can still block the action. Retain the actual Preview and use the same Copy Apply/Recover contract; do not migrate the source or rewrite its `.md` projection yourself. Copy does not parse a PDF into a native notebook document.
+
+Public Preview V6 also includes `importLinkBindings` with status `requires-native-import-rebinding` and semantic target paths, literals, fragments, aliases and embed flags. These are display facts for the central import/binding work, not native document IDs, content versions or import receipts. The retained Copy request shape is unchanged.
+
+The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit-retained-request) now provides `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` over this same tool. Preview alone exposes collision renaming. Retain the caller operation ID, actual plan ID and exact resolved request before awaiting Apply; Status/Recover remain explicit. The facade keeps full raw results and camelCase payloads. If an Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. The facade does not automatically replay, query status or recover. A received tool error is different: `.require_success()` raises `CanvasToolError` with the original result and optional `.operation_id`.
+
+Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
+
+## Native Move and Delete through MCP
+
+`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. All four actions require current `knowledge:write`, the actual client/user workspace grant, and current Read, Write, Delete and agent access in that one workspace. An OAuth scope or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps the same current tool/authorization checks when that feature is off.
+
+Move accepts 1–1,000 ordered, supported roots in one workspace. Every selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete accepts exactly one initialized native file `path`. It is not a general recursive directory or arbitrary physical-file deletion API. These operations use the central native lifecycle and incoming-link handling; they expose no Undo or restore action.
+
+Start with a real Preview for the intended selection:
+
+```javascript
+{
+  name: "move_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    workspace_id: workspaceId,
+    selections: [{ source_path: "notes/a.md", destination_path: "notes/renamed.md" }]
+  }
+}
+```
+
+For Delete, select the single native file explicitly:
+
+```javascript
+{
+  name: "delete_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    workspace_id: workspaceId,
+    path: "notes/renamed.md"
+  }
+}
+```
+
+The result is `{ apiVersion: 1, action: "preview", preview }`. The native-ready preview contains `kind` (`move` or `delete`), `workspaceId`, actual `planId`, `readiness: "ready"`, ordered `paths`, `linkChanges` counts (`rewrites`, `unlinks`, `affectedDocuments`) and `coverage: { complete: true }`. Move paths contain `sourcePath` and `destinationPath` in original selection order. Delete has one `sourcePath`. This coverage describes the validated selected plan; preview paths are not native document IDs or full content versions.
+
+Import preparation can instead return `kind: "native-path-import-preparation"`, version 1 or HTML-aware version 4, with `operationKind`, `executionReady: false`, `readiness: "requires-import-rebinding"` or `"blocked"`, original ordered `paths`, `imports` and `issues`. Each import lists its path and reasons (`selected` and/or `link-change`). V4 also preserves `coverage.complete` and `linkAssessment` warnings/blockers, including diagnostic paths, optional lines and targets. Keep these facts separate from the native-ready preview and from mutation completion. A blocked preparation cannot be applied. A supported preparation uses the original caller operation ID, exact requested paths and returned preparation plan ID through the existing Apply contract; Canvas owns the required imports and native operation. The operation may retain `preparation.previewPlanId` for that original preview.
+
+Choose a caller operation ID once and persist the exact request before awaiting Apply. Retain the original workspace, actual preview plan ID and complete ordered selections or Delete path. Move uses the unchanged intended roots; it does not resolve alternative collision names.
+
+```javascript
+const retainedMoveArguments = {
+  api_version: 1,
+  action: "apply",
+  workspace_id: workspaceId,
+  operation_id: callerOperationId,
+  plan_id: movePreviewResult.preview.planId,
+  selections: [{ source_path: "notes/a.md", destination_path: "notes/renamed.md" }]
+};
+
+// Send these parameters through your actual MCP client:
+({ name: "move_knowledge_source", arguments: retainedMoveArguments });
+```
+
+Delete Apply uses the same common fields with its own caller operation ID and `deletePreviewResult.preview.planId`, plus the exact original `path` instead of `selections`. It does not accept both target forms. Preview does not accept operation/plan IDs; Apply/Recover require both; Status accepts only the common fields and caller operation ID. Unknown or extra fields are rejected.
+
+| Action | Move target fields | Delete target fields | Additional identity |
+| --- | --- | --- | --- |
+| `preview` | `selections` | `path` | None |
+| `apply` / `recover` | The exact retained `selections` | The exact retained `path` | `operation_id`, `plan_id` |
+| `status` | None | None | `operation_id` |
+
+Every request includes `api_version: 1`, its `action` and `workspace_id`. Caller operation IDs use 16–128 ASCII characters, an alphanumeric first character, then letters, digits, `_` or `-`; preserve case and every character. A UUID fits. Plan IDs are the actual returned 64-character lowercase hexadecimal values, not locally computed authorization.
+
+Apply/Recover returns `{ apiVersion: 1, action, operation, alreadyKnown }`; Status returns `{ apiVersion: 1, action: "status", operation }`. The operation contains:
+
+| Field | Meaning |
+| --- | --- |
+| `operationId` | The unchanged caller operation ID used for all later calls |
+| `batchId` | The separate actual server batch ID; never substitute it for the caller ID |
+| `planId`, `workspaceId` | The original retained plan and workspace binding |
+| `journal` | Recorded `status` (`applying`, `applied`, `failed`, `needs_recovery`), `phase`, `completedActions`, `totalActions`, `createdAt`, `updatedAt` and public `errorCode` |
+| `execution` | Historical receipt availability (`available`, `not_started`, `unavailable`), finalization (`pending`, `complete`) and individual path/link steps |
+| `completion` | `{ status: "confirmed", historical: true }` or `{ status: "not_confirmed" }` |
+
+Execution steps retain their actual `key`, `phase` (`path` or `link`), `kind`, `path`, `state` (`pending`, `applied`, `needs_check`) and optional `destinationPath`/`openPath`. Those paths are presentation data, not native document IDs or authorization.
+
+Only `operation.completion.status == "confirmed"` is historical completion evidence. Neither `alreadyKnown`, an `applied` journal, matching path text nor a successful HTTP/MCP exchange proves it alone. Journal progress can lag a proven domain effect after an uncertain acknowledgement; receipt/finalization/completion facts remain separate. These historical results do not certify today's document path, content or full version after later changes. The result supplies no native document identity/version: retain an earlier genuine document reference or obtain one through authorized native search, then use a version-bound Read.
+
+Observe Status explicitly with the same tool and caller operation ID:
+
+```javascript
+{
+  name: "move_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "status",
+    workspace_id: workspaceId,
+    operation_id: callerOperationId
+  }
+}
+```
+
+Use `delete_knowledge_source` with the same status shape for its own Delete operation. Status observes the original recorded operation; it never claims, enqueues, applies, repairs or recreates a target. `PATH_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new key.
+
+For an explicit recovery decision, keep the complete original Apply request and change only its action:
+
+```javascript
+({
+  name: "move_knowledge_source",
+  arguments: { ...retainedMoveArguments, action: "recover" }
+});
+```
+
+Delete Recover similarly uses its original Delete tool, caller ID, plan ID, workspace and exact original path. Recover is existing-only: `PATH_OPERATION_NOT_FOUND` never creates a replacement operation. Do not replan against a source that may already have moved or been archived. Preserve the request after `PATH_OUTCOME_UNCONFIRMED`, a transport failure or `PATH_OUTPUT_TOO_LARGE`; there is no safe automatic Apply/Recover retry. A genuinely renewed session for the same currently authorized client/user may observe or continue the original without changing its stored original session attribution. Revoked/expired authorization remains rejected.
+
+JSON arguments are bounded to 65,536 escaped UTF-8 bytes. Workspace IDs are at most 200 JavaScript UTF-16 units and equal their ECMAScript-trimmed value. Paths are at most 1,024 units, well-formed Unicode and canonical nonempty workspace-relative paths; literal filename whitespace is preserved. Empty paths, `.`/`..` segments and normalization bypasses are rejected. The complete `CallToolResult`, including text, structured content and authorization metadata, is capped at 1 MiB; large output fails rather than being silently truncated. Unsupported native cohorts return `PATH_NATIVE_REQUIRED`; do not write a projection or substitute raw filesystem edits to bypass them.
+
+Move/Delete tool failures use `{ apiVersion: 1, success: false, code, operationId? }`; an included `operationId` is the original caller ID. Keep it with the retained request, including after a late output-size error. Its absence is not permission to generate a replacement. Actual HTTP authorization failures and OAuth challenge metadata remain distinct from a received tool error.
+
+The accompanying unreleased [Python SDK](/docs/developers/python-sdk#move-and-delete-through-retained-requests) exposes the eight explicit `move_*` / `delete_*` methods over these same contracts. It retains full raw results and camelCase payloads. A received tool error remains a `CanvasToolError` with its original result and optional caller `.operation_id`; a missing Apply/Recover result raises `CanvasMutationOutcomeUnknown`, preserving that caller ID in `.idempotency_key` and the original exception as `__cause__`. The facade does not silently retry, poll Status or recover. SDK-specific artifact/HTTP evidence and compiled UI/OAuth acceptance remain separately recorded gates, not a publication claim.
+
+## Errors and client handling
+
+REST uses HTTP status codes and a bounded JSON body. Native read/search errors contain `apiVersion: 1`, `success: false`, and `code`. Edit, Copy and Move/Delete error envelopes can additionally retain `operationId`. MCP tool failures can arrive as `isError: true` with structured error content even when HTTP transport succeeded; also handle transport/protocol errors and OAuth challenges. Creation/import uses its existing ingest error vocabulary, not the edit error envelope.
+
+| Error family | Client action |
+| --- | --- |
+| `AUTHENTICATION_REQUIRED` / `ACCESS_DENIED` | Obtain genuine current authorization or report the denied access; preserve a supplied recovery ID |
+| `DOCUMENT_VERSION_CONFLICT` | Read the current document and reconsider the intended change; do not remove the guard |
+| `DOCUMENT_EDIT_CONFLICT` | Resolve ambiguous/missing text targets, stale local guards, overlap, or active composition against a fresh native read |
+| `DOCUMENT_IDEMPOTENCY_CONFLICT` | Inspect the original request/key; do not silently assign a new key |
+| `DOCUMENT_EDIT_UNSUPPORTED` / `DOCUMENT_FORMAT_UNAVAILABLE` | Use a supported native operation/format without rewriting through disk |
+| `DOCUMENT_BUSY` / scope changed | Stop this attempt; keep mutation identity and obtain a fresh authorized observation before deciding the next step |
+| `EDIT_OUTCOME_UNCONFIRMED` / `READ_OUTCOME_UNCONFIRMED` | Do not infer a committed edit from matching text or blindly replay; retain any operation ID and inspect supported status |
+| `DOCUMENT_TOO_LARGE` / search size errors | Reduce the request or selected scope where applicable; do not discard guards or truncate a mutation silently |
+| `PATH_PLAN_CHANGED` / `PATH_SCOPE_CHANGED` / `PATH_CONFLICT` | Preserve the original request; examine the actual plan/scope conflict before choosing a distinct intended operation |
+| `PATH_BUSY` | Stop this attempt and keep its identity; do not automatically submit another Apply |
+| `PATH_OUTCOME_UNCONFIRMED` / `PATH_OUTPUT_TOO_LARGE` | Keep the caller ID and complete retained request; use permitted explicit Status/Recover instead of assuming no effect |
+| `PATH_STATUS_NOT_FOUND` / `PATH_OPERATION_NOT_FOUND` | Distinguish a missing status observation from an existing-only recovery miss; neither starts a replacement operation |
+| `PATH_TOO_LARGE` / `PATH_NATIVE_REQUIRED` / `PATH_UNAVAILABLE` | Respect the reported limit/cohort/availability boundary; never truncate or fall back to raw filesystem mutation |
+
+Routes can also rate-limit with HTTP 429. REST responses are not cacheable. Application clients should keep error bodies and credentials out of document content, and should not expose tokens or private source text in diagnostics.
+
+## Current boundary
+
+The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools and the explicit Copy/Move/Delete actions described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK; that connection and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a copied/moved/uploaded PDF, Markdown output, or physical file receipt as a parsed native document mutation result. Public package publication, this page's website delivery and deployment are separate release steps; development source and local acceptance do not establish live availability.

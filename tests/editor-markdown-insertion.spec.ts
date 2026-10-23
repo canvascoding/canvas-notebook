@@ -2,7 +2,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
-import { authenticateManagedTestPage, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const insertTitle = 'Insert Markdown…';
@@ -31,7 +32,12 @@ async function login(page: Page, secondary = false) {
 
 async function openEditor(page: Page, path: string) {
   await page.goto(`/notebook?path=${encodeURIComponent(path)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expectDirectEditor(page);
+}
+
+async function expectDirectEditor(page: Page) {
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
   await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
 }
@@ -75,14 +81,15 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
   test.beforeEach(async ({ context }) => {
-    if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
+    else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   });
 
   test('a new document imports formatted Markdown with separate undo, peer sync and reload persistence', async ({ page, browser }, info) => {
     const headers = await login(page);
     const path = `editor-markdown-insert-${randomUUID()}.md`;
-    expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: path });
     const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL });
     const peer = await peerContext.newPage();
     try {
@@ -129,12 +136,10 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       expect(saved).toContain('console.log("hello");');
       await page.screenshot({ path: info.outputPath('markdown-insertion-formatted.png'), animations: 'disabled' });
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
-      await expect(page.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expectDirectEditor(page);
       await expect.poll(() => tree(page)).toEqual(edited);
       await peer.reload({ waitUntil: 'domcontentloaded' });
-      await peer.getByRole('button', { name: 'Edit', exact: true }).click();
-      await expect(peer.locator(editorSelector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expectDirectEditor(peer);
       await expect.poll(() => tree(peer)).toEqual(edited);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     } finally {
@@ -198,7 +203,14 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       await peer.locator(editorSelector).getByText('Before stays. Typed first.', { exact: true }).dblclick({ position: { x: 20, y: 10 } });
       await expect.poll(() => peer.evaluate(() => window.getSelection()?.toString())).toBe('Before');
       await peer.keyboard.insertText('Peer');
-      await expect(editor.getByText('Peer stays. Typed first.', { exact: true })).toBeVisible();
+      // Awareness labels can split the rendered text without changing content.
+      // Require the exact native replacement in the original visible block.
+      await expect.poll(async () => (await tree(page)).content?.[0]).toEqual({
+        ...before.content?.[0], content: [{ type: 'text', text: 'Peer stays. Typed first.' }],
+      });
+      const firstBlockId = before.content?.[0].attrs?.id;
+      expect(firstBlockId).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u);
+      await expect(editor.locator(`p[data-id="${firstBlockId}"]`)).toBeVisible();
       const peerChanged = await tree(page);
       const insert = dialog.getByRole('button', { name: 'Insert', exact: true });
       if (await insert.isEnabled()) await insert.click();
@@ -223,7 +235,7 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       info.annotations.push({ type: 'input-scope', description: 'Touch and reduced viewport are emulated; this does not validate an operating-system keyboard or IME.' });
       const headers = await login(page);
       const path = `editor-markdown-mobile-${randomUUID()}.md`;
-      expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+      await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: path });
       try {
         await openEditor(page, path);
         const editor = page.locator(editorSelector);

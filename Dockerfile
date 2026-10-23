@@ -123,9 +123,10 @@ ARG NPM_VERSION
 ENV NODE_ENV=production \
     PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
     LD_LIBRARY_PATH=/usr/local/lib
-# Prebuild verifies both optional installer paths using stdlib-only Python tests.
+# Prebuild verifies optional installers and builds the architecture-specific
+# descriptor addon. The compiler stays in this build stage.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 \
+  && apt-get install -y --no-install-recommends python3 gcc libc6-dev \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION}
 
@@ -259,6 +260,9 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/native/fd-publication ./native/fd-publication
+COPY --from=builder /app/tools/native-fs/fd-publication.c ./tools/native-fs/fd-publication.c
+RUN node ./scripts/build-fd-publication.mjs verify
 RUN rm -f ./scripts/apply-pending-migration-restore.ts \
   ./scripts/dictation-runtime.py ./scripts/dictation-worker.py
 

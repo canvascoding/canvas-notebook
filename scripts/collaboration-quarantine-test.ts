@@ -42,8 +42,8 @@ async function main() {
     await repository.recordCollaborationProjectionFailure(initial, { code: CODES.failed, phase: 'projection_finalize', causeCode: 'ENOSPC', permanent: false });
     repository = await compile<typeof Repository>('app/lib/collaboration/projection-repository.ts');
     assert.equal((await load()).projectionError?.code, CODES.failed);
-    assert.equal((await repository.loadCollaborationProjectionStatus(await load())).projectionFinalized, true,
-      'a zero checkpoint requires no derived receipt, while its diagnostic still persists');
+    assert.equal((await repository.loadCollaborationProjectionStatus(await load())).projectionFinalized, false,
+      'missing checkpoint metadata and a finalized receipt remain pending, while the diagnostic persists');
     assert.equal((await repository.listPendingCollaborationProjections()).length, 1);
     const schema = classifyCollaborationProjectionError(new CollaborationCheckpointValidationError('schema_invalid'));
     await repository.recordCollaborationProjectionFailure(initial, schema);
@@ -65,9 +65,9 @@ async function main() {
     assert.equal((await repository.listPendingCollaborationProjections()).length, 1);
     await repository.recordCollaborationProjectionFailure(newLifecycle,
       { code: CODES.failed, phase: 'projection_finalize', causeCode: 'ENOSPC', permanent: false });
-    const checkpoint = { ...await load(), checkpointSequence: newLifecycle.documentSequence, canonicalHash: 'canonical', serializedHash: 'serialized' };
-    await connection.run('UPDATE collaboration_yjs_states SET checkpoint_sequence=$1,canonical_hash=$2,serialized_hash=$3 WHERE document_id=$4',
-      [checkpoint.checkpointSequence, checkpoint.canonicalHash, checkpoint.serializedHash, checkpoint.documentId]);
+    const checkpoint = { ...await load(), checkpointSequence: newLifecycle.documentSequence, checkpointedAt: 1, canonicalHash: 'canonical', serializedHash: 'serialized' };
+    await connection.run('UPDATE collaboration_yjs_states SET checkpoint_sequence=$1,checkpointed_at=$2,canonical_hash=$3,serialized_hash=$4 WHERE document_id=$5',
+      [checkpoint.checkpointSequence, checkpoint.checkpointedAt, checkpoint.canonicalHash, checkpoint.serializedHash, checkpoint.documentId]);
     await repository.recordCollaborationProjectionPending(connection, checkpoint, { revisionId: 'revision' });
     assert.equal((await repository.loadCollaborationProjectionStatus(await load())).projectionFinalized, false);
     assert.equal((await load()).projectionError?.code, CODES.failed);

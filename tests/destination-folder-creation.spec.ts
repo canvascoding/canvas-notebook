@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Browser, type Locator, type Page, type Response as BrowserResponse, type TestInfo } from '@playwright/test';
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { assertCompletedWorkspaceMarkdownCreate, createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
+import { prepareDestinationTreeRequestBudget, waitForDestinationFileTreeBudget } from './helpers/destination-tree-request-budget';
 
 const profiles = [
   { name: 'desktop', viewport: { width: 1440, height: 960 }, mobile: false },
@@ -29,6 +30,7 @@ async function withWorkspace(browser: Browser, profile: Profile,
   let primaryError: unknown;
   const cleanupErrors: unknown[] = [];
   try {
+    await prepareDestinationTreeRequestBudget(context);
     const created = await context.request.post('/api/workspaces', {
       data: { type: 'personal', name: workspaceName },
     });
@@ -213,10 +215,13 @@ for (const profile of profiles) {
         await waitForFileCreateBudget();
         const created = waitForCreation(page, fixture.workspaceId, path, 'file');
         await dialog.getByRole('button', { name: 'Create and open', exact: true }).click();
-        expect((await created).status()).toBe(200);
+        const completed = await created;
+        const { requestId } = completed.request().postDataJSON() as { requestId: string };
+        await assertCompletedWorkspaceMarkdownCreate(completed, { requestId, workspaceId: fixture.workspaceId, targetPath: path });
         await expect(page).toHaveURL((url) => url.pathname.endsWith('/notebook')
           && url.searchParams.get('path') === path && url.searchParams.get('workspaceId') === fixture.workspaceId);
         expect(await fixture.read(path)).toBe('');
+        await waitForDestinationFileTreeBudget();
         const parent = await page.request.get('/api/files/tree?path=HomeFolder%2FNested&noCache=1', { headers: fixture.headers });
         expect(parent.status()).toBe(200);
         const children = (await parent.json()).data as Array<{ path: string }>;
@@ -268,7 +273,9 @@ for (const profile of profiles) {
         await waitForFileCreateBudget();
         const created = waitForCreation(page, fixture.workspaceId, path, 'file');
         await dialog.getByRole('button', { name: 'Create file', exact: true }).click();
-        expect((await created).status()).toBe(200);
+        const completed = await created;
+        const { requestId } = completed.request().postDataJSON() as { requestId: string };
+        await assertCompletedWorkspaceMarkdownCreate(completed, { requestId, workspaceId: fixture.workspaceId, targetPath: path });
         await expect(dialog).toBeHidden();
         expect(await fixture.read(path)).toBe('');
       });
@@ -408,6 +415,7 @@ for (const profile of profiles) {
           const targetFixture = { ...fixture, workspaceId: destinationWorkspaceId };
           await createDestinationFolder(targetFixture, dialog, 'CopyTarget', 'CopyTarget');
           await createDestinationFolder(targetFixture, dialog, 'Nested', 'CopyTarget/Nested');
+          await waitForDestinationFileTreeBudget();
           const sourceTree = await page.request.get('/api/files/tree?path=.&noCache=1', { headers: fixture.headers });
           expect(sourceTree.status()).toBe(200);
           const sourceChildren = (await sourceTree.json()).data as Array<{ path: string }>;

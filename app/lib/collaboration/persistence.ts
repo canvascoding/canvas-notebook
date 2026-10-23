@@ -32,6 +32,7 @@ import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { normalizeNewCodeMarkConflicts } from './code-mark-policy';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import type { RichMigrationTransaction } from './rich-migration-domain';
 import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
   withCollaborationAdmissionMutation } from './room-admission-handoff';
 import { captureCollaborationCompactionRequest } from './compaction-contract';
@@ -1190,6 +1191,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   schemaVersion: number;
   normalizeSafeMarkdown?: boolean;
   checkpoint?: SafeMarkdownNormalizationCheckpoint;
+  withMutationTransaction?: RichMigrationTransaction;
 }): Promise<{
   canonicalContent: string;
   checkpointRequired: boolean;
@@ -1224,51 +1226,54 @@ async function changeCollaborationRepresentationWhileLocked(input: {
     migratedState = await executeLifecycleTransaction({
       openConnection: openDb,
       execute: async (database) => {
-        const applying = await database.get(
-          `SELECT COUNT(*) AS count FROM collaboration_agent_operations
-           WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc')`,
-          [state.documentId],
-        ) as { count?: number | string } | undefined;
-        if (Number(applying?.count || 0) > 0) {
-          throw new CollaborationRepresentationMigrationError(
-            'Representation migration cannot race with an authoritative agent apply.', 'agent_operation_pending',
+        const execute = async () => {
+          const applying = await database.get(
+            `SELECT COUNT(*) AS count FROM collaboration_agent_operations
+             WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc')`,
+            [state.documentId],
+          ) as { count?: number | string } | undefined;
+          if (Number(applying?.count || 0) > 0) {
+            throw new CollaborationRepresentationMigrationError(
+              'Representation migration cannot race with an authoritative agent apply.', 'agent_operation_pending',
+            );
+          }
+          await database.run(
+            `UPDATE collaboration_agent_operations
+             SET status = 'expired', error_code = 'lifecycle_representation_changed',
+                 updated_at = $1, cas_version = cas_version + 1
+             WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
+            [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
           );
-        }
-        await database.run(
-          `UPDATE collaboration_agent_operations
-           SET status = 'expired', error_code = 'lifecycle_representation_changed',
-               updated_at = $1, cas_version = cas_version + 1
-           WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
-          [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
-        );
-        // Preserve operation -> state lock order; expiration rolls back with
-        // a stale snapshot. No external file work happens in this transaction.
-        const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
-        const nextSequence = lockedState.documentSequence + 1;
-        await writeStateBackup({ database, backupId, state: lockedState, reason: 'representation_change', now });
-        const row = await database.get(
-          `UPDATE collaboration_yjs_states
-           SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
-               lifecycle_generation = lifecycle_generation + 1, document_sequence = $5,
-               checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
-               canonical_hash = $9, compacted_at = $10
-           WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
-             AND document_sequence = $13
-           RETURNING *`,
-          [
-            input.representation, input.schemaVersion, Buffer.from(update), Buffer.from(vector), nextSequence,
-            checkpointRequired ? lockedState.checkpointSequence : nextSequence,
-            now, checkpointRequired ? lockedState.checkpointedAt : now,
-            checkpointRequired ? lockedState.canonicalHash : sha256Text(canonicalContent), now,
-            state.documentId, state.lifecycleGeneration, lockedState.documentSequence,
-          ],
-        ) as StateRow | undefined;
-        if (!row) {
-          throw new CollaborationRepresentationMigrationError(
-            'Collaboration state changed concurrently during representation migration.', 'state_changed',
-          );
-        }
-        return mapState(row);
+          // Preserve operation -> state lock order; expiration rolls back with
+          // a stale snapshot. No external file work happens in this transaction.
+          const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
+          const nextSequence = lockedState.documentSequence + 1;
+          await writeStateBackup({ database, backupId, state: lockedState, reason: 'representation_change', now });
+          const row = await database.get(
+            `UPDATE collaboration_yjs_states
+             SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
+                 lifecycle_generation = lifecycle_generation + 1, document_sequence = $5,
+                 checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
+                 canonical_hash = $9, compacted_at = $10
+             WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
+               AND document_sequence = $13
+             RETURNING *`,
+            [
+              input.representation, input.schemaVersion, Buffer.from(update), Buffer.from(vector), nextSequence,
+              checkpointRequired ? lockedState.checkpointSequence : nextSequence,
+              now, checkpointRequired ? lockedState.checkpointedAt : now,
+              checkpointRequired ? lockedState.canonicalHash : sha256Text(canonicalContent), now,
+              state.documentId, state.lifecycleGeneration, lockedState.documentSequence,
+            ],
+          ) as StateRow | undefined;
+          if (!row) {
+            throw new CollaborationRepresentationMigrationError(
+              'Collaboration state changed concurrently during representation migration.', 'state_changed',
+            );
+          }
+          return mapState(row);
+        };
+        return input.withMutationTransaction ? input.withMutationTransaction(database, execute) : execute();
       },
       recoverCommitted: (committed) => recoverLifecycleMutation({
         backupId, reason: 'representation_change', predecessor: state, committed,
@@ -1365,6 +1370,7 @@ export async function changeCollaborationRepresentation(input: {
   expectedLifecycleGeneration: number;
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
+  withMutationTransaction?: RichMigrationTransaction;
 }): Promise<PersistedCollaborationState> {
   const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
@@ -1379,6 +1385,7 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
   schemaVersion: number;
   representation?: RichTextCollaborationRepresentation;
   checkpoint: SafeMarkdownNormalizationCheckpoint;
+  withMutationTransaction?: RichMigrationTransaction;
 }): Promise<{
   canonicalContent: string;
   checkpointRequired: boolean;

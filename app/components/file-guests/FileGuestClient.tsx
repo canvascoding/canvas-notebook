@@ -8,13 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
-import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
+import { isFileGuestContentBootstrap, type FileGuestDocumentResponse } from '@/app/lib/file-guests/content-contract';
 
 const GuestMarkdownEditor = dynamic(() => import('./GuestMarkdownEditor').then((module) => module.GuestMarkdownEditor), { ssr: false });
-type GuestDocument = { fileName: string; path: string; markdown: string; assets: string[]; permission: 'read' | 'write'; expiresAt: string | null; session: CollaborationSessionResponse };
 
 export function FileGuestClient({ invitationId }: { invitationId: string }) {
-  const [document, setDocument] = useState<GuestDocument | null>(null);
+  const [document, setDocument] = useState<FileGuestDocumentResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -24,6 +23,7 @@ export function FileGuestClient({ invitationId }: { invitationId: string }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const generation = useRef(0);
+  const invalidateLoad = useCallback(() => { generation.current += 1; }, []);
   const load = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true); setError(null);
@@ -37,6 +37,11 @@ export function FileGuestClient({ invitationId }: { invitationId: string }) {
         setError(result.error || 'Diese Einladung ist nicht verfügbar.');
         return;
       }
+      if (!isFileGuestContentBootstrap(result.bootstrap)) {
+        setUnavailable(true); setNeedsVerification(false);
+        setError('Das Dokument konnte nicht vollständig geladen werden. Bitte erneut versuchen.');
+        return;
+      }
       setDocument(result); setUnavailable(false); setNeedsVerification(false);
     } catch { if (generation.current === current) setError('Die Verbindung ist unterbrochen. Bitte erneut versuchen.'); }
     finally { if (generation.current === current) setLoading(false); }
@@ -44,8 +49,8 @@ export function FileGuestClient({ invitationId }: { invitationId: string }) {
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void load(); });
-    return () => { cancelled = true; generation.current += 1; };
-  }, [load]);
+    return () => { cancelled = true; invalidateLoad(); };
+  }, [invalidateLoad, load]);
   const action = async (kind: string, body: Record<string, unknown> = {}) => {
     const response = await fetch(`${fileGuestApi(invitationId)}/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const result = await response.json();
@@ -89,7 +94,7 @@ export function FileGuestClient({ invitationId }: { invitationId: string }) {
         <Button size="sm" variant="outline" onClick={() => { setDocument(null); setSent(false); setError(null); }}>E-Mail erneut bestätigen</Button>
       </div>}
       <GuestMarkdownEditor key={`${document.session.documentId}:${document.session.lifecycleGeneration}:${document.session.token}`} session={document.session} path={document.path}
-        fileName={document.fileName} initialMarkdown={document.markdown} assets={document.assets} onReload={() => void load()} />
+        fileName={document.fileName} bootstrap={document.bootstrap} assets={document.assets} onReload={() => void load()} />
     </div> : <section className="mx-auto mt-8 max-w-md rounded-2xl border bg-background p-6 shadow-sm sm:mt-16 sm:p-8">
       <Mail className="mb-5 size-7 text-muted-foreground" aria-hidden="true" />
       <h1 className="text-2xl font-semibold tracking-tight">Eine Datei wartet auf dich.</h1>

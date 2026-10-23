@@ -9,14 +9,14 @@ import { applyAgentBlockTargets, applyAgentTextTargets, createRichAgentTextTarge
 import { asAgentFileToolError } from '../app/lib/pi/agent-file-tool-results';
 import { AgentBlockEditError } from '../app/lib/collaboration/agent-block-edits';
 import { createRichMarkdownYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
+import { setFixtureTableColumnWidth } from './helpers/rich-markdown-projection-fixtures';
 const schema = getSchema(richMarkdownSchemaExtensions());
 const origin = { actorType: 'agent' as const, actorId: 'agent', initiatedByUserId: 'human', operationId: 'test' };
 
 function projectionFailureDocument() {
-  const doc = createRichMarkdownYDoc('- A\n\nKeep', 'tiptap_blocks');
+  const doc = createRichMarkdownYDoc('- A\n\nKeep\n\n| Width |\n| --- |\n| Cell |', 'tiptap_blocks');
   const tree = new CollaborationBlockTree(doc, schema);
-  const paragraph = tree.read().firstChild!.firstChild!.firstChild!;
-  tree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs, schema.text('A\t\nB')), 'human');
+  setFixtureTableColumnWidth(doc, tree.read().lastChild!.attrs.id);
   assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable');
   return doc;
 }
@@ -40,6 +40,9 @@ test('valid live structure remains editable while its Markdown roundtrip fails',
     assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable', 'export validator must remain strict');
     Y.applyUpdate(reopened, Y.encodeStateAsUpdate(doc));
     assert.equal(validateAgentBlockDocument(reopened), null);
+    for (const cell of readAgentBlockStructure(reopened).filter((block) => ['tableHeader', 'tableCell'].includes(block.type))) {
+      assert.deepEqual(cell.attrs.colwidth, [120], 'binary reopening preserves native-only widths');
+    }
     applyAgentBlockEdit(reopened, result.reverseTargets[0].blockEdit!, origin);
     assert.equal(new CollaborationBlockTree(reopened, schema).read().firstChild!.attrs.id, first.id);
     const targets = createRichAgentTextTargets({ doc: reopened, search: 'Keep', replacement: 'Kept' });

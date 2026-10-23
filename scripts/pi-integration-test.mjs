@@ -321,13 +321,16 @@ async function testSessions(cookie, registerSession) {
 async function testStream(ws, sessionId, maxTimeoutMs) {
   console.log(`[PI Test] Testing WS send_message (completion limit ${maxTimeoutMs}ms)...`);
   await wsRequest(ws, 'subscribe_session', { sessionId });
+  // One logical send uses the same stable identity in both transport locations.
+  const clientMessageId = crypto.randomUUID();
 
   // Observe both promises immediately, including an early send_message rejection.
   const [runResult] = await Promise.all([
     collectAgentRun(ws, sessionId, maxTimeoutMs),
     wsRequest(ws, 'send_message', {
       sessionId,
-      message: { role: 'user', content: 'echo hello', timestamp: Date.now() },
+      clientMessageId,
+      message: { role: 'user', content: 'echo hello', timestamp: Date.now(), clientMessageId },
     }),
   ]);
 

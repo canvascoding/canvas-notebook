@@ -5,11 +5,14 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
-import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import type { WorkspaceOperationBatchRecord as AnyWorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import type { WorkspaceOperationLegacyBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchExecutionPublic } from '../app/lib/files/workspace-operation-batch-public';
 import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 import type { SubmitAgentWorkspacePathOperationInput } from '../app/lib/files/workspace-operation-review-service';
 import type { WorkspaceOperationReviewSubmission } from '../app/lib/files/workspace-operation-review-contract';
+
+type WorkspaceOperationBatchRecord = Omit<AnyWorkspaceOperationBatchRecord, 'plan'> & { plan: WorkspaceOperationLegacyBatchPlan };
 
 async function main(): Promise<void> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-direct-path-'));

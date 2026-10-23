@@ -40,8 +40,11 @@ const sourcePromise = readFile(filename, 'utf8');
 
 async function harness(live: Y.Doc, representation: State['representation'], reviewEnabled = false) {
   let reads = 0; let loads = 0;
-  const state = { documentId: 'document', workspaceId: workspace.workspaceId, path: 'notes.md', status: 'active',
-    representation, lifecycleGeneration: 2, schemaVersion: 1, documentSequence: 5, checkpointSequence: 3 };
+  const state: PersistedCollaborationState = { documentId: 'document', workspaceId: workspace.workspaceId,
+    organizationId: workspace.organizationId ?? null, path: 'notes.md', status: 'active',
+    representation, lifecycleGeneration: 2, schemaVersion: 1, documentSequence: 5, checkpointSequence: 3,
+    yjsState: Y.encodeStateAsUpdate(live), stateVector: Y.encodeStateVector(live), persistedAt: 100,
+    checkpointedAt: 50, canonicalHash: null, serializedHash: null, newlineStyle: 'lf', hasBom: false, degraded: false };
   const load = createRequire(filename);
   const compiled = ts.transpileModule(await sourcePromise, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
@@ -56,11 +59,11 @@ async function harness(live: Y.Doc, representation: State['representation'], rev
     };
     if (name === './persistence') return { loadCollaborationState: async () => { loads++; return state; } };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: {
-      documentId: string; workspaceId: string; read: (doc: Y.Doc) => unknown;
+      documentId: string; workspaceId: string; read: (doc: Y.Doc, state?: PersistedCollaborationState) => unknown;
     }) => {
       reads++;
       assert.equal(input.documentId, state.documentId); assert.equal(input.workspaceId, state.workspaceId);
-      return input.read(live);
+      return input.read(live, state);
     } };
     return load(name);
   };

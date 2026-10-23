@@ -7,6 +7,7 @@ import ts from 'typescript';
 import * as Y from 'yjs';
 import { collaborationStateProof, collaborationUpdateStateProof, isCollaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { isCanonicalAdmissionPath } from '../app/lib/collaboration/room-admission-contract';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError } from '../app/lib/collaboration/checkpoint-errors';
 
 async function main() {
   const doc = new Y.Doc();
@@ -25,6 +26,7 @@ async function main() {
   let denied: Response | undefined;
   let failure: Error | undefined;
   let failures = 0;
+  let projectionStatusReads = 0;
   const authorization: unknown[] = [];
   class Superseded extends Error {}
   const filename = path.resolve('app/api/mobile/v1/notebook/collaboration/checkpoint/route.ts');
@@ -43,7 +45,7 @@ async function main() {
     '@/app/lib/collaboration/state-proof': { collaborationStateProof, collaborationUpdateStateProof, isCollaborationStateProof },
     '@/app/lib/collaboration/server-runtime': { Y },
     '@/app/lib/collaboration/projection-errors': { classifyCollaborationProjectionError: () => ({ code: 'COLLABORATION_CHECKPOINT_FAILED' }) },
-    '@/app/lib/collaboration/projection-repository': { loadCollaborationProjectionStatus: async () => projection,
+    '@/app/lib/collaboration/projection-repository': { loadCollaborationProjectionStatus: async () => { projectionStatusReads++; return projection; },
       recordCollaborationProjectionFailure: async () => { failures++; } },
     '@/app/lib/collaboration/room-admission-contract': { isCanonicalAdmissionPath },
   };
@@ -94,6 +96,27 @@ async function main() {
     final = { ...state, lifecycleGeneration: 3 };
     assert.equal((await request()).status, 409, 'a newer lifecycle never certifies the old preparation');
     final = state;
+    const beforePending = { materializations, failures, projectionStatusReads };
+    failure = new CollaborationCopyPublicationPendingError();
+    const pendingResponse = await request();
+    const pendingBody = await pendingResponse.json();
+    assert.equal(pendingResponse.status, 409);
+    assert.equal(pendingBody.success, false);
+    assert.equal(pendingBody.code, 'COLLABORATION_COPY_PUBLICATION_PENDING');
+    assert.equal(materializations, beforePending.materializations + 1);
+    assert.equal(failures, beforePending.failures, 'pending publication cannot write projection failure/degraded status');
+    assert.equal(projectionStatusReads, beforePending.projectionStatusReads, 'a pending publication cannot certify a finalized receipt');
+    assert.equal(current, state);
+    assert.equal(final, state);
+    const beforeOperationPending = { materializations, failures, projectionStatusReads };
+    failure = new CollaborationFileOperationProjectionPendingError();
+    const operationPendingResponse = await request(), operationPendingBody = await operationPendingResponse.json();
+    assert.equal(operationPendingResponse.status, 409); assert.equal(operationPendingBody.success, false);
+    assert.equal(operationPendingBody.code, 'COLLABORATION_FILE_OPERATION_PROJECTION_PENDING');
+    assert.equal(materializations, beforeOperationPending.materializations + 1);
+    assert.equal(failures, beforeOperationPending.failures);
+    assert.equal(projectionStatusReads, beforeOperationPending.projectionStatusReads);
+    assert.equal(current, state); assert.equal(final, state);
     failure = new Superseded();
     assert.equal((await request()).status, 409);
     assert.equal(failures, 0, 'superseded old work does not poison current projection');

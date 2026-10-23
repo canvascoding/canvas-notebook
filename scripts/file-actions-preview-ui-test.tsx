@@ -11,6 +11,8 @@ import ts from 'typescript';
 import messages from '../messages/en.json';
 import type * as Ui from '../app/components/file-browser/FileActionsDropdown';
 import type { CopyWorkspacePathsResult, WorkspaceFileOperationDryRun, WorkspaceRenameResult } from '../app/lib/files/client';
+import * as fileClient from '../app/lib/files/client';
+import * as openedDocuments from '../app/lib/collaboration/opened-document-registry';
 import { WorkspacePathOperationClientError } from '../app/lib/files/workspace-path-operation-client';
 import type { WorkspacePathOperationPublic } from '../app/lib/files/workspace-path-operation-public';
 
@@ -169,6 +171,7 @@ async function compileUi(controls: {
     '@/app/lib/marp/detect': { hasMarpFileName: () => false },
     '@/app/store/file-store': { useFileStore },
     '@/app/lib/files/client': {
+      ...fileClient,
       previewWorkspaceRename: (oldPath: string, newPath: string, id: string | null) => {
         controls.renameCalls.push([oldPath, newPath, id]);
         return controls.renamePreview();
@@ -192,6 +195,7 @@ async function compileUi(controls: {
     },
     '@/app/lib/files/workspace-image-share': { isWorkspaceImageFileName: () => false, shareWorkspaceImageFile: async () => 'cancelled' },
     '@/app/lib/files/workspace-path-operation-client': load('../../lib/files/workspace-path-operation-client'),
+    '@/app/lib/collaboration/opened-document-registry': openedDocuments,
     '@/app/lib/files/workspace-path-operation-public': load('../../lib/files/workspace-path-operation-public'),
     '@/app/lib/files/workspace-path-operation-issue-messages': load('../../lib/files/workspace-path-operation-issue-messages'),
     '@/app/lib/files/operation-flows': {
@@ -295,6 +299,23 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.match(blockers?.textContent ?? '', /Correct its target or create the missing file/u);
     assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="file-operation-link-coverage"]')?.open, false);
 
+    const htmlPreview: WorkspaceFileOperationDryRun = { dryRun: true, requiresRevalidation: true, plan: {
+      version: 2, kind: 'native-path-import-preparation', executionReady: false,
+      workspaceId, planId: 'c'.repeat(64), readiness: 'blocked',
+      pathMappings: [{ sourcePath: file.path, destinationPath: 'Docs/renamed.txt' }], linkEdits: [],
+      coverage: { complete: false, omittedSources: [], unresolvedLinks: [] }, imports: [], physicalLinkChanges: [],
+      issues: [{ code: 'affected-html-link', path: 'Docs/index.md' }],
+      linkAssessment: { version: 1, complete: false, warnings: [], blockers: [{ sourcePath: 'Docs/index.md',
+        targetLiteral: 'Docs/report.txt', status: 'not-evaluated', reason: 'affected-html-link', line: 3 }] },
+    } };
+    resolveRename = async () => htmlPreview;
+    await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    assert.match(document.querySelector('[data-testid="file-operation-link-blockers"]')?.textContent ?? '',
+      /Docs\/index\.md → Docs\/report\.txt/u, 'HTML preview2 keeps its bound source and target visible');
+    assert.equal(document.querySelector('[data-testid="file-operation-import-preview"]'), null,
+      'HTML safety diagnostics are displayed even when no Markdown import is required');
+    assert.equal(renameApplyCalls.length, 0, 'an HTML blocker never starts a rename');
+
     await act(async () => fireEvent.change(document.querySelector('#newName')!, { target: { value: 'again.txt' } }));
     assert.equal(status(), null, 'editing the name clears the old plan and warning');
     assert.deepEqual(mutations, [], 'preview does not apply the rename');
@@ -351,6 +372,101 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.deepEqual(mutations, ['copy', 'rename']);
   } finally {
     await act(async () => root.unmount());
+    dom.window.close();
+    globalNames.forEach((name, index) => {
+      const descriptor = prior[index];
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+});
+
+test('mounted initial Move preserves a real client blocked preview and rechecks without applying', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globalNames = ['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+  const prior = globalNames.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: dom.window.HTMLElement });
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
+  const originalFetch = globalThis.fetch, originalAuth = openedDocuments.openedDocumentAuthScope();
+  // Unit observation only; this does not create backend authentication.
+  openedDocuments.observeOpenedDocumentAuth({ data: { user: { id: 'preview-ui-user' }, session: { id: 'preview-ui-session' } } });
+  const blocked = preview('rename', 'blocked');
+  blocked.plan.planId = 'd'.repeat(64);
+  blocked.plan.pathMappings[0].destinationPath = 'Archive/report.txt';
+  blocked.plan.issues = [];
+  blocked.plan.linkAssessment = { version: 1, complete: true, warnings: [], blockers: [{
+    workspaceId, sourcePath: 'Other/local-links.md', targetLiteral: 'Docs/report.txt', status: 'resolved',
+    reason: 'affected-html-link', line: 7,
+  }] };
+  const requests: Array<Record<string, unknown>> = [];
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), '/api/files/rename');
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    requests.push(body);
+    assert.equal(body.dryRun, true, 'a blocked preview must never reach an apply or polling request');
+    return Response.json(blocked);
+  };
+  const rawPreview: WorkspaceFileOperationDryRun = { dryRun: true, requiresRevalidation: true, plan: {
+    version: 1, kind: 'native-path-import-preparation', executionReady: false, workspaceId,
+    planId: 'e'.repeat(64), readiness: 'blocked',
+    pathMappings: [{ sourcePath: file.path, destinationPath: 'Archive/report.txt' }], linkEdits: [],
+    coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
+    issues: [{ code: 'resolution-changed', path: 'Other/raw-links.md' }],
+    imports: [{ path: 'Other/raw-links.md', reasons: ['link-change'] }], physicalLinkChanges: [],
+  } };
+  const controls = {
+    renameCalls: [] as Array<[string, string, string | null]>, copyCalls: [] as Array<Record<string, unknown>>,
+    errors: [] as string[], mutations: [] as string[], renameApplyCalls: [] as unknown[][],
+    copyApplyCalls: [] as Array<Record<string, unknown>>, openedFiles: [] as Array<{ path: string; workspaceId?: string | null }>,
+    activeWorkspaceId: workspaceId, renamePreview: async () => rawPreview, copyPreview: async () => preview('copy', 'ready'),
+    renameApply: () => fileClient.renameWorkspacePath(file.path, 'Archive/report.txt', false, workspaceId),
+  };
+  const ui = await compileUi(controls), { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  const { fireEvent } = await import('@testing-library/react');
+  const button = (name: string, selector = '[role="dialog"] button') => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>(selector)].find(item => item.textContent?.trim() === name);
+    assert.ok(found, `Missing mounted action: ${name}`);
+    return found;
+  };
+  let afterMove = 0;
+  try {
+    await act(async () => root.render(<ui.FileActionsDropdown node={file} open showCreateActions={false}
+      onAfterMove={() => { afterMove++; }}><button type="button">File actions</button></ui.FileActionsDropdown>));
+    await act(async () => button(translate('move'), '[role="menuitem"]').click());
+    await act(async () => fireEvent.change(document.querySelector('#moveTarget')!, { target: { value: 'Archive' } }));
+    await act(async () => button(translate('move')).click());
+    const initial = document.querySelector('[data-testid="workspace-move-preview"]');
+    assert.ok(initial, 'the first blocked automatic preview reaches the mounted dialog');
+    assert.match(initial.textContent ?? '', /Other\/local-links\.md/u);
+    assert.match(initial.textContent ?? '', /Docs\/report\.txt/u);
+    assert.ok(initial.textContent?.includes(messages.notebook['fileOperationLinkBlocker_affected-html-link']),
+      'the original precise HTML guidance is not replaced by a generic preview message');
+    assert.equal(button(translate('move')).disabled, true);
+    assert.deepEqual(requests, [{ oldPath: file.path, newPath: 'Archive/report.txt', dryRun: true }]);
+    assert.equal(afterMove, 0);
+    await act(async () => button('Check again').click());
+    assert.deepEqual(controls.renameCalls, [[file.path, 'Archive/report.txt', workspaceId]]);
+    assert.equal(requests.length, 1, 'recheck does not dispatch the real client apply');
+    assert.equal(controls.renameApplyCalls.length, 1);
+    const rechecked = document.querySelector('[data-testid="workspace-move-preview"]');
+    assert.match(rechecked?.textContent ?? '', /Other\/raw-links\.md/u);
+    assert.match(rechecked?.textContent ?? '', /resolution-changed/u);
+    assert.ok(rechecked?.textContent?.includes(messages.workspacePathOperationStatus.issue.resolutionChanged));
+    assert.equal(button(translate('move')).disabled, true);
+    await act(async () => button('Open affected file').click());
+    assert.deepEqual(controls.openedFiles, [{ path: 'Other/raw-links.md', workspaceId }]);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(afterMove, 0);
+    assert.equal(requests.length, 1, 'opening diagnostics only reveals the affected workspace file');
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = originalFetch;
+    openedDocuments.observeOpenedDocumentAuth(originalAuth ? { data: {
+      user: { id: originalAuth.userId }, session: { id: originalAuth.sessionId },
+    } } : null);
     dom.window.close();
     globalNames.forEach((name, index) => {
       const descriptor = prior[index];

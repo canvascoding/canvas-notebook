@@ -27,6 +27,8 @@ import {
   type PersistedAgentApplyResult,
 } from './agent-operations';
 import { readCurrentCollaborationDocument } from './document-access';
+import { authoritativeNativeCollaborationSnapshot, inspectNativeDocument } from './document-snapshot';
+import { CollaborationCheckpointValidationError } from './checkpoint-errors';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from './markdown-state';
 import { readRichDocumentJson } from './rich-document';
 import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
@@ -55,6 +57,14 @@ export type CollaborationTextSnapshot = {
   content: string;
   sha256: string;
   stateVector: string;
+  /** Present on reads; the legacy sequence above denotes persisted state only. */
+  currency?: {
+    source: 'live_yjs' | 'persisted_yjs';
+    durable: boolean;
+    observedStateProof: string;
+    persistedStateProof: string;
+    persistedSequence: number;
+  };
   structure?: {
     blocks: Array<AgentBlockStructure & { textTruncated: boolean }>;
     offset: number;
@@ -215,16 +225,36 @@ function directTargetsProduceProposedContent(input: {
 export async function readCurrentCollaborationTextSnapshot(input: {
   documentId: string;
   workspace: WorkspaceContext;
+  path?: string;
+  lifecycleGeneration?: number;
+  loadState?: typeof loadCollaborationState;
 } & CollaborationStructureReadOptions): Promise<CollaborationTextSnapshot> {
-  const state = await loadCollaborationState(input.documentId);
-  if (!state || state.status !== 'active' || state.workspaceId !== input.workspace.workspaceId) {
-    throw new Error('The collaborative document state is unavailable or stale.');
+  if (!input.workspace.permissions.canRead || input.workspace.status !== undefined && input.workspace.status !== 'active') {
+    throw Object.assign(new Error('The workspace document is unavailable.'), { status: 403 });
   }
   return readCurrentCollaborationDocument({
-    documentId: state.documentId,
-    workspaceId: state.workspaceId,
-    read: (doc) => {
-      const content = canonicalContent(state.representation, doc);
+    documentId: input.documentId,
+    workspaceId: input.workspace.workspaceId,
+    loadState: input.loadState,
+    read: (doc, state) => {
+      if (!state || state.documentId !== input.documentId || state.workspaceId !== input.workspace.workspaceId
+        || state.organizationId !== (input.workspace.organizationId ?? null)
+        || input.path !== undefined && state.path !== input.path
+        || input.lifecycleGeneration !== undefined && state.lifecycleGeneration !== input.lifecycleGeneration) {
+        throw Object.assign(new Error('The collaborative document changed or is unavailable.'), { status: 409 });
+      }
+      const persisted = authoritativeNativeCollaborationSnapshot(state);
+      const observed = inspectNativeDocument(doc, state.representation);
+      const observedProof = observed.version.stateProof;
+      let content: string;
+      if (observed.content.kind === 'plain_text') content = observed.content.text;
+      else {
+        const validation = validateRichMarkdownYDoc(doc);
+        if (!validation.valid || validation.markdown === undefined) {
+          throw new CollaborationCheckpointValidationError(validation.code || 'schema_invalid');
+        }
+        content = validation.markdown;
+      }
       let structure: CollaborationTextSnapshot['structure'];
       if (input.includeStructure) {
         if (state.representation !== 'tiptap_blocks') {
@@ -253,6 +283,12 @@ export async function readCurrentCollaborationTextSnapshot(input: {
         content,
         sha256: sha256(content),
         stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
+        currency: {
+          source: observedProof === persisted.version.stateProof ? 'persisted_yjs' : 'live_yjs',
+          durable: observedProof === persisted.version.stateProof,
+          observedStateProof: observedProof, persistedStateProof: persisted.version.stateProof,
+          persistedSequence: persisted.version.documentSequence,
+        },
         ...(structure ? { structure } : {}),
       };
     },

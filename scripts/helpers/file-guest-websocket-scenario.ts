@@ -3,6 +3,7 @@ import http from 'node:http';
 import { WebSocket } from 'ws';
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
 import * as Y from 'yjs';
+import type { NextRequest } from 'next/server';
 import type { WorkspaceContext } from '../../app/lib/workspaces/types';
 import { fileGuestCookieName } from '../../app/lib/file-guests/types';
 import { fileGuestCollaborationSession, fileGuestCheckpoint } from '../../app/lib/file-guests/collaboration';
@@ -29,6 +30,8 @@ export async function runFileGuestWebsocketScenario(input: {
   path: string;
   representation: TextCollaborationRepresentation;
   participants: Array<{ id: string; token: string }>;
+  memberRequest: NextRequest;
+  memberSessionId: string;
 }) {
   const server = http.createServer();
   const websocketServer = createCollaborationServer(server);
@@ -115,13 +118,13 @@ export async function runFileGuestWebsocketScenario(input: {
     await assert.rejects(fileGuestCheckpoint(checkpointWriter.id, checkpointWriter.token, checkpointSession.token,
       checkpointSession.stateVector!, checkpointSession.stateProof), /synchronisiert/);
     await assert.rejects(restoreFileGuestVersion({ workspace: input.workspace, path: input.path, versionId: baseline.id,
-      stateFingerprint: history.stateFingerprint, sessionId: 'owner-session' }), /inzwischen bearbeitet/);
+      stateFingerprint: history.stateFingerprint, sessionId: input.memberSessionId }), /inzwischen bearbeitet/);
     const fresh = await listFileGuestVersions(input.workspace, input.path);
     await restoreFileGuestVersion({ workspace: input.workspace, path: input.path, versionId: baseline.id,
-      stateFingerprint: fresh.stateFingerprint, sessionId: 'owner-session' });
+      stateFingerprint: fresh.stateFingerprint, sessionId: input.memberSessionId });
     await until(() => peers.every((peer) => !content(peer.doc).toString().includes('Alice edit')), 'restore reaches both guests');
     const [writer] = input.participants;
-    await fileGuestService.manage(input.workspace, writer.id, { policyRevision: 1, revoke: true });
+    await fileGuestService.manage(input.memberRequest, input.workspace.workspaceId, writer.id, { policyRevision: 1, revoke: true });
     await until(() => peers[0].revoked, 'idle guest receives access revocation', 5000);
     const before = content(peers[1].doc).toString();
     content(peers[0].doc).insert(0, 'MUST NOT ARRIVE ');

@@ -5,6 +5,7 @@ import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspa
 import { issueCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { excalidrawRequestAuthority, excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
 import {
   CollaborationSessionError,
@@ -21,7 +22,8 @@ import {
 } from '@/app/lib/collaboration/types';
 
 export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const rateLimitResponse = applyRateLimit(request, {
     limit: 60,
@@ -44,8 +46,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'A supported path, provider, and collaboration representation are required.' }, { status: 400 });
   }
 
+  const nativeSession = authenticatedNativeTextSessionEnabled() && requested.provider === 'yjs';
   try {
-    const grant = await createCollaborationSessionGrant({
+    const authenticated = nativeSession && requested.provider === 'yjs'
+      ? await (await import('@/app/lib/collaboration/authenticated-text-session-service')).createAuthenticatedTextCollaborationSessionGrant({
+        request: original, workspaceId: workspaceResult.workspace.workspaceId, sessionRequest: requested,
+        permission: workspaceResult.workspace.permissions.canWrite ? 'write' : 'read',
+      }) : null;
+    const grant = authenticated?.grant ?? await createCollaborationSessionGrant({
       workspace: workspaceResult.workspace,
       fileOptions: workspaceFileOptions(workspaceResult.workspace),
       request: requested,
@@ -59,11 +67,13 @@ export async function POST(request: NextRequest) {
     }
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (!sessionId) throw new Error('Authenticated session has no stable identifier.');
+    if (authenticated && (authenticated.identity.userId !== workspaceResult.session.user.id
+      || authenticated.identity.sessionId !== sessionId)) throw new Error('Authenticated native session identity changed.');
     const issued = issueCollaborationTicket({
       userId: workspaceResult.session.user.id,
       sessionId,
-      workspaceId: workspaceResult.workspace.workspaceId,
-      organizationId: workspaceResult.workspace.organizationId ?? null,
+      workspaceId: authenticated?.identity.workspaceId ?? workspaceResult.workspace.workspaceId,
+      organizationId: authenticated ? authenticated.identity.organizationId : workspaceResult.workspace.organizationId ?? null,
       documentId: grant.documentId,
       path: grant.path,
       provider: grant.provider,
@@ -89,6 +99,7 @@ export async function POST(request: NextRequest) {
       stateProof: grant.stateProof,
       degraded: grant.degraded,
       projectionFinalized: grant.projectionFinalized,
+      ...(authenticated && grant.projectionError ? { projectionError: grant.projectionError } : {}),
       ...(grant.migration ? { migration: grant.migration } : {}),
       token: issued.token,
       expiresAt: new Date(issued.claims.expiresAt).toISOString(),
@@ -104,13 +115,18 @@ export async function POST(request: NextRequest) {
     if (requested.provider === 'excalidraw' && error && typeof error === 'object' && 'code' in error
       && typeof error.code === 'string' && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    const status = error instanceof CollaborationSessionError
+    const nativeErrors = nativeSession ? await import('@/app/lib/collaboration/authenticated-text-session-service') : null;
+    const status = nativeErrors
+      ? nativeErrors.authenticatedTextSessionErrorStatus(error)
+      : error instanceof CollaborationSessionError
       ? error.status
       : code === 'ENOENT' ? 404 : 500;
+    if (nativeErrors) console.warn('[collaboration-session]', nativeErrors.authenticatedTextSessionStartupDiagnostic(error));
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Could not start collaboration.',
-      ...(error instanceof CollaborationSessionError && error.code ? { code: error.code } : {}),
-    }, { status });
+      ...((nativeSession && code || error instanceof CollaborationSessionError && error.code) ? { code } : {}),
+      ...(nativeErrors?.isAuthenticatedTextSessionStartupRetryable(error) ? { retryable: true } : {}),
+    }, { status, headers: { 'Cache-Control': 'no-store' } });
   }
 }

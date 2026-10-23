@@ -6,7 +6,7 @@ import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
-import { collaborationCheckpointValidationFailure, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, collaborationCheckpointValidationFailure, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
 import { FileGuestCheckpointRequestError } from './checkpoint-error';
 import { fileGuestService, FileGuestError } from './service';
@@ -14,8 +14,9 @@ import { loadCollaborationProjectionStatus, recordCollaborationProjectionFailure
 import { classifyCollaborationProjectionError } from '@/app/lib/collaboration/projection-errors';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 
-export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
-  const { user, guestSession, state, invitation } = await fileGuestService.access(id, { token });
+async function sessionForActualAccess(found: Awaited<ReturnType<typeof fileGuestService.access>>): Promise<CollaborationSessionResponse> {
+  const {user,guestSession,state,invitation} = found;
+  const id = invitation.id;
   const issued = issueCollaborationTicket({ userId: user.id, sessionId: guestSession.id,
     guestInvitationId: id, guestPolicyRevision: invitation.policyRevision,
     workspaceId: state.workspaceId, organizationId: state.organizationId, documentId: state.documentId,
@@ -35,6 +36,17 @@ export async function fileGuestCollaborationSession(id: string, token: string): 
   };
 }
 
+export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
+  return sessionForActualAccess(await fileGuestService.access(id,{token}));
+}
+
+/** Both native bootstrap and ticket parameters derive from this one actual
+ * current invitation/session read. No caller-provided access object is accepted. */
+export async function fileGuestCollaborationContent(id:string,token:string) {
+  const content = await fileGuestService.content(id,token);
+  return {content,session:await sessionForActualAccess(content)};
+}
+
 export async function fileGuestCheckpoint(id: string, token: string, ticket: string, stateVector: string, stateProof: unknown) {
   const found = await fileGuestService.access(id, { token });
   let claims: ReturnType<typeof verifyCollaborationTicket>;
@@ -52,6 +64,16 @@ export async function fileGuestCheckpoint(id: string, token: string, ticket: str
     || collaborationUpdateStateProof(found.state.yjsState, Y) !== stateProof) throw new FileGuestError('Änderungen werden noch synchronisiert. Bitte erneut versuchen.', 409);
   const result = await materializeCollaborationCheckpoint({ state: found.state, workspace: found.workspace,
     actorUserId: found.user.id, actorType: 'user', sourceSessionId: found.guestSession.id }).catch(async (error: unknown) => {
+    if (error instanceof CollaborationCopyPublicationPendingError || error instanceof CollaborationFileOperationProjectionPendingError) {
+      throw new FileGuestCheckpointRequestError(409, {
+        success: false, code: error.code, error: error instanceof CollaborationFileOperationProjectionPendingError
+          ? 'Die Dateiaktion wird noch veröffentlicht.' : 'Die Kopie wird noch veröffentlicht.', projectionFinalized: false,
+        documentId: found.state.documentId, lifecycleGeneration: found.state.lifecycleGeneration,
+        documentSequence: found.state.documentSequence, checkpointSequence: found.state.checkpointSequence,
+        stateVector: Buffer.from(found.state.stateVector).toString('base64'),
+        stateProof: collaborationUpdateStateProof(found.state.yjsState, Y),
+      });
+    }
     const validation = collaborationCheckpointValidationFailure(error);
     const failure = classifyCollaborationProjectionError(error);
     const latest = failure.permanent ? await loadCollaborationState(found.state.documentId).catch(() => found.state) : found.state;

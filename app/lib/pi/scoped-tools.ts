@@ -116,7 +116,6 @@ import {
   getErrorMessage,
   normalizeOptionalString,
 } from '@/app/lib/pi/tool-runtime-helpers';
-import { readPathList } from '@/app/lib/pi/tool-file-formatters';
 
 const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
@@ -364,8 +363,6 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
           if (!p.shareId) throw new Error('shareId is required for revoke.');
           const share = await revokePublicFileShare({
             id: p.shareId,
-            userId: scopedUserId,
-            isAdmin: false,
             baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
           });
           if (!share) throw new Error(`Public share not found: ${p.shareId}`);
@@ -380,7 +377,12 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
           }
           const reason = normalizeOptionalString(p.reason)?.slice(0, 500);
           if (!reason) throw new Error('reason is required for public sharing.');
-          const paths = readPathList(p as Record<string, unknown>, 'path', 'paths');
+          // A concrete filename may contain leading/trailing spaces. Resolve
+          // aliases centrally after the genuine Invocation workspace is known.
+          const paths = Array.from(new Set([
+            ...(typeof p.path === 'string' ? [p.path] : []),
+            ...(Array.isArray(p.paths) ? p.paths : []),
+          ]));
           const result = await createPublicFileShares({
             paths,
             createdByUserId: scopedUserId,

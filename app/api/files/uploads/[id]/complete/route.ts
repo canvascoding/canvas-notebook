@@ -7,6 +7,7 @@ import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 import {
   completeWorkspaceUploadFile,
+  publicWorkspaceUploadFile,
 } from '@/app/lib/files/workspace-upload-service';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -17,7 +18,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  // Capture credentials with the same constructor used by the native services.
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
 
   const limited = rateLimit(request, {
@@ -33,11 +36,38 @@ export async function POST(
     const { id } = await params;
     const payload = await request.json() as { fileId?: unknown };
     const fileId = typeof payload.fileId === 'string' ? payload.fileId : '';
+    let committed;
+    const afterCompletion = async (result: Pick<Awaited<ReturnType<typeof completeWorkspaceUploadFile>>, 'session' | 'file'>) => {
+      await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
+      committed = await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
+      await recordAuditEvent({
+        organizationId: workspaceResult.workspace.organizationId,
+        workspaceId: workspaceResult.workspace.workspaceId,
+        userId: workspaceResult.session.user.id,
+        source: 'files',
+        eventType: 'file',
+        entityType: 'workspace_path',
+        entityId: result.file.targetPath,
+        action: 'file.upload',
+        status: 'success',
+        summary: `File uploaded: ${result.file.targetPath}`,
+        metadata: {
+          uploadSessionId: result.session.id,
+          targetPath: result.file.targetPath,
+          sizeBytes: result.file.size,
+          mimeType: result.file.mimeType,
+          workspaceType: workspaceResult.workspace.workspaceType,
+          chunked: true,
+        },
+      });
+    };
     const result = await completeWorkspaceUploadFile({
       sessionId: id,
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
+      request: original,
+      afterMarkdownCompletion: afterCompletion,
       includeFullSession: false,
       commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         await runWorkspaceUploadWrite({
@@ -61,39 +91,16 @@ export async function POST(
       },
     });
 
-    let committed;
-    if (!result.alreadyCompleted) {
-      await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
-      committed = await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
-      await recordAuditEvent({
-        organizationId: workspaceResult.workspace.organizationId,
-        workspaceId: workspaceResult.workspace.workspaceId,
-        userId: workspaceResult.session.user.id,
-        source: 'files',
-        eventType: 'file',
-        entityType: 'workspace_path',
-        entityId: result.file.targetPath,
-        action: 'file.upload',
-        status: 'success',
-        summary: `File uploaded: ${result.file.targetPath}`,
-        metadata: {
-          uploadSessionId: result.session.id,
-          targetPath: result.file.targetPath,
-          sizeBytes: result.file.size,
-          mimeType: result.file.mimeType,
-          workspaceType: workspaceResult.workspace.workspaceType,
-          chunked: true,
-        },
-      });
-    }
+    if (!result.alreadyCompleted && !result.completion) await afterCompletion(result);
 
     return NextResponse.json({
       success: true,
       uploadId: result.session.id,
-      file: result.file,
-      committed,
+      file: publicWorkspaceUploadFile(result.file),
+      ...(!result.completion || result.completion.status === 'completed' ? { committed } : {}),
       alreadyCompleted: result.alreadyCompleted,
-    });
+      ...(result.completion ? { completion: result.completion } : {}),
+    }, { status: result.completion && result.completion.status !== 'completed' ? 202 : 200 });
   } catch (error) {
     return workspaceUploadErrorResponse(error, '[API] Failed to complete workspace upload file:');
   }

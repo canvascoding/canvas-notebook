@@ -1,3 +1,5 @@
+import type { WorkspaceFileMetadataTarget } from './workspace-file-metadata-contract';
+
 export interface PublicShareState {
   id: string;
   workspaceId?: string | null;
@@ -25,6 +27,8 @@ export interface FileNode {
   /** Personal state for the requesting user. These fields are additive for future clients. */
   isFavorite?: boolean;
   pinnedAt?: number | null;
+  /** Comparison evidence from a fresh file-info read, never a write capability. */
+  metadataTarget?: WorkspaceFileMetadataTarget;
   children?: FileNode[];
   publicShare?: PublicShareState;
 }
@@ -40,6 +44,12 @@ export interface FileStats {
   /** Precise filesystem identity for metadata-only reads, independent of persisted revisions. */
   fileVersion?: string;
 }
+
+/** A read only supplies fields actually observed from its authoritative
+ * source. Native bootstrap has no exported byte size or filesystem mode;
+ * pending live content has no durable modification timestamp. Known times
+ * retain the existing epoch-seconds contract of FileStats. */
+export type FileReadStats = Partial<FileStats>;
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 
@@ -90,7 +100,7 @@ export interface CurrentFile {
   /** Local open lifetime; survives refresh and rename, changes on a new load. */
   editorIdentity?: string;
   content: string;
-  stats?: FileStats;
+  stats?: FileReadStats;
   revision?: FileRevisionRecord | null;
   collaboration?: FileCollaborationState | null;
   /** Keep the local editor mounted when the file disappears or is replaced. */
@@ -111,6 +121,8 @@ export interface OpenWorkspaceFileOptions {
   expectedDocumentId?: string;
   expectedLineageId?: string;
   isCurrent?: () => boolean;
+  /** Revalidate a closed preview when reopening its URL, including the same path. */
+  forceReload?: boolean;
 }
 
 export interface WorkspaceFileOpenCompletion {

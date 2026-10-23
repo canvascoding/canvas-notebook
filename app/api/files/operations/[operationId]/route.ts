@@ -61,23 +61,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const authorized = await authorizedOperation(request, operationId);
     if ('response' in authorized) return authorized.response;
     const { session, record, durableRequest, source, destination } = authorized;
+    const actorSessionId = (session.session as { id?: string } | undefined)?.id;
     const execution = await executeWorkspaceFileOperationService({
       operationId, kind: durableRequest.kind, selections: durableRequest.selections,
+      request,
       expectedPlanId: record.planId,
       source: { workspace: source, fileOptions: workspaceFileOptions(source) },
       destination: { workspace: destination, fileOptions: {
         ...workspaceFileOptions(destination), mutationActorUserId: session.user.id,
       } },
-      actorUserId: session.user.id, actorId: session.user.id,
+      actorUserId: session.user.id, actorId: session.user.id, actorSessionId,
       actorDisplayName: session.user.name ?? 'Workspace user',
-      actorType: record.actor.type === 'agent' ? 'agent' : 'user',
+      actorType: 'user',
     });
     return jsonSuccess({ operation: execution.execution,
       linkStatus: execution.execution.status === 'complete' ? 'complete' : 'partial' });
   } catch (error) {
-    const status = error && typeof error === 'object' && 'status' in error && typeof error.status === 'number'
-      ? error.status : 500;
-    if ([403, 409, 422, 503].includes(status)) {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    const status = code === 'PRINCIPAL_AUTH_REVOKED' ? 401 : code === 'PRINCIPAL_ACCESS_DENIED' ? 403
+      : error && typeof error === 'object' && 'status' in error && typeof error.status === 'number' ? error.status : 500;
+    if ([401, 403, 409, 422, 503].includes(status)) {
       return jsonError(error instanceof Error ? error.message : 'Could not resume file operation', status,
         { code: error && typeof error === 'object' && 'code' in error ? error.code : 'OPERATION_RECOVERY_FAILED' });
     }

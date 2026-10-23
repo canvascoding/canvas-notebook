@@ -44,7 +44,14 @@ async function main() {
     assert.equal((await request(admin, '/api/files/create', workspaceId, 'POST', { path, type: 'file' })).status, 200);
     created = true;
     assert.equal((await request(admin, '/api/files/quick-access', workspaceId, 'POST', { path })).status, 200);
-    assert.equal((await request(admin, '/api/files/metadata', workspaceId, 'PATCH', { path, title: 'Home QA searchable title', isFavorite: true, pinned: true })).status, 200);
+    const info = await request(admin, `/api/files/info?path=${encodeURIComponent(path)}`, workspaceId);
+    assert.equal(info.status, 200);
+    const expectedTarget = info.payload.data?.metadataTarget;
+    assert.ok(expectedTarget);
+    assert.equal(expectedTarget.version, 1); assert.equal(expectedTarget.workspaceId, workspaceId); assert.equal(expectedTarget.path, path);
+    assert.equal((await request(admin, '/api/files/metadata', workspaceId, 'PATCH', {
+      path, expectedTarget, title: 'Home QA searchable title', isFavorite: true, pinned: true,
+    })).status, 200);
     const adminFiles = await request(admin, '/api/files/quick-access?view=recent', workspaceId);
     assert.equal(adminFiles.status, 200);
     assert.equal(adminFiles.payload.data.view, 'recent');

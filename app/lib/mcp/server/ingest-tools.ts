@@ -10,10 +10,18 @@ import { DirectMcpIngestValidationError, encodeDirectMcpTextContent, isDirectMcp
 import { parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
 import { directMcpToolAuthorizationError } from './tool-auth';
 import type { DirectMcpToolDescriptor } from './tool-descriptor';
+import { persistAndProjectDirectMcpMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
+import { MarkdownCreateBirthError } from '@/app/lib/files/markdown-create-birth';
+import { DirectMcpDocumentReadPrincipalError } from './document-read-principal';
+import { WorkspaceFileLifecycleBusyError } from '@/app/lib/files/workspace-file-lifecycle-guard';
+import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
 
 type IngestTool = 'create_knowledge_source' | 'import_knowledge_file';
 const securitySchemes = [{ type: 'oauth2' as const, scopes: ['knowledge:write'] }];
 const commonProperties = {
+  api_version: { type: 'integer', const: 1, description: 'Request the native document result with stable identity and confirmed versions. Requires native Markdown creation; omit for the legacy file receipt.' },
   workspace_id: { type: 'string', minLength: 1, maxLength: 200, description: 'An explicitly allowed, writable Canvas workspace.' },
   path: { type: 'string', minLength: 1, maxLength: 1024, description: 'New workspace-relative file path. Existing files are never overwritten.' },
   idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$', description: 'Use the same key and identical content/file_id when retrying this creation.' },
@@ -70,9 +78,10 @@ function string(value: unknown, name: string, max: number): string {
 export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, authInfo?: AuthInfo, signal?: AbortSignal): Promise<CallToolResult> {
   const args = record(raw);
   const isImport = id === 'import_knowledge_file';
-  if (Object.keys(args).some(name => !['workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].includes(name))) {
+  if (Object.keys(args).some(name => !['api_version', 'workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].includes(name))) {
     invalid('The request contains unsupported arguments.');
   }
+  if (args.api_version !== undefined && args.api_version !== 1) invalid('api_version must be 1 when provided.');
   const workspaceId = string(args.workspace_id, 'workspace_id', 200);
   const destination = normalizeDirectMcpIngestPath(string(args.path, 'path', 1024));
   let key: string | null;
@@ -99,6 +108,26 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
   }
   if (!authInfo?.token) return directMcpToolAuthorizationError(undefined, 'knowledge:write');
   try {
+    const nativeMarkdown = authenticatedNativeTextSessionEnabled() && /\.(?:md|markdown)$/iu.test(destination);
+    if (args.api_version === 1 && !nativeMarkdown) {
+      throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'api_version 1 requires enabled native Markdown creation.');
+    }
+    if (nativeMarkdown) {
+      const native = await persistAndProjectDirectMcpMarkdownCreate(authInfo,
+        isImport ? { tool: 'import_knowledge_file', workspaceId, path: destination, idempotencyKey: key, file: file! }
+          : { tool: 'create_knowledge_source', workspaceId, path: destination, idempotencyKey: key, content: text! }, signal,
+        args.api_version === 1 ? 1 : undefined);
+      if (native.kind === 'native') {
+        const result = args.api_version === 1 ? native.mutationResult : native.receipt;
+        if (!result) throw new DirectMcpFileIngestError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED', 'The native creation result could not be confirmed.');
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+      }
+      if (args.api_version === 1) {
+        throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'This operation belongs to an existing legacy file creation.');
+      }
+      // A retained legacy original remains on its actual legacy validation and
+      // no-download receipt path; no native Origin or Birth is manufactured.
+    }
     const authority = await createDirectMcpIngestAuthority({ token: authInfo.token, tool: id, workspaceId });
     // A fresh temporary URL may replace an expired one for the same host file.
     // Never persist a download URL, bearer token, or submitted content in the receipt journal.
@@ -117,10 +146,13 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     return { content: [{ type: 'text', text: JSON.stringify(receipt) }], structuredContent: receipt };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:write');
-    const known = error instanceof DirectMcpFileIngestError || error instanceof DirectMcpIngestValidationError
+    const native = error instanceof MarkdownFileImportError || error instanceof MarkdownCreateBirthError
+      || error instanceof DirectMcpDocumentReadPrincipalError || error instanceof WorkspaceFileLifecycleBusyError
+      || error instanceof WorkspaceMutationLockError;
+    const known = native || error instanceof DirectMcpFileIngestError || error instanceof DirectMcpIngestValidationError
       || error instanceof DirectMcpIngestDownloadError;
     const detail = { code: known ? error.code : 'MCP_INGEST_FAILED',
-      message: known ? error.message : 'The file could not be imported. The destination may require inspection before retrying.' };
+      message: native ? error.code : known ? error.message : 'The file could not be imported. The destination may require inspection before retrying.' };
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(detail) }], structuredContent: detail };
   }
 }

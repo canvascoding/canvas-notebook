@@ -7,6 +7,8 @@ import {
   FileCollaborationPolicyError,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent, OfficeWriteError } from '@/app/lib/files/write-service';
+import { assertNoInitializedNativeFileWriteBeforeDispatch, NativeFileWritePreflightError,
+  NativeWholeFileWriteBlockedError } from '@/app/lib/files/native-file-write-authority';
 import { OfficeJournalError } from '@/app/lib/office/document-journal';
 import { DocxPackageValidationError } from '@/app/lib/office/docx-package';
 import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
@@ -68,9 +70,13 @@ export async function POST(request: NextRequest) {
       encoded: content.startsWith('base64:'),
       expectedSha256,
       baseRevisionId: baseRevisionId ?? null,
+      beforeDispatch: assertNoInitializedNativeFileWriteBeforeDispatch,
     });
     return jsonSuccess({ data });
   } catch (error) {
+    if (error instanceof NativeFileWritePreflightError || error instanceof NativeWholeFileWriteBlockedError) {
+      return jsonError(error.message, error.status, { code: error.code });
+    }
     if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });
     if (error instanceof DocxPackageValidationError || error instanceof OfficeWriteError || error instanceof WorkspaceMutationLockError || error instanceof OfficeJournalError) {
       return jsonError(error.message, error.status, { code: error.code });

@@ -111,10 +111,18 @@ export function captureCollaborationAdmissionOutcomeSnapshot(row: Row, captured:
 }
 
 /** Caller owns a transaction. This is a historical result, never fresh mutation authority. */
-export async function readCollaborationAdmissionOutcome(database: SqlConnection, captured: Captured): Promise<CollaborationAdmissionOutcome | null> {
-  const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR SHARE',
-    [captured.request.requestId]) as Row | undefined;
+async function readCapturedCollaborationAdmissionOutcome(database: SqlConnection, captured: Captured, historical = false, readOnly = false): Promise<CollaborationAdmissionOutcome | null> {
+  const lock = readOnly ? '' : ' FOR SHARE';
+  const header = await database.get(historical ? `SELECT CASE WHEN octet_length(request_digest)=64 THEN request_digest END AS request_digest,
+    CASE WHEN octet_length(status)<=32 THEN status END AS status,
+    CASE WHEN octet_length(intent_text)=$2 THEN intent_text ELSE NULL END AS intent_text,
+    CASE WHEN octet_length(outcome_text)<=$3 THEN outcome_text ELSE NULL END AS outcome_text,
+    octet_length(outcome_text) AS outcome_bytes FROM collaboration_admission_requests WHERE request_id=$1${lock}`
+    : 'SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR SHARE',
+  historical ? [captured.request.requestId,Buffer.byteLength(captured.intentText),COLLABORATION_ADMISSION_OUTCOME_MAX_BYTES] : [captured.request.requestId]) as Row | undefined;
   if (!header) return null;
+  if (historical && header.outcome_bytes !== null && (!Number.isSafeInteger(header.outcome_bytes)
+    || Number(header.outcome_bytes) > COLLABORATION_ADMISSION_OUTCOME_MAX_BYTES)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   if (header.request_digest !== captured.requestDigest || header.intent_text !== captured.intentText) {
     throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
   }
@@ -139,7 +147,26 @@ export async function readCollaborationAdmissionOutcome(database: SqlConnection,
     || Object.keys(stored.result).length !== 0)) {
     throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   }
-  const rows = await database.all(`SELECT * FROM collaboration_admission_targets
+  const selectedRows = historical ? await database.all(`WITH bounded AS MATERIALIZED (
+    SELECT request_id,document_id,(octet_length(request_id)+octet_length(document_id)+octet_length(snapshot_text)+octet_length(status)
+      +coalesce(octet_length(release_id),0)+coalesce(octet_length(quiescence_kind),0)+coalesce(octet_length(quiescence_text),0)
+      +coalesce(octet_length(source_outcome_request_id),0)+coalesce(octet_length(outcome_snapshot_text),0)
+      +coalesce(octet_length(outcome_snapshot_digest),0))::bigint AS bytes FROM collaboration_admission_targets
+    WHERE request_id=$1 ORDER BY document_id LIMIT $2${lock}
+  ), measured AS MATERIALIZED (SELECT count(*)::integer AS row_count,coalesce(sum(bytes),0)::bigint AS byte_count FROM bounded)
+  SELECT measured.row_count AS "_rowCount",measured.byte_count AS "_byteCount",payload.*
+  FROM measured LEFT JOIN LATERAL (SELECT t.document_id,t.status,t.active,t.quiescence_text,t.outcome_snapshot_text,
+    t.outcome_snapshot_digest,t.snapshot_text,t.quiescence_kind FROM bounded b JOIN collaboration_admission_targets t
+    ON t.request_id=b.request_id AND t.document_id=b.document_id
+    WHERE measured.row_count<=$3 AND measured.byte_count<=$4 ORDER BY t.document_id) payload ON true ORDER BY payload.document_id`,
+  [captured.request.requestId,captured.request.expectedDocuments.length+1,captured.request.expectedDocuments.length,
+    3*COLLABORATION_ADMISSION_OUTCOME_MAX_BYTES]) as Row[] : null;
+  if (selectedRows && (!selectedRows.length || !Number.isSafeInteger(selectedRows[0]._rowCount)
+    || Number(selectedRows[0]._rowCount)>captured.request.expectedDocuments.length
+    || !/^(?:0|[1-9][0-9]*)$/u.test(String(selectedRows[0]._byteCount))
+    || Number(selectedRows[0]._byteCount)>3*COLLABORATION_ADMISSION_OUTCOME_MAX_BYTES)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  const rows = selectedRows ? Number(selectedRows[0]._rowCount) === 0 ? [] : selectedRows
+    : await database.all(`SELECT * FROM collaboration_admission_targets
     WHERE request_id = $1 ORDER BY document_id FOR SHARE`, [captured.request.requestId]) as Row[];
   if (rows.length !== stored.targets.length) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   const targets = rows.map((row, index) => {
@@ -184,6 +211,26 @@ export async function readCollaborationAdmissionOutcome(database: SqlConnection,
     result: captureCollaborationAdmissionOutcomeResult(stored.result), targets: Object.freeze(targets) });
   if (JSON.stringify(outcome) !== header.outcome_text) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   return outcome;
+}
+
+/** Existing mutation/recovery callers retain their original row-locking behavior. */
+export function readCollaborationAdmissionOutcome(database: SqlConnection, captured: Captured): Promise<CollaborationAdmissionOutcome|null> {
+  return readCapturedCollaborationAdmissionOutcome(database,captured);
+}
+
+/** Immutable historical facts only. readOnly selects snapshot reads; neither
+ * this option nor the returned DTO grants principal, Claim or mutation rights. */
+export function readHistoricalCollaborationAdmissionOutcomeOnConnection(database: SqlConnection, supplied: Captured,
+  options?: Readonly<{readOnly?:true}>): Promise<CollaborationAdmissionOutcome|null> {
+  let readOnly=false;
+  if(options!==undefined){
+    if(!options||Object.getPrototypeOf(options)!==Object.prototype||Reflect.ownKeys(options).length!==1)throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+    const property=Object.getOwnPropertyDescriptor(options,'readOnly');
+    if(!property?.enumerable||!Object.hasOwn(property,'value')||property.value!==true)throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');readOnly=true;
+  }
+  const captured=captureCollaborationAdmissionRequest(supplied.request);
+  if(captured.requestDigest!==supplied.requestDigest||captured.intentText!==supplied.intentText)throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  return readCapturedCollaborationAdmissionOutcome(database,captured,true,readOnly);
 }
 
 /** Exact poststate lookup, never a "latest outcome" or same-epoch inference. */

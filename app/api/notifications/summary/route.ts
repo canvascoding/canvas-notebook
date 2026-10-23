@@ -19,7 +19,7 @@ import { markMcpConnectionAttentionRead } from '@/app/lib/mcp/connection-attenti
 import { markTeamLicenseAttentionRead } from '@/app/lib/license/team-license-attention';
 import { workspaceOperationNotificationSource, workspacePathOperationNotificationSource } from '@/app/lib/files/workspace-operation-notification-source';
 import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX,
-  WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX } from '@/app/lib/files/workspace-operation-notification-contract';
+  WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX, WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX } from '@/app/lib/files/workspace-operation-notification-contract';
 
 type PatchPayload = {
   action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -132,7 +132,8 @@ export async function PATCH(request: NextRequest) {
     const fileActionSource = typeof payload.itemId === 'string'
       ? payload.itemId.startsWith(WORKSPACE_OPERATION_NOTIFICATION_PREFIX) ? workspaceOperationNotificationSource
         : payload.itemId.startsWith(WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX)
-          || payload.itemId.startsWith(WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX) ? workspacePathOperationNotificationSource : null
+          || payload.itemId.startsWith(WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX)
+          || payload.itemId.startsWith(WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX) ? workspacePathOperationNotificationSource : null
       : null;
     if (fileActionSource && payload.itemId) {
       if (payload.action !== 'mark_item_read' && payload.action !== 'dismiss_item') {

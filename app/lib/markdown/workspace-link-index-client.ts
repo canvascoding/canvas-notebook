@@ -8,12 +8,14 @@ import {
 
 import {
   getObsidianWikiCompletionInsertPath,
-  resolveObsidianWikiLink,
   type ObsidianLinkResolution,
   type ObsidianWikiCompletionContext,
 } from './obsidian-link-resolver';
 import { parseWorkspaceMarkdownHref, resolveExactWorkspaceLink } from './workspace-local-link-parser';
-import type { WorkspaceLinkDocument, WorkspaceLinkIndex } from './workspace-link-index-core';
+import { parseObsidianWikiTarget } from './obsidian-flavored-markdown';
+import { resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
+import type { WorkspaceLinkDocument } from './workspace-link-index-core';
+import type { WorkspaceLinkReadIndex as WorkspaceLinkIndex } from './workspace-document-link-index-contract';
 import {
   workspaceDocumentTitleFromPath,
   type WorkspaceDocumentReference,
@@ -151,6 +153,9 @@ export async function loadWorkspaceMarkdownEmbed(
           ? `Ambiguous document link: ${resolution.candidates.join(', ')}`
           : `Document not found: ${rawTarget}`);
       }
+      if (!index.documents.some(document => document.path === resolution.path)) {
+        throw new Error('This target is a workspace file and cannot be embedded as Markdown.');
+      }
       const file = await readWorkspaceFile(resolution.path, {
         fallbackMessage: 'Failed to load embedded document',
         workspaceId: normalizedWorkspaceId,
@@ -245,16 +250,25 @@ export function resolveWorkspaceLinkFromIndex(
   index: WorkspaceLinkIndex,
   sourcePath?: string | null,
 ): ObsidianLinkResolution | null {
-  return resolveObsidianWikiLink(
-    rawTarget,
+  const target = parseObsidianWikiTarget(rawTarget);
+  if (!target) return null;
+  const resolution = resolveWorkspaceWikiFileLink(
+    { targetLiteral: rawTarget, targetPathText: target.path },
+    sourcePath ?? '',
+    new Set(index.targetPaths),
     index.documents.map((document) => ({
       aliases: document.aliases,
       extension: document.path.split('.').pop()?.toLowerCase(),
       path: document.path,
       type: 'file' as const,
     })),
-    sourcePath,
+    { nativeTargetPaths: new Set(index.documents.filter(document => document.nativeIdentity).map(document => document.path)) },
   );
+  return {
+    target, blockId: target.blockId, heading: target.heading,
+    path: resolution.path, candidates: resolution.candidates,
+    status: resolution.status === 'resolved' || resolution.status === 'ambiguous' ? resolution.status : 'missing',
+  };
 }
 
 /** Standard Markdown hrefs never fall through to Wiki basename or alias matching. */

@@ -4,6 +4,7 @@ import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-r
 import {
   cancelWorkspaceUploadSession,
   getWorkspaceUploadSession,
+  publicWorkspaceUploadFile,
   publicWorkspaceUploadSession,
   writeWorkspaceUploadChunk,
 } from '@/app/lib/files/workspace-upload-service';
@@ -22,7 +23,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
@@ -31,6 +33,7 @@ export async function GET(
       sessionId: id,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
+      request: original,
     });
     return NextResponse.json({ success: true, upload: publicWorkspaceUploadSession(upload) });
   } catch (error) {
@@ -72,7 +75,7 @@ export async function PUT(
     });
     return NextResponse.json({
       success: true,
-      file: result.file,
+      file: publicWorkspaceUploadFile(result.file),
       alreadyReceived: result.alreadyReceived,
     });
   } catch (error) {

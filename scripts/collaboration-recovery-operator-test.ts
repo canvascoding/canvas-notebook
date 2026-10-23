@@ -15,6 +15,7 @@ import { readCollaborationRecoveryBundle, prepareCollaborationRecoverySelection,
 
 const run = promisify(execFile);
 async function main() {
+  const boundPublicShare = process.env.CANVAS_RECOVERY_PUBLIC_BOUND_TEST === '1';
   const database = new URL(process.env.DATABASE_URL!);
   assert(['127.0.0.1', 'localhost'].includes(database.hostname)); assert.equal(database.port, '55433');
   assert.match(database.pathname, /^\/canvas_editor_test_[a-f0-9]+$/u, 'disposable database required');
@@ -39,10 +40,14 @@ async function main() {
     for (const [id, content] of [[current, 'Current checkpoint\n'], [old, 'Historical checkpoint\n'], [old2, 'Historical checkpoint\n']]) {
       const doc = new Y.Doc(); doc.getText('content').insert(0, content); await insert(id, 'note.txt', doc, content);
     }
-    await client.query(`INSERT INTO file_revisions (id,workspace_id,organization_id,workspace_type,path,content_hash,size_bytes,revision_number,created_by_actor_type,created_at)
-      VALUES ($1,$2,$2,'team','note.txt',$3,$4,1,'system',1)`, [revision, scope, recoveryHash('Current checkpoint\n'), Buffer.byteLength('Current checkpoint\n')]);
-    await client.query(`INSERT INTO collaboration_documents (id,workspace_id,organization_id,workspace_type,path,provider,state_version,snapshot_revision_id,status,created_at,updated_at)
-      VALUES ($1,$2,$2,'team','note.txt','yjs',5,$3,'active',1,1)`, [current, scope, revision]);
+    const currentLineageId = boundPublicShare ? randomUUID() : null;
+    if (currentLineageId) await client.query(`INSERT INTO file_collaboration_lineages
+      (id,workspace_id,organization_id,workspace_type,path,status,created_at)
+      VALUES ($1,$2,$2,'team','note.txt','active',1)`, [currentLineageId, scope]);
+    await client.query(`INSERT INTO file_revisions (id,workspace_id,organization_id,workspace_type,path,content_hash,size_bytes,revision_number,created_by_actor_type,created_at,lineage_id)
+      VALUES ($1,$2,$2,'team','note.txt',$3,$4,1,'system',1,$5)`, [revision, scope, recoveryHash('Current checkpoint\n'), Buffer.byteLength('Current checkpoint\n'), currentLineageId]);
+    await client.query(`INSERT INTO collaboration_documents (id,workspace_id,organization_id,workspace_type,path,provider,state_version,snapshot_revision_id,status,created_at,updated_at,lineage_id)
+      VALUES ($1,$2,$2,'team','note.txt','yjs',5,$3,'active',1,1,$4)`, [current, scope, revision, currentLineageId]);
     await fs.writeFile(path.join(directory, 'note.txt'), 'Historical checkpoint\n');
     const cloneId = randomUUID(); const cloneRevision = randomUUID(); const seedText = '---\ntitle: Evidence\n---\n\nOriginal text\n';
     const seed = createRichMarkdownYDoc(seedText, 'tiptap_xml'); const code = new Y.Doc({ gc: false }); const bold = new Y.Doc({ gc: false }); const merged = new Y.Doc({ gc: false });
@@ -61,8 +66,10 @@ async function main() {
     await fs.writeFile(path.join(directory, 'conflict.md'), seedText);
     const shareId = randomUUID();
     await client.query(`INSERT INTO public_file_shares (id,token,token_hash,token_preview,workspace_id,organization_id,workspace_type,workspace_root_relative_path,
-      workspace_path,file_name,file_identity,last_known_revision,mime_type,size_bytes,status,created_by_user_id,created_at,updated_at)
-      VALUES ($1,$1,$1,'fixture',$2,$2,'team',$3,'note.txt','note.txt','before-identity','before-revision','text/plain',1,'active',$2,1,1)`, [shareId, scope, rootRelativePath]);
+      workspace_path,file_name,file_identity,last_known_revision,mime_type,size_bytes,status,created_by_user_id,created_at,updated_at,
+      document_id,lineage_id,lifecycle_generation)
+      VALUES ($1,$1,$1,'fixture',$2,$2,'team',$3,'note.txt','note.txt','before-identity','before-revision','text/plain',1,'active',$2,1,1,$4,$5,$6)`,
+    [shareId, scope, rootRelativePath, boundPublicShare ? current : null, currentLineageId, boundPublicShare ? 1 : null]);
     const bundleDirectory = path.join(process.env.DATA!, 'operator-bundle');
     await run(process.execPath, ['--import', 'tsx', '--conditions', 'react-server', path.resolve('scripts/collaboration-recovery-dry-run.ts'), '--output', bundleDirectory],
       { env: { ...process.env, CANVAS_ENV_FILE: '' }, timeout: 60_000 });
@@ -135,6 +142,49 @@ async function main() {
     assert.deepEqual((await client.query('SELECT * FROM collaboration_yjs_states ORDER BY document_id')).rows, beforeReplay);
     assert.equal((await client.query('SELECT count(*) AS count FROM file_revisions')).rows[0].count, revisionCount);
     assert.equal((await fs.stat(path.join(directory, 'note.txt'))).ino, inode);
+    const completedOperation = selection.operations.find(operation => operation.documentId === current);
+    assert(completedOperation);
+    const completed = JSON.parse(await fs.readFile(path.join(journalDirectory, `${completedOperation.id}.complete.json`), 'utf8'));
+    assert.match(completed.publicSharesHash, /^[a-f0-9]{64}$/u);
+    const completedShare = (await client.query('SELECT * FROM public_file_shares WHERE id=$1', [shareId])).rows[0];
+    const savedPins = [completedShare.document_id, completedShare.lineage_id, completedShare.lifecycle_generation];
+    const restorePins = () => client.query(`UPDATE public_file_shares SET document_id=$1,lineage_id=$2,lifecycle_generation=$3 WHERE id=$4`,
+      [...savedPins, shareId]);
+    if (!boundPublicShare) {
+      assert.deepEqual(savedPins, [null, null, null], 'Historical default must keep its all-null share binding.');
+      // Preserve the exact pre-binding projection and its bigint canonicalization;
+      // importing the new production hash here would make this compatibility check circular.
+      const legacyRows = (await client.query(`SELECT id,organization_id,customer_id,project_id,workspace_id,workspace_type,
+        workspace_root_relative_path,workspace_path,file_name,file_identity,last_known_revision,mime_type,size_bytes,status,target_revision_policy
+        FROM public_file_shares WHERE workspace_id=$1 AND workspace_path=$2 ORDER BY id LIMIT 10001`, [scope, 'note.txt'])).rows;
+      assert.equal(legacyRows.length, 1);
+      const historicalHash = (rows: Record<string, unknown>[]) => recoveryHash(JSON.stringify(rows.map(row =>
+        Object.fromEntries(Object.entries(row).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => {
+          if (key !== 'size_bytes' || value === null) return [key, value];
+          assert(typeof value === 'number' || typeof value === 'string' && /^\d+$/u.test(value));
+          const integer = Number(value); assert(Number.isSafeInteger(integer) && integer >= 0); return [key, integer];
+        })))));
+      assert.equal(completed.publicSharesHash, historicalHash(legacyRows));
+      assert.equal(completed.publicSharesHash, historicalHash(legacyRows.map(row => ({ ...row, size_bytes: String(row.size_bytes) }))));
+      const currentRegistry = (await client.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [current])).rows[0];
+      assert.equal(typeof currentRegistry.lineage_id, 'string');
+      await client.query(`UPDATE public_file_shares SET document_id=$1,lineage_id=$2,lifecycle_generation=1 WHERE id=$3`,
+        [current, currentRegistry.lineage_id, shareId]);
+      try { await assert.rejects(execute(), /completed projection changed/u); }
+      finally { await restorePins(); }
+      assert((await execute()).every(result => result.disposition === 'already_applied'));
+      assert.deepEqual((await client.query('SELECT * FROM public_file_shares WHERE id=$1', [shareId])).rows[0], completedShare);
+    } else {
+      assert.equal(completedShare.document_id, current); assert.equal(completedShare.lineage_id, currentLineageId);
+      assert.equal(Number(completedShare.lifecycle_generation), 1);
+      for (const [column, changed] of [['document_id', randomUUID()], ['lineage_id', randomUUID()], ['lifecycle_generation', 2]] as const) {
+        await client.query(`UPDATE public_file_shares SET ${column}=$1 WHERE id=$2`, [changed, shareId]);
+        try { await assert.rejects(execute(), /completed projection changed/u); }
+        finally { await restorePins(); }
+        assert((await execute()).every(result => result.disposition === 'already_applied'));
+        assert.deepEqual((await client.query('SELECT * FROM public_file_shares WHERE id=$1', [shareId])).rows[0], completedShare);
+      }
+    }
     await fs.writeFile(path.join(directory, 'note.txt'), 'External newer edit');
     await assert.rejects(execute(), /file changed/u); assert.equal(await fs.readFile(path.join(directory, 'note.txt'), 'utf8'), 'External newer edit');
     const replacement = path.join(directory, 'replacement.txt'); await fs.writeFile(replacement, 'Current checkpoint\n');

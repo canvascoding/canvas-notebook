@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import type { RichMigrationTransaction } from './rich-migration-domain';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { findCollaborationAdmissionOutcomeSource } from './room-admission-outcome';
 import { lockIdentity } from './room-owner';
@@ -33,9 +34,9 @@ export type CollaborationAdmissionQuiescenceProof = Readonly<{
   sourceOutcomeRequestId?: string;
 }>;
 
-async function lockProofRoom(database: SqlConnection, documentId: string): Promise<void> {
+async function lockProofRoom(database: SqlConnection, documentId: string, authenticatedWrite = false): Promise<void> {
   await database.run("SET LOCAL statement_timeout = '5s'");
-  await database.run("SET LOCAL lock_timeout = '4s'");
+  await database.run(authenticatedWrite ? "SET LOCAL lock_timeout = '50ms'" : "SET LOCAL lock_timeout = '4s'");
   // Same advisory-lock domain as the session owner. No row/workspace lock is
   // held here, and we never wait for an owner while holding downstream locks.
   // DA03 only needs the guard through this short proof transaction; DA04 must
@@ -149,6 +150,33 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
 /** Internal handoff validation; caller already holds room guard and mutation locks. */
 export { inspectProof as inspectCollaborationAdmissionQuiescence };
 
+/** Borrowed DA03 mechanics only; the caller owns current authorization, the
+ * actual connection/transaction and the commit/recovery boundary. The optional
+ * wait policy changes only the bounded lock timeout, never authority. */
+export async function proveCollaborationAdmissionQuiescenceOnConnection(database: SqlConnection,
+  input: CollaborationAdmissionRequest, documentId: string,
+  wait: Readonly<{ lockTimeout: '50ms' | '4s' }> = { lockTimeout: '4s' },
+): Promise<CollaborationAdmissionQuiescenceProof> {
+  const captured = captureCollaborationAdmissionRequest(input);
+  const timeout = wait && Object.getOwnPropertyDescriptor(wait, 'lockTimeout');
+  if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)
+    || !wait || Object.getPrototypeOf(wait) !== Object.prototype || Reflect.ownKeys(wait).length !== 1
+    || !timeout?.enumerable || !Object.hasOwn(timeout, 'value') || !['50ms', '4s'].includes(timeout.value)) {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  await lockProofRoom(database, documentId, timeout.value === '50ms');
+  const { proof, alreadyProven } = await inspectProof(database, captured, documentId);
+  if (!alreadyProven) {
+    await database.run(`UPDATE collaboration_admission_targets SET status = 'released',
+      release_id = $3, quiescence_kind = $4, quiescence_text = $5, source_outcome_request_id = $6
+      WHERE request_id = $1 AND document_id = $2`,
+    [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText, proof.sourceOutcomeRequestId ?? null]);
+    await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
+      WHERE request_id = $1`, [proof.requestId]);
+  }
+  return proof;
+}
+
 /**
  * Materializes a retained DA03 proof, NOT lifecycle mutation authority.
  * Active targets keep blocking claims after this transaction releases its guard.
@@ -158,6 +186,7 @@ export { inspectProof as inspectCollaborationAdmissionQuiescence };
  */
 export function createCollaborationAdmissionQuiescenceService(options: {
   openConnection: () => Promise<SqlConnection>;
+  withMutationTransaction?: RichMigrationTransaction;
 }) {
   return {
     prove(input: CollaborationAdmissionRequest, documentId: string): Promise<CollaborationAdmissionQuiescenceProof> {
@@ -168,17 +197,9 @@ export function createCollaborationAdmissionQuiescenceService(options: {
       return executeLifecycleTransaction({
         openConnection: options.openConnection,
         execute: async (database) => {
-          await lockProofRoom(database, documentId);
-          const { proof, alreadyProven } = await inspectProof(database, captured, documentId);
-          if (!alreadyProven) {
-            await database.run(`UPDATE collaboration_admission_targets SET status = 'released',
-              release_id = $3, quiescence_kind = $4, quiescence_text = $5, source_outcome_request_id = $6
-              WHERE request_id = $1 AND document_id = $2`,
-            [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText, proof.sourceOutcomeRequestId ?? null]);
-            await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
-              WHERE request_id = $1`, [proof.requestId]);
-          }
-          return proof;
+          const execute = () => proveCollaborationAdmissionQuiescenceOnConnection(database, captured.request,
+            documentId, { lockTimeout: options.withMutationTransaction ? '50ms' : '4s' });
+          return options.withMutationTransaction ? options.withMutationTransaction(database, execute) : execute();
         },
         recoverCommitted: async (attempted) => {
           // Old uncertain session has been destroyed by executeLifecycleTransaction.

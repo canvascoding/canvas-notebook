@@ -15,7 +15,8 @@ const within = (candidate: string, scope: string): boolean => candidate === scop
 
 /** Proves only that a fully inspected HTML node needs no change for this operation. */
 export function assessWorkspaceHtmlLink(
-  link: WorkspaceLinkUnevaluated,
+  link: Pick<WorkspaceLinkUnevaluated, 'reason' | 'sourcePath' | 'htmlTargets'>
+    & Partial<Pick<WorkspaceLinkUnevaluated, 'raw' | 'start'>>,
   scope: WorkspaceHtmlLinkOperationScope,
 ): { unaffected: boolean; targets: string[] } | null {
   if (link.reason !== 'html' || !link.htmlTargets?.length) return null;

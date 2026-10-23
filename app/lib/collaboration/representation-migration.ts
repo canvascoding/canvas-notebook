@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+import { NextRequest } from 'next/server';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -13,13 +15,16 @@ import { CollaborationAdmissionError, type CollaborationAdmissionRequest } from 
 import { captureRepresentationAdmissionRequest, createRepresentationAdmissionRequest } from './representation-admission-contract';
 import { changeCollaborationRepresentationInAdmissionHandoff, prepareCollaborationRepresentationAdmission,
   loadCollaborationState, CollaborationRepresentationMigrationError, type PersistedCollaborationState } from './persistence';
+import { changeCollaborationRepresentation, changeCollaborationRepresentationWithSafeMarkdownNormalization } from './persistence';
+import { captureRichMigrationHttpRequest, createAuthenticatedRichMigrationDomain, readAuthenticatedRichMigrationNative,
+  type RichMigrationTransaction } from './rich-migration-domain';
 import { collaborationUpdateStateProof } from './state-proof';
 import { loadCollaborationProjectionStatus } from './projection-repository';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { Y } from './server-runtime';
 import { getCollaborationRoomConnectionCount, withCollaborationRoomLifecycleLock } from './runtime-state';
 import { richMigrationRuntimeAvailable, richMigrationConnectedClients } from './representation-migration-runtime';
-import type { RichMigrationRequest, RichMigrationResult } from './representation-migration-contract';
+import { parseRichMigrationRequest, type RichMigrationRequest, type RichMigrationResult } from './representation-migration-contract';
 
 type Authorization = {
   authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
@@ -27,11 +32,15 @@ type Authorization = {
   authorizeTerminal?: (request: CollaborationAdmissionRequest) => Promise<void>;
 };
 type MigrationProgress = { status: 'completed'; aborted: boolean } | { status: 'pending'; phase: 'quiescence' | 'handoff' };
+export type AuthenticatedRichMigrationCheckpoint = {
+  materialize: (input: { state: PersistedCollaborationState; workspace: WorkspaceContext }) => Promise<PersistedCollaborationState>;
+};
 
 /** A narrow domain adapter over the existing durable admission protocol. */
 export function createRepresentationMigrationCoordinator(options: {
   openConnection: () => Promise<SqlConnection>;
   withMutationLocks: <T>(workspaceIds: readonly string[], operation: () => Promise<T>) => Promise<T>;
+  withMutationTransaction?: RichMigrationTransaction;
 }) {
   const admission = createCollaborationAdmissionService(options);
   const handoff = createCollaborationAdmissionHandoffService(options);
@@ -90,11 +99,13 @@ export function createRepresentationMigrationCoordinator(options: {
       }
       try {
         if (cancel) {
-          await handoff.abort(request, { authorize: authorization.authorize, prepare: async () => {} }, 'user_cancelled');
+          await handoff.abort(request, { authorize: authorization.authorize, prepare: async () => {},
+            withMutationTransaction: options.withMutationTransaction }, 'user_cancelled');
           return { status: 'completed', aborted: true };
         }
         await handoff.execute(request, {
           authorize: authorization.authorize,
+          withMutationTransaction: options.withMutationTransaction,
           prepare: async database => {
             await prepareCollaborationRepresentationAdmission(database, request);
             await authorization.authorize(request);
@@ -110,7 +121,8 @@ export function createRepresentationMigrationCoordinator(options: {
         if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') return { status: 'pending', phase: 'handoff' };
         if (error instanceof CollaborationRepresentationMigrationError) {
           // Release only through the same proven transaction, never by deleting a reservation.
-          await handoff.abort(request, { authorize: authorization.authorize, prepare: async () => {} }, 'precondition_failed');
+          await handoff.abort(request, { authorize: authorization.authorize, prepare: async () => {},
+            withMutationTransaction: options.withMutationTransaction }, 'precondition_failed');
         }
         const completed = await terminal(request, authorization);
         if (completed) return completed;
@@ -129,6 +141,7 @@ const withMigrationWorkspaceLocks = <T>(workspaceIds: readonly string[], operati
 /** Requests advance one durable operation. Deadlines never cancel a committed switch. */
 export async function advanceRichRepresentationMigration(input: {
   workspace: WorkspaceContext; path: string; state: PersistedCollaborationState; migration: RichMigrationRequest; cancel?: boolean;
+  authenticatedDomain?: ReturnType<typeof createAuthenticatedRichMigrationDomain>;
 }): Promise<{ state: PersistedCollaborationState; migration: RichMigrationResult }> {
   const { workspace, migration } = input;
   let state = input.state;
@@ -139,8 +152,10 @@ export async function advanceRichRepresentationMigration(input: {
   if (!workspace.permissions.canWrite || !workspace.actor) return result('pending', 'permission_denied', 'handoff');
   if (state.documentId !== migration.expectedDocumentId) return result('blocked', 'document_changed');
   if (state.path !== input.path) return result('pending', 'document_changed', 'handoff');
-  const coordinator = createRepresentationMigrationCoordinator({ openConnection: openDb, withMutationLocks: withMigrationWorkspaceLocks });
+  const coordinator = createRepresentationMigrationCoordinator({ openConnection: openDb, withMutationLocks: withMigrationWorkspaceLocks,
+    withMutationTransaction: input.authenticatedDomain?.withMutationTransaction });
   const authorizeAtPath = async (request: CollaborationAdmissionRequest, terminal: boolean) => {
+    if (input.authenticatedDomain) return input.authenticatedDomain.authorize(request, terminal);
     if (request.actorId !== workspace.actor!.userId || request.scopes[0]?.workspaceId !== workspace.workspaceId
       || !terminal && request.scopes[0]?.path !== input.path) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
     const fresh = await readPostgresWorkspaceForActor(workspace.actor!, workspace.workspaceId);
@@ -197,7 +212,9 @@ export async function advanceRichRepresentationMigration(input: {
     if (progress.aborted) return result(rejection?.status ?? 'blocked', rejection?.reason ?? (input.cancel ? 'cancelled' : 'precondition_failed'));
     if (state.representation !== 'tiptap_blocks') return result('pending', 'outcome_unconfirmed', 'handoff');
     try {
-      const projected = await materializeCollaborationCheckpoint({ state, workspace, actorUserId: workspace.actor.userId, actorType: 'user' });
+      const project = (projectionWorkspace: WorkspaceContext) => materializeCollaborationCheckpoint({ state, workspace: projectionWorkspace,
+        actorUserId: projectionWorkspace.actor!.userId, actorType: 'user' });
+      const projected = input.authenticatedDomain ? await input.authenticatedDomain.project(project) : await project(workspace);
       state = projected.state;
       const projection = await loadCollaborationProjectionStatus(state);
       if (!projection.projectionFinalized) return result('pending', undefined, 'projection');
@@ -215,4 +232,59 @@ export async function advanceRichRepresentationMigration(input: {
     return result('pending', canonical && (error instanceof CollaborationRepresentationMigrationError || error instanceof CollaborationAdmissionError)
       ? error.code : 'outcome_unconfirmed', 'handoff');
   }
+}
+
+/** Genuine HTTP product entry: native state and actor come from current SQL,
+ * with fresh FIXED-canWrite phases for every mutation and final observation. */
+export async function advanceAuthenticatedRichRepresentationMigration(input: {
+  request: NextRequest; workspaceId: string; path: string; migration: RichMigrationRequest; cancel?: boolean;
+}): Promise<{ state: PersistedCollaborationState; migration: RichMigrationResult }> {
+  const request = captureRichMigrationHttpRequest(input.request, input.workspaceId, input.path);
+  const workspaceId = input.workspaceId, path = input.path, cancel = input.cancel === true;
+  const migration = parseRichMigrationRequest(input.migration);
+  if (!migration) throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  const native = await readAuthenticatedRichMigrationNative(request, workspaceId, path);
+  if (native.state.documentId !== migration.expectedDocumentId) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const domain = createAuthenticatedRichMigrationDomain(request,
+    { workspaceId, path, migration, action: cancel ? 'cancel' : 'advance' }, native);
+  const result = await advanceRichRepresentationMigration({ workspace: native.workspace, path, state: native.state,
+    migration, cancel, authenticatedDomain: domain });
+  const current = await domain.read();
+  return { state: current.state, migration: { ...result.migration, documentId: current.state.documentId,
+    lifecycleGeneration: current.state.lifecycleGeneration } };
+}
+
+/** Legacy clients retain epoch-zero, XML and safe normalization semantics,
+ * while the complete actual write transaction requires current canWrite. */
+export async function changeAuthenticatedCollaborationRepresentation(input: {
+  request: NextRequest; workspaceId: string; path: string; expectedLifecycleGeneration: number;
+  representation: 'tiptap_xml' | 'tiptap_blocks'; normalizeSafeMarkdown?: boolean;
+  checkpoint?: AuthenticatedRichMigrationCheckpoint;
+}): Promise<PersistedCollaborationState> {
+  const request = captureRichMigrationHttpRequest(input.request, input.workspaceId, input.path);
+  const { workspaceId, path, expectedLifecycleGeneration, representation, checkpoint } = input;
+  const normalizeSafeMarkdown = input.normalizeSafeMarkdown === true;
+  if (!Number.isSafeInteger(expectedLifecycleGeneration) || expectedLifecycleGeneration < 1
+    || !['tiptap_xml','tiptap_blocks'].includes(representation) || normalizeSafeMarkdown && !checkpoint) {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  const native = await readAuthenticatedRichMigrationNative(request, workspaceId, path);
+  if (native.state.lifecycleGeneration !== expectedLifecycleGeneration) {
+    throw new CollaborationRepresentationMigrationError('The legacy lifecycle changed.', 'lifecycle_stale');
+  }
+  const proof = collaborationUpdateStateProof(native.state.yjsState, Y);
+  if (!proof) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const domain = createAuthenticatedRichMigrationDomain(request, { workspaceId, path, action: 'advance', migration: {
+    requestId: randomUUID(), expectedDocumentId: native.state.documentId, expectedLifecycleGeneration,
+    documentSequence: native.state.documentSequence, stateProof: proof,
+  } }, native, representation);
+  const migration = { documentId: native.state.documentId, expectedLifecycleGeneration,
+    representation, schemaVersion: native.state.schemaVersion, withMutationTransaction: domain.withMutationTransaction };
+  if (normalizeSafeMarkdown) await changeCollaborationRepresentationWithSafeMarkdownNormalization({ ...migration, checkpoint: {
+    materialize: async args => {
+      return domain.project(workspace => checkpoint!.materialize({ ...args, workspace }));
+    },
+  } });
+  else await changeCollaborationRepresentation(migration);
+  return (await domain.read()).state;
 }

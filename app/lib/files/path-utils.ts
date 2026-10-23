@@ -1,3 +1,5 @@
+import { isCanonicalMarkdownWorkspacePath } from '@/app/lib/workspaces/path-identity';
+
 export function getExtension(filePath: string): string {
   const parts = filePath.split('.');
   if (parts.length <= 1) return '';
@@ -49,8 +51,7 @@ export function remapDescendantPath(path: string, oldRoot: string, newRoot: stri
 
 export function normalizeWorkspacePathParam(value: string | null): string | null {
   if (!value) return null;
-  const normalized = value
-    .trim()
+  const normalized = (isCanonicalMarkdownWorkspacePath(value as unknown) ? value : value.trim())
     .replace(/\\/g, '/')
     .replace(/^\/+/, '')
     .replace(/\/+$/, '');

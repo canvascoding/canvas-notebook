@@ -102,6 +102,8 @@ async function assertRuntimeConfiguration(dataDir: string) {
     resetManagedAgentFile,
     writeManagedAgentFile,
     writePiRuntimeConfig,
+    writePiRuntimeToolSelection,
+    readPiRuntimeConfig,
   } = await import('../app/lib/agents/storage');
   const { createAgentProfile, getAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
@@ -135,6 +137,34 @@ async function assertRuntimeConfiguration(dataDir: string) {
   assert.equal(unconfiguredSettings.providerConfig.model, '');
   assert.equal(unconfiguredSettings.setupState.modelConfigured, false);
 
+  const draftConfig = await readPiRuntimeConfig();
+  await assert.rejects(writePiRuntimeConfig(draftConfig), /Model for provider .* must be a non-empty string/u);
+  await assert.rejects(fs.stat(PI_RUNTIME_CONFIG_PATH), { code: 'ENOENT' });
+
+  await writePiRuntimeToolSelection(['read', 'ls']);
+  const persistedDraft = JSON.parse(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'));
+  assert.deepEqual(persistedDraft.providers[persistedDraft.activeProvider].enabledTools, ['read', 'ls']);
+  for (const provider of Object.values(persistedDraft.providers) as Array<{ model: string }>) {
+    assert.equal(provider.model, '');
+  }
+  assert.equal((await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID)).setupState.modelConfigured, false);
+  await assert.rejects(writePiRuntimeConfig(await readPiRuntimeConfig()), /Model for provider .* must be a non-empty string/u);
+
+  await writePiRuntimeToolSelection(['__none__']);
+  assert.deepEqual((await readPiRuntimeConfig()).providers[persistedDraft.activeProvider].enabledTools, ['__none__']);
+  await writePiRuntimeToolSelection([]);
+  assert.deepEqual((await readPiRuntimeConfig()).providers[persistedDraft.activeProvider].enabledTools, []);
+  const validDraftBytes = await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8');
+  await assert.rejects(writePiRuntimeToolSelection([1 as unknown as string]), /enabledTools must be a string array/u);
+  assert.equal(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'), validDraftBytes);
+
+  for (const damagedBytes of ['{', 'null', '{"version":2,"activeProvider":"openrouter","providers":[]}', '{"version":2,"activeProvider":"openrouter","providers":{"openrouter":null}}']) {
+    await fs.writeFile(PI_RUNTIME_CONFIG_PATH, damagedBytes, 'utf8');
+    await assert.rejects(writePiRuntimeToolSelection(['read']), /PI runtime configuration/u);
+    assert.equal(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'), damagedBytes);
+  }
+  await fs.writeFile(PI_RUNTIME_CONFIG_PATH, validDraftBytes, 'utf8');
+
   const configuredPiConfig = {
     ...DEFAULT_PI_CONFIG,
     activeProvider: 'google',
@@ -159,6 +189,14 @@ async function assertRuntimeConfiguration(dataDir: string) {
   const persistedPiConfig = JSON.parse(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'));
   assert.equal(persistedPiConfig.runtimeMigrations?.skillToolsDefaultEnabled, true);
   assert.deepEqual(persistedPiConfig.providers.google.enabledTools, expectedGoogleTools);
+
+  await writePiRuntimeToolSelection(['bash']);
+  const persistedToolUpdate = JSON.parse(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'));
+  const expectedToolUpdate = structuredClone(persistedPiConfig);
+  expectedToolUpdate.providers.google.enabledTools = ['bash'];
+  expectedToolUpdate.updatedAt = persistedToolUpdate.updatedAt;
+  assert.deepEqual(persistedToolUpdate, expectedToolUpdate);
+  assert.deepEqual((await readPiRuntimeConfig()).providers.google.enabledTools, ['bash']);
 
   await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
   await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });

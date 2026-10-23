@@ -29,8 +29,10 @@ import {
   type FileCollaborationTransaction,
 } from '@/app/lib/files/collaboration-repository';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { assertNoInitializedNativeFileWrite, NativeWholeFileWriteBlockedError } from '@/app/lib/files/native-file-write-authority';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { persistNativeWorkspaceCopies, type NativeCopyReceipt, type NativeCopyRequest } from '@/app/lib/collaboration/native-copy-persistence';
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 export type FileActorType = 'user' | 'agent' | 'automation' | 'system';
@@ -237,7 +239,12 @@ async function buildPostgresState(params: {
   const provider = collaborationProviderForStrategy(params.workspace, strategy);
   const crdtCapable = provider === 'yjs';
   const sceneCapable = provider === 'excalidraw';
-  const document = provider
+  // Existing durable identity is independent of runtime capability and suffix.
+  // Only creating a new collaboration document depends on the current strategy.
+  const existingYjsDocument = await getPostgresCollaborationDocument(
+    params.transaction, params.workspace.workspaceId, params.path, 'yjs',
+  );
+  const document = provider && (!existingYjsDocument || provider === 'yjs')
     ? params.ensureDocument
       ? await ensurePostgresCollaborationDocument(params.transaction, {
           id: `collab-doc-${randomUUID()}`,
@@ -250,13 +257,13 @@ async function buildPostgresState(params: {
           snapshotRevisionId: latestRevision?.id ?? null,
           nowMs: params.nowMs,
         })
-      : await getPostgresCollaborationDocument(
+      : provider === 'yjs' ? existingYjsDocument : await getPostgresCollaborationDocument(
           params.transaction,
           params.workspace.workspaceId,
           params.path,
           provider,
         )
-    : null;
+    : existingYjsDocument;
 
   return {
     path: params.path,
@@ -495,13 +502,27 @@ export async function initializeCopiedFileCollaborationPaths(params: {
   workspace: WorkspaceContext;
   paths: string[];
   nowMs?: number;
-}): Promise<void> {
+  nativeCopy?: NativeCopyRequest;
+}, nativePersistence: typeof persistNativeWorkspaceCopies = persistNativeWorkspaceCopies): Promise<NativeCopyReceipt | void> {
   const paths = [...new Set(params.paths.map(normalizeWorkspacePath))];
   if (paths.length === 0) return;
+  if (params.nativeCopy) {
+    if (!params.workspace.permissions.canRead || !params.workspace.permissions.canWrite
+      || params.workspace.status !== undefined && params.workspace.status !== 'active') {
+      throw Object.assign(new Error('Current destination workspace permissions are required.'), { status: 403 });
+    }
+    if (params.nativeCopy.targetWorkspace.workspaceId !== params.workspace.workspaceId
+      || params.nativeCopy.targetWorkspace.organizationId !== params.workspace.organizationId
+      || JSON.stringify([...params.nativeCopy.targetScopes].sort()) !== JSON.stringify([...paths].sort())) {
+      throw Object.assign(new Error('Native copy scope differs from the initialized destination.'), { status: 409 });
+    }
+    return nativePersistence(params.nativeCopy);
+  }
 
   await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
     const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
+    for (const path of paths) await assertNoInitializedNativeFileWrite(transaction, params.workspace, path);
     await initializeCopiedPostgresFileCollaborationPathScopes(transaction, {
       workspace: params.workspace,
       paths,
@@ -619,6 +640,17 @@ export async function assertFileCollaborationWriteAllowed(params: {
         code: 'FILE_LOCK_STALE', status: 423,
         message: 'The document lease is missing or has been replaced. Keep your draft and reopen the document.',
         path: normalizedPath, activeLock: state.activeLock,
+      });
+    }
+
+    try {
+      await assertNoInitializedNativeFileWrite(transaction, params.workspace, normalizedPath);
+    } catch (error) {
+      if (!(error instanceof NativeWholeFileWriteBlockedError)) throw error;
+      throw new FileCollaborationPolicyError({
+        code: error.code, status: error.status, message: error.message, path: normalizedPath,
+        currentRevisionId: latestRevision?.id ?? null,
+        baseRevisionId: params.baseRevisionId ?? null,
       });
     }
 

@@ -18,6 +18,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
   const originalFetch = globalThis.fetch;
   const reads: string[] = [];
+  const existenceChecks: string[] = [];
   let missing = false;
   let invalidations = 0;
   const client = new FileWatcherClient(() => new Source());
@@ -28,6 +29,11 @@ async function main() {
       reads.push(url.searchParams.get('path')!);
       if (missing) return new Response(null, { status: 404 });
       return Response.json({ data: { content: 'live', stats: { size: 4, modified: 1, permissions: '100644' } } });
+    }
+    if (url.pathname === '/api/files/exists') {
+      existenceChecks.push(url.searchParams.get('path')!);
+      assert.equal(url.searchParams.get('workspaceId'), 'staging-client');
+      return Response.json({ data: { exists: !missing } });
     }
     return Response.json({ success: true });
   }) as typeof fetch;
@@ -40,7 +46,7 @@ async function main() {
     client.acquire();
     Source.latest.emit('connected', { clientId: 'staging', workspaceId: 'staging-client' });
     await delay(300);
-    reads.length = 0; invalidations = 0;
+    reads.length = 0; existenceChecks.length = 0; invalidations = 0;
     const event = { workspaceId: 'staging-client', dir: '.', timestamp: Date.now(), path: '/workspace/live.md' };
     const staging = 'live.md.canvas-write-c00591d7-9711-4a2d-ab12-54e2b4932093.tmp';
     for (const type of ['add', 'change', 'unlink']) {
@@ -48,16 +54,19 @@ async function main() {
     }
     await delay(550);
     assert.deepEqual(reads, [], 'staging events from an older server must cause no /files/read requests');
+    assert.deepEqual(existenceChecks, [], 'staging events must not trigger authority probes');
     assert.equal(invalidations, 0, 'staging events must not invalidate the workspace link index');
 
     Source.latest.emit('filechange', { ...event, type: 'unlink', relativePath: 'live.md' });
     await delay(20);
-    assert.deepEqual(reads, ['live.md']);
+    assert.deepEqual(existenceChecks, ['live.md'], 'unlink must probe the authoritative existence endpoint');
+    assert.deepEqual(reads, [], 'confirming existence must not serialize the current document');
     assert.equal(useFileStore.getState().currentFile?.unavailable, undefined,
       'a delayed unlink from atomic replacement must not detach an existing file');
     missing = true;
     Source.latest.emit('filechange', { ...event, type: 'unlink', relativePath: 'live.md' });
     await delay(20);
+    assert.deepEqual(existenceChecks, ['live.md', 'live.md']);
     assert.equal(useFileStore.getState().currentFile?.unavailable, 'deleted', 'a confirmed real delete must still preserve the recovery editor');
   } finally {
     client.disconnect(); unsubscribe();

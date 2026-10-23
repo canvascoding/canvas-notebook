@@ -1288,6 +1288,11 @@
     "fileOperationLinksUnverified": "Link status: not fully checked. Review the affected Markdown files.",
     "fileOperationPreviewReadiness": "Preview readiness: {readiness}",
     "fileOperationPreviewReady": "ready",
+    "fileOperationPreviewImportRequired": "ready to import existing Markdown files",
+    "fileOperationImportSummary": "{count} existing Markdown file(s) will be taken over as notes as part of this action.",
+    "fileOperationImportLinks": "{count} link(s) in those files need updating.",
+    "fileOperationImportRevalidate": "The files and links are checked again before applying. The preview does not change them.",
+    "fileOperationLinkRemoved": "link removed",
     "fileOperationPreviewBlocked": "blocked",
     "fileOperationPreviewSummary": "Planned: {paths} path(s), {links} link edit(s).",
     "fileOperationPreviewCoverage": "Workspace link scan: {coverage}. Omitted files: {omitted}; unresolved links: {unresolved}.",
@@ -1355,6 +1360,18 @@
     "extensionAdded": "Will be created as \"{name}\"",
     "saveIn": "Save in",
     "createFailed": "Failed to create item.",
+    "markdownCreatePendingTitle": "Pending document creations",
+    "markdownCreateResume": "Check creation again",
+    "markdownCreateHide": "Hide this entry",
+    "markdownCreateHideHint": "Hiding only removes this local reminder. The document may already exist.",
+    "markdownCreateOtherWorkspace": "In another workspace",
+    "markdownCreateChecking": "Checking document creation…",
+    "markdownCreateUnconfirmed": "Document creation has not been confirmed. Check the same creation again before opening it.",
+    "markdownCreateProjectionPending": "The document is being saved. Check creation again to confirm it is ready.",
+    "markdownCreateRecoveryRequired": "Document creation needs to be checked before the document can be opened.",
+    "markdownCreateUnavailable": "Document creation is currently unavailable. You can check this creation again later.",
+    "markdownCreateLimit": "Check the pending document creations before creating another document.",
+    "markdownCreateScopeChanged": "The account or workspace changed. Open the creation dialog again in the correct workspace.",
     "excalidrawInvalidTitle": "Excalidraw file cannot be opened",
     "excalidrawInvalidDescription": "This file uses the .excalidraw extension, but it does not contain valid Excalidraw JSON. The content was not overwritten.",
     "openAsText": "Open as text",
@@ -1386,6 +1403,10 @@
     "uploadCollecting": "Collecting files",
     "uploadPreparing": "Preparing upload",
     "uploadReconciling": "Reconciling files",
+    "uploadMarkdownPending": "The import has not been confirmed yet. Its upload source is retained for the same attempt.",
+    "uploadMarkdownUnavailable": "The import is currently unavailable. Its upload source is retained.",
+    "uploadMarkdownResume": "Check completion again",
+    "uploadMarkdownChecking": "Checking completion …",
     "liveUpdatesConnected": "Live connected",
     "uploadCurrentFile": "Current: {name}",
     "uploadRetryingFile": "Retrying {name} (attempt {attempt})",
@@ -1625,6 +1646,7 @@
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {No documents} one {# document} other {# documents}} · {references, plural, =0 {no references} one {# reference} other {# references}}",
     "markdownEditorBacklinksLoading": "Loading document connections…",
     "markdownEditorBacklinksUnavailable": "Connections unavailable",
+    "markdownEditorBacklinksPartial": "The document index is incomplete. Some documents or connections may be missing.",
     "markdownEditorBacklinksLoadError": "Document connections could not be loaded.",
     "markdownEditorBacklinksIncoming": "Links to this document ({count})",
     "markdownEditorBacklinksOutgoing": "Outgoing links ({count})",
@@ -3037,6 +3059,7 @@
       "description": "Clear folder or tag filters, or enable unlinked and missing targets to show nodes again."
     },
     "warnings": {
+      "incomplete": "The document index is incomplete. Some documents or connections may be missing.",
       "omitted": "{count, plural, one {# Markdown document was skipped because it is too large or unreadable.} other {# Markdown documents were skipped because they are too large or unreadable.}}"
     },
     "errors": {
@@ -3868,6 +3891,10 @@
       "license": "Team license event"
     },
     "filePathOperations": {
+      "pending": {
+        "title": "{action}: preparation pending",
+        "detail": "The original selection is saved. Open the preparation to check its status and explicitly continue it."
+      },
       "openFailed": "The file action could not be opened.",
       "kind_move": "Move",
       "kind_rename": "Rename",
@@ -3957,6 +3984,20 @@
     }
   },
   "workspacePathOperationStatus": {
+    "preparation": {
+      "status": {
+        "reserved": "Preparing the file action",
+        "draining": "Saving accepted document changes",
+        "recovery_required": "Preparation needs attention",
+        "aborted": "Preparation ended"
+      },
+      "guidance": {
+        "reserved": "The original selection is saved. A final file action has not been bound yet. Use Continue to advance this exact preparation.",
+        "draining": "Accepted edits are being saved. Refresh only reads the status; Continue advances this same preparation.",
+        "recovery_required": "The preparation could not finish safely. Check the current state and error; this dialog will not continue it automatically.",
+        "aborted": "This preparation will not run. Check the current files before making a new request."
+      }
+    },
     "openFile": "Open affected file",
     "recheck": "Check again",
     "openStatus": "View action status",
@@ -5907,6 +5948,18 @@
             "title": "Edit file contents",
             "description": "Allows exact, conflict-protected edits to visible text files after an explicit administrator enablement."
           },
+          "copy_knowledge_source": {
+            "title": "Copy files and documents",
+            "description": "Copies visible files, folders and native documents through the central service, with preview, recorded status and explicit recovery. Requires source read and destination write access."
+          },
+          "move_knowledge_source": {
+            "title": "Move files and documents",
+            "description": "Moves supported workspace paths through the central native service, with preview, recorded status and explicit recovery. Existing destinations are conflicts. Requires read, write and delete access."
+          },
+          "delete_knowledge_source": {
+            "title": "Delete native documents",
+            "description": "Archives one native document, updates incoming links and removes file annotations through the central service, with preview, recorded status and explicit recovery. File Undo is unavailable. Requires read, write and delete access."
+          },
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
@@ -6710,9 +6763,18 @@
           "cancel": "Cancel",
           "accessTitle": "Set access for {name}",
           "accessDescription": "The workspace has been created. Add users and adjust their access roles now.",
-          "createdTitle": "{name} is ready",
+          "createdTitle": "{name} has been created",
           "createdDescription": "The workspace has been created and already uses its color as the Canvas accent.",
           "done": "Done"
+        },
+        "starterInitialization": {
+          "pendingTitle": "Starter document not yet confirmed",
+          "pendingDescription": "The workspace has been created. Setup of “Erste Schritte.md” is not yet confirmed. Check its status or resume setup here.",
+          "blockedTitle": "Starter document setup is blocked",
+          "blockedDescription": "The workspace has been created. Setup of “Erste Schritte.md” is blocked. Check its status and try again after resolving the problem.",
+          "requestFailed": "The status could not be confirmed. Your workspace is retained. You can try checking again.",
+          "check": "Check status",
+          "resume": "Resume setup"
         },
         "editDialog": {
           "title": "Edit workspace",
@@ -6762,6 +6824,7 @@
           }
         },
         "errors": {
+          "createdRefreshFailed": "The workspace was created. The workspace list could not be refreshed. Reload it before creating another workspace.",
           "nameRequired": "Name is required.",
           "nameTooLong": "Name must be 80 characters or fewer.",
           "descriptionTooLong": "The short description must be {max} characters or fewer.",

@@ -78,8 +78,9 @@ export function useNotebookLayoutController() {
   ), [chatWidth, explorerWidth, state.explorerOpen, viewportWidth]);
 
   useEffect(() => {
+    if (viewportWidth <= 0) return;
     dispatch({ type: 'VIEWPORT_CHANGED', viewport });
-  }, [viewport]);
+  }, [viewport, viewportWidth]);
 
   useEffect(() => {
     if (!preferencesHydrated || viewport !== 'desktop-wide') return;

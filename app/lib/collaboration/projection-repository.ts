@@ -8,16 +8,17 @@ import type { CollaborationProjectionRequest } from './projection-scheduler';
 import { assertCurrentCollaborationProjectionIdentity, currentProjectionIdentityJoins } from './projection-identity';
 import type { CollaborationProjectionStatus } from './types';
 
-// A binary update makes the first predicate true in the same durable write.
-// The receipt closes the later crash window between checkpoint commit and
-// metadata/share finalization. The final predicate also repairs legacy gaps.
+// A native clone can start at sequence zero without any physical projection.
+// Only exact checkpoint metadata and a finalized receipt close the backlog;
+// neither equal counters nor an in-memory flag prove publication.
 const pendingProjectionPredicate = `(
   y.document_sequence > y.checkpoint_sequence
-  OR (p.lifecycle_generation <= y.lifecycle_generation AND p.finalized = 0)
+  OR y.checkpointed_at IS NULL OR y.canonical_hash IS NULL OR y.serialized_hash IS NULL
   OR (c.id IS NOT NULL AND c.state_version < y.checkpoint_sequence)
-  OR (y.checkpoint_sequence > 0 AND (p.document_id IS NULL
-    OR p.lifecycle_generation <> y.lifecycle_generation OR p.projected_sequence < y.checkpoint_sequence
-    OR p.serialized_hash IS DISTINCT FROM y.serialized_hash))
+  OR p.document_id IS NULL OR p.lifecycle_generation <> y.lifecycle_generation
+  OR p.projected_sequence <> y.checkpoint_sequence OR p.finalized <> 1 OR p.revision_id IS NULL
+  OR p.canonical_hash IS DISTINCT FROM y.canonical_hash
+  OR p.serialized_hash IS DISTINCT FROM y.serialized_hash
 )`;
 const projectionJoins = `LEFT JOIN collaboration_file_projections p ON p.document_id = y.document_id
   ${currentProjectionIdentityJoins}`;
@@ -132,7 +133,8 @@ export async function loadCollaborationProjectionReceipt(state: PersistedCollabo
 export async function loadCollaborationProjectionStatus(state: PersistedCollaborationState): Promise<CollaborationProjectionStatus> {
   const receipt = await loadCollaborationProjectionReceipt(state);
   return { degraded: state.degraded, projectionError: state.projectionError,
-    projectionFinalized: receipt?.finalized ?? state.checkpointSequence === 0 };
+    projectionFinalized: receipt?.finalized === true && state.checkpointedAt !== null
+      && state.canonicalHash !== null && state.serializedHash !== null };
 }
 
 export async function recordCollaborationProjectionFailure(state: PersistedCollaborationState, failure: {
@@ -161,7 +163,7 @@ export async function readCollaborationProjectionHealth(database: Pick<SqlConnec
       AND y.projection_error_generation = y.lifecycle_generation)) AS quarantined,
     count(*) FILTER (WHERE y.degraded = 1 AND y.projection_error_code = 'COLLABORATION_YJS_PERSISTENCE_FAILED'
       AND y.projection_error_generation = y.lifecycle_generation AND y.projection_error_permanent = 0) AS binary_persistence_failures,
-    count(*) FILTER (WHERE y.document_sequence > y.checkpoint_sequence OR p.finalized = 0) AS pending
+    count(*) FILTER (WHERE ${pendingProjectionPredicate}) AS pending
     FROM collaboration_yjs_states y
     LEFT JOIN collaboration_documents c ON c.id = y.document_id AND c.workspace_id = y.workspace_id
       AND c.path = y.path AND c.provider = 'yjs' AND c.status = 'active'

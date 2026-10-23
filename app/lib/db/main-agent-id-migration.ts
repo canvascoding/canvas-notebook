@@ -39,9 +39,9 @@ export async function migratePostgresMainAgentId(pool: PgQueryable): Promise<voi
       END IF;
 
       FOR target IN
-        SELECT table_name, column_name
+        SELECT table_schema, table_name, column_name
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND data_type IN ('text', 'character varying', 'character')
           AND (
             column_name = 'agent_id'
@@ -52,7 +52,8 @@ export async function migratePostgresMainAgentId(pool: PgQueryable): Promise<voi
         ORDER BY table_name, ordinal_position
       LOOP
         EXECUTE format(
-          'UPDATE %I SET %I = $1 WHERE %I = $2',
+          'UPDATE %I.%I SET %I = $1 WHERE %I = $2',
+          target.table_schema,
           target.table_name,
           target.column_name,
           target.column_name
@@ -62,9 +63,9 @@ export async function migratePostgresMainAgentId(pool: PgQueryable): Promise<voi
       DELETE FROM agents WHERE agent_id = '${LEGACY_MAIN_AGENT_ID}';
 
       FOR target IN
-        SELECT table_name, column_name
+        SELECT table_schema, table_name, column_name
         FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND column_default LIKE '%${LEGACY_MAIN_AGENT_ID}%'
           AND (
             column_name = 'agent_id'
@@ -73,7 +74,8 @@ export async function migratePostgresMainAgentId(pool: PgQueryable): Promise<voi
           )
       LOOP
         EXECUTE format(
-          'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %L',
+          'ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT %L',
+          target.table_schema,
           target.table_name,
           target.column_name,
           '${MAIN_AGENT_ID}'

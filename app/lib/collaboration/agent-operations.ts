@@ -5,6 +5,19 @@ import { isDeepStrictEqual } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import type * as YTypes from 'yjs';
 
+import { DocumentEditError, decodeDocumentEditRequestV1, documentEditRequestFingerprintV1, type DecodedDocumentEditRequestV1 } from '@/app/lib/documents/edit-contracts';
+import { documentVersionV1 } from '@/app/lib/documents/read-version';
+import { assertNativeDocumentEditWriteAuthorityActive, isNativeDocumentEditWriteAuthority,
+  withNativeDocumentEditWriteAuthorityOnConnection, type NativeDocumentEditWriteAuthority,
+  type NativeDocumentEditWriteAuthorityAccess } from '@/app/lib/documents/edit-principal';
+import { ownCode, validateNativeDocumentEditCandidate } from './native-document-edit-validation';
+import { collaborationStateProof } from './state-proof';
+import { captureNativeDocumentEditOriginal, captureNativeDocumentEditAfter, makeNativeDocumentEditAfter,
+  nativeDocumentEditDataProof, nativeDocumentEditLedgerKey, nativeDocumentEditOwnerTuple, NativeDocumentEditOperationError,
+  type NativeDocumentEditOriginalV1, type NativeDocumentEditAfterV1 } from './native-document-edit-operation-contract';
+import { prepareNativeAgentOperationHistorySnapshot, captureNativeAgentOperationHistoryOnConnection }
+  from '@/app/lib/file-version-center/native-operation-history';
+
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { isAgentDatabaseCapacityError } from './agent-database-capacity';
@@ -296,6 +309,8 @@ type AgentOperationRow = {
   resulting_state_vector_hash: string | null;
   resulting_state_snapshot: Buffer | Uint8Array | null;
   version_content_snapshot?: Buffer | Uint8Array | null;
+  native_edit_original_json?: unknown | null;
+  native_edit_after_json?: unknown | null;
   file_edit_request_json: string | null;
   checkpoint_revision_id: string | null;
   /** Immutable history revision for a graph-composed candidate, not the mutable file checkpoint. */
@@ -950,7 +965,8 @@ export function applyAgentTextTargets(input: {
   independentGroups?: boolean;
   compositionRanges?: ActiveCompositionRange[];
   validateClone?: (doc: YTypes.Doc) => AgentApplyConflict['code'] | null;
-  origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };
+  nativeWriteAuthority?: NativeDocumentEditWriteAuthority;
+  origin: { actorType: 'agent' | 'user'; actorId: string; initiatedByUserId: string; operationId: string };
 }): AgentApplyExecutionResult {
   const groupCount = new Set(input.targets.map((target) => target.groupId)).size;
   if (input.targets.length === 0 || input.targets.length > MAX_AGENT_TARGETS) throw new Error(`Agent operation requires 1-${MAX_AGENT_TARGETS} targets.`);
@@ -1000,6 +1016,7 @@ export function applyAgentTextTargets(input: {
   );
   const reverseTargets: AgentTextTarget[] = [];
   if (final.resolved.length > 0) {
+    if (input.nativeWriteAuthority) assertNativeDocumentEditWriteAuthorityActive(input.nativeWriteAuthority);
     input.doc.transact(() => {
       for (const target of [...final.resolved].sort((a, b) => b.from - a.from)) {
         reverseTargets.push(reverseTextTarget(target, replaceResolvedText(target)));
@@ -1021,7 +1038,8 @@ export function applyAgentBlockTargets(input: {
   doc: YTypes.Doc;
   targets: AgentTextTarget[];
   validateClone?: (doc: YTypes.Doc) => AgentApplyConflict['code'] | null;
-  origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };
+  nativeWriteAuthority?: NativeDocumentEditWriteAuthority;
+  origin: { actorType: 'agent' | 'user'; actorId: string; initiatedByUserId: string; operationId: string };
 }): AgentApplyExecutionResult {
   const conflict = (code: AgentApplyConflict['code']): AgentApplyExecutionResult => ({
     status: 'needs_review', appliedTargetIds: [], reverseTargets: [],
@@ -1044,7 +1062,7 @@ export function applyAgentBlockTargets(input: {
     const invalid = input.validateClone?.(clone);
     if (invalid) return conflict(invalid);
     // No await is permitted from this final local preflight through mutation.
-    reverse = applyAgentBlockEdit(input.doc, target.blockEdit, input.origin).reverse;
+    reverse = applyAgentBlockEdit(input.doc, target.blockEdit, input.origin, input.nativeWriteAuthority).reverse;
   } catch (error) {
     if (error instanceof AgentBlockEditError) return conflict(error.code);
     throw error;
@@ -1265,8 +1283,126 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
   }
 }
 
+/** Stored native originals are comparison evidence, never a transport grant. */
+function nativeEditOriginal(row: AgentOperationRow): NativeDocumentEditOriginalV1 | null {
+  if (row.native_edit_original_json == null) {
+    if (row.native_edit_after_json != null) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    return null;
+  }
+  const original = captureNativeDocumentEditOriginal(row.native_edit_original_json);
+  if (row.document_id !== original.identity.documentId || row.workspace_id !== original.identity.workspaceId
+    || row.organization_id !== original.identity.organizationId || row.document_path !== original.source.path
+    || row.document_representation !== original.identity.representation
+    || Number(row.document_lifecycle_generation) !== original.identity.lifecycleGeneration
+    || Number(row.schema_version) !== original.identity.schemaVersion
+    || row.initiated_by_user_id !== original.actor.userId || row.actor_id !== original.actor.actorId
+    || row.actor_session_id !== original.actor.sessionId || row.operation_type !== 'apply'
+    || row.requested_mode !== 'direct_apply' || row.atomicity !== 'all_or_nothing'
+    || row.file_edit_request_json != null || row.expected_canonical_hash != null
+    || Number(row.base_document_sequence) !== original.source.persistedSequence
+    || hash(row.base_state_vector) !== original.source.stateVectorHash) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+  const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
+  if (nativeDocumentEditDataProof({ identity: original.identity, expectedVersion: original.expectedVersion, targets })
+    !== original.preparedIntentProof || nativeDocumentEditDataProof({originalProof:original.originalProof,targets}) !== row.payload_hash) {
+    throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+  }
+  return original;
+}
+function nativeEditAfter(row: AgentOperationRow, original: NativeDocumentEditOriginalV1): NativeDocumentEditAfterV1 | null {
+  if (row.native_edit_after_json == null) return null;
+  const after = captureNativeDocumentEditAfter(row.native_edit_after_json, original);
+  if (!row.resulting_state_snapshot || hash(row.resulting_state_snapshot) !== after.stateSnapshotHash
+    || row.resulting_state_vector_hash !== after.stateVectorHash || Number(row.applied_at) !== after.appliedAt) {
+    throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+  }
+  return after;
+}
+function assertNativeEditCurrentOwner(original: NativeDocumentEditOriginalV1, access: NativeDocumentEditWriteAuthorityAccess): void {
+  access.assertActive();
+  if (original.identity.workspaceId !== access.workspace.workspaceId
+    || original.identity.organizationId !== (access.workspace.organizationId ?? null)
+    || !isDeepStrictEqual(nativeDocumentEditOwnerTuple(original.origin), nativeDocumentEditOwnerTuple(access.origin))) {
+    throw new DocumentEditError('ACCESS_DENIED');
+  }
+}
+function assertMatchingNativeEditOperation(row: AgentOperationRow, proposed: NativeDocumentEditOriginalV1,
+  access?: NativeDocumentEditWriteAuthorityAccess): void {
+  if (!access) throw new DocumentEditError('AUTHENTICATION_REQUIRED');
+  const original = nativeEditOriginal(row);
+  if (!original) throw new DocumentEditError('DOCUMENT_IDEMPOTENCY_CONFLICT');
+  assertNativeEditCurrentOwner(original, access);
+  if (original.requestFingerprint !== proposed.requestFingerprint || original.expectedVersion !== proposed.expectedVersion
+    || !isDeepStrictEqual(original.identity, proposed.identity)) throw new DocumentEditError('DOCUMENT_IDEMPOTENCY_CONFLICT');
+  // Derived anchors and the original SID may differ for parallel first deliveries.
+  // The original immutable targets and A-attribution are always adopted intact.
+}
+function assertNativeEditFirstDelivery(input: Parameters<typeof createOrLoadOperation>[0], original: NativeDocumentEditOriginalV1): void {
+  const access = input.nativeAccess;
+  if (!access || !input.nativeEdit || !isNativeDocumentEditWriteAuthority(input.nativeEdit.authority)) {
+    throw new DocumentEditError('AUTHENTICATION_REQUIRED');
+  }
+  access.assertActive();
+  if (!isDeepStrictEqual(access.origin, original.origin) || access.userId !== original.actor.userId
+    || access.actorId !== original.actor.actorId || access.actorType !== original.actor.actorType
+    || access.sessionId !== original.actor.sessionId || input.documentId !== original.identity.documentId
+    || input.workspace.workspaceId !== original.identity.workspaceId
+    || (input.workspace.organizationId ?? null) !== original.identity.organizationId
+    || input.initiatedByUserId !== original.actor.userId || input.actorId !== original.actor.actorId
+    || input.actorSessionId !== original.actor.sessionId || input.documentPath !== original.source.path
+    || input.documentRepresentation !== original.identity.representation
+    || input.documentLifecycleGeneration !== original.identity.lifecycleGeneration
+    || input.documentSchemaVersion !== original.identity.schemaVersion
+    || input.baseDocumentSequence !== original.source.persistedSequence || !input.baseStateVector
+    || hash(Buffer.from(input.baseStateVector, 'base64')) !== original.source.stateVectorHash
+    || input.independentGroups || input.requestedMode !== 'direct_apply' || input.operationType !== 'apply'
+    || input.fileEditRequest || input.expectedCanonicalHash || input.supersedesOperationId
+    || input.runGeneration !== 1 || input.agentRunId !== (original.origin.transport === 'agent-tool' ? original.origin.agentTurnId || undefined : undefined)
+    || nativeDocumentEditDataProof({ identity: original.identity, expectedVersion: original.expectedVersion, targets: input.targets })
+      !== original.preparedIntentProof) throw new DocumentEditError('DOCUMENT_SCOPE_CHANGED');
+}
+
+export type NativeDocumentEditOperationOriginal = Readonly<{
+  operation: PersistedAgentApplyResult; original: NativeDocumentEditOriginalV1; after: NativeDocumentEditAfterV1 | null;
+}>;
+/** Fixed native retry lookup before target preparation. Fresh B authorizes the
+ * lookup; Original A is only attribution. It never writes a live document. */
+export async function findNativeDocumentEditOperationOriginal(authority: NativeDocumentEditWriteAuthority,
+  value: DecodedDocumentEditRequestV1): Promise<NativeDocumentEditOperationOriginal | null> {
+  if (!isNativeDocumentEditWriteAuthority(authority)) throw new DocumentEditError('AUTHENTICATION_REQUIRED');
+  const request = decodeDocumentEditRequestV1(value), fingerprint = documentEditRequestFingerprintV1(request);
+  const found = await executeLifecycleTransaction({ openConnection: openDb,
+    execute: async database => withNativeDocumentEditWriteAuthorityOnConnection(database, authority, async access => {
+      if (access.workspace.workspaceId !== request.workspaceId) throw new DocumentEditError('ACCESS_DENIED');
+      const row = await database.get(`SELECT * FROM collaboration_agent_operations
+        WHERE document_id=$1 AND initiated_by_user_id=$2 AND idempotency_key=$3 LIMIT 1`,
+      [request.documentId,access.userId,nativeDocumentEditLedgerKey(access.origin,request.idempotencyKey)]) as AgentOperationRow | undefined;
+      if (!row) { await access.assertCurrent(); return null; }
+      const original = nativeEditOriginal(row);
+      if (!original || original.requestFingerprint !== fingerprint || original.expectedVersion !== request.expectedVersion) {
+        throw new DocumentEditError('DOCUMENT_IDEMPOTENCY_CONFLICT');
+      }
+      assertNativeEditCurrentOwner(original, access);
+      const after = nativeEditAfter(row, original);
+      await access.assertCurrent();
+      return { row, original, after, workspace: access.workspace };
+    }),
+    recoverCommitted: async () => { throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED'); },
+  });
+  if (!found) return null;
+  // This is the edit retry path, not the future read-only status endpoint.
+  const database = createAgentOperationDatabase();
+  try {
+    const row = await reconcileAgentOperationDurability(database, found.row, found.workspace);
+    return Object.freeze({ operation: parseResult(row), original: found.original,
+      after: nativeEditAfter(row, found.original) });
+  } finally { await database.close(); }
+}
+
 async function createOrLoadOperation(input: {
   database: SqlConnection;
+  nativeEdit?: Readonly<{ original: NativeDocumentEditOriginalV1; authority: NativeDocumentEditWriteAuthority }>;
+  /** Actual short-B access, installed only by the native admitted creation branch. */
+  nativeAccess?: NativeDocumentEditWriteAuthorityAccess;
   /** Internal creation adapter; graph callers retain their existing transaction. */
   loadState?: typeof loadCollaborationState;
   beforeInsert?: (state: PersistedCollaborationState) => Promise<void>;
@@ -1298,6 +1434,7 @@ async function createOrLoadOperation(input: {
   fileEditRequest?: AgentFileEditRequestReceipt;
   directEditGrantId?: string | null;
 }): Promise<{ row: AgentOperationRow; created: boolean }> {
+  const nativeOriginal = input.nativeEdit ? captureNativeDocumentEditOriginal(input.nativeEdit.original) : null;
   const triggerDepth = input.triggerDepth || 0;
   if (!Number.isInteger(triggerDepth) || triggerDepth < 0 || triggerDepth > MAX_AGENT_TRIGGER_DEPTH) {
     throw new Error(`Collaboration agent trigger depth exceeds the ${MAX_AGENT_TRIGGER_DEPTH}-hop feedback-loop limit.`);
@@ -1320,7 +1457,8 @@ async function createOrLoadOperation(input: {
     fingerprint: input.fileEditRequest.fingerprint, beforeSha256: input.fileEditRequest.beforeSha256,
     proposedSha256: input.fileEditRequest.proposedSha256,
   }) : null;
-  const payloadHash = operationPayloadHash(input);
+  const payloadHash = nativeOriginal ? nativeDocumentEditDataProof({
+    originalProof: nativeOriginal.originalProof, targets: input.targets }) : operationPayloadHash(input);
   const existing = await input.database.get(
     'SELECT * FROM collaboration_agent_operations WHERE document_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3 LIMIT 1',
     [input.documentId, input.initiatedByUserId, input.idempotencyKey],
@@ -1331,7 +1469,11 @@ async function createOrLoadOperation(input: {
       // preparation. Never adopt a legacy row, even for an identical payload.
       throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'The operation key is already recorded; resolve its original proposal.');
     }
-    if (input.fileEditRequest) {
+    if (nativeOriginal) {
+      assertMatchingNativeEditOperation(existing, nativeOriginal, input.nativeAccess);
+    } else if (existing.native_edit_original_json != null) {
+      throw new DocumentEditError('DOCUMENT_IDEMPOTENCY_CONFLICT');
+    } else if (input.fileEditRequest) {
       // Parallel first deliveries can prepare different anchors, block IDs and
       // snapshots. The trusted original request, rather than those derived bytes,
       // identifies their single already-recorded operation.
@@ -1339,10 +1481,10 @@ async function createOrLoadOperation(input: {
     } else if (existing.payload_hash !== payloadHash || (existing.file_edit_request_json ?? null) !== fileEditRequestJson) {
       throw new Error('Idempotency key was already used with a different agent payload.');
     }
-    await assertLegacyActionIsIndependent(input.database, existing.operation_id);
+    if (!nativeOriginal) await assertLegacyActionIsIndependent(input.database, existing.operation_id);
     return { row: existing, created: false };
   }
-  if (input.correlationId && triggerDepth > 0) {
+  if (!nativeOriginal && input.correlationId && triggerDepth > 0) {
     const chainDuplicate = await input.database.get(
       `SELECT * FROM collaboration_agent_operations
        WHERE document_id = $1 AND initiated_by_user_id = $2 AND correlation_id = $3
@@ -1367,6 +1509,7 @@ async function createOrLoadOperation(input: {
     throw new Error('Collaboration document is unavailable or stale.');
   }
   await input.beforeInsert?.(state);
+  if (nativeOriginal) assertNativeEditFirstDelivery(input, nativeOriginal);
   const now = Date.now();
   const operationId = input.operationId ?? randomUUID();
   await input.database.run(
@@ -1377,8 +1520,8 @@ async function createOrLoadOperation(input: {
       supersedes_operation_id, idempotency_key, run_generation, payload_hash, operation_type,
       requested_mode, atomicity, operation_payload, status, base_state_vector,
       base_document_sequence, result_json, cas_version, expires_at, correlation_id,
-      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at, file_edit_request_json, direct_edit_grant_id
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29, $30, $31)`,
+      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at, file_edit_request_json, direct_edit_grant_id, native_edit_original_json
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)`,
     [
       operationId,
       input.documentId,
@@ -1411,6 +1554,7 @@ async function createOrLoadOperation(input: {
       now,
       fileEditRequestJson,
       input.directEditGrantId ?? null,
+      nativeOriginal ? JSON.stringify(nativeOriginal) : null,
     ],
   );
   const row = await readOperation(input.database, operationId);
@@ -1418,12 +1562,14 @@ async function createOrLoadOperation(input: {
   return { row, created: true };
 }
 
-/** Only legacy creation owns this short transaction; later work remains statementwise. */
+/** Admission owns this short transaction; no client survives the subsequent room wait. */
 async function createOrLoadAdmittedOperation(
-  input: Omit<Parameters<typeof createOrLoadOperation>[0], 'database' | 'loadState' | 'beforeInsert'>,
+  input: Omit<Parameters<typeof createOrLoadOperation>[0], 'database' | 'loadState' | 'beforeInsert' | 'nativeAccess'>,
 ): Promise<{ row: AgentOperationRow; created: boolean }> {
   // No caller-owned target, request receipt, or workspace object survives an await.
-  const captured = structuredClone(input);
+  const { nativeEdit, ...data } = input;
+  const captured = structuredClone(data);
+  const native = nativeEdit ? { authority: nativeEdit.authority, original: captureNativeDocumentEditOriginal(nativeEdit.original) } : undefined;
   return executeLifecycleTransaction({
     openConnection: openDb,
     execute: async (database) => {
@@ -1432,7 +1578,8 @@ async function createOrLoadAdmittedOperation(
       const query = async (sql: string, values?: unknown[]) =>
         await database.all(sql, values) as Array<Record<string, unknown>>;
       await lockCollaborationAdmissionWorkspace(query, captured.workspace.workspaceId);
-      return createOrLoadOperation({ ...captured, database,
+      const create = (nativeAccess?: NativeDocumentEditWriteAuthorityAccess) => createOrLoadOperation({ ...captured, database,
+        ...(native ? { nativeEdit: native, nativeAccess } : {}),
         // Handoff terminalization does not take the workspace admission guard.
         // Retain the state row so its generation/path cannot change between
         // reading this snapshot, checking admission, and committing the INSERT.
@@ -1447,7 +1594,22 @@ async function createOrLoadAdmittedOperation(
           const scope = captureCollaborationAdmissionWriterScope({ documentId: captured.documentId,
             workspaceId: captured.workspace.workspaceId, path: state.path });
           await assertCollaborationAdmissionOpen(query, scope);
+          if (native) {
+            const document = await database.get(`SELECT id,lineage_id,path,provider,status FROM collaboration_documents
+              WHERE id=$1 AND workspace_id=$2 FOR SHARE`, [captured.documentId,captured.workspace.workspaceId]) as
+              { id: string; lineage_id: string; path: string; provider: string; status: string } | undefined;
+            if (!document || document.id !== native.original.identity.documentId
+              || document.lineage_id !== native.original.identity.lineageId || document.path !== state.path
+              || document.provider !== 'yjs' || document.status !== 'active') throw new DocumentEditError('DOCUMENT_SCOPE_CHANGED');
+          }
         },
+      });
+      if (!native) return create();
+      return withNativeDocumentEditWriteAuthorityOnConnection(database, native.authority, async access => {
+        access.assertActive();
+        const result = await create(access);
+        await access.assertCurrent();
+        return result;
       });
     },
     recoverCommitted: async (attempted, commitError) => {
@@ -1462,13 +1624,14 @@ async function createOrLoadAdmittedOperation(
           'schema_version', 'initiated_by_user_id', 'actor_id', 'actor_session_id', 'agent_run_id',
           'idempotency_key', 'run_generation', 'payload_hash', 'operation_type', 'atomicity',
           'supersedes_operation_id', 'correlation_id', 'causation_id', 'trigger_depth',
-          'expected_canonical_hash', 'file_edit_request_json', 'operation_payload', 'base_document_sequence', 'created_at'];
+          'expected_canonical_hash', 'file_edit_request_json', 'operation_payload', 'base_document_sequence', 'created_at',
+          'native_edit_original_json'];
         if (immutable.some((key) => !isDeepStrictEqual(recovered[key], attempted.row[key]))
           || !Buffer.from(recovered.base_state_vector).equals(Buffer.from(attempted.row.base_state_vector))
           || (Number(recovered.cas_version) === 0 && recovered.requested_mode !== attempted.row.requested_mode)) {
           throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
         }
-        await assertLegacyActionIsIndependent(database, recovered.operation_id);
+        if (!native) await assertLegacyActionIsIndependent(database, recovered.operation_id);
         return { row: recovered, created: attempted.created && recovered.status === 'preparing'
           && Number(recovered.cas_version) === 0 };
       } finally { await database.close(); }
@@ -2025,7 +2188,139 @@ function publicResult(row: AgentOperationRow, result: AgentApplyResult, durabili
   };
 }
 
+/** Preserve fixed error codes across the Next/standalone module boundary. */
+function nativeEditFailure(error: unknown, operationId:string): NativeDocumentEditOperationError {
+  const code = ownCode(error);
+  switch (code) {
+    case 'INVALID_REQUEST': case 'AUTHENTICATION_REQUIRED': case 'ACCESS_DENIED': case 'DOCUMENT_NOT_FOUND':
+    case 'DOCUMENT_VERSION_CONFLICT': case 'DOCUMENT_SCOPE_CHANGED': case 'DOCUMENT_STATE_MISSING':
+    case 'DOCUMENT_STATE_INVALID': case 'DOCUMENT_BUSY': case 'DOCUMENT_IDEMPOTENCY_CONFLICT':
+    case 'DOCUMENT_EDIT_CONFLICT': case 'DOCUMENT_EDIT_UNSUPPORTED': case 'DOCUMENT_TOO_LARGE':
+    case 'EDIT_OUTCOME_UNCONFIRMED': case 'DOCUMENT_EDIT_UNAVAILABLE': return new NativeDocumentEditOperationError(code,operationId);
+    default: return new NativeDocumentEditOperationError('DOCUMENT_EDIT_UNAVAILABLE',operationId);
+  }
+}
+type NativeEditAppliedCapture = Readonly<{
+  after: NativeDocumentEditAfterV1; snapshot: Uint8Array; historyBytes: Uint8Array | null;
+  execution: AgentApplyExecutionResult;
+}>;
+/** Short current authority phase. Only primitive current actor/session data
+ * survives; no B/access/expiry closure is retained across the room wait. */
+async function nativeEditCurrentActor(authority: NativeDocumentEditWriteAuthority, original: NativeDocumentEditOriginalV1) {
+  return executeLifecycleTransaction({ openConnection: openDb,
+    execute: database => withNativeDocumentEditWriteAuthorityOnConnection(database, authority, async access => {
+      assertNativeEditCurrentOwner(original, access);
+      await access.assertCurrent();
+      return Object.freeze({ userId: access.userId, actorType: access.actorType, actorId: access.actorId,
+        actorDisplayName: access.actorDisplayName, sessionId: access.sessionId, workspace:structuredClone(access.workspace) });
+    }), recoverCommitted: async () => { throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED'); },
+  });
+}
+/** ACK of an already-observed room action, not another live mutation grant.
+ * The immutable original and after proof, snapshot and bounded binary are
+ * committed together. A lost acknowledgement can only inspect these facts. */
+async function recordNativeEditApplied(row: AgentOperationRow, captured: NativeEditAppliedCapture): Promise<AgentOperationRow> {
+  const original = nativeEditOriginal(row);
+  if (!original) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+  const after = captureNativeDocumentEditAfter(captured.after, original);
+  const verify = async (database: SqlConnection, current: AgentOperationRow): Promise<AgentOperationRow> => {
+    const currentOriginal = nativeEditOriginal(current), currentAfter = currentOriginal && nativeEditAfter(current,currentOriginal);
+    if (!currentOriginal || currentOriginal.originalProof !== original.originalProof || !currentAfter
+      || !isDeepStrictEqual(currentAfter,after) || !current.result_json
+      || !current.resulting_state_snapshot || !Buffer.from(current.resulting_state_snapshot).equals(Buffer.from(captured.snapshot))) {
+      throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    }
+    const payload = await database.get(`SELECT original_proof,after_proof,format,sha256,size_bytes,yjs_update
+      FROM collaboration_agent_native_edit_payloads WHERE operation_id=$1`,[current.operation_id]) as
+      {original_proof:string;after_proof:string;format:string;sha256:string;size_bytes:number|string;yjs_update:Uint8Array}|undefined;
+    if (after.history.status === 'ready') {
+      if (!payload || !captured.historyBytes || payload.original_proof !== original.originalProof
+        || payload.after_proof !== after.afterProof || payload.format !== after.history.format
+        || payload.sha256 !== after.history.sha256 || Number(payload.size_bytes) !== after.history.sizeBytes
+        || !Buffer.from(payload.yjs_update).equals(Buffer.from(captured.historyBytes))) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    } else if (payload) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    return current;
+  };
+  return executeLifecycleTransaction({ openConnection: openDb,
+    execute: async database => {
+      const current = await database.get('SELECT * FROM collaboration_agent_operations WHERE operation_id=$1 FOR UPDATE',
+        [row.operation_id]) as AgentOperationRow|undefined;
+      if (!current) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+      if (current.native_edit_after_json != null) return verify(database,current);
+      const currentOriginal = nativeEditOriginal(current);
+      if (currentOriginal?.originalProof !== original.originalProof || current.status !== 'applying'
+        || hash(captured.snapshot) !== after.stateSnapshotHash
+        || (after.history.status === 'ready' ? !captured.historyBytes
+          || captured.historyBytes.byteLength !== after.history.sizeBytes
+          || hash(captured.historyBytes) !== after.history.sha256 : captured.historyBytes !== null)) {
+        throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+      }
+      const result = publicResult(current, {status:captured.execution.status,appliedTargetIds:captured.execution.appliedTargetIds,
+        conflicts:captured.execution.conflicts,stateVector:captured.execution.stateVector}, 'applied_to_ydoc');
+      const updated = await transitionOperation({database,row:current,expectedStatuses:['applying'],status:'applied_to_ydoc',fields:{
+        native_edit_after_json:JSON.stringify(after),result_json:JSON.stringify(result),
+        reverse_payload:sealPayload(captured.execution.reverseTargets),resulting_state_snapshot:Buffer.from(captured.snapshot),
+        resulting_state_vector_hash:after.stateVectorHash,version_content_snapshot:null,applied_at:after.appliedAt,error_code:null,
+      }});
+      if (after.history.status === 'ready') await database.run(`INSERT INTO collaboration_agent_native_edit_payloads
+        (operation_id,workspace_id,original_proof,after_proof,format,sha256,size_bytes,yjs_update,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [row.operation_id,row.workspace_id,original.originalProof,after.afterProof,
+        after.history.format,after.history.sha256,after.history.sizeBytes,Buffer.from(captured.historyBytes!),after.appliedAt]);
+      return verify(database,updated);
+    },
+    recoverCommitted: async (_attempted,commitError) => {
+      const database = await openDb();
+      try { const current = await readOperation(database,row.operation_id); if (!current) throw commitError; return await verify(database,current); }
+      finally { await database.close(); }
+    },
+  });
+}
+
+/** Optional exact native history. No Markdown projection or live room is read. */
+async function captureNativeDurableHistory(input: {
+  row: AgentOperationRow; state: PersistedCollaborationState; workspace?: WorkspaceContext;
+}): Promise<void> {
+  const original = nativeEditOriginal(input.row), after = original && nativeEditAfter(input.row,original);
+  if (!original || !after || !stateConfirmsAgentOperation(input.row,input.state)) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+  await executeLifecycleTransaction({openConnection:openDb, execute:async database => {
+    const actual = await database.get('SELECT * FROM collaboration_agent_operations WHERE operation_id=$1 FOR SHARE',
+      [input.row.operation_id]) as AgentOperationRow|undefined;
+    if (!actual || !isDeepStrictEqual(nativeEditAfter(actual,original),after)) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    let workspace = input.workspace;
+    if (!workspace) {
+      const stored = await database.get('SELECT * FROM canvas_workspaces WHERE id=$1',[input.row.workspace_id]) as
+        {type:WorkspaceContext['workspaceType'];root_relative_path:string;organization_id:string|null;customer_id:string|null;project_id:string|null}|undefined;
+      if (!stored || stored.organization_id !== original.identity.organizationId) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+      workspace = {workspaceId:input.row.workspace_id,workspaceType:stored.type,rootPath:workspaceAbsoluteRoot(stored.root_relative_path),
+        organizationId:stored.organization_id,customerId:stored.customer_id,projectId:stored.project_id,legacy:false,
+        permissions:{canRead:true,canWrite:false,canDelete:false,canCreatePublicLinks:false,canManageWorkspace:false,canRunAgent:false}};
+    }
+    const payload = await database.get(`SELECT original_proof,after_proof,format,sha256,size_bytes,yjs_update
+      FROM collaboration_agent_native_edit_payloads WHERE operation_id=$1`,[input.row.operation_id]) as
+      {original_proof:string;after_proof:string;format:string;sha256:string;size_bytes:number|string;yjs_update:Uint8Array}|undefined;
+    if (after.history.status === 'ready' && (!payload || payload.original_proof !== original.originalProof
+      || payload.after_proof !== after.afterProof || payload.format !== after.history.format
+      || payload.sha256 !== after.history.sha256 || Number(payload.size_bytes) !== after.history.sizeBytes
+      || payload.yjs_update.byteLength !== after.history.sizeBytes || hash(payload.yjs_update) !== after.history.sha256)) {
+      throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    }
+    if (after.history.status !== 'ready' && payload) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    const transaction: FileVersionCenterTransaction = {query:async <Row>(sql:string,values?:unknown[])=>({rows:await database.all(sql,values) as Row[]})};
+    const captured = await captureNativeAgentOperationHistoryOnConnection(transaction,
+      {operationId:input.row.operation_id,workspace,original,after,bytes:payload ? new Uint8Array(payload.yjs_update) : null});
+    // Disabled/over-limit/quota are honest auxiliary-history outcomes; they
+    // never turn confirmed native persistence into an unconfirmed mutation.
+    if (captured.revision) await database.run(`UPDATE collaboration_agent_operations SET version_revision_id=$2
+      WHERE operation_id=$1 AND (version_revision_id IS NULL OR version_revision_id=$2)`,[input.row.operation_id,captured.revision.id]);
+    return undefined;
+  },recoverCommitted:async()=>{throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');}});
+}
+
 function stateConfirmsAgentOperation(row: AgentOperationRow, state: PersistedCollaborationState | null): state is PersistedCollaborationState {
+  if (row.native_edit_original_json != null) {
+    const original = nativeEditOriginal(row);
+    if (!original || !nativeEditAfter(row,original)) return false;
+  }
   return Boolean(state && !state.degraded && state.status === 'active'
     && state.documentId === row.document_id && state.workspaceId === row.workspace_id
     && state.organizationId === row.organization_id
@@ -2057,6 +2352,7 @@ async function captureDurableOperationHistory(input: {
   workspace?: WorkspaceContext; recovering?: boolean;
 }) {
   const { row, state } = input;
+  if (row.native_edit_original_json != null) return captureNativeDurableHistory(input);
   const grouped = row.agent_run_id && row.actor_session_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply';
   const standalone = !row.agent_run_id && row.actor_session_id
     && row.requested_mode === 'direct_apply' && row.operation_type === 'apply';
@@ -2139,7 +2435,11 @@ async function waitForDurableState(input: { database: SqlConnection; row: AgentO
   do {
     const state = await loadCollaborationState(input.row.document_id);
     if (stateConfirmsAgentOperation(input.row, state)) {
-      await captureDurableOperationHistory({ ...input, state });
+      if (input.row.native_edit_original_json != null) {
+        try { await captureDurableOperationHistory({ ...input,state }); }
+        catch { logCollaborationDiagnostic('warn',{event:'agent_audit_failed',code:'NATIVE_HISTORY_UNCONFIRMED',operationId:input.row.operation_id,
+          documentId:input.row.document_id,workspaceId:input.row.workspace_id}); }
+      } else await captureDurableOperationHistory({ ...input, state });
       return { state, ...await confirmedAgentFileRevision(input.row, state, input.workspace) };
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -2185,6 +2485,11 @@ async function confirmDurableAgentOperation(input: {
 
 /** A delayed binary commit is resolved by status lookup, never by replay. */
 async function reconcileAgentOperationDurability(database: SqlConnection, row: AgentOperationRow, workspace?: WorkspaceContext): Promise<AgentOperationRow> {
+  if (row.native_edit_original_json != null && row.persisted_at != null
+    && ['persisted_yjs','checkpointed_file'].includes(row.status)) {
+    const original = nativeEditOriginal(row); if (!original || !nativeEditAfter(row,original)) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+    return row;
+  }
   if (!row.resulting_state_snapshot || !row.result_json
     || !(row.status === 'applied_to_ydoc' || (row.status === 'partially_applied' && row.error_code === 'persistence_degraded'))) return row;
   const state = await loadCollaborationState(row.document_id);
@@ -2193,7 +2498,9 @@ async function reconcileAgentOperationDurability(database: SqlConnection, row: A
     try {
       await captureDurableOperationHistory({ database, row, state, workspace });
     } catch {
-      return row;
+      if (row.native_edit_original_json == null) return row;
+      logCollaborationDiagnostic('warn',{event:'agent_audit_failed',code:'NATIVE_HISTORY_UNCONFIRMED',operationId:row.operation_id,
+        documentId:row.document_id,workspaceId:row.workspace_id});
     }
   }
   const projection = workspace ? await confirmedAgentFileRevision(row, state, workspace) : { checkpointed: false, revisionId: null };
@@ -2239,10 +2546,15 @@ async function applyStoredOperation(input: {
   actorDisplayName: string;
   approval?: { row: AgentOperationRow; userId: string; proposalVersion: string; actionKeysJson: string };
   directGrant?: { id: string; expiresAt: number };
+  nativeAuthority?: NativeDocumentEditWriteAuthority;
   mcpAuthority?: DirectMcpEditAuthority;
   mcpPolicyFence?: (workspace: WorkspaceContext) => Promise<void>;
 }): Promise<PersistedAgentApplyResult> {
   let row = input.row;
+  const nativeOriginal = nativeEditOriginal(row);
+  if (Boolean(nativeOriginal) !== Boolean(input.nativeAuthority)) throw new DocumentEditError('AUTHENTICATION_REQUIRED');
+  const nativeActor = nativeOriginal && input.nativeAuthority
+    ? await nativeEditCurrentActor(input.nativeAuthority,nativeOriginal) : null;
   if (row.result_json && !['needs_review', 'partially_applied'].includes(row.status)) return parseResult(row);
   if (row.expires_at && Number(row.expires_at) <= Date.now()) {
     row = await transitionOperation({
@@ -2267,6 +2579,7 @@ async function applyStoredOperation(input: {
     || (row.document_path !== null && state.path !== row.document_path)
     || (row.document_representation !== null && state.representation !== row.document_representation)
   ) {
+    if (nativeOriginal) throw new DocumentEditError('DOCUMENT_SCOPE_CHANGED');
     const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
     const terminal = publicResult(row, {
       status: 'needs_review',
@@ -2284,6 +2597,7 @@ async function applyStoredOperation(input: {
     return { ...terminal, operationStatus: row.status, casVersion: Number(row.cas_version) };
   }
   if (state.degraded) {
+    if (nativeOriginal) throw new DocumentEditError('DOCUMENT_BUSY');
     const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
     const terminal = publicResult(row, {
       status: 'needs_review',
@@ -2306,7 +2620,7 @@ async function applyStoredOperation(input: {
   const priorResult = parseResult(row);
   const alreadyApplied = new Set(priorResult.appliedTargetIds);
   const targets = allTargets.filter((target) => !alreadyApplied.has(target.targetId));
-  if (targets.length === 0) return priorResult;
+  if (targets.length === 0 && !nativeOriginal) return priorResult;
   await assertStoredBlockRevert(input.database, row, targets, input.workspace);
   row = await transitionOperation({
     database: input.database,
@@ -2331,7 +2645,7 @@ async function applyStoredOperation(input: {
     path: state.path,
     userId: row.actor_id,
     sessionId: row.operation_id,
-    actorType: 'agent',
+    actorType: nativeOriginal?.actor.actorType ?? 'agent',
     initiatedByUserId: row.initiated_by_user_id,
     displayName: `${input.actorDisplayName} on behalf of ${initiatorName}`,
     color: '#7c3aed',
@@ -2344,6 +2658,7 @@ async function applyStoredOperation(input: {
   let resultingSnapshot: Uint8Array | null = null;
   let versionContentSnapshot: Buffer | null = null;
   const appliedExecution = { value: null as AgentApplyExecutionResult | null };
+  const nativeExecution = { started:false, captured:null as NativeEditAppliedCapture|null };
   const combinedFor = (result: AgentApplyExecutionResult) => {
     const changeWindow = recentAgentChangeWindows.get(row.document_id)?.get(row.operation_id);
     const immediateSemanticConflicts = changeWindow?.conflicts || [];
@@ -2367,16 +2682,19 @@ async function applyStoredOperation(input: {
       documentRepresentation: row.document_representation || state.representation,
       documentLifecycleGeneration: Number(row.document_lifecycle_generation),
       documentSchemaVersion: Number(row.schema_version),
-      requiresFileCheckpointIdentity: row.document_path !== null,
-      workspace: input.workspace,
-      actorId: row.actor_id,
-      actorDisplayName: input.actorDisplayName,
-      initiatedByUserId: row.initiated_by_user_id,
+      requiresFileCheckpointIdentity: !nativeOriginal && row.document_path !== null,
+      workspace: nativeActor?.workspace ?? input.workspace,
+      actorId: nativeActor?.actorId ?? row.actor_id,
+      actorType: nativeActor?.actorType,
+      actorDisplayName: nativeActor?.actorDisplayName ?? input.actorDisplayName,
+      initiatedByUserId: nativeActor?.userId ?? row.initiated_by_user_id,
       operationId: row.operation_id,
-      actorSessionId: row.actor_session_id || undefined,
+      actorSessionId: nativeActor?.sessionId ?? row.actor_session_id ?? undefined,
+      ...(nativeOriginal ? {nativeEditAuthority:input.nativeAuthority,
+        nativeDocumentVersion:{identity:nativeOriginal.identity,expectedVersion:nativeOriginal.expectedVersion}} : {}),
       mcpAuthority: input.mcpAuthority,
       mcpPolicyFence: input.mcpPolicyFence,
-      agentTurnId: row.requested_mode === 'direct_apply' && row.operation_type === 'apply' ? row.agent_run_id || undefined : undefined,
+      agentTurnId: !nativeOriginal && row.requested_mode === 'direct_apply' && row.operation_type === 'apply' ? row.agent_run_id || undefined : undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
       if (input.approval && !readDocumentReviewAvailability().documentReviewEnabled) {
@@ -2398,6 +2716,54 @@ async function applyStoredOperation(input: {
         return { status: 'needs_review' as const, appliedTargetIds: [], reverseTargets: [],
           conflicts: targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' as const })),
           stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64') };
+      }
+      if (nativeOriginal && input.nativeAuthority) {
+        // The server has just compared the full version under its actual room
+        // mutex and current B. Fixed writers recheck that same B after preflight.
+        const noteMutation = () => { nativeExecution.started = true; };
+        doc.on('update',noteMutation);
+        let result: AgentApplyExecutionResult;
+        const origin = {actorType:nativeOriginal.actor.actorType,actorId:nativeOriginal.actor.actorId,
+          initiatedByUserId:nativeOriginal.actor.userId,operationId:row.operation_id};
+        try {
+          if (targets.length === 0) {
+            assertNativeDocumentEditWriteAuthorityActive(input.nativeAuthority);
+            result = {status:'applied_to_ydoc',appliedTargetIds:[],conflicts:[],reverseTargets:[],
+              stateVector:Buffer.from(Y.encodeStateVector(doc)).toString('base64')};
+          } else if (targets.some(target=>target.kind === 'block_edit')) {
+            result = applyAgentBlockTargets({doc,targets,origin,nativeWriteAuthority:input.nativeAuthority,
+              validateClone:clone=>validateNativeDocumentEditCandidate(clone,nativeOriginal.identity.representation)});
+          } else {
+            if (targets.some(target=>target.kind && target.kind !== 'text_replace')) throw new DocumentEditError('DOCUMENT_EDIT_UNSUPPORTED');
+            result = applyAgentTextTargets({doc,targets,origin,nativeWriteAuthority:input.nativeAuthority,
+              independentGroups:false,compositionRanges:activeCompositionRanges(doc),
+              validateClone:clone=>validateNativeDocumentEditCandidate(clone,nativeOriginal.identity.representation)});
+          }
+          if (result.conflicts.length || result.status !== 'applied_to_ydoc') throw new DocumentEditError('DOCUMENT_EDIT_CONFLICT');
+          // Includes a genuine CAS-proven no-op. Set BEFORE snapshot/history
+          // capture or phase completion can fail after the authoritative action.
+          nativeExecution.started = true;
+          appliedExecution.value = result;
+          const snapshot = captureAgentStateSnapshot(doc,Y), stateProof = collaborationStateProof(doc,Y);
+          if (!snapshot || !stateProof) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+          const history = prepareNativeAgentOperationHistorySnapshot({doc,identity:nativeOriginal.identity});
+          const after = makeNativeDocumentEditAfter({kind:'native_document_edit_after',version:1,
+            originalProof:nativeOriginal.originalProof,identity:nativeOriginal.identity,beforeVersion:nativeOriginal.expectedVersion,
+            afterVersion:documentVersionV1(nativeOriginal.identity,stateProof),stateProof,
+            outcome:documentVersionV1(nativeOriginal.identity,stateProof) === nativeOriginal.expectedVersion ? 'no_change' : 'applied',
+            stateVectorHash:stateVectorHash(result.stateVector),stateSnapshotHash:hash(snapshot),appliedAt:Date.now(),
+            history:history.status === 'ready'
+              ? {status:'ready',format:history.format,sha256:history.sha256,sizeBytes:history.sizeBytes}
+              : {status:'over_limit',format:history.format,sizeBytes:history.sizeBytes}},nativeOriginal);
+          if (history.status === 'ready' && (history.stateProof !== stateProof || history.version !== after.afterVersion
+            || hash(history.stateVector) !== after.stateVectorHash)) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+          nativeExecution.captured = {after,snapshot,historyBytes:history.status === 'ready' ? history.bytes : null,execution:result};
+          return result;
+        } catch (error) {
+          const observed = collaborationStateProof(doc,Y);
+          if (observed && documentVersionV1(nativeOriginal.identity,observed) !== nativeOriginal.expectedVersion) nativeExecution.started = true;
+          throw error;
+        } finally { doc.off('update',noteMutation); }
       }
       const currentStateVector = Y.encodeStateVector(doc);
       const baseStateVector = Buffer.from(row.base_state_vector).toString('base64');
@@ -2474,6 +2840,11 @@ async function applyStoredOperation(input: {
       }
       return result;
     }, async (result) => {
+      if (nativeOriginal) {
+        if (!nativeExecution.captured) throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
+        row = await recordNativeEditApplied(row,nativeExecution.captured);
+        return;
+      }
       appliedExecution.value = result;
       if (result.appliedTargetIds.length === 0) return;
       const combined = combinedFor(result);
@@ -2496,6 +2867,23 @@ async function applyStoredOperation(input: {
         documentId: row.document_id, workspaceId: row.workspace_id, generation: state.lifecycleGeneration });
     });
   } catch (error) {
+    if (nativeOriginal) {
+      if (nativeExecution.captured) {
+        try { row = await recordNativeEditApplied(row,nativeExecution.captured); }
+        catch { throw new NativeDocumentEditOperationError('EDIT_OUTCOME_UNCONFIRMED',row.operation_id); }
+        // The actual action is acknowledged. Durability can still be reconciled
+        // by this exact operation ID; never retry its targets after phase failure.
+        await reconcileAgentOperationDurability(input.database,row,input.workspace);
+        throw new NativeDocumentEditOperationError('EDIT_OUTCOME_UNCONFIRMED',row.operation_id);
+      }
+      if (nativeExecution.started) throw new NativeDocumentEditOperationError('EDIT_OUTCOME_UNCONFIRMED',row.operation_id);
+      const fresh = await readOperation(input.database,row.operation_id) || row;
+      if (fresh.status === 'applying') {
+        await transitionOperation({database:input.database,row:fresh,expectedStatuses:['applying'],status:'failed',
+          fields:{error_code:nativeEditFailure(error,row.operation_id).code}});
+      }
+      throw nativeEditFailure(error,row.operation_id);
+    }
     const fresh = await readOperation(input.database, row.operation_id) || row;
     const authoritativeApplyStarted = Boolean(appliedExecution.value?.appliedTargetIds.length)
       || fresh.status === 'applied_to_ydoc'
@@ -2555,12 +2943,12 @@ async function applyStoredOperation(input: {
       workspaceId: state.workspaceId,
       documentId: state.documentId,
       userId: row.actor_id,
-      actorType: 'agent',
+      actorType: nativeOriginal?.actor.actorType ?? 'agent',
     });
   }
 
   const { combinedApplied, baseResult } = combinedFor(execution);
-  if (execution.appliedTargetIds.length === 0) {
+  if (execution.appliedTargetIds.length === 0 && !nativeOriginal) {
     const reviewStatus = combinedApplied.length > 0 ? 'partially_applied' : 'needs_review';
     const reviewResult = publicResult(row, {
       ...baseResult,
@@ -2615,16 +3003,17 @@ async function applyStoredOperation(input: {
       organizationId: input.workspace.organizationId,
       workspaceId: input.workspace.workspaceId,
       userId: row.initiated_by_user_id,
-      source: 'agent',
-      eventType: 'agent_action',
+      source: nativeOriginal?.origin.transport ?? 'agent',
+      eventType: nativeOriginal ? 'document_edit' : 'agent_action',
       entityType: 'collaboration_document',
       entityId: row.document_id,
-      action: row.operation_type === 'revert' ? 'collaboration.agent.revert' : 'collaboration.agent.apply',
+      action: nativeOriginal ? 'collaboration.native.edit' : row.operation_type === 'revert' ? 'collaboration.agent.revert' : 'collaboration.agent.apply',
       status: execution.conflicts.length > 0 ? 'completed' : 'success',
-      summary: `Agent ${row.operation_type} applied ${execution.appliedTargetIds.length} collaboration target(s).`,
+      summary: nativeOriginal ? `Native document edit applied ${execution.appliedTargetIds.length} collaboration target(s).`
+        : `Agent ${row.operation_type} applied ${execution.appliedTargetIds.length} collaboration target(s).`,
       metadata: {
         operationId: row.operation_id,
-        actorType: 'agent',
+        actorType: nativeOriginal?.actor.actorType ?? 'agent',
         actorId: row.actor_id,
         initiatedByUserId: row.initiated_by_user_id,
         resultStatus: durableResult.status,
@@ -2658,6 +3047,7 @@ export async function applyPersistedAgentTextOperation(input: {
   operationType?: 'apply' | 'revert';
   agentRunId?: string;
   actorSessionId?: string;
+  nativeEdit?: Readonly<{original:NativeDocumentEditOriginalV1;authority:NativeDocumentEditWriteAuthority}>;
   mcpAuthority?: DirectMcpEditAuthority;
   supersedesOperationId?: string;
   correlationId?: string;
@@ -2674,6 +3064,28 @@ export async function applyPersistedAgentTextOperation(input: {
   /** Graph-enabled ordinary tools may not create an actionable legacy review. */
   disallowLegacyReview?: boolean;
 }): Promise<PersistedAgentApplyResult> {
+  if (input.nativeEdit) {
+    const authority = input.nativeEdit.authority;
+    if (!isNativeDocumentEditWriteAuthority(authority) || input.mcpAuthority) throw new DocumentEditError('AUTHENTICATION_REQUIRED');
+    const original = captureNativeDocumentEditOriginal(input.nativeEdit.original);
+    const { nativeEdit:_native, ...data } = input;
+    const captured = structuredClone(data);
+    if (captured.requestedMode === 'review' || captured.operationType === 'revert' || captured.independentGroups
+      || captured.fileEditRequest || captured.expectedCanonicalHash || captured.supersedesOperationId
+      || captured.runGeneration !== 1) throw new DocumentEditError('INVALID_REQUEST');
+    return serialized(original.identity.documentId, async () => {
+      const database = createAgentOperationDatabase();
+      try {
+        const created = await createOrLoadAdmittedOperation({...captured,
+          nativeEdit:{original,authority},idempotencyKey:nativeDocumentEditLedgerKey(original.origin,captured.idempotencyKey),
+          requestedMode:'direct_apply',operationType:'apply',independentGroups:false,directEditGrantId:null});
+        if (!created.created) return parseResult(await reconcileAgentOperationDurability(database,created.row,captured.workspace));
+        try { return await applyStoredOperation({database,row:created.row,workspace:captured.workspace,
+          actorDisplayName:captured.actorDisplayName,nativeAuthority:authority}); }
+        catch (error) { throw nativeEditFailure(error,created.row.operation_id); }
+      } finally { await database.close(); }
+    });
+  }
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   if (input.mcpAuthority && (!isDirectMcpEditAuthority(input.mcpAuthority)
     || input.mcpAuthority.scope.userId !== input.initiatedByUserId
@@ -3391,6 +3803,9 @@ async function authorizedActionRow(database: SqlConnection, input: {
 
 /** Graph-owned operations carry closure/fence semantics that legacy endpoints cannot recreate. */
 async function assertLegacyActionIsIndependent(database: SqlConnection, operationId: string): Promise<void> {
+  const native = await database.get('SELECT native_edit_original_json FROM collaboration_agent_operations WHERE operation_id=$1 LIMIT 1',
+    [operationId]) as {native_edit_original_json?:unknown|null}|undefined;
+  if (native?.native_edit_original_json != null) throw new DocumentEditError('DOCUMENT_EDIT_UNSUPPORTED');
   const graphBound = await database.get('SELECT proposal_id FROM file_change_proposals WHERE operation_id=$1 LIMIT 1', [operationId]) as { proposal_id?: string } | undefined;
   const graphAction = graphBound ? null : await database.get(
     'SELECT action_id FROM file_proposal_action_receipts WHERE operation_id=$1 LIMIT 1',
@@ -3667,6 +4082,24 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
          OR (status = 'partially_applied' AND error_code = 'persistence_degraded')`,
     ) as AgentOperationRow[];
     for (const row of rows) {
+      if (row.native_edit_original_json != null) {
+        const original = nativeEditOriginal(row), after = original && nativeEditAfter(row,original);
+        const state = after ? await loadCollaborationState(row.document_id) : null;
+        if (after && row.result_json && stateConfirmsAgentOperation(row,state)) {
+          try { await captureDurableOperationHistory({database,row,state,recovering:true}); }
+          catch { logCollaborationDiagnostic('warn',{event:'agent_audit_failed',code:'NATIVE_HISTORY_UNCONFIRMED',operationId:row.operation_id,
+            documentId:row.document_id,workspaceId:row.workspace_id}); }
+          await confirmDurableAgentOperation({database,row,state}).catch(()=>undefined);
+        } else {
+          // Retain the same operation and any actual After. There is no safe
+          // proof that an interrupted room write did not happen. Never replay,
+          // fabricate a Review action, or replace the immutable original.
+          await transitionOperation({database,row,expectedStatuses:[row.status],status:row.status,
+            fields:{error_code:'restart_uncertain'}}).catch(()=>undefined);
+        }
+        continue;
+      }
+
       try {
         await assertLegacyActionIsIndependent(database, row.operation_id);
       } catch (error) {
@@ -3713,6 +4146,7 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
       [now - SEMANTIC_CHANGE_WINDOW_MS],
     ) as AgentOperationRow[];
     for (const row of recentRows) {
+      if (row.native_edit_original_json != null) continue;
       const reverseTargets = openPayload<AgentTextTarget[]>(row.reverse_payload) || [];
       if (reverseTargets.length > 0) {
         registerAgentChangeWindow(

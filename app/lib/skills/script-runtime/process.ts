@@ -109,8 +109,12 @@ async function runtimeInstallation(runtime: SkillScriptRuntime): Promise<Runtime
     const { stdout } = await exec(executable, ['--version'], { env: cleanEnvironment(), timeout: 5_000, maxBuffer: 16 * 1024 });
     const version = stdout.trim().replace(/^v/u, '');
     if (!versionParts(version) || !versionAtLeast(version, runtime.minimumVersion)) throw new Error('Required Node version is unavailable');
-    const read = await sharedLibraries(executable);
-    return { executable, version, read, execute: [executable, ...read.filter(value => /\/ld-(?:linux|musl)|\/ld\.so/u.test(value))] };
+    // Node's CommonJS resolver reads this public build manifest before resolving
+    // an absolute SDK import. Grant only the checked file, never its directory.
+    const manifest = await exactPackageFile(await fs.realpath(/* turbopackIgnore: true */ appRoot()), 'package.json');
+    const libraries = await sharedLibraries(executable);
+    return { executable, version, read: [manifest, ...libraries],
+      execute: [executable, ...libraries.filter(value => /\/ld-(?:linux|musl)|\/ld\.so/u.test(value))] };
   }
   const result = await exec('/usr/bin/python3', ['-I', '-B', '-S', '-c',
     ['import json,sys,ctypes', 'executable=sys.executable',

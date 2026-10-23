@@ -9,21 +9,37 @@ import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
+import { NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS } from './native-document-edit-operation-migration';
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
 import { WORKSPACE_OPERATION_JOURNAL_STATEMENTS } from './workspace-operation-journal-migration';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from './workspace-operation-review-migration';
+import { WORKSPACE_OPERATION_ORIGINAL_DELETE_STATEMENTS } from './workspace-operation-original-delete-migration';
+import { WORKSPACE_OPERATION_ORIGINAL_MOVE_STATEMENTS } from './workspace-operation-original-move-migration';
 import { runFileVersionCenterStorageMigration } from './file-version-center-migration';
 import { runProposalGraphStorageMigration } from './proposal-graph-migration';
 import { COLLABORATION_ROOM_OWNER_UP_SQL, COLLABORATION_ROOM_RELEASE_UP_SQL } from './collaboration-room-owner-migration';
 import { COLLABORATION_ADMISSION_STATEMENTS } from './collaboration-admission-migration';
 import { COLLABORATION_RECOVERY_STATEMENTS } from './collaboration-recovery-migration';
+import { COLLABORATION_NATIVE_COPY_STATEMENTS } from './collaboration-native-copy-migration';
+import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from './native-link-mutation-migration';
+import { MARKDOWN_FILE_IMPORT_STATEMENTS } from './markdown-file-import-migration';
+import { MARKDOWN_ORIGINAL_IMPORT_STATEMENTS } from './markdown-original-import-migration';
+import { NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS } from './native-copy-markdown-birth-migration';
+import { WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS } from './workspace-path-import-preparation-migration';
+import { NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS } from './native-file-operation-handoff-migration';
+import { NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS } from './native-file-operation-side-effects-migration';
+import { FILE_GUEST_TARGET_BINDING_STATEMENTS } from './file-guest-target-migration';
+import { PUBLIC_FILE_SHARE_TARGET_BINDING_STATEMENTS } from './public-file-share-target-migration';
+import { NATIVE_FILE_RESTORE_STATEMENTS } from './native-file-operation-restore-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { runEmailClassificationPostgresMigration } from '@/app/lib/email/classification/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
 import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
 import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
+import { WORKSPACE_STARTER_INITIALIZATION_STATEMENTS } from '../workspaces/starter-document-initialization-store';
 import { EXCALIDRAW_SCENE_SERVICE_STATEMENTS } from './excalidraw-scene-service-migration';
+import { EXCALIDRAW_COPY_STATEMENTS } from './excalidraw-copy-migration';
 import { runChatMessageAdmissionMigration } from './chat-message-admission-migration';
 import { runChatMessageQueueMigration } from './chat-message-queue-migration';
 import { runChatMessageTelegramSourceMigration } from './chat-message-telegram-source-migration';
@@ -1324,7 +1340,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check') THEN
+        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check'
+          AND conrelid = 'collaboration_documents'::regclass) THEN
         ALTER TABLE collaboration_documents ADD CONSTRAINT collaboration_documents_yjs_state_lifecycle_check
           CHECK (yjs_state_lifecycle IN ('never_initialized', 'initialized', 'legacy_unknown'));
       END IF;
@@ -1343,7 +1360,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query(`
     DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized') THEN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized'
+        AND tgrelid = 'collaboration_yjs_states'::regclass) THEN
         CREATE TRIGGER collaboration_yjs_state_initialized
           AFTER INSERT ON collaboration_yjs_states FOR EACH ROW
           EXECUTE FUNCTION mark_collaboration_yjs_state_initialized();
@@ -1371,6 +1389,18 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
   for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await pool.query(statement);
   for (const statement of COLLABORATION_RECOVERY_STATEMENTS) await pool.query(statement);
+  for (const statement of COLLABORATION_NATIVE_COPY_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS) await pool.query(statement);
+  for (const statement of MARKDOWN_FILE_IMPORT_STATEMENTS) await pool.query(statement);
+  for (const statement of MARKDOWN_ORIGINAL_IMPORT_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS) await pool.query(statement);
+  for (const statement of FILE_GUEST_TARGET_BINDING_STATEMENTS) await pool.query(statement);
+  for (const statement of PUBLIC_FILE_SHARE_TARGET_BINDING_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_FILE_RESTORE_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_STARTER_INITIALIZATION_STATEMENTS) await pool.query(statement);
   await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');
@@ -1476,6 +1506,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_agent_status ON collaboration_excalidraw_agent_operations (document_id, status, updated_at)');
   for (const statement of EXCALIDRAW_SCENE_SERVICE_STATEMENTS) await pool.query(statement);
+  for (const statement of EXCALIDRAW_COPY_STATEMENTS) await pool.query(statement);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (
@@ -1568,6 +1599,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of AGENT_DIRECT_EDIT_GRANT_STATEMENTS) {
     await pool.query(statement);
   }
+  for (const statement of NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS) await pool.query(statement);
   for (const statement of MOBILE_NOTEBOOK_OPERATION_STATEMENTS) await pool.query(statement);
 
   await pool.query(`
@@ -1631,6 +1663,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await runProposalGraphStorageMigration(pool);
   for (const statement of WORKSPACE_OPERATION_JOURNAL_STATEMENTS) await pool.query(statement);
   for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_OPERATION_ORIGINAL_DELETE_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_OPERATION_ORIGINAL_MOVE_STATEMENTS) await pool.query(statement);
   for (const statement of MOBILE_MCP_APP_CALL_STATEMENTS) await pool.query(statement);
   await runChatMessageAdmissionMigration(pool);
   await runChatMessageQueueMigration(pool);

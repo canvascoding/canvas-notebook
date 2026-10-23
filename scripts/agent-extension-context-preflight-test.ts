@@ -32,8 +32,12 @@ async function directoryBytes(directory: string): Promise<Record<string, string>
 // Real ZIP publication, SQL writes and scoped files exercise the final writer
 // gate. Only the external model catalogue has an inert fixture implementation.
 async function main() {
+  // Parallel production resolvers require independent SQL transactions. PGlite
+  // shares one backend, so another lease's COMMIT can end a resolver's savepoint.
+  assert(process.argv.includes('--native'),
+    'The complete writer/choice gate requires PostgreSQL. Run npm run test:extensions:context-preflight with the managed local database environment.');
   const maintenanceUrl = process.env.DATABASE_URL;
-  const fixture = await createCapabilityPackageStoreApplicationFixture({ native: process.argv.includes('--native') });
+  const fixture = await createCapabilityPackageStoreApplicationFixture({ native: true });
   const databaseName = fixture.native ? (await fixture.sql.get('SELECT current_database() AS name') as { name: string }).name : '';
   const loader = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, main: boolean) => unknown };
   const previousLoad = loader._load;
@@ -90,6 +94,8 @@ async function main() {
     };
     const budgetError = (error: unknown) => {
       assert(error && typeof error === 'object');
+      // Preserve the original stack and SQL context for unrelated failures.
+      if (Reflect.get(error, 'code') !== 'AGENT_EXTENSION_CONTEXT_TOO_LARGE') throw error;
       assert.equal(Reflect.get(error, 'code'), 'AGENT_EXTENSION_CONTEXT_TOO_LARGE');
       assert.equal(Reflect.get(error, 'status'), 409);
       assert(Number(Reflect.get(error, 'requiredBytes')) > EXTENSION_CONTEXT_MAX_BYTES,

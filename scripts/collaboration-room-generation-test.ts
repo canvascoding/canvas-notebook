@@ -9,12 +9,15 @@ import ts from 'typescript';
 import { Hocuspocus } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import * as Direct from '../app/lib/collaboration/direct-connection';
+import * as DirectActivity from '../app/lib/collaboration/direct-activity-session';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
+import { captureLocalCollaborationSearchRooms, SearchRoomCensusChangedError } from '../app/lib/collaboration/search-room-census';
+import { legacyRoomLifecycleStub } from './helpers/legacy-room-lifecycle-stubs';
 
 function gate() {
   let resolve!: () => void;
@@ -64,6 +67,8 @@ async function main() {
   });
   const server = {} as typeof Server;
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
+    const outsideScope = legacyRoomLifecycleStub(name);
+    if (outsideScope) return outsideScope.value;
     if (name === '@hocuspocus/server') return { Hocuspocus: ObservedHocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/persistence')) return {
@@ -76,6 +81,7 @@ async function main() {
       },
       markCollaborationDegraded() { throw new Error('Unexpected durability incident'); },
     };
+    if (name.endsWith('/direct-activity-session')) return DirectActivity;
     if (name.endsWith('/direct-connection')) return { ...Direct, installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; } };
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader: (handler: typeof readDocument) => { readDocument = handler; } };
     if (name.endsWith('/runtime-state')) return {
@@ -109,7 +115,14 @@ async function main() {
     // Real Hocuspocus caches this active direct connection by document ID.
     const oldConnection = await instance.openDirectConnection('doc', context);
     const oldRoom = oldConnection.document!;
+    const liveCensus = captureLocalCollaborationSearchRooms(workspace.workspaceId);
+    assert.deepEqual(liveCensus.rooms.map(room => room.documentId), ['doc'], 'the actual server installs its loaded-room census');
+    assert.equal(liveCensus.complete, false, 'this legacy fixture has no native room owner proof');
+    assert.deepEqual(liveCensus.uncertainty, ['owner_unfenced']);
+    assert.equal(liveCensus.remoteCoverage, 'unknown');
     await oldConnection.transact((document) => document.getText('content').insert(0, 'Late old room: '));
+    assert.throws(() => liveCensus.assertCurrent(), SearchRoomCensusChangedError,
+      'the installed server census observes a real Hocuspocus direct edit');
     const restoredBytes = Uint8Array.from(state.yjsState);
     state = { ...state, lifecycleGeneration: 3 };
     let edits = 0;
@@ -162,6 +175,9 @@ async function main() {
     const firstOpening = direct(renamedInput, (document) => document.getText('content').toString());
     await loadBarrier.entered.promise;
     assert.equal(instance.documents.has('doc'), false, 'a loading room is not exposed before onLoadDocument completes');
+    const loadingCensus = captureLocalCollaborationSearchRooms(workspace.workspaceId);
+    assert.equal(loadingCensus.complete, false);
+    assert(loadingCensus.uncertainty.includes('loading'), 'an unfinished real loader cannot disappear as a complete zero-room census');
     const secondOpening = direct(renamedInput, (document) => document.getText('content').toString());
     await new Promise<void>((resolve) => setImmediate(resolve));
     loadBarrier.release.resolve(); loadBarrier = null;
@@ -187,6 +203,7 @@ async function main() {
     assert.equal(instance.documents.has('doc'), false);
     console.log('Real Hocuspocus rooms: stale generations rejected before apply/sync/read/store; late unload/projection callbacks cannot affect a replacement; rename, parallel initial opens and restore during delayed loading passed.');
   } finally {
+    const beforeClose = captureLocalCollaborationSearchRooms(workspace.workspaceId);
     httpServer.emit('close');
     loadBarrier?.release.resolve();
     for (const room of instance.documents.values()) {
@@ -197,6 +214,8 @@ async function main() {
     if (originalData === undefined) delete process.env.DATA; else process.env.DATA = originalData;
     if (originalRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = originalRoot;
     await fs.rm(data, { recursive: true, force: true });
+    assert.throws(() => beforeClose.assertCurrent(), SearchRoomCensusChangedError);
+    assert.deepEqual(captureLocalCollaborationSearchRooms(workspace.workspaceId).uncertainty, ['not_installed']);
   }
 }
 

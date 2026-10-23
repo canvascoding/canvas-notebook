@@ -1,10 +1,13 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '@/app/lib/db';
+import type { WorkspacePathImportPreparationHandle } from '../files/workspace-path-import-preparation-phase';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import type { RichMigrationTransaction } from './rich-migration-domain';
 import { collaborationRoomReleaseDigest } from './room-owner-release';
 import {
   admissionDrainTicketForTarget,
@@ -226,18 +229,122 @@ async function captureTargets(database: SqlConnection, captured: CapturedRequest
 
 export { captureTargets as captureCollaborationAdmissionScopeTargets };
 
+/** Borrowed admission mechanics only. The caller owns current authorization,
+ * the actual connection, transaction, workspace fence and its commit/recovery.
+ * This neither enters a mutex nor grants lifecycle mutation authority. */
+export async function reserveCollaborationAdmissionOnConnection(database: SqlConnection,
+  input: CollaborationAdmissionRequest): Promise<CollaborationAdmissionResult> {
+  const captured = captureCollaborationAdmissionRequest(input);
+  await lockRequest(database, captured, true);
+  return reserveCapturedAdmissionOnConnection(database, captured);
+}
+
+/** Fixed borrowed B0 only. The private operation frame supplies its exact P0
+ * request; the genuine separate A backend already retains the exclusive
+ * workspace lock. No lock-skip option, free request or callback is accepted. */
+export async function reserveWorkspacePathImportOperationAdmissionOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle): Promise<CollaborationAdmissionResult> {
+  const { assertWorkspacePathImportOperationAdmissionPreparationOnConnection } = await import('../files/workspace-path-import-preparation-phase');
+  const { assertWorkspaceFileLifecycleSourceLeaseCurrent } = await import('../files/workspace-file-lifecycle-guard');
+  const current = await assertWorkspacePathImportOperationAdmissionPreparationOnConnection(database, handle);
+  const captured = captureCollaborationAdmissionRequest(current.request), scope = current.record.origin.scope;
+  if (!current.operation || captured.workspaceIds.length !== 1 || captured.workspaceIds[0] !== scope.workspaceId
+    || captured.request.scopes.length !== 1 || captured.request.scopes[0].path !== ''
+    || captured.request.scopes[0].kind !== 'subtree' || captured.request.scopes[0].organizationId !== scope.organizationId) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  await assertWorkspaceFileLifecycleSourceLeaseCurrent(database, scope.workspaceId);
+  // The exact request-key lock is retained. Taking its workspace XACT lock on
+  // B would conflict with the proven exclusive session lock on actual A.
+  const key = BigInt.asIntN(64, BigInt(`0x${createHash('sha256')
+    .update(`canvas.collaboration.admission-request-lock.v1\0${captured.request.requestId}`).digest('hex').slice(0, 16)}`)).toString();
+  await database.run('SELECT pg_catalog.pg_advisory_xact_lock($1::bigint)', [key]);
+  const result = await reserveCapturedAdmissionOnConnection(database, captured);
+  const after = await assertWorkspacePathImportOperationAdmissionPreparationOnConnection(database, handle);
+  const expected = captureCollaborationAdmissionRequest(after.request);
+  if (!after.operation || !equal(after.operation.binding, current.operation.binding) || !equal(after.record, current.record)
+    || expected.requestDigest !== captured.requestDigest || expected.intentText !== captured.intentText) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  await assertWorkspaceFileLifecycleSourceLeaseCurrent(database, scope.workspaceId);
+  return result;
+}
+
+/** Shared post-lock mechanics. Both callers first establish their own actual
+ * request lock and workspace fence; this private core supplies no authority. */
+async function reserveCapturedAdmissionOnConnection(database: SqlConnection,
+  captured: CapturedRequest): Promise<CollaborationAdmissionResult> {
+  const existing = await readRequest(database, captured);
+  if (existing) return existing;
+  for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);
+  const targets = await captureTargets(database, captured);
+  await database.run(`INSERT INTO collaboration_admission_requests
+    (request_id, request_digest, intent_text, status, revision, created_at) VALUES ($1, $2, $3, 'reserved', 1, $4)`,
+  [captured.request.requestId, captured.requestDigest, captured.intentText, Date.now()]);
+  for (const [index, scope] of captured.request.scopes.entries()) {
+    await database.run(`INSERT INTO collaboration_admission_scopes
+      (request_id, ordinal, workspace_id, organization_id, path, kind) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [captured.request.requestId, index, scope.workspaceId, scope.organizationId, scope.path, scope.kind]);
+  }
+  for (const target of targets) {
+    await database.run(`INSERT INTO collaboration_admission_targets (request_id, document_id, snapshot_text)
+      VALUES ($1, $2, $3)`, [captured.request.requestId, target.document.documentId, JSON.stringify(target)]);
+  }
+  return Object.freeze({ requestId: captured.request.requestId, requestDigest: captured.requestDigest,
+    status: 'reserved' as const, revision: 1, targets: Object.freeze(targets) });
+}
+
+/** Borrowed drain transition only. The caller owns current authorization, the
+ * actual connection/transaction and its confirmed commit/recovery. This does
+ * not wait for an owner, open a connection or grant mutation authority. */
+export async function startCollaborationAdmissionDrainOnConnection(database: SqlConnection,
+  input: CollaborationAdmissionRequest, documentId: string): Promise<CollaborationAdmissionDrainTicket> {
+  const captured = captureCollaborationAdmissionRequest(input);
+  if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)) {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  await database.get('SELECT request_id FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
+    [captured.request.requestId]);
+  const current = await readRequest(database, captured);
+  if (!current || !['reserved', 'draining'].includes(current.status) || current.revision >= Number.MAX_SAFE_INTEGER) {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  const target = current.targets.find((item) => item.document.documentId === documentId);
+  if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
+  const row = await database.get(`SELECT status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
+    WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
+  if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
+    || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)
+    || (row.status === 'released' ? row.quiescence_kind !== 'owner_drain'
+      : row.quiescence_kind !== null || row.quiescence_text !== null)) {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  if (row.status === 'reserved') {
+    await database.run(`UPDATE collaboration_admission_targets SET status = 'draining'
+      WHERE request_id = $1 AND document_id = $2`, [ticket.requestId, documentId]);
+    await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
+      WHERE request_id = $1`, [ticket.requestId]);
+  } else if (current.status !== 'draining') {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  return ticket;
+}
+
 /**
  * Internal mechanics only, no auth or lifecycle mutation authority. Connections
  * must be dedicated and close(error) must destroy uncertain backends. No runtime
  * caller is installed until drain, recovery and all writer admission gates exist.
  */
-export function createCollaborationAdmissionService(options: { openConnection: () => Promise<SqlConnection> }) {
-  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>) =>
+export function createCollaborationAdmissionService(options: { openConnection: () => Promise<SqlConnection>;
+  withMutationTransaction?: RichMigrationTransaction }) {
+  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>, mutation = false) =>
     executeLifecycleTransaction({ openConnection: options.openConnection,
       execute: async (database) => {
         await database.run("SET LOCAL statement_timeout = '5s'");
         await database.run("SET LOCAL lock_timeout = '4s'");
-        return execute(database);
+        return mutation && options.withMutationTransaction
+          ? options.withMutationTransaction(database, () => execute(database)) : execute(database);
       }, recoverCommitted });
   const readCaptured = (captured: CapturedRequest) => transaction(
     (database) => readRequest(database, captured), async (verified) => verified);
@@ -262,37 +369,10 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)) {
         throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
       }
-      return transaction(async (database) => {
-        await database.get('SELECT request_id FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
-          [captured.request.requestId]);
-        const current = await readRequest(database, captured);
-        if (!current || !['reserved', 'draining'].includes(current.status) || current.revision >= Number.MAX_SAFE_INTEGER) {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        const target = current.targets.find((item) => item.document.documentId === documentId);
-        if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
-        const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
-        const row = await database.get(`SELECT status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
-          WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
-        if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
-          || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)
-          || (row.status === 'released' ? row.quiescence_kind !== 'owner_drain'
-            : row.quiescence_kind !== null || row.quiescence_text !== null)) {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        if (row.status === 'reserved') {
-          await database.run(`UPDATE collaboration_admission_targets SET status = 'draining'
-            WHERE request_id = $1 AND document_id = $2`, [ticket.requestId, documentId]);
-          await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
-            WHERE request_id = $1`, [ticket.requestId]);
-        } else if (current.status !== 'draining') {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        return ticket;
-      }, async (ticket) => {
+      return transaction(database => startCollaborationAdmissionDrainOnConnection(database, captured.request, documentId), async (ticket) => {
         await readDrain(ticket);
         return ticket;
-      });
+      }, true);
     },
     /** Durable polling also returns released targets whose local destruction still needs retry. */
     pendingDrains(inputs: readonly CollaborationRoomOwnerFence[]): Promise<readonly CollaborationAdmissionDrainTicket[]> {
@@ -339,30 +419,12 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       const enter = (index: number): Promise<CollaborationAdmissionResult> => index < workspaceIds.length
         ? withWorkspaceMutationLock(workspaceIds[index], () => enter(index + 1))
         : transaction(async (database) => {
-        await lockRequest(database, captured, true);
-        const existing = await readRequest(database, captured);
-        if (existing) return existing;
-        for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);
-        const targets = await captureTargets(database, captured);
-        await database.run(`INSERT INTO collaboration_admission_requests
-          (request_id, request_digest, intent_text, status, revision, created_at) VALUES ($1, $2, $3, 'reserved', 1, $4)`,
-        [captured.request.requestId, captured.requestDigest, captured.intentText, Date.now()]);
-        for (const [index, scope] of captured.request.scopes.entries()) {
-          await database.run(`INSERT INTO collaboration_admission_scopes
-            (request_id, ordinal, workspace_id, organization_id, path, kind) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [captured.request.requestId, index, scope.workspaceId, scope.organizationId, scope.path, scope.kind]);
-        }
-        for (const target of targets) {
-          await database.run(`INSERT INTO collaboration_admission_targets (request_id, document_id, snapshot_text)
-            VALUES ($1, $2, $3)`, [captured.request.requestId, target.document.documentId, JSON.stringify(target)]);
-        }
-        return Object.freeze({ requestId: captured.request.requestId, requestDigest: captured.requestDigest,
-          status: 'reserved' as const, revision: 1, targets: Object.freeze(targets) });
+        return reserveCollaborationAdmissionOnConnection(database, captured.request);
       }, async () => {
         const found = await readCaptured(captured);
         if (!found) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
         return found;
-      });
+      }, true);
       return enter(0);
     },
     /** Only an unstarted request may cancel. Drain/mutation phases require their own outcome proof. */
@@ -395,7 +457,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
           throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
         }
         return found;
-      });
+      }, true);
     },
   };
 }

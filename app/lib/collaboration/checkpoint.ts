@@ -1,6 +1,8 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 
-import { readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { readFile, writeFile, writeFileIfAbsent, rollbackWorkspaceExclusiveFilePublication,
+  type WorkspaceExclusiveFilePublication } from '@/app/lib/filesystem/workspace-files';
 import {
   ensureFileRevisionForCurrentContent,
   markCollaborationDocumentCheckpoint,
@@ -26,6 +28,7 @@ import { Y } from './server-runtime';
 import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, loadCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
 import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from './projection-identity';
 import { inCollaborationProjectionPhase } from './projection-errors';
+import { withCollaborationProjectionPublicationGuard } from './projection-publication-guard';
 
 export class CollaborationCheckpointSupersededError extends Error {
   constructor(readonly documentId: string, readonly sequence: number) {
@@ -94,6 +97,8 @@ async function writeCollaborationCheckpointFile(input: {
   actorUserId?: string | null;
   actorType?: 'user' | 'agent' | 'system';
   sourceSessionId?: string | null;
+  createIfAbsent?: boolean;
+  onPublished?: (publication: WorkspaceExclusiveFilePublication) => void;
 }): Promise<CollaborationCheckpointFileWrite> {
   if (input.state.workspaceId !== input.workspace.workspaceId) {
     throw new Error('Collaboration checkpoint workspace mismatch.');
@@ -105,7 +110,9 @@ async function writeCollaborationCheckpointFile(input: {
   const canonical = input.canonicalContent.replace(/\r\n?/gu, '\n');
   const serialized = serializeCanonicalText(canonical, input.state);
   const fileOptions = workspaceFileOptions(input.workspace);
-  await writeFile(input.state.path, serialized, fileOptions);
+  const beforePublish = () => assertCurrentCollaborationProjectionIdentity(input.state);
+  if (input.createIfAbsent) await writeFileIfAbsent(input.state.path, serialized, fileOptions, beforePublish, undefined, input.onPublished);
+  else await writeFile(input.state.path, serialized, fileOptions, beforePublish);
   const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
   if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');
 
@@ -134,16 +141,17 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
   sourceSessionId?: string | null;
 }): Promise<CompensatableCollaborationCheckpointFileWrite> {
   const fileOptions = workspaceFileOptions(input.workspace);
-  const previousContent = await readFile(input.state.path, fileOptions);
   const previousRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
-  if (!previousRevision) {
-    throw new Error('Collaboration checkpoint could not snapshot the current file before write.');
+  const previousContent = previousRevision ? await readFile(input.state.path, fileOptions) : null;
+  if (previousContent !== null && createHash('sha256').update(previousContent).digest('hex') !== previousRevision!.sha256) {
+    throw new Error('Collaboration checkpoint projection changed while capturing compensation.');
   }
   const serializedContent = serializeCanonicalText(
     input.canonicalContent.replace(/\r\n?/gu, '\n'),
     input.state,
   );
   const writtenHash = sha256Text(serializedContent);
+  let publication: WorkspaceExclusiveFilePublication | undefined;
   let rolledBack = false;
   const rollback = async (): Promise<void> => {
     if (rolledBack) return;
@@ -155,6 +163,12 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
       throw new Error('Collaboration checkpoint rollback refused to overwrite another document lifecycle.');
     }
     await assertCurrentCollaborationProjectionIdentity(currentState);
+    if (!previousRevision) {
+      if (publication) await rollbackWorkspaceExclusiveFilePublication(publication,
+        () => assertCurrentCollaborationProjectionIdentity(currentState));
+      rolledBack = true;
+      return;
+    }
     const currentRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
     if (currentRevision?.sha256 === previousRevision.sha256) {
       rolledBack = true;
@@ -163,7 +177,7 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
     if (currentRevision?.sha256 !== writtenHash) {
       throw new Error('Collaboration checkpoint rollback refused to overwrite a newer workspace file.');
     }
-    await writeFile(input.state.path, previousContent, fileOptions, async () => {
+    await writeFile(input.state.path, previousContent!, fileOptions, async () => {
       const lockedRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
       if (lockedRevision?.sha256 !== writtenHash) {
         throw new Error('Collaboration checkpoint file changed before rollback replacement.');
@@ -186,7 +200,8 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
   };
 
   try {
-    const fileWrite = await writeCollaborationCheckpointFile(input);
+    const fileWrite = await writeCollaborationCheckpointFile({ ...input, createIfAbsent: !previousRevision,
+      onPublished: value => { publication = value; } });
     return { ...fileWrite, rollback };
   } catch (writeError) {
     try {
@@ -258,7 +273,7 @@ export async function materializeCollaborationCheckpoint(input: {
     || input.state.organizationId !== (input.workspace.organizationId ?? null)) {
     throw new CollaborationProjectionIdentityError();
   }
-  return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
+  return withCollaborationProjectionPublicationGuard(input.state, async assertPublicationCurrent => {
     const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<CollaborationCheckpointFileWrite>({
       documentId: input.state.documentId,
       workspaceId: input.state.workspaceId,
@@ -269,10 +284,12 @@ export async function materializeCollaborationCheckpoint(input: {
       sequence: input.state.documentSequence,
       stateVector: input.state.stateVector,
       confirmProjection: async (transaction, state, result) => {
+        await assertPublicationCurrent();
         await recordCollaborationProjectionPending(transaction, state, result);
         await input.confirmProjection?.(transaction, state, result);
       },
       materialize: async (lockedState) => {
+        await assertPublicationCurrent();
         const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(lockedState));
         // A committed receipt and verified file may need only metadata/share
         // finalization. Preserve its inode, revision and original attempt.
@@ -309,11 +326,13 @@ export async function materializeCollaborationCheckpoint(input: {
         input.state.documentSequence,
       );
     }
+    await assertPublicationCurrent();
     await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({
       state: fenced.state,
       workspace: input.workspace,
       revisionId: fenced.result.revisionId,
     }));
+    await assertPublicationCurrent();
     await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
     const { projectionError: _completedError, ...projectedState } = fenced.state;
     return {

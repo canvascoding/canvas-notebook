@@ -200,9 +200,40 @@ async function main(): Promise<void> {
     }),
     (error: unknown) => Boolean(
       error instanceof service.WorkspaceUploadServiceError
-      && error.code === 'UPLOAD_NOT_FOUND'
+      && error.code === 'UPLOAD_CANCELLED'
+      && error.status === 409
     ),
   );
+
+  const exactSources = [
+    { path: 'name.md', content: Buffer.from('# Normal upload\n') },
+    { path: ' name.md', content: Buffer.from('# Leading-space upload\n') },
+    { path: ' Dir / Note .md', content: Buffer.from('# Exact nested upload\n') },
+  ];
+  const exactUpload = await service.createWorkspaceUploadSession({ userId: 'user-1', workspace, targetDir: '.',
+    files: exactSources.map(source => ({ path: source.path, size: source.content.length, mimeType: 'text/markdown' })) });
+  assert.deepEqual(exactUpload.files.map(file => file.relativePath), exactSources.map(source => source.path));
+  assert.deepEqual(exactUpload.files.map(file => file.targetPath), exactSources.map(source => source.path));
+  const exactScope = { sessionId: exactUpload.id, userId: 'user-1', workspace };
+  for (const [index, source] of exactSources.entries()) {
+    const file = exactUpload.files[index];
+    await service.writeWorkspaceUploadChunk({ ...exactScope, fileId: file.id, offset: 0, expectedBytes: source.content.length,
+      body: new Blob([source.content]).stream() });
+    const complete = await service.completeWorkspaceUploadFile({ ...exactScope, fileId: file.id,
+      commit: ({ file: completedFile, sourcePath }) => {
+        assert.equal(completedFile.targetPath, source.path);
+        return workspaceFiles.replaceWorkspaceFileFromPath(sourcePath, completedFile.targetPath, { workspace });
+      } });
+    assert.equal(complete.file.targetPath, source.path); assert.equal(complete.file.status, 'completed');
+    assert.deepEqual(await fs.readFile(path.join(workspaceRoot, source.path)), source.content);
+  }
+  const exactCompleted = await service.getWorkspaceUploadSession(exactScope);
+  assert.equal(exactCompleted.status, 'completed');
+  assert.deepEqual(exactCompleted.files.map(file => file.targetPath), exactSources.map(source => source.path));
+  assert.notEqual((await fs.stat(path.join(workspaceRoot, 'name.md'))).ino, (await fs.stat(path.join(workspaceRoot, ' name.md'))).ino);
+  assert((await fs.stat(path.join(workspaceRoot, ' Dir '))).isDirectory());
+  await assert.rejects(fs.stat(path.join(workspaceRoot, 'Dir')), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(path.join(workspaceRoot, ' Dir /Note .md')), { code: 'ENOENT' });
 
   console.log('workspace-upload-service-test: ok');
 }

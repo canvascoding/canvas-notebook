@@ -21,7 +21,7 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
-import { Link } from '@tiptap/extension-link';
+import { isAllowedUri, Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
 import { MarkdownImageControls } from './MarkdownImageControls';
@@ -39,7 +39,7 @@ import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
 import { CanvasCodeBlock as CodeBlock, CanvasHorizontalRule } from '@/app/lib/markdown/core/base-blocks';
 import { withStableNodeViewMount } from '@/app/lib/editor/stable-node-view';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   AtSign,
@@ -122,6 +122,7 @@ import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkd
 import { isMarkdownSourceModeSupported } from '@/app/lib/editor/markdown-mode-availability';
 import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownInsertDialog } from './MarkdownInsertDialog';
+import { useMenuDialogFocusHandoff } from '@/app/lib/editor/use-menu-dialog-focus-handoff';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
@@ -195,7 +196,7 @@ import {
   getWorkspaceWikiCompletionItems,
   loadWorkspaceLinkIndex,
 } from '@/app/lib/markdown/workspace-link-index-client';
-import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
+import type { WorkspaceLinkReadIndex as WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-document-link-index-contract';
 import {
   consumeWorkspaceMarkdownLocation,
   getWorkspaceMarkdownLocationFromEvent,
@@ -267,6 +268,8 @@ export interface MarkdownEditorProps {
   mode?: EditorMode;
   onModeChange?: (mode: EditorMode) => void;
   modeBarActions?: React.ReactNode;
+  /** Mount presentation controls in the owning document header. */
+  controlsTarget?: HTMLElement | null;
 }
 
 type EditorMode = MarkdownDocumentMode;
@@ -2370,15 +2373,6 @@ function MarkdownSourceToolbar({
 
   return (
     <>
-      {showRichModeSwitch ? (
-        <TooltipProvider>
-          <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
-            <TooltipIconButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
-              <Eye />
-            </TooltipIconButton>
-          </div>
-        </TooltipProvider>
-      ) : null}
       {portalElement ? createPortal(mobileToolbar, portalElement) : null}
     </>
   );
@@ -3095,11 +3089,13 @@ function MarkdownLinkPopover({
   state,
   onClose,
   onEdit,
+  onOpenLink,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   state: LinkPopoverState | null;
   onClose: () => void;
   onEdit: (state: LinkPopoverState) => void;
+  onOpenLink: (href: string) => void;
 }) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -3128,9 +3124,9 @@ function MarkdownLinkPopover({
 
   const openLink = useCallback(() => {
     if (!state?.href) return;
-    const openedWindow = window.open(state.href, '_blank', 'noopener,noreferrer');
-    if (openedWindow) openedWindow.opener = null;
-  }, [state]);
+    onOpenLink(state.href);
+    onClose();
+  }, [onClose, onOpenLink, state]);
 
   const copyLink = useCallback(() => {
     if (!state?.href) return;
@@ -3839,6 +3835,8 @@ function MarkdownToolbar({
   onOpenRichBlockDialog,
   onOpenTableDialog,
   onOpenMarkdownDialog,
+  onOpenLink,
+  actions,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   filePath?: string;
@@ -3852,8 +3850,13 @@ function MarkdownToolbar({
   onOpenRichBlockDialog: (kind: RichBlockKind, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onOpenMarkdownDialog?: (range?: Range) => void;
+  onOpenLink: (href: string) => void;
+  actions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
+  const insertMenuFocus = useMenuDialogFocusHandoff();
+  const blockMenuFocus = useMenuDialogFocusHandoff();
+  const formulaMenuFocus = useMenuDialogFocusHandoff();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
     id: 0,
@@ -4125,56 +4128,56 @@ function MarkdownToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={blockMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarBlocks')} disabled={!canUseCommands} active={toolbarState.isBlockquote || toolbarState.isCallout || toolbarState.isDetails || toolbarState.isCodeBlock} testId="markdown-toolbar-blocks">
               <Layers className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={blockMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarBlocks')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <ToolbarDropdownItem Icon={Quote} label={labels.items.quote.title} active={toolbarState.isBlockquote} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleBlockquote().run()} />
-            <ToolbarDropdownItem Icon={BadgeInfo} label={labels.items.callout.title} active={toolbarState.isCallout} disabled={!canUseCommands} onSelect={insertCallout} />
-            <ToolbarDropdownItem Icon={ListCollapse} label={labels.items.details.title} active={toolbarState.isDetails} disabled={!canUseCommands} onSelect={insertDetails} />
-            <ToolbarDropdownItem Icon={Superscript} label={labels.items.footnote.title} disabled={!canUseCommands} onSelect={insertFootnote} />
+            <ToolbarDropdownItem Icon={BadgeInfo} label={labels.items.callout.title} active={toolbarState.isCallout} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertCallout)} />
+            <ToolbarDropdownItem Icon={ListCollapse} label={labels.items.details.title} active={toolbarState.isDetails} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertDetails)} />
+            <ToolbarDropdownItem Icon={Superscript} label={labels.items.footnote.title} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertFootnote)} />
             <ToolbarDropdownItem Icon={Code2} label={labels.items.codeBlock.title} active={toolbarState.isCodeBlock} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleCodeBlock().run()} />
             <ToolbarDropdownItem Icon={Minus} label={labels.items.divider.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().setHorizontalRule().run()} />
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={insertMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarInsert')} disabled={!canUseCommands} active={toolbarState.isLink} testId="markdown-toolbar-insert">
               <Plus className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={insertMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarInsert')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <ToolbarDropdownItem Icon={LinkIcon} label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onSelect={openToolbarLinkDialog} />
-            <ToolbarDropdownItem Icon={ImageIcon} label={labels.items.image.title} disabled={!canUseCommands} onSelect={() => onImageDialogOpenChange(true, getCurrentToolbarRange())} />
-            <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => onOpenTableDialog(getCurrentToolbarRange())} />
-            <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => onOpenEmojiDialog(getCurrentToolbarRange())} />
+            <ToolbarDropdownItem Icon={LinkIcon} label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(openToolbarLinkDialog)} />
+            <ToolbarDropdownItem Icon={ImageIcon} label={labels.items.image.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onImageDialogOpenChange(true, getCurrentToolbarRange()))} />
+            <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenTableDialog(getCurrentToolbarRange()))} />
+            <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenEmojiDialog(getCurrentToolbarRange()))} />
             <ToolbarDropdownItem Icon={AtSign} label={labels.items.mention.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().insertContent('@').run()} />
             {onOpenMarkdownDialog ? <>
               <DropdownMenuSeparator />
-              <ToolbarDropdownItem Icon={FileText} label={t('markdownInsert.title')} disabled={!canUseCommands} onSelect={() => onOpenMarkdownDialog(getCurrentToolbarRange())} />
+              <ToolbarDropdownItem Icon={FileText} label={t('markdownInsert.title')} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenMarkdownDialog(getCurrentToolbarRange()))} />
             </> : null}
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={formulaMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarFormula')} disabled={!canUseCommands} testId="markdown-toolbar-formula">
               <Sigma className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={formulaMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarFormula')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <ToolbarDropdownItem Icon={Sigma} label={labels.items.inlineMath.title} disabled={!canUseCommands} onSelect={() => insertMath('inline')} />
-            <ToolbarDropdownItem Icon={SquareSigma} label={labels.items.blockMath.title} disabled={!canUseCommands} onSelect={() => insertMath('block')} />
+            <ToolbarDropdownItem Icon={Sigma} label={labels.items.inlineMath.title} disabled={!canUseCommands} onSelect={() => formulaMenuFocus.openDialog(() => insertMath('inline'))} />
+            <ToolbarDropdownItem Icon={SquareSigma} label={labels.items.blockMath.title} disabled={!canUseCommands} onSelect={() => formulaMenuFocus.openDialog(() => insertMath('block'))} />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -4198,6 +4201,7 @@ function MarkdownToolbar({
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
+        {actions && <div className="ml-auto flex shrink-0 items-center">{actions}</div>}
       </div>
       {canUseCommands && editor ? <MarkdownTableMenu editor={editor} suppressed={linkDialogOpen || imageDialogOpen} /> : null}
       {canUseCommands && editor ? <MarkdownSelectionMenu editor={editor} suppressed={linkDialogOpen || Boolean(linkPopover)} onLink={openToolbarLinkDialog} /> : null}
@@ -4206,6 +4210,7 @@ function MarkdownToolbar({
         state={editor ? linkPopover : null}
         onClose={closeLinkPopover}
         onEdit={editLinkFromPopover}
+        onOpenLink={onOpenLink}
       />
       <MarkdownLinkDialog
         key={`link-${linkDialogSeed.id}`}
@@ -4787,6 +4792,7 @@ export function RichMarkdownEditor({
   layout = 'document',
   viewport,
   viewportMarkdown,
+  toolbarActions,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
@@ -4795,6 +4801,7 @@ export function RichMarkdownEditor({
   localDocument?: LocalMarkdownDocument | null;
   viewport?: MarkdownModeViewport;
   viewportMarkdown?: string;
+  toolbarActions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
   const access = useMarkdownEditorAccess();
@@ -5078,12 +5085,12 @@ export function RichMarkdownEditor({
     },
   }, [collaboration?.provider, localDocument]);
 
-  useMarkdownViewportAdapter(viewport, editor && viewportElement
+  useMarkdownViewportAdapter(viewport, editor && !editor.isDestroyed && viewportElement
     ? createRichViewportAdapter(editor, viewportElement, viewportMarkdown ?? value, frontmatter) : null);
 
   useLayoutEffect(() => {
     const pane = viewportElement?.closest<HTMLElement>('.markdown-editor-pane');
-    if (!editor || !viewportElement || !pane) return;
+    if (!editor || editor.isDestroyed || !viewportElement || !pane) return;
     const mobileViewport = createMobileEditorViewport({ pane, scroller: viewportElement, content: editor.view.dom,
       readCaret: () => editor.isDestroyed ? null : editor.view.coordsAtPos(editor.state.selection.head),
       isComposing: () => !editor.isDestroyed && editor.view.composing });
@@ -5232,29 +5239,50 @@ export function RichMarkdownEditor({
       || appliedNavigationRequestRef.current === markdownNavigationTarget.requestId
     ) return;
 
-    const wantedHeading = markdownNavigationTarget.heading.trim().toLocaleLowerCase();
-    const nextAnchor = createMarkdownHeadingAnchorFactory();
-    let headingPosition: number | null = null;
-    editor.state.doc.descendants((node, position) => {
-      const headingAnchor = node.type.name === 'heading' ? nextAnchor(node.textContent) : null;
-      if (
-        headingPosition === null
-        && node.type.name === 'heading'
-        && (
-          node.textContent.trim().toLocaleLowerCase() === wantedHeading
-          || headingAnchor === wantedHeading
-        )
-      ) {
-        headingPosition = position + 1;
-        return false;
-      }
-      return headingPosition === null;
-    });
-    if (headingPosition === null) return;
+    const { heading, requestId } = markdownNavigationTarget;
+    let cancelled = false;
+    let queued = false;
+    const navigateToHeading = () => {
+      if (cancelled || editor.isDestroyed
+        || appliedNavigationRequestRef.current === requestId) return;
+      const wantedHeading = heading.trim().toLocaleLowerCase();
+      const nextAnchor = createMarkdownHeadingAnchorFactory();
+      let headingPosition: number | null = null;
+      editor.state.doc.descendants((node, position) => {
+        const headingAnchor = node.type.name === 'heading' ? nextAnchor(node.textContent) : null;
+        if (
+          headingPosition === null
+          && node.type.name === 'heading'
+          && (
+            node.textContent.trim().toLocaleLowerCase() === wantedHeading
+            || headingAnchor === wantedHeading
+          )
+        ) {
+          headingPosition = position + 1;
+          return false;
+        }
+        return headingPosition === null;
+      });
+      if (headingPosition === null) return;
 
-    appliedNavigationRequestRef.current = markdownNavigationTarget.requestId;
-    if (viewport && !viewport.claimNavigation(markdownNavigationTarget.requestId)) return;
-    editor.chain().focus().setTextSelection(headingPosition).scrollIntoView().run();
+      appliedNavigationRequestRef.current = requestId;
+      editor.off('transaction', handleDocumentChange);
+      if (viewport && !viewport.claimNavigation(requestId)) return;
+      editor.chain().focus().setTextSelection(headingPosition).scrollIntoView().run();
+    };
+    const handleDocumentChange = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged || queued || cancelled) return;
+      queued = true;
+      // Native Yjs may be ready before its view projection. Wait until the
+      // current projection dispatch ends, then inspect the latest native doc.
+      queueMicrotask(() => { queued = false; navigateToHeading(); });
+    };
+    editor.on('transaction', handleDocumentChange);
+    navigateToHeading();
+    return () => {
+      cancelled = true;
+      editor.off('transaction', handleDocumentChange);
+    };
   }, [editor, markdownNavigationTarget, viewport]);
   const isRichEditorFocused = useEditorState({
     editor,
@@ -5358,52 +5386,64 @@ export function RichMarkdownEditor({
     editor?.setEditable(!effectiveReadOnly);
   }, [editor, effectiveReadOnly]);
 
+  const openDocumentLink = useCallback(async (href: string) => {
+    if (!editor || editor.isDestroyed) return;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return;
+    if (markdownHeadingAnchorFromHref(href) && scrollToMarkdownHeadingAnchor(editorElement, href)) return;
+    const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
+    if (workspaceTarget) {
+      if (!access.workspace) { toast.error(t('markdownEditorLinkOpenError')); return; }
+      const result = await openWorkspaceMarkdownTarget({
+        sourcePath: filePath, syntax: 'markdown', target: href, workspaceId: activeWorkspaceId,
+      });
+      if (!['opened', 'superseded'].includes(result.status)) toast.error(result.error ?? t('markdownEditorLinkOpenError'));
+      return;
+    }
+    // Only explicit safe external protocols may leave the workspace. Relative
+    // document targets must pass the scoped resolver above, including failures.
+    const external = href.trim();
+    if (!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(external) || !isAllowedUri(external)) {
+      toast.error(t('markdownEditorLinkOpenError')); return;
+    }
+    try {
+      const url = new URL(external, window.location.href);
+      if (!isAllowedUri(url.href)) { toast.error(t('markdownEditorLinkOpenError')); return; }
+      const openedWindow = window.open(url.href, '_blank', 'noopener,noreferrer');
+      if (openedWindow) openedWindow.opener = null;
+    } catch { toast.error(t('markdownEditorLinkOpenError')); }
+  }, [access.workspace, activeWorkspaceId, editor, filePath, t]);
+
   useEffect(() => {
     if (!editor) return undefined;
     const editorElement = editor.options.element;
     if (!(editorElement instanceof HTMLElement)) return undefined;
 
     const handleWorkspaceLinkClick = (event: MouseEvent) => {
+      // macOS Control-left-click emits contextmenu without a click event.
+      // Ordinary right-click and keyboard context menus retain their behavior.
+      if (event.type === 'contextmenu' && (!event.ctrlKey || event.button !== 0)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const anchor = target.closest('a[href]');
       if (!anchor || !editorElement.contains(anchor)) return;
 
       const href = anchor.getAttribute('href') ?? '';
-      if (markdownHeadingAnchorFromHref(href)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        scrollToMarkdownHeadingAnchor(editorElement, href);
-        return;
-      }
-      if (!access.workspace) {
-        // Shared documents may link out, but cannot navigate private workspace files.
-        if (/^https?:\/\//iu.test(href) && !effectiveReadOnly) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (/^https?:\/\//iu.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
-      if (!workspaceTarget) return;
-
+      // A writer's ordinary click selects the link and opens its edit menu.
+      // Readers and an explicit modifier use the same guarded Open action.
+      if (!effectiveReadOnly && !event.metaKey && !event.ctrlKey) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void openWorkspaceMarkdownTarget({
-        sourcePath: filePath,
-        syntax: 'markdown',
-        target: href,
-        workspaceId: activeWorkspaceId,
-      }).then((result) => {
-        if (!['opened', 'superseded'].includes(result.status)) {
-          toast.error(result.error ?? t('markdownEditorLinkOpenError'));
-        }
-      });
+      void openDocumentLink(href);
     };
 
     editorElement.addEventListener('click', handleWorkspaceLinkClick, true);
-    return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
-  }, [access.workspace, activeWorkspaceId, editor, effectiveReadOnly, filePath, t]);
+    editorElement.addEventListener('contextmenu', handleWorkspaceLinkClick, true);
+    return () => {
+      editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
+      editorElement.removeEventListener('contextmenu', handleWorkspaceLinkClick, true);
+    };
+  }, [editor, effectiveReadOnly, openDocumentLink]);
 
   useEffect(() => editor ? attachMarkdownDetailsInteractions(editor) : undefined, [editor]);
 
@@ -5504,10 +5544,12 @@ export function RichMarkdownEditor({
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenRichBlockDialog={openRichBlockDialogFromToolbar}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
+          showSourceModeSwitch={false}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
+          onOpenLink={(href) => { void openDocumentLink(href); }}
+          actions={toolbarActions}
         />
       ) : null}
       {!effectiveReadOnly ? (
@@ -5547,7 +5589,7 @@ export function RichMarkdownEditor({
           onOpenTableDialog={openTableDialogAtRange}
           onOpenMarkdownDialog={markdownInsertionAvailable ? openMarkdownDialog : undefined}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
+          showSourceModeSwitch={false}
           visible={isMobileToolbarVisible}
         />
       ) : null}
@@ -5718,7 +5760,7 @@ function SourceMarkdownEditor({
       {!readOnly && layout === 'document' ? (
         <MarkdownSourceToolbar
           richModeAvailable={richModeAvailable}
-          showRichModeSwitch={!collaborationEnabled}
+          showRichModeSwitch={false}
           mobileVisible={mobileToolbarVisible}
           onMobilePointerCancel={releaseToolbarVisibility}
           onMobilePointerDown={holdToolbarVisibility}
@@ -5803,6 +5845,7 @@ export function MarkdownEditor({
   mode: controlledMode,
   onModeChange,
   modeBarActions,
+  controlsTarget,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
   // Collaborative files always use the server's document representation.
@@ -5868,13 +5911,16 @@ export function MarkdownEditor({
     [filePath, value],
   );
   const [internalMode, setInternalMode] = useState<EditorMode>(() => (
-    readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
+    sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : readOnly ? 'read' : 'rich'
   ));
   const requestedMode = controlledMode ?? internalMode;
-  const mode = requestedMode === 'source' && !sourceAvailable ? 'read' : requestedMode;
-  if (internalMode === 'source' && !sourceAvailable && authoritativeRepresentation) setInternalMode('read');
+  // Read-only is a permission, not a selectable state for a writer. Legacy
+  // controlled callers requesting Read still receive the editable document.
+  const mode: EditorMode = requestedMode === 'source' && !sourceAvailable ? 'rich'
+    : requestedMode === 'read' && !readOnly ? (sourceModeRequired ? 'source' : 'rich') : requestedMode;
+  if (internalMode === 'source' && !sourceAvailable && authoritativeRepresentation) setInternalMode('rich');
   const setMode = useCallback((next: EditorMode) => {
-    const supportedMode = next === 'source' && !sourceAvailable ? 'read' : next;
+    const supportedMode = next === 'source' && !sourceAvailable ? 'rich' : next;
     viewport.prepare(supportedMode);
     setInternalMode(supportedMode);
     onModeChange?.(supportedMode);
@@ -5948,7 +5994,8 @@ export function MarkdownEditor({
   }, [collaborationEnabled, displayedValue, frontmatter, localDocument, onModeChange, readOnly, richModeAnalysis, t, viewport]);
 
   const switchToRichMode = useCallback(() => {
-    if (readOnly || richModeAnalysis.mode === 'source') return;
+    if (richModeAnalysis.mode === 'source') return;
+    if (readOnly) { setMode('read'); return; }
     if (!collaborationEnabled && richModeAnalysis.mode === 'normalizable') {
       normalizeToRichMode();
       return;
@@ -5983,22 +6030,27 @@ export function MarkdownEditor({
     );
   }
 
-  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly} sourceAvailable={sourceAvailable} wide={wide} onWideChange={setWide} onChange={(next) => {
+  const controls = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly}
+    sourceAvailable={sourceAvailable} richAvailable={!sourceModeRequired} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
-    else setMode('read');
   }} />;
+  const controlsInRichToolbar = !controlsTarget && effectiveMode === 'rich' && !effectiveReadOnly && !preparingRichMode;
   const wrap = (children: React.ReactNode) => <div className="relative flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}
     onFocusCapture={() => setLocalFocused(true)}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLocalFocused(false); }}>
-    {modeBar}
+    {controlsTarget ? createPortal(controls, controlsTarget) : <div className={cn(
+      'absolute right-2 top-1 z-40 rounded-md bg-background/95', controlsInRichToolbar && 'md:hidden',
+    )}>{controls}</div>}
     {!readOnly && collaborationDocument && needsRichUpgrade && collaborationDocument.session && filePath
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
-        onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
+        onStart={() => setMode('rich')} onSourceResume={switchToSourceMode}
+        onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
     <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry}
       placement={collaborationDocument?.ready && collaborationDocument.durability === 'degraded' ? 'inline' : 'overlay'} />
-    <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
+    <div className={cn('markdown-editor-content min-h-0 flex-1 overflow-hidden',
+      !controlsTarget && effectiveMode === 'source' && 'pt-10')}>{children}</div>
   </div>;
 
   const canRenderDocument = canRenderCollaborationDocument(collaborationDocument, projectionAvailable);
@@ -6084,6 +6136,7 @@ export function MarkdownEditor({
       showNotebookMetadata={showNotebookMetadata}
       frontmatter={frontmatter}
       layout={layout}
+      toolbarActions={controlsInRichToolbar ? controls : undefined}
     />
   );
 }

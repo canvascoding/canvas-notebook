@@ -9,6 +9,7 @@ import { buildWorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace
 import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { WORKSPACE_FILE_UNDO_ENABLED, WorkspaceFileUndoDisabledError, assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 
 type UndoKind = 'rename' | 'move';
 type PreparedUndo = {
@@ -23,7 +24,7 @@ type PreparedUndo = {
 export type WorkspaceOperationUndoCapability = {
   available: boolean;
   reason: string | null;
-  reasonCode: 'UNDO_UNAVAILABLE' | 'UNDO_CONFLICT' | 'ALREADY_UNDONE' | null;
+  reasonCode: 'UNDO_UNAVAILABLE' | 'UNDO_CONFLICT' | 'ALREADY_UNDONE' | 'FILE_OPERATION_UNDO_DISABLED' | null;
   undoOperationId: string | null;
 };
 
@@ -121,6 +122,10 @@ async function prepareUndo(input: {
 export async function getWorkspaceOperationUndoCapability(input: {
   operationId: string; workspace: WorkspaceContext; userId: string;
 }): Promise<WorkspaceOperationUndoCapability> {
+  if (!WORKSPACE_FILE_UNDO_ENABLED) {
+    const disabled = new WorkspaceFileUndoDisabledError();
+    return { available: false, reason: disabled.message, reasonCode: disabled.code, undoOperationId: null };
+  }
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(input.operationId)) {
     return { available: false, reason: 'Operation not found.', reasonCode: 'UNDO_UNAVAILABLE', undoOperationId: null };
   }
@@ -149,6 +154,7 @@ export async function undoWorkspaceFileOperation(input: {
   linkStatus: 'complete' | 'partial';
   alreadyKnown: boolean;
 }> {
+  assertWorkspaceFileUndoEnabled();
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(input.operationId)) unavailable('Operation not found.');
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     const prepared = await prepareUndo({ ...input, journal: new WorkspaceOperationJournal() });

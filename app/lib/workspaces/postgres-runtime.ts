@@ -34,7 +34,9 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
-import { seedWorkspaceStarterDocument } from './starter-document';
+import { seedWorkspaceStarterDocument, withObservedWorkspaceStarterDocument } from './starter-document';
+import { recordWorkspaceStarterInitializationIntent } from './starter-document-initialization-store';
+import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { importLegacyWorkspaceForOwner } from './legacy-recovery';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
@@ -666,6 +668,7 @@ async function reserveWorkspaceRootRelativePath(
 }
 
 async function insertWorkspaceRecord(database: RuntimeDb, input: {
+  actorUserId: string;
   organizationId: string;
   type: WorkspaceType;
   ownerUserId: string | null;
@@ -702,10 +705,13 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
     ],
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
-  seedWorkspaceStarterDocument({
-    rootPath: workspaceAbsoluteRoot(input.rootRelativePath),
-    workspaceType: input.type,
-  });
+  const starter = { rootPath: workspaceAbsoluteRoot(input.rootRelativePath), workspaceType: input.type };
+  if (authenticatedNativeTextSessionEnabled()) {
+    await withObservedWorkspaceStarterDocument(starter, observation => recordWorkspaceStarterInitializationIntent(database, {
+      workspaceId: id, actorUserId: input.actorUserId, organizationId: input.organizationId, workspaceType: input.type,
+      projectId: input.projectId ?? null, rootRelativePath: input.rootRelativePath, observation,
+    }));
+  } else seedWorkspaceStarterDocument(starter);
   const record = await getWorkspaceById(database, id);
   if (!record) throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace insert failed.', 500);
   return record;
@@ -1358,12 +1364,73 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   );
 }
 
+/** Read completed setup under a compatible lock retained until the outer commit.
+ * This is a read optimization, not a native authority or an initialization receipt. */
+async function readReadyPostgresOrganizationBootstrapForUser(
+  database: RuntimeDb,
+  userId: string,
+): Promise<OrganizationBootstrapStatus | null> {
+  await database.run('SAVEPOINT canvas_ready_bootstrap');
+  let ready = false;
+  try {
+    // Keep participating workspace writers outside the complete ACL snapshot.
+    const organization = await database.get(`
+      SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR SHARE
+    `) as OrganizationRow | undefined;
+    const targetUser = await findPostgresUserById(database, userId);
+    if (!targetUser || !organization) return null;
+    try {
+      assertOrganizationIdMatchesEnvironment(organization.organization_id);
+    } catch {
+      // Keep the existing bootstrap error and repair path authoritative.
+      return null;
+    }
+    const deploymentMode = getDeploymentMode();
+    if (organization.deployment_mode !== deploymentMode
+      || organization.team_features_enabled !== (areTeamFeaturesEnabled(deploymentMode) ? 1 : 0)) return null;
+    const ownerUser = await findPostgresUserById(database, organization.owner_user_id);
+    if (!ownerUser || ownerUser.role !== 'admin') return null;
+    const ownerPermissionRow = await getPermissionRow(database, organization.organization_id, ownerUser.id);
+    if (ownerPermissionRow?.role !== 'owner') return null;
+    const ownerPermission = rowToPermissionSnapshot(ownerPermissionRow);
+    if (!ownerPermission) return null;
+    const users = targetUser.id === ownerUser.id ? [ownerUser] : [ownerUser, targetUser];
+    const roots: string[] = [];
+    for (const user of users) {
+      const workspace = await getPersonalWorkspace(database, user.id);
+      const expectedRoot = personalWorkspaceRootRelativePath(user.id);
+      if (!workspace || workspace.rootRelativePath !== expectedRoot
+        || !workspace.displayName || !workspace.isDefault) return null;
+      roots.push(workspace.rootRelativePath);
+    }
+    // All setup checks finished before preserving the existing directory repair.
+    for (const root of roots) ensureWorkspaceDirectory(root);
+    const organizationWorkspace = await getActiveOrganizationWorkspace(database, organization.organization_id);
+    const status = buildStatus(organization, ownerUser, ownerPermission, organizationWorkspace?.rootRelativePath ?? null);
+    ready = true;
+    return status;
+  } finally {
+    try {
+      // A repair must not upgrade a retained SHARE lock to the bootstrap UPDATE.
+      if (!ready) await database.run('ROLLBACK TO SAVEPOINT canvas_ready_bootstrap');
+    } finally {
+      // Success retains SHARE through the caller's COMMIT; cleanup errors are fatal.
+      await database.run('RELEASE SAVEPOINT canvas_ready_bootstrap');
+    }
+  }
+}
+
 export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<PostgresWorkspaceState> {
   const database = await openDb();
   let state: PostgresWorkspaceState;
   try {
     await database.run('BEGIN');
-    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const status = await readReadyPostgresOrganizationBootstrapForUser(database, actor.userId)
+      ?? await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
     if (!status.organizationId) {
       await database.run('ROLLBACK');
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
@@ -1531,6 +1598,7 @@ export async function createPostgresWorkspaceForActor(
           )
         : projectWorkspaceRootRelativePath(project?.id ?? '');
     const record = await insertWorkspaceRecord(database, {
+      actorUserId: actor.userId,
       organizationId: status.organizationId,
       type: input.type,
       ownerUserId: input.type === 'personal' ? actor.userId : null,
@@ -2309,6 +2377,130 @@ export async function removePostgresWorkspaceMemberForActor(
   }
 }
 
+/** Internal fixed current read on the caller's actual connection. No bootstrap,
+ * pool, transaction, cache or authority. Scalar aliases preserve the ordinary
+ * PG wire values; presence flags distinguish a missing optional joined row. */
+export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
+  database: Pick<PostgresRuntimeDb, 'get'>,
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const row = await database.get(`
+    SELECT w.*,
+      p.present AS permission_present,
+      p.role AS permission_role,
+      p.status AS permission_status,
+      p.can_write_team_workspace AS permission_can_write_team_workspace,
+      p.can_create_public_links AS permission_can_create_public_links,
+      p.can_create_team_automations AS permission_can_create_team_automations,
+      p.can_share_plugins_and_skills AS permission_can_share_plugins_and_skills,
+      p.can_export AS permission_can_export,
+      p.can_delete_team_files AS permission_can_delete_team_files,
+      p.can_delete_studio_assets AS permission_can_delete_studio_assets,
+      p.can_manage_backups AS permission_can_manage_backups,
+      p.can_manage_organization_memory AS permission_can_manage_organization_memory,
+      p.can_migrate_database AS permission_can_migrate_database,
+      p.can_enable_knowledge AS permission_can_enable_knowledge,
+      p.can_recover_workspaces AS permission_can_recover_workspaces,
+      t.present AS team_present,
+      t.workspace_id AS team_workspace_id,
+      t.role AS team_role,
+      t.status AS team_status,
+      t.can_read AS team_can_read,
+      t.can_write AS team_can_write,
+      t.can_manage AS team_can_manage,
+      j.present AS project_present,
+      j.role AS project_role,
+      j.status AS project_status,
+      j.can_read AS project_can_read,
+      j.can_write AS project_can_write,
+      j.can_manage AS project_can_manage
+    FROM (
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
+      FROM canvas_workspaces WHERE id=$1 LIMIT 1
+    ) w
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
+        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
+        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
+      FROM organization_user_permissions WHERE organization_id=w.organization_id AND user_id=$2 LIMIT 1
+    ) p ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_workspace_members WHERE w.type='team' AND workspace_id=w.id AND user_id=$2 LIMIT 1
+    ) t ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_project_members WHERE w.project_id IS NOT NULL AND w.project_id<>''
+        AND organization_id=w.organization_id AND project_id=w.project_id AND user_id=$2 LIMIT 1
+    ) j ON true`, [workspaceId, actor.userId]) as (WorkspaceRow & {
+    permission_present: boolean | null;
+    permission_role: PermissionRow['role'];
+    permission_status: PermissionRow['status'];
+    permission_can_write_team_workspace: PermissionRow['can_write_team_workspace'];
+    permission_can_create_public_links: PermissionRow['can_create_public_links'];
+    permission_can_create_team_automations: PermissionRow['can_create_team_automations'];
+    permission_can_share_plugins_and_skills: PermissionRow['can_share_plugins_and_skills'];
+    permission_can_export: PermissionRow['can_export'];
+    permission_can_delete_team_files: PermissionRow['can_delete_team_files'];
+    permission_can_delete_studio_assets: PermissionRow['can_delete_studio_assets'];
+    permission_can_manage_backups: PermissionRow['can_manage_backups'];
+    permission_can_manage_organization_memory: PermissionRow['can_manage_organization_memory'];
+    permission_can_migrate_database: PermissionRow['can_migrate_database'];
+    permission_can_enable_knowledge: PermissionRow['can_enable_knowledge'];
+    permission_can_recover_workspaces: PermissionRow['can_recover_workspaces'];
+    team_present: boolean | null;
+    team_workspace_id: TeamWorkspacePermissionRow['workspace_id'];
+    team_role: TeamWorkspacePermissionRow['role'];
+    team_status: TeamWorkspacePermissionRow['status'];
+    team_can_read: TeamWorkspacePermissionRow['can_read'];
+    team_can_write: TeamWorkspacePermissionRow['can_write'];
+    team_can_manage: TeamWorkspacePermissionRow['can_manage'];
+    project_present: boolean | null;
+    project_role: ProjectPermissionRow['role'];
+    project_status: ProjectPermissionRow['status'];
+    project_can_read: ProjectPermissionRow['can_read'];
+    project_can_write: ProjectPermissionRow['can_write'];
+    project_can_manage: ProjectPermissionRow['can_manage'];
+  }) | undefined;
+  if (!row) return null;
+  const record = rowToWorkspaceRecord(row);
+  const permission = row.permission_present === true ? {
+    role: row.permission_role,
+    status: row.permission_status,
+    can_write_team_workspace: row.permission_can_write_team_workspace,
+    can_create_public_links: row.permission_can_create_public_links,
+    can_create_team_automations: row.permission_can_create_team_automations,
+    can_share_plugins_and_skills: row.permission_can_share_plugins_and_skills,
+    can_export: row.permission_can_export,
+    can_delete_team_files: row.permission_can_delete_team_files,
+    can_delete_studio_assets: row.permission_can_delete_studio_assets,
+    can_manage_backups: row.permission_can_manage_backups,
+    can_manage_organization_memory: row.permission_can_manage_organization_memory,
+    can_migrate_database: row.permission_can_migrate_database,
+    can_enable_knowledge: row.permission_can_enable_knowledge,
+    can_recover_workspaces: row.permission_can_recover_workspaces,
+  } : null;
+  const teamPermission = row.team_present === true ? {
+    workspace_id: row.team_workspace_id,
+    role: row.team_role,
+    status: row.team_status,
+    can_read: row.team_can_read,
+    can_write: row.team_can_write,
+    can_manage: row.team_can_manage,
+  } : null;
+  const projectPermission = row.project_present === true ? {
+    role: row.project_role,
+    status: row.project_status,
+    can_read: row.project_can_read,
+    can_write: row.project_can_write,
+    can_manage: row.project_can_manage,
+  } : null;
+  if (!canReadWorkspace(record, actor, permission, teamPermission, projectPermission)) return null;
+  return workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission);
+}
+
 /** Recheck existing access without rerunning account/workspace bootstrap. */
 export async function readPostgresWorkspaceForActorOnConnection(
   database: PostgresRuntimeDb,
@@ -2334,7 +2526,8 @@ export async function resolvePostgresWorkspaceForActor(
   const database = await openDb();
   try {
     await database.run('BEGIN');
-    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const status = await readReadyPostgresOrganizationBootstrapForUser(database, actor.userId)
+      ?? await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
     if (!status.organizationId) {
       await database.run('ROLLBACK');
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
@@ -2362,6 +2555,32 @@ export async function resolveExistingPostgresWorkspaceForActor(
   const database = await openDb();
   try { return await resolveWorkspaceContextById(database, actor, workspaceId); }
   finally { await database.close(); }
+}
+
+/** Resolve an established selection without repairing organization or workspace
+ * setup. Native request capture still performs genuine authentication first;
+ * its later same-connection phase owns fresh permissions and document access. */
+export async function readInitializedPostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const database = await openDb();
+  try {
+    if (!await findPostgresUserById(database, actor.userId)) {
+      throw new OrganizationBootstrapError('NO_USERS', 'Cannot resolve workspace without a valid user.');
+    }
+    const organization = await getPrimaryOrganization(database);
+    if (!organization) {
+      throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
+    }
+    assertOrganizationIdMatchesEnvironment(organization.organization_id);
+    if (!await findPostgresUserById(database, organization.owner_user_id)) {
+      throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
+    }
+    return await resolveWorkspaceContextById(database, actor, workspaceId);
+  } finally {
+    await database.close();
+  }
 }
 
 export async function getPostgresOrganizationPermissionForUser(

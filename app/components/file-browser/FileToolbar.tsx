@@ -39,6 +39,7 @@ export interface FileToolbarHandlers {
 interface FileToolbarProps {
   variant: 'sidebar' | 'mobile-sheet' | 'fullscreen';
   isMultiSelectMode: boolean;
+  isSelectionReady?: boolean;
   isDeleteDisabled: boolean;
   isRefreshing?: boolean;
   handlers: FileToolbarHandlers;
@@ -50,7 +51,7 @@ const VIEW_MODES: { mode: BrowserMode; Icon: typeof LayoutGrid; labelKey: string
   { mode: 'tree', Icon: FolderTree, labelKey: 'browserModeTree' },
 ];
 
-export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
+export function FileToolbar({ variant, isMultiSelectMode, isSelectionReady = false, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
   const t = useTranslations('notebook');
   const reviewT = useTranslations('workspaceOperationReview');
   const reviewAvailability = useDocumentReviewAvailability();
@@ -197,6 +198,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
         size="icon-sm"
         className="h-10 w-10 shrink-0"
         onClick={handlers.onToggleMultiSelect}
+        disabled={!isSelectionReady}
         aria-label={t('toggleSelectMode')}
         aria-pressed={isMultiSelectMode}
       >
@@ -282,6 +284,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
             size="sm"
             className="h-8 gap-1.5 text-xs"
             onClick={handlers.onToggleMultiSelect}
+            disabled={!isSelectionReady}
             aria-label={t('toggleSelectMode')}
             aria-pressed={isMultiSelectMode}
           >
@@ -350,6 +353,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
                 variant="ghost"
                 size="icon-sm"
                 onClick={handlers.onToggleMultiSelect}
+                disabled={!isSelectionReady}
                 aria-label={t('toggleSelectMode')}
                 aria-pressed={isMultiSelectMode}
               >

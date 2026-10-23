@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
-import { createDirectory, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
+import { createWorkspaceFileParentDirectory, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import {
   assertWorkspaceFileRevisionUnchanged,
   getWorkspaceFileRevision,
@@ -25,6 +25,7 @@ import { DOCX_PACKAGE_LIMITS, DocxPackageValidationError } from '@/app/lib/offic
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import { findOfficeCommit } from '@/app/lib/office/document-journal';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import { dispatchMarkdownChunkWrite } from './workspace-markdown-chunk-upload';
 
 export type OfficeUploadAttempt = Readonly<{
   version: 1;
@@ -81,6 +82,7 @@ export async function runWorkspaceUploadWrite(params: {
   write: (onBeforeReplace: () => Promise<void>) => Promise<void>;
 }): Promise<void> {
   params = { ...params, targetPath: normalizeWorkspaceRelativePath(params.targetPath), fileOptions: { ...params.fileOptions, workspace: params.workspace } };
+  if (await dispatchMarkdownChunkWrite(params)) return;
   return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
     if (params.targetPath.toLowerCase().endsWith('.excalidraw')) {
       const { importExcalidrawDocumentFile } = await import('@/app/lib/excalidraw-collaboration/portable-import');
@@ -94,7 +96,7 @@ export async function runWorkspaceUploadWrite(params: {
     if (!office || !params.officeAttempt) await params.beforeWrite?.();
     const parentDir = path.posix.dirname(params.targetPath);
     if (parentDir !== '.' && parentDir !== '/') {
-      await createDirectory(parentDir, params.fileOptions);
+      await createWorkspaceFileParentDirectory(params.targetPath, params.fileOptions);
     }
 
     const beforeRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);

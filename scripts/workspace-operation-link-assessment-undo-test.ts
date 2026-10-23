@@ -14,6 +14,7 @@ import type * as UndoService from '../app/lib/files/workspace-operation-undo-ser
 import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview as buildFilePreview, buildWorkspacePlannerSnapshot } from '../app/lib/markdown/workspace-file-operation-preview';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { emptyNativeBackupDependencies } from './helpers/empty-native-backup-dependencies';
 
 const buildWorkspaceFileOperationPreview = (input: Parameters<typeof buildFilePreview>[0]) =>
   buildFilePreview(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
     assert.equal(preview.coverage.complete, false);
     assert.equal(preview.linkAssessment?.warnings.length, 1);
     const backup = await captureWorkspaceOperationBackup({ workspace, path: sourcePath,
-      operationId: originalOperationId });
+      operationId: originalOperationId }, emptyNativeBackupDependencies);
     const groups = groupWorkspaceLinkWrites(preview);
     await fs.rename(path.join(rootPath, sourcePath), path.join(rootPath, destinationPath));
     for (const document of preview.previewContents) await fs.writeFile(path.join(rootPath, document.path), document.content);

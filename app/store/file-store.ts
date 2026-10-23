@@ -1,9 +1,13 @@
 import { matchesWorkspaceFileLinkIdentity } from '@/app/lib/files/file-link-target';
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
+import { reserveWorkspacePathOperationAttempt, abandonWorkspacePathOperationAttempt } from '@/app/lib/files/workspace-path-operation-attempts';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
   isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import type { OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import type { CollaborationDocumentLocation } from '@/app/lib/collaboration/document-location';
+import type { TextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
@@ -13,7 +17,7 @@ import type {
   CurrentFile,
   FileLoadResult,
   FileNode,
-  FileStats,
+  FileReadStats,
   OpenWorkspaceFileOptions,
   OpenWorkspaceFileResult,
   WorkspaceFileOpenCompletion,
@@ -26,7 +30,10 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
-import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateMarkdownUploadResume, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { resumeWorkspaceMarkdownUpload } from '@/app/lib/files/workspace-upload-client';
+import type { WorkspaceUploadCompletion } from '@/app/lib/files/upload-result';
+import { isManualMarkdownCreatePath } from '@/app/lib/files/markdown-create-result';
 import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { uploadWorkspaceDirectories } from '@/app/lib/files/upload-directory-client';
 import {
@@ -95,6 +102,15 @@ export interface ContextMenuPosition {
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
 const fileSaveBaselines = new Map<string, { expectedSha256: string | null; baseRevisionId: string | null }>();
+type MarkdownUploadCompletionNotice = { scope: OpenedDocumentAuthScope; workspaceId: string | null; completion: WorkspaceUploadCompletion };
+const markdownUploadCompletionListeners = new Set<(notice: MarkdownUploadCompletionNotice) => void>();
+
+/** A UI refresh hint from the confirmed resume action, never upload authority. */
+export function subscribeMarkdownUploadCompletion(listener: (notice: MarkdownUploadCompletionNotice) => void): () => void {
+  markdownUploadCompletionListeners.add(listener);
+  return () => { markdownUploadCompletionListeners.delete(listener); };
+}
+
 const saveFileQueues = new Map<string, Promise<void>>();
 const localFileWrites = new LocalFileWriteTracker();
 let fileRefreshRequestId = 0;
@@ -234,7 +250,7 @@ function readClientFileSort(): { sortKey: FileSortKey; sortDirection: FileSortDi
   return { sortKey, sortDirection };
 }
 
-function areFileStatsEqual(left?: FileStats, right?: FileStats) {
+function areFileStatsEqual(left?: FileReadStats, right?: FileReadStats) {
   return (
     left?.size === right?.size &&
     left?.modified === right?.modified &&
@@ -242,6 +258,14 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
     left?.fileVersion === right?.fileVersion &&
     left?.sha256 === right?.sha256
   );
+}
+
+/** An explicit absent current revision must not borrow an old checkpoint.
+ * Older metadata adapters may omit the field; preserve their fallback only
+ * when they made no current revision statement. */
+function fileReadRevision(data: CurrentFile, fallback: CurrentFile['revision'] = null) {
+  return Object.hasOwn(data, 'revision') ? data.revision ?? null
+    : data.collaboration?.latestRevision ?? fallback ?? null;
 }
 
 /** File API metadata is JSON; preserve references when only serialization order changed. */
@@ -260,7 +284,7 @@ function areFileMetadataEqual(left: unknown, right: unknown): boolean {
 function updateFileRevision(
   revisions: Record<string, string>,
   filePath: string,
-  stats?: FileStats,
+  stats?: FileReadStats,
 ): Record<string, string> {
   const revision = stats?.sha256 ?? stats?.fileVersion;
   if (!revision || revisions[filePath] === revision) return revisions;
@@ -294,6 +318,16 @@ export type CurrentCollaborationLocationScope = {
   editorIdentity: string;
   treeGeneration: number;
   path: string;
+};
+
+/** A fresh identity read for this exact retained view, never a write grant. */
+export type CurrentCollaborationLocationConfirmation = {
+  file: CurrentFile;
+  fileLoadRequestId: number;
+  authScope: OpenedDocumentAuthScope;
+  lifecycleGeneration: number;
+  representation: TextCollaborationRepresentation;
+  location: CollaborationDocumentLocation;
 };
 
 interface FileStoreState {
@@ -416,12 +450,12 @@ interface FileStoreState {
     selectionOrder?: string[],
     preserveCurrentDirectory?: boolean,
   ) => void;
-  createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
-  deletePath: (path: string | string[], workspaceId?: string | null) => Promise<DeleteWorkspacePathsResult>;
+  createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw'; workspaceId?: string | null; requestId?: string }) => Promise<void>;
+  deletePath: (path: string | string[], workspaceId?: string | null, planId?: string) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null, planId?: string) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
   applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
-  adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string) => boolean;
+  adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string, confirmation?: CurrentCollaborationLocationConfirmation) => boolean;
   uploadFile: (
     file: File | File[],
     targetDir: string,
@@ -430,6 +464,7 @@ interface FileStoreState {
     options?: UploadOptions,
   ) => Promise<void>;
   reconcileUpload: (job: UploadJobHandle) => Promise<void>;
+  resumeMarkdownUpload: (jobId: string, index: number) => Promise<void>;
   uploadDirectories: (paths: string[], job: UploadJobHandle) => Promise<number>;
   downloadFile: (path: string | Iterable<string>) => Promise<void>;
   toggleDirectory: (path: string) => void;
@@ -826,7 +861,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         editorIdentity: String(requestId),
         content: data.content,
         stats: data.stats,
-        revision: data.revision ?? data.collaboration?.latestRevision ?? null,
+        revision: fileReadRevision(data),
         collaboration: data.collaboration ?? null,
       };
       set((state) => ({
@@ -940,7 +975,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           set({ currentFile: { ...currentFile, unavailable: 'replaced' } });
           return null;
         }
-        const revision = data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null;
+        const revision = fileReadRevision(data, currentFile.revision);
         const collaboration = data.collaboration ?? currentFile.collaboration ?? null;
         const refreshedFile: CurrentFile = {
           ...currentFile,
@@ -963,7 +998,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         ...currentFile,
         content: metaOnly ? currentFile.content : data.content,
         stats: data.stats,
-        revision: data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null,
+        revision: fileReadRevision(data, currentFile.revision),
         collaboration: data.collaboration ?? currentFile.collaboration ?? null,
       };
       const latestEditor = useEditorStore.getState();
@@ -1043,7 +1078,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     const shouldRevealInExplorer = options.explorerBehavior !== 'preserve';
     const currentFile = get().currentFile;
-    const needsFileLoad = currentFile?.path !== normalizedPath
+    const reloadingOrdinaryFile = Boolean(options.forceReload && currentFile?.path === normalizedPath
+      && get().currentFileWorkspaceId === workspaceId && !currentFile.collaboration?.crdtCapable
+      && !currentFile.collaboration?.sceneCapable && !/\.docx$/i.test(normalizedPath));
+    let preparedReloadEditor: { sessionId: number; draft: string } | null = null;
+    const needsFileLoad = Boolean(options.forceReload) || currentFile?.path !== normalizedPath
       || get().currentFileWorkspaceId !== workspaceId
       || !matchesWorkspaceFileLinkIdentity(currentFile, options);
     const openRequestId = get().openFileRequestId + 1;
@@ -1062,7 +1101,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const isLatestOpen = () => (
       get().openFileRequestId === openRequestId &&
       useWorkspaceStore.getState().activeWorkspaceId === workspaceId &&
-      (!options.isCurrent || options.isCurrent())
+      (!options.isCurrent || options.isCurrent()) &&
+      (!preparedReloadEditor || (useEditorStore.getState().sessionId === preparedReloadEditor.sessionId
+        && useEditorStore.getState().draft === preparedReloadEditor.draft))
     );
     const superseded = () => {
       if (get().openFileRequestId === openRequestId) {
@@ -1075,7 +1116,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return superseded();
     }
 
-    if (get().currentFile?.path !== normalizedPath || !matchesWorkspaceFileLinkIdentity(get().currentFile, options)) {
+    if (options.forceReload || get().currentFile?.path !== normalizedPath || !matchesWorkspaceFileLinkIdentity(get().currentFile, options)) {
       try {
         await get().prepareCurrentFileForTransition();
       } catch (error) {
@@ -1085,6 +1126,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           error: error instanceof Error ? error.message : 'Failed to save the current file' };
       }
       if (!isLatestOpen()) return superseded();
+    }
+    // A revalidation response cannot replace an ordinary draft typed after saving.
+    if (reloadingOrdinaryFile) {
+      const editor = useEditorStore.getState();
+      preparedReloadEditor = { sessionId: editor.sessionId, draft: editor.draft };
     }
 
     const parentDir = getParentDirectory(normalizedPath);
@@ -1128,7 +1174,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         })();
 
     const alreadyOpen = (
-      get().currentFile?.path === normalizedPath &&
+      !options.forceReload && get().currentFile?.path === normalizedPath &&
       get().currentFileWorkspaceId === workspaceId &&
       matchesWorkspaceFileLinkIdentity(get().currentFile, options)
     );
@@ -1384,15 +1430,19 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   createPath: async (path: string, type: 'file' | 'directory', options = {}) => {
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
+    const authScope = openedDocumentAuthScope();
 
     try {
-      await createWorkspacePath(path, type, options);
+      await createWorkspacePath(path, type, { ...options, workspaceId });
 
       // Refresh from parent directory
       const parentDir = getParentDirectory(path);
-      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
-        await get().refreshDirectory(parentDir, true, workspaceId);
+      if (openedDocumentAuthScope() === authScope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        try { await get().refreshDirectory(parentDir, true, workspaceId); } catch (error) {
+          if (type !== 'file' || options.template || !isManualMarkdownCreatePath(path)) throw error;
+          // A failed explorer refresh cannot turn a confirmed creation into another create attempt.
+        }
       }
     } catch (error) {
       throw error;
@@ -1522,19 +1572,31 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return true;
   },
 
-  deletePath: async (paths: string | string[], requestedWorkspaceId?: string | null) => {
+  deletePath: async (paths: string | string[], requestedWorkspaceId?: string | null, planId?: string) => {
     const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const treeGeneration = get().treeGeneration;
     const isCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId && get().treeGeneration === treeGeneration;
-    const pathsToDelete = Array.isArray(paths) ? paths : [paths];
+    const pathsToDelete = Array.isArray(paths) ? [...paths] : [paths];
+    const attempt = reserveWorkspacePathOperationAttempt({ workspaceId, kind: 'delete',
+      selections: pathsToDelete.map(sourcePath => ({ sourcePath })), planId });
     const currentPath = get().currentFile?.path;
     if (currentPath && pathsToDelete.some((path) => isSameOrDescendantPath(currentPath, path))) {
-      await get().prepareCurrentFileForTransition();
+      await get().prepareCurrentFileForTransition().catch(error => { abandonWorkspacePathOperationAttempt(attempt); throw error; });
     }
-    if (!isCurrent()) return {};
-    const result = await deleteWorkspacePaths(pathsToDelete, workspaceId);
-    if (!isCurrent()) return result;
+    if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) {
+      abandonWorkspacePathOperationAttempt(attempt);
+      throw new Error('The workspace or signed-in session changed. Please retry.');
+    }
+    const result = await deleteWorkspacePaths(pathsToDelete, workspaceId, attempt.planId, attempt);
+    if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) return result;
+    if (result.historical) {
+      for (const parent of new Set(pathsToDelete.map(getParentDirectory))) {
+        if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) return result;
+        await get().refreshDirectory(parent, true, workspaceId);
+      }
+      return result;
+    }
     if (result.reviewRequired) return result;
     const deleted = result.deleted ?? (result.failed?.length ? [] : pathsToDelete);
     get().applyPathsDeleted(deleted, workspaceId, true);
@@ -1553,12 +1615,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const treeGeneration = get().treeGeneration;
+    const attempt = reserveWorkspacePathOperationAttempt({ workspaceId, kind: 'rename',
+      selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite, planId });
     if (get().currentFile && isSameOrDescendantPath(get().currentFile!.path, oldPath)) {
-      await get().prepareCurrentFileForTransition();
+      await get().prepareCurrentFileForTransition().catch(error => { abandonWorkspacePathOperationAttempt(attempt); throw error; });
     }
-    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
-    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId, planId);
-    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration
+      || openedDocumentAuthScope() !== attempt.authScope) {
+      abandonWorkspacePathOperationAttempt(attempt);
+      throw new Error('The workspace or signed-in session changed. Please retry.');
+    }
+    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId, attempt.planId, attempt);
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration
+      || openedDocumentAuthScope() !== attempt.authScope) return;
+    if (result.historical) {
+      for (const parent of new Set([getParentDirectory(oldPath), getParentDirectory(newPath)])) {
+        if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || openedDocumentAuthScope() !== attempt.authScope) return result;
+        await get().refreshDirectory(parent, true, workspaceId);
+      }
+      return result;
+    }
     get().applyPathRename(result.mutation ?? {
       type: 'rename', workspaceId: workspaceId!, oldPath, newPath, operationId: crypto.randomUUID(),
     });
@@ -1575,21 +1651,40 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return result;
   },
 
-  adoptCurrentCollaborationLocation: (scope, path) => {
+  adoptCurrentCollaborationLocation: (scope, path, confirmation) => {
     const state = get();
     const file = state.currentFile;
-    if (path === scope.path || normalizeWorkspacePathParam(path) !== path
+    if (normalizeWorkspacePathParam(path) !== path
       || useWorkspaceStore.getState().activeWorkspaceId !== scope.workspaceId
       || state.currentFileWorkspaceId !== scope.workspaceId || state.treeGeneration !== scope.treeGeneration
       || !file || file.path !== scope.path || file.editorIdentity !== scope.editorIdentity
       || !file.collaboration?.crdtCapable || file.collaboration.document?.id !== scope.documentId
       || useEditorStore.getState().activePath !== scope.path) return false;
 
+    if (path === scope.path) {
+      // A same-name destination is not enough. Only a fresh active native ID
+      // read matching the mounted session may clear the retained-view warning.
+      const location = confirmation?.location;
+      if (!confirmation || file.unavailable !== 'replaced' || file !== confirmation.file
+        || state.fileLoadRequestId !== confirmation.fileLoadRequestId
+        || !isOpenedDocumentAuthCurrent(confirmation.authScope)
+        || !Number.isSafeInteger(confirmation.lifecycleGeneration) || confirmation.lifecycleGeneration < 1
+        || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(confirmation.representation)
+        || file.collaboration.document?.provider !== 'yjs' || file.collaboration.document?.status !== 'active'
+        || !location || location.workspaceId !== scope.workspaceId || location.documentId !== scope.documentId
+        || location.path !== path || location.lifecycleGeneration !== confirmation.lifecycleGeneration
+        || location.representation !== confirmation.representation) return false;
+      set({ currentFile: { ...file, unavailable: undefined } });
+      return true;
+    }
+
     return get().applyPathRename({ type: 'rename', workspaceId: scope.workspaceId,
       oldPath: scope.path, newPath: path, operationId: crypto.randomUUID() });
   },
 
   reconcileUpload: async (job) => {
+    const items = useUploadStore.getState().jobs[job.id]?.items;
+    if (items?.some(item => item.resume) && !items.some(item => item.status === 'completed' || item.status === 'skipped')) return;
     const pending = uploadTreeBatches.get(job.id);
     pending?.batch.flush();
     uploadTreeBatches.delete(job.id);
@@ -1601,6 +1696,36 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     await Promise.all([...directories].filter((dir) => dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children))
       .map((dir) => get().revalidateDirectory(dir, job.workspaceId, true)));
+  },
+
+  resumeMarkdownUpload: async (jobId, index) => {
+    const scope = openedDocumentAuthScope(), job = useUploadStore.getState().jobs[jobId];
+    const item = job?.items[index], resume = item?.resume;
+    if (!scope || job?.accountId !== scope.userId || job.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId
+      || !resume || item.resuming) return;
+    let completed: WorkspaceUploadCompletion | undefined;
+    updateMarkdownUploadResume(jobId, index, { resuming: true });
+    try {
+      const result = await resumeWorkspaceMarkdownUpload(resume);
+      if (openedDocumentAuthScope() !== scope) return;
+      if (result.completion.status !== 'completed') {
+        updateMarkdownUploadResume(jobId, index, { status: result.completion.status });
+        return;
+      }
+      updateMarkdownUploadResume(jobId, index, { completed: true });
+      completed = result.completion;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId) return;
+      const pending = getUploadTreeBatch(job);
+      pending.batch.add(result.committed ?? { targetPath: result.completion.targetPath });
+      await get().reconcileUpload(job);
+    } catch (error) {
+      if (openedDocumentAuthScope() !== scope) return;
+      updateMarkdownUploadResume(jobId, index, { status: 'unconfirmed',
+        error: error instanceof Error ? error.message : 'The import could not be confirmed.' });
+    }
+    if (completed && openedDocumentAuthScope() === scope && useWorkspaceStore.getState().activeWorkspaceId === job.workspaceId) {
+      for (const listener of markdownUploadCompletionListeners) listener({ scope, workspaceId: job.workspaceId, completion: completed });
+    }
   },
 
   uploadDirectories: async (paths, job) => {

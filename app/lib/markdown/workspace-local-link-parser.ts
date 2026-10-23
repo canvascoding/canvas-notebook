@@ -1,10 +1,10 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 
-import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
-import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
+import { createObsidianSyntaxMask, parseObsidianWikiLinks, type ObsidianWikiLink } from './obsidian-flavored-markdown';
+import { getCanvasNotebookMarkdownLinkTarget, getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
-import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
+import { assertWorkspaceHtmlInspectionSourceBound, evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
 
 export type ParsedWorkspaceLocalLink = {
@@ -154,10 +154,121 @@ function unescapedPipe(value: string): number {
   return -1;
 }
 
-export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): {
+type ParsedWorkspaceLocalLinks = {
   links: ParsedWorkspaceLocalLink[];
   unevaluated: WorkspaceLinkUnevaluated[];
+};
+
+/** Containment in disjoint, source-ordered leaf/Wiki intervals is logarithmic. */
+function parser4ContainingRange<T extends { start: number; end: number }>(ranges: readonly T[], index: number): T | undefined {
+  let lower = 0, upper = ranges.length;
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    if (ranges[middle].start <= index) lower = middle + 1; else upper = middle;
+  }
+  const candidate = ranges[lower - 1];
+  return candidate && index < candidate.end ? candidate : undefined;
+}
+
+/** Wiki delimiters must be actual Markdown text, never an HTML attribute,
+ * code value, definition URL, image alt field or an autolink's URL display.
+ * Interior markup belongs to the Wiki literal and cannot create nested edges. */
+function selectParser4WikiLinks(root: Nodes, markdown: string, syntaxMarkdown: string, bomOffset: number): {
+  accepted: ObsidianWikiLink[]; rejected: ObsidianWikiLink[];
 } {
+  const text: Array<{ start: number; end: number; linkContext: number }> = [];
+  let nextContext = 0;
+  const collectContexts = (node: Nodes, allowed: boolean, linkContext: number): void => {
+    const start = node.position?.start.offset, end = node.position?.end.offset;
+    if (start === undefined || end === undefined || node.type === 'code' || node.type === 'inlineCode'
+      || node.type === 'definition' || node.type === 'html') return;
+    if (allowed && node.type === 'text') text.push({ start, end, linkContext });
+    const link = node.type === 'link' || node.type === 'linkReference' || node.type === 'image' || node.type === 'imageReference';
+    const childContext = link ? ++nextContext : linkContext;
+    const childAllowed = allowed && !(node.type === 'link' && markdown[start] !== '[');
+    if ('children' in node) node.children.forEach(child => collectContexts(child, childAllowed, childContext));
+  };
+  collectContexts(root, true, 0);
+  text.sort((a, b) => a.start - b.start);
+  const candidates = parseObsidianWikiLinks(syntaxMarkdown);
+  if (candidates.length > 20_000) throw new RangeError('Ordinary parser 4 exceeds its Wiki limit');
+  const accepted: ObsidianWikiLink[] = [], rejected: ObsidianWikiLink[] = [];
+  for (const parsed of candidates) {
+    const wiki = bomOffset ? { ...parsed, start: parsed.start + bomOffset, end: parsed.end + bomOffset } : parsed;
+    const opening = parser4ContainingRange(text, wiki.start);
+    if (!opening) continue;
+    const closing = parser4ContainingRange(text, wiki.end - 1);
+    // The same enclosing AST link at both delimiters permits complete nested
+    // literal nodes, while rejecting partial crossings into URL/label fields.
+    (closing && opening.linkContext === closing.linkContext ? accepted : rejected).push(wiki);
+  }
+  return { accepted, rejected };
+}
+
+export type WorkspaceMarkdownHtmlOccurrence = {
+  sourcePath: string;
+  start: number;
+  end: number;
+  raw: string;
+  fullyInspected: boolean;
+  explicitLocalTargets: string[];
+};
+
+export type WorkspaceMarkdownHtmlInspectionV4 = {
+  parserVersion: 4;
+  occurrences: WorkspaceMarkdownHtmlOccurrence[];
+};
+
+/** All actual Markdown HTML AST occurrences, including opaque and external-only
+ * nodes. Ranges are original UTF-16 units; this grants no mutation authority.
+ * Optional limits can only tighten the fixed per-call caps for a shared budget. */
+export function inspectWorkspaceMarkdownHtmlV4(markdown: string, sourcePath: string,
+  limits?: { maximumOccurrences?: number; maximumTargets?: number }): WorkspaceMarkdownHtmlInspectionV4 {
+  if (limits !== undefined && (limits === null || typeof limits !== 'object' || Array.isArray(limits))) {
+    throw new RangeError('Invalid Markdown HTML inspection limits');
+  }
+  const { maximumOccurrences = 20_000, maximumTargets = 20_000 } = limits ?? {};
+  if (![maximumOccurrences, maximumTargets].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 20_000)) {
+    throw new RangeError('Invalid Markdown HTML inspection budget');
+  }
+  assertWorkspaceHtmlInspectionSourceBound(markdown);
+  const occurrences: WorkspaceMarkdownHtmlOccurrence[] = [];
+  let targetCount = 0;
+  parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, undefined, true, occurrence => {
+    if (occurrences.length >= maximumOccurrences) throw new RangeError('Markdown HTML inspection exceeds its occurrence limit');
+    const { fullyInspected, explicitLocalTargets } = inspectWorkspaceStaticHtmlLinks(occurrence.raw, maximumTargets - targetCount);
+    targetCount += explicitLocalTargets.length;
+    occurrences.push({ ...occurrence, fullyInspected, explicitLocalTargets });
+  });
+  return { parserVersion: 4, occurrences };
+}
+
+/** Historical parser-2 semantics, including its original BOM treatment. */
+export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
+  return parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, options, false);
+}
+
+/** Parser 3 keeps every source range in original UTF-16 units. The Markdown
+ * tokenizer consumes one initial BOM; masks and Wiki scanning use that same
+ * visible grammar without adding an indentation character. */
+export function parseWorkspaceLocalLinksV3(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
+  return parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, options, true);
+}
+
+/** Explicit ordinary grammar 4: original Parser-3 offsets, with context-checked
+ * Wiki literals and complete traversal of Markdown link/reference labels. */
+export function parseWorkspaceLocalLinksV4(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
+  assertWorkspaceHtmlInspectionSourceBound(markdown);
+  return parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, options, true, undefined, true);
+}
+
+function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: string,
+  options: { notebookPaths: 'exact' } | undefined, originalBomOffsets: boolean,
+  collectHtml?: (occurrence: Pick<WorkspaceMarkdownHtmlOccurrence, 'sourcePath' | 'start' | 'end' | 'raw'>) => void,
+  ordinaryV4 = false): ParsedWorkspaceLocalLinks {
   const links: ParsedWorkspaceLocalLink[] = [];
   const unevaluated: WorkspaceLinkUnevaluated[] = [];
   const document = parseCanvasMarkdownDocument(markdown);
@@ -165,29 +276,45 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
     // AST offsets and source splices use UTF-16 units, including surrogate pairs.
     ? document.frontmatterPrefix.replace(/[^\r\n]/g, ' ') + document.body
     : markdown;
-  const mask = createObsidianSyntaxMask(visibleMarkdown);
+  const bomOffset = originalBomOffsets && visibleMarkdown.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const syntaxMarkdown = visibleMarkdown.slice(bomOffset);
+  const mask = visibleMarkdown.slice(0, bomOffset) + createObsidianSyntaxMask(syntaxMarkdown);
+  // Wiki targets and aliases are literal syntax, even when mdast sees an HTML
+  // node inside them. This exclusion belongs only to the new occurrence API.
+  const htmlWikiRanges = collectHtml ? parseObsidianWikiLinks(syntaxMarkdown).map(link => ({
+    start: link.start + bomOffset, end: link.end + bomOffset,
+  })) : [];
   const definitions = new Map<string, { node: Nodes; uses: Array<'link' | 'image'> }>();
   const textRanges: Array<{ start: number; end: number }> = [];
+  const reserveOutput = (): void => {
+    if (ordinaryV4 && links.length + unevaluated.length >= 20_000) throw new RangeError('Ordinary parser 4 exceeds its output limit');
+  };
+  const emitUnevaluated = (entry: WorkspaceLinkUnevaluated): void => { reserveOutput(); unevaluated.push(entry); };
 
   const add = (node: Nodes, range: [number, number], syntax: WorkspaceLinkSyntaxV1): void => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
     const targetLiteral = markdown.slice(range[0], range[1]);
-    const notebookTarget = getCanvasNotebookMarkdownLinkTarget(targetLiteral);
-    const { fragment, path } = targetParts(notebookTarget ?? targetLiteral);
+    const exactNotebook = options?.notebookPaths === 'exact' ? getCanvasNotebookExactLinkTarget(targetLiteral) : null;
+    const notebookTarget = options?.notebookPaths === 'exact' ? null : getCanvasNotebookMarkdownLinkTarget(targetLiteral);
+    const { fragment, path } = exactNotebook ?? targetParts(notebookTarget ?? targetLiteral);
+    const notebook = Boolean(exactNotebook || notebookTarget);
     const raw = markdown.slice(start, end);
     if (!path) return;
-    if (!notebookTarget && /^(?:https?:|mailto:|data:|\/\/)/iu.test(path)) return;
-    if (/^[a-z][a-z0-9+.-]*:/iu.test(path)) {
-      unevaluated.push({ sourcePath, raw, reason: 'unsupported-scheme', start });
+    if (exactNotebook && path.includes('\0')) {
+      emitUnevaluated({ sourcePath, raw, reason: 'unparsed-target', start }); return;
+    }
+    if (!notebook && /^(?:https?:|mailto:|data:|\/\/)/iu.test(path)) return;
+    if (!exactNotebook && /^[a-z][a-z0-9+.-]*:/iu.test(path)) {
+      emitUnevaluated({ sourcePath, raw, reason: 'unsupported-scheme', start });
       return;
     }
-    if (path.includes('?')) {
-      unevaluated.push({ sourcePath, raw, reason: 'query', start });
+    if (!exactNotebook && path.includes('?')) {
+      emitUnevaluated({ sourcePath, raw, reason: 'query', start });
       return;
     }
-    links.push({
+    reserveOutput(); links.push({
       alias: null,
       embed: syntax === 'inline-image' || syntax === 'reference-image',
       end,
@@ -199,13 +326,17 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
       syntax,
       targetEnd: range[1],
       targetLiteral,
-      targetPathText: notebookTarget ? `/${path.replace(/^\/+/, '')}` : path,
+      targetPathText: notebook ? `/${path.replace(/^\/+/, '')}` : path,
       targetStart: range[0],
-      workspaceRootRelative: Boolean(notebookTarget) || path.startsWith('/'),
+      workspaceRootRelative: notebook || path.startsWith('/'),
     });
   };
 
   const collect = (node: Nodes): void => {
+    if (bomOffset && node.position) {
+      if (node.position.start.offset !== undefined) node.position.start.offset += bomOffset;
+      if (node.position.end.offset !== undefined) node.position.end.offset += bomOffset;
+    }
     if (node.type === 'definition' && !definitions.has(node.identifier)) {
       definitions.set(node.identifier, { node, uses: [] });
     }
@@ -213,11 +344,17 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
   };
   const root = fromMarkdown(visibleMarkdown);
   collect(root);
+  const parser4Wiki = ordinaryV4 ? selectParser4WikiLinks(root, markdown, syntaxMarkdown, bomOffset) : null;
+  for (const wiki of parser4Wiki?.rejected ?? []) {
+    emitUnevaluated({ sourcePath, raw: markdown.slice(wiki.start, wiki.end), reason: 'unparsed-target', start: wiki.start });
+  }
 
   const visit = (node: Nodes): void => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
+    const containingWiki = parser4Wiki && parser4ContainingRange(parser4Wiki.accepted, start);
+    if (containingWiki && end <= containingWiki.end) return;
     if (node.type === 'code' || node.type === 'inlineCode' || node.type === 'definition') return;
     if (
       ['html', 'link', 'image', 'linkReference', 'imageReference', 'text'].includes(node.type)
@@ -225,26 +362,50 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
     ) return;
     if (node.type === 'html') {
       const raw = markdown.slice(start, end);
+      if (collectHtml) {
+        if (!htmlWikiRanges.some(range => range.start <= start && range.end >= end)) {
+          collectHtml({ sourcePath, start, end, raw });
+        }
+        return;
+      }
+      if (ordinaryV4) {
+        const inspection = inspectWorkspaceStaticHtmlLinks(raw);
+        if (!inspection.fullyInspected || inspection.explicitLocalTargets.length) {
+          emitUnevaluated({ sourcePath, raw, reason: 'html', start,
+            ...(inspection.fullyInspected && inspection.explicitLocalTargets.length
+              ? { htmlTargets: inspection.explicitLocalTargets } : {}) });
+        }
+        return;
+      }
       const evaluation = evaluateWorkspaceHtmlLinks(raw);
-      if (evaluation.unevaluated) unevaluated.push({ sourcePath, raw, reason: 'html', start,
+      if (evaluation.unevaluated) emitUnevaluated({ sourcePath, raw, reason: 'html', start,
         ...(evaluation.explicitLocalTargets ? { htmlTargets: evaluation.explicitLocalTargets } : {}) });
+      return;
+    }
+    if (collectHtml) {
+      // HTML can occur inside a Markdown link/reference label. The new HTML-only
+      // traversal must visit those AST children before legacy link handling returns.
+      if ('children' in node) node.children.forEach(visit);
       return;
     }
     if (node.type === 'link' || node.type === 'image') {
       const range = inlineTargetRange(markdown, start, end);
       if (range) add(node, range, node.type === 'image' ? 'inline-image' : 'inline-link');
-      else unevaluated.push({ sourcePath, raw: markdown.slice(start, end), reason: 'unparsed-target', start });
+      else emitUnevaluated({ sourcePath, raw: markdown.slice(start, end), reason: 'unparsed-target', start });
+      if (ordinaryV4 && 'children' in node) node.children.forEach(visit);
       return;
     }
     if (node.type === 'linkReference' || node.type === 'imageReference') {
       const definition = definitions.get(node.identifier);
       if (definition) definition.uses.push(node.type === 'imageReference' ? 'image' : 'link');
+      if (ordinaryV4 && 'children' in node) node.children.forEach(visit);
       return;
     }
     if (node.type === 'text') textRanges.push({ start, end });
     if ('children' in node) node.children.forEach(visit);
   };
   visit(root);
+  if (collectHtml) return { links, unevaluated };
 
   for (const { node, uses } of definitions.values()) {
     const start = node.position?.start.offset;
@@ -252,7 +413,7 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
     if (start === undefined || end === undefined) continue;
     const range = definitionTargetRange(markdown, start, end);
     if (!range) {
-      unevaluated.push({ sourcePath, raw: markdown.slice(start, end), reason: 'unparsed-target', start });
+      emitUnevaluated({ sourcePath, raw: markdown.slice(start, end), reason: 'unparsed-target', start });
       continue;
     }
     add(node, range, uses.length === 1 && markdown[range[0] - 1] !== '<'
@@ -260,17 +421,21 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
       : 'reference-definition');
   }
 
-  for (const wiki of parseObsidianWikiLinks(visibleMarkdown)) {
-    if (!textRanges.some((range) => range.start <= wiki.start && range.end >= wiki.end)) continue;
+  for (const parsedWiki of parser4Wiki?.accepted ?? parseObsidianWikiLinks(syntaxMarkdown)) {
+    const wiki = !ordinaryV4 && bomOffset ? { ...parsedWiki, start: parsedWiki.start + bomOffset, end: parsedWiki.end + bomOffset } : parsedWiki;
+    if (!ordinaryV4 && !textRanges.some((range) => range.start <= wiki.start && range.end >= wiki.end)) continue;
     const innerStart = wiki.start + (wiki.embed ? 3 : 2);
     const inner = markdown.slice(innerStart, wiki.end - 2);
     const beforeAlias = inner.slice(0, unescapedPipe(inner) < 0 ? undefined : unescapedPipe(inner));
     const leading = beforeAlias.length - beforeAlias.trimStart().length;
-    const targetLiteral = beforeAlias.trim();
+    const targetLiteral = ordinaryV4 ? wiki.target : beforeAlias.trim();
     if (!targetLiteral) continue;
     const targetStart = innerStart + leading;
-    const parts = targetParts(targetLiteral);
-    links.push({
+    if (ordinaryV4 && markdown.slice(targetStart, targetStart + targetLiteral.length) !== targetLiteral) {
+      emitUnevaluated({ sourcePath, raw: markdown.slice(wiki.start, wiki.end), reason: 'unparsed-target', start: wiki.start }); continue;
+    }
+    const parts = ordinaryV4 ? { path: wiki.path, fragment: wiki.heading ?? (wiki.blockId ? `^${wiki.blockId}` : null) } : targetParts(targetLiteral);
+    reserveOutput(); links.push({
       alias: wiki.alias,
       embed: wiki.embed,
       end: wiki.end,

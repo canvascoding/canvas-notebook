@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { openDb } from '@/app/lib/db';
 import { resolveDataDir } from '@/app/lib/db/provider';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { ExcalidrawAssetMetadata } from './protocol';
 import { sanitizeExcalidrawSvg } from './svg-sanitizer';
 import { EXCALIDRAW_ASSET_MAX_BYTES, EXCALIDRAW_MAX_ASSET_REFERENCES, EXCALIDRAW_PORTABLE_MAX_BYTES } from './limits';
@@ -117,6 +118,7 @@ function prepareExcalidrawAsset(input: {
 }
 
 async function persistExcalidrawAsset(workspaceId: string, asset: ValidatedPortableExcalidrawAsset): Promise<ExcalidrawAssetMetadata> {
+  return withWorkspaceMutationLock(workspaceId, async () => {
   const { fileId, mimeType, data, contentHash: hash } = asset;
   const storageKey = path.join(workspaceStorageScope(workspaceId), hash);
   const target = absoluteStoragePath(storageKey);
@@ -160,6 +162,7 @@ async function persistExcalidrawAsset(workspaceId: string, asset: ValidatedPorta
   } finally {
     await database.close();
   }
+  });
 }
 
 export async function storeExcalidrawAsset(input: {

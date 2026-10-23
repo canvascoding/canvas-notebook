@@ -7,6 +7,7 @@ import {
   resolveObsidianWikiLink,
   stripMarkdownExtension,
   type ObsidianLinkCandidate,
+  type NativeWikiTargetOptions,
 } from './obsidian-link-resolver';
 import {
   parseWorkspaceLocalLinks,
@@ -135,20 +136,32 @@ export function extractWorkspaceMarkdownHeadings(markdown: string): WorkspaceLin
   return headings;
 }
 
-function resolveWorkspaceWikiFileLink(
-  link: ParsedWorkspaceLocalLink,
+export function resolveWorkspaceWikiFileLink(
+  link: Pick<ParsedWorkspaceLocalLink, 'targetLiteral' | 'targetPathText'>,
   sourcePath: string,
   paths: ReadonlySet<string>,
   markdownCandidates: ObsidianLinkCandidate[],
+  options?: NativeWikiTargetOptions,
 ): { candidates: string[]; path: string | null; status: WorkspaceLinkResolveStatusV1 } {
   const rawTarget = link.targetLiteral;
   const fileName = link.targetPathText.split('/').pop() ?? '';
   const dot = fileName.lastIndexOf('.');
   const explicitExtension = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : null;
   const nonMarkdownTarget = explicitExtension && !['md', 'markdown'].includes(explicitExtension);
-  const wikiResolution = nonMarkdownTarget
+  // A literal non-Markdown filename retains the existing exact-path priority;
+  // adding native aliases must not let an inferred .md variant capture it.
+  if (nonMarkdownTarget && options) {
+    const target = link.targetPathText;
+    const exact = resolveExactWorkspaceLink(target.startsWith('/') ? target : `/${target}`, sourcePath, paths);
+    if (exact.status === 'resolved') return exact;
+    const relative = resolveExactWorkspaceLink(target, sourcePath, paths);
+    if (relative.status === 'resolved') return relative;
+  }
+  const wikiCandidates = nonMarkdownTarget
+    ? markdownCandidates.filter(candidate => options?.nativeTargetPaths.has(candidate.path)) : markdownCandidates;
+  const wikiResolution = nonMarkdownTarget && !wikiCandidates.length
     ? null
-    : resolveObsidianWikiLink(rawTarget, markdownCandidates, sourcePath);
+    : resolveObsidianWikiLink(rawTarget, wikiCandidates, sourcePath, options);
   if (wikiResolution?.status === 'resolved' || wikiResolution?.status === 'ambiguous') {
     return wikiResolution;
   }

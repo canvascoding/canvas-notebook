@@ -21,7 +21,7 @@ import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
-import { COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode } from './failure';
+import { COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode, NATIVE_PEER_ADMISSION_BUSY_REASON } from './failure';
 import { hasExportedCollaborationRecovery, prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
   createInitialTextCollaborationClientState,
@@ -86,6 +86,8 @@ type RegistryEntry = {
   startProvider?: () => void;
   checkpointPromise?: Promise<void>;
   locationRevalidationPromise?: Promise<void>;
+  admissionRejoinAttempt?: { scope: AbortController; path: string; authScope: OpenedDocumentAuthScope | null;
+    controller: AbortController; promise: Promise<void> };
   pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
   locationAuthorization?: LocationAuthorization;
   /** Retired HTTP provenance can request authorization, never confirm persistence. */
@@ -111,6 +113,8 @@ export type CollaborationDocument = {
   requestLocationRevalidation?: () => Promise<void>;
   canRevalidateLocation?: boolean;
   revalidatingLocation?: boolean;
+  /** A hint may request fresh authorization; it never supplies a ticket or a grant. */
+  requestAdmissionRejoin?: () => Promise<void>;
 };
 
 const registry = new Map<string, RegistryEntry>();
@@ -360,40 +364,72 @@ async function requestSession(
   signal?: AbortSignal,
   guestInvitationId?: string,
   retryAuthorizationChange = true,
+  startupRetriesRemaining = 2,
 ): Promise<CollaborationSessionResponse> {
   signal?.throwIfAborted();
   const authScope = guestInvitationId ? null : openedDocumentAuthScope();
   const authorizationRevision = openedDocumentRequestRevision();
   const guestKey = guestInvitationId ? guestAuthorizationKey(workspaceId, guestInvitationId) : null;
   const guestRevision = guestKey ? guestAuthorizationRevisions.get(guestKey) ?? 0 : 0;
-  const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
-    signal,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
-    body: JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES }),
-  });
-  const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
-  signal?.throwIfAborted();
-  if (authScope && !isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
-  if (!response.ok || payload.success !== true) {
-    if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId, { path }, authScope);
-    throw new Error(payload.error || 'Collaboration could not be started.');
+  const body = JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES });
+  for (;;) {
+    const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
+      signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
+      body,
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<Omit<CollaborationSessionResponse, 'success'>>
+      & { success?: boolean; error?: string; code?: string; retryable?: boolean };
+    signal?.throwIfAborted();
+    if (authScope && !isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
+    if (!response.ok || payload.success !== true) {
+      // Only the server's completed, pre-mutation read boundary may request a
+      // fresh startup attempt. A Busy code alone (including Guest) is insufficient.
+      const retryableStartup = !guestInvitationId && Boolean(authScope) && response.status === 409 && payload.success === false
+        && (payload.code === 'PRINCIPAL_BUSY' || payload.code === 'NATIVE_SESSION_BUSY') && payload.retryable === true
+        && openedDocumentRequestRevision() === authorizationRevision;
+      if (retryableStartup && authScope && startupRetriesRemaining > 0
+        && openedDocumentRequestRevision() === authorizationRevision) {
+        startupRetriesRemaining--;
+        await new Promise<void>((resolve, reject) => {
+          const aborted = () => {
+            clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(signal?.reason);
+          };
+          const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', aborted); resolve();
+          }, (2 - startupRetriesRemaining) * 150);
+          signal?.addEventListener('abort', aborted, { once: true });
+          if (signal?.aborted) aborted();
+        });
+        signal?.throwIfAborted();
+        if (!isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
+        if (openedDocumentRequestRevision() !== authorizationRevision) throw new Error('The document access changed while loading.');
+        continue;
+      }
+      if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId, { path }, authScope);
+      throw Object.assign(new Error(payload.error || 'Collaboration could not be started.'), {
+        status: response.status,
+        code: typeof payload.code === 'string' ? payload.code : null,
+        retryable: retryableStartup,
+      });
+    }
+    if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
+    if (authScope && !validateOpenedLiveDocumentSession(workspaceId, path,
+      payload as CollaborationSessionResponse, authScope, authorizationRevision)) {
+      // A concurrent location check can retire the old path while this request
+      // resolves the new one. Require a new authoritative response after that fence.
+      if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false, startupRetriesRemaining);
+      throw new Error('The document access changed while loading.');
+    }
+    if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
+      if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false, startupRetriesRemaining);
+      throw new Error('The guest document access changed while loading.');
+    }
+    if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
+      { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
+    return payload as CollaborationSessionResponse;
   }
-  if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
-  if (authScope && !validateOpenedLiveDocumentSession(workspaceId, path,
-    payload as CollaborationSessionResponse, authScope, authorizationRevision)) {
-    // A concurrent location check can retire the old path while this request
-    // resolves the new one. Require a new authoritative response after that fence.
-    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
-    throw new Error('The document access changed while loading.');
-  }
-  if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
-    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
-    throw new Error('The guest document access changed while loading.');
-  }
-  if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
-    { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
-  return payload as CollaborationSessionResponse;
 }
 
 function requireTextSession(
@@ -426,11 +462,15 @@ function assertRequestActive(entry: RegistryEntry, scope: AbortController): void
 
 async function refreshEntrySession(entry: RegistryEntry, scope: AbortController): Promise<void> {
   assertRequestActive(entry, scope);
+  if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+    entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
   const previous = entry.session;
   if (!previous) throw new Error('Collaboration is not ready.');
   const refreshed = requireTextSession(await requestSession(entry.path, 'auto', entry.key.split('\0')[0], scope.signal, previous.guestAccess?.invitationId),
     previous.representation as TextCollaborationRepresentation);
   assertRequestActive(entry, scope);
+  if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+    entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
   if (!sameOpenedDocumentSession(refreshed, previous)) {
     throw new CollaborationCheckpointRequestError(COLLABORATION_FAILURE_CODES.generationChanged,
       'The collaboration document generation changed. Reload to use the current document state.');
@@ -458,6 +498,103 @@ function hasFreshLocationSession(entry: RegistryEntry, path: string, session: Co
   return Boolean(authorization && authorization.workspaceId === workspaceId && authorization.path === path
     && authorization.invitationId === session.guestAccess.invitationId && session.guestAccess.workspaceId === workspaceId
     && authorization.revision === (guestAuthorizationRevisions.get(guestAuthorizationKey(workspaceId, authorization.invitationId)) ?? 0));
+}
+
+function canRejoinEntryAfterAdmission(entry: RegistryEntry): boolean {
+  return Boolean(registry.get(entry.key) === entry && !entry.lifecycle.signal.aborted && !entry.requests.signal.aborted
+    && entry.refs > 0 && entry.provider && entry.session && !entry.session.guestAccess
+    && entry.clientState.admissionBusy && entry.clientState.connection !== 'denied'
+    && entry.clientState.durability !== 'degraded' && !entry.clientState.failure
+    && isOpenedDocumentAuthCurrent(entry.authScope));
+}
+
+/** Each attempt obtains one fresh session. The identity-bound location watcher
+ * owns the finite retry window, so normal startup retries must not multiply it. */
+function rejoinEntryAfterAdmission(entry: RegistryEntry, scope: AbortController): Promise<void> {
+  try { assertRequestActive(entry, scope); } catch (error) { return Promise.reject(error); }
+  const existing = entry.admissionRejoinAttempt;
+  if (!canRejoinEntryAfterAdmission(entry)) {
+    existing?.controller.abort(new Error('Collaboration rejoin is no longer available.'));
+    return Promise.resolve();
+  }
+  const previous = entry.session!, path = entry.path, authScope = entry.authScope;
+  if (existing && existing.scope === scope && existing.path === path && existing.authScope === authScope
+    && !existing.controller.signal.aborted) return existing.promise;
+  existing?.controller.abort(new Error('Collaboration rejoin was superseded by the current location.'));
+  const controller = new AbortController();
+  const attempt: NonNullable<RegistryEntry['admissionRejoinAttempt']> = {
+    scope, path, authScope, controller, promise: Promise.resolve(),
+  };
+  let rejectCancellation!: (reason: unknown) => void;
+  const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+  // Retiring before the request microtask runs must not leave an unobserved
+  // cancellation rejection. The race below still receives the actual error.
+  void cancellation.catch(() => undefined);
+  const onAttemptAbort = () => rejectCancellation(controller.signal.reason ?? new Error('Collaboration rejoin was aborted.'));
+  const onScopeAbort = () => controller.abort(scope.signal.reason);
+  controller.signal.addEventListener('abort', onAttemptAbort, { once: true });
+  scope.signal.addEventListener('abort', onScopeAbort, { once: true });
+  const timeout = setTimeout(() => controller.abort(new Error('Collaboration rejoin timed out.')), 10_000);
+  if (scope.signal.aborted) onScopeAbort();
+  const promise = Promise.resolve().then(async () => {
+    assertRequestActive(entry, scope);
+    controller.signal.throwIfAborted();
+    const refreshed = requireTextSession(await Promise.race([
+      requestSession(path, 'auto', entry.key.split('\0')[0], controller.signal, undefined, true, 0), cancellation,
+    ]),
+      previous.representation as TextCollaborationRepresentation);
+    controller.signal.throwIfAborted();
+    assertRequestActive(entry, scope);
+    if (entry.admissionRejoinAttempt !== attempt || !canRejoinEntryAfterAdmission(entry) || entry.path !== path || entry.authScope !== authScope
+      || !sameOpenedDocumentSession(entry.session!, previous) || !sameOpenedDocumentSession(refreshed, previous)
+      || !hasFreshLocationSession(entry, path, refreshed)
+      || !['read', 'write'].includes(refreshed.permission) || typeof refreshed.token !== 'string' || !refreshed.token
+      || !Number.isFinite(Date.parse(refreshed.expiresAt)) || Date.parse(refreshed.expiresAt) <= Date.now()) {
+      throw new Error('The document or signed-in session changed during collaboration rejoin.');
+    }
+    if (refreshed.degraded || refreshed.projectionError?.permanent) {
+      transition(entry, { type: 'degraded', code: refreshed.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+        sequence: refreshed.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
+      throw new Error('The saved document is quarantined. Recovery is required.');
+    }
+    // Retire every old provider/token/checkpoint callback before the pause can
+    // clear. The Y.Doc and its committed IndexedDB lifetime remain unchanged.
+    entry.requests.abort();
+    entry.requests = new AbortController();
+    entry.checkpointPromise = undefined;
+    entry.provider?.destroy();
+    entry.provider = null;
+    entry.session = refreshed;
+    entry.requiresFreshSession = false;
+    entry.locationAuthorization = { scope: entry.requests, session: refreshed, path, authScope };
+    entry.locationRevalidationCandidate = undefined;
+    entry.pendingAuthoritativeSnapshot = durabilitySnapshot(refreshed) ?? undefined;
+    transition(entry, { type: 'admission_reauthorized', permission: refreshed.permission });
+    entry.startProvider?.();
+    emit(entry);
+  }).catch(error => {
+    if (entry.admissionRejoinAttempt === attempt && !controller.signal.aborted
+      && scope === entry.requests && !scope.signal.aborted && !entry.lifecycle.signal.aborted) {
+      const status = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'status')?.value : undefined;
+      if (status === 401 || status === 403) {
+        if (entry.session) entry.session = { ...entry.session, permission: 'read' };
+        entry.provider?.disconnect();
+        transition(entry, { type: 'authentication_failed', message: 'Collaboration access was revoked. Local changes are preserved.' });
+      }
+    }
+    throw error;
+  }).finally(() => {
+    clearTimeout(timeout);
+    scope.signal.removeEventListener('abort', onScopeAbort);
+    controller.signal.removeEventListener('abort', onAttemptAbort);
+    if (entry.admissionRejoinAttempt === attempt) {
+      entry.admissionRejoinAttempt = undefined;
+      if (!entry.lifecycle.signal.aborted) emit(entry);
+    }
+  });
+  attempt.promise = promise;
+  entry.admissionRejoinAttempt = attempt;
+  return promise;
 }
 
 function hasHistoricalLocationSession(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): boolean {
@@ -490,6 +627,16 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   // Reusing the same open path must still observe a server permission downgrade.
   // An old view snapshot can never restore write access after a denial.
   if (!revalidate && entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
+  if (entry.clientState.admissionBusy) {
+    // Location metadata may advance, but cannot restart this exhausted join.
+    // Retain the disconnected provider so local update counts keep observing
+    // the same Y.Doc; no fresh request/provider lifetime is created here.
+    entry.path = path;
+    entry.session = previous.permission === 'read' && session.permission === 'write'
+      ? { ...session, permission: 'read' } : session;
+    emit(entry);
+    return;
+  }
   const fresh = hasFreshLocationSession(entry, path, session);
   const candidate = entry.path !== path && !fresh && hasHistoricalLocationSession(entry, path, session);
   entry.requests.abort();
@@ -519,7 +666,7 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
 
 function canRevalidateEntryLocation(entry: RegistryEntry): boolean {
   const authorization = entry.locationAuthorization ?? entry.locationRevalidationCandidate;
-  return Boolean(!entry.lifecycle.signal.aborted && registry.get(entry.key) === entry && entry.refs > 0
+  return Boolean(!entry.lifecycle.signal.aborted && !entry.clientState.admissionBusy && registry.get(entry.key) === entry && entry.refs > 0
     && entry.clientState.failure?.kind === 'authentication' && entry.clientState.authorizationRecoveryEligible === true
     && authorization && authorization.scope === entry.requests && !authorization.scope.signal.aborted
     && authorization.path === entry.path && authorization.authScope === entry.authScope
@@ -692,6 +839,7 @@ function createEntry(
       const reconcileAuthoritativeSnapshot = (snapshot: CollaborationDurabilitySnapshot) => {
         if (
           entry.lifecycle.signal.aborted
+          || entry.clientState.admissionBusy
           || !entry.doc
           || !entry.session
           || snapshot.documentId !== entry.session.documentId
@@ -768,10 +916,13 @@ function createEntry(
       });
       entry.startProvider = () => {
         if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+        entry.tokenRetryTimer = undefined;
+        if (entry.clientState.admissionBusy) return;
         const scope = entry.requests;
         const active = () => !entry.lifecycle.signal.aborted && scope === entry.requests && !scope.signal.aborted;
         const session = entry.session!;
         let tokenNetworkFailure = false;
+        let tokenAdmissionFailureReason: string | null = null;
         let tokenRetryDelay = 1000;
         const provider = new HocuspocusProvider({
           url: websocketUrl(session.websocketUrl),
@@ -782,13 +933,24 @@ function createEntry(
           token: async () => {
             assertRequestActive(entry, scope);
             tokenNetworkFailure = false;
+            tokenAdmissionFailureReason = null;
             if (entry.clientState.connection === 'denied') throw new Error('Collaboration access was revoked.');
             try {
+              if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+                entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
               if (entry.requiresFreshSession || Date.parse(entry.session!.expiresAt) - Date.now() < 30_000) {
                 await refreshEntrySession(entry, scope);
               }
+              if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+                entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
             } catch (error) {
               tokenNetworkFailure = error instanceof LiveDocumentNetworkError;
+              if (entry.clientState.admissionBusy && error instanceof CollaborationCheckpointRequestError
+                && error.code === NATIVE_PEER_ADMISSION_BUSY_REASON) {
+                // The provider wraps its own token-callback rejection. This is
+                // not another server AuthDenied and cannot turn busy into revoke.
+                tokenAdmissionFailureReason = `Failed to get token during sendToken(): ${error}`;
+              }
               throw error;
             }
             assertRequestActive(entry, scope);
@@ -804,8 +966,19 @@ function createEntry(
               permission: entry.session!.permission,
             });
           },
+          onClose: ({ event }) => {
+            // Hocuspocus's document CLOSE frame retains this exact reason but
+            // reconstructs code 1000; a whole-socket close can retain 1013.
+            if (!active() || event.reason !== 'Collaboration document transition' || ![1000, 1013].includes(event.code)) return;
+            if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+            entry.tokenRetryTimer = undefined;
+            entry.requiresFreshSession = true;
+            transition(entry, { type: 'admission_busy', message: 'Collaboration is busy. Local changes are preserved.' });
+            provider.configuration?.websocketProvider.cancelWebsocketRetry?.();
+            provider.disconnect();
+          },
           onSynced: () => {
-            if (!active()) return;
+            if (!active() || entry.clientState.admissionBusy) return;
             transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
             markPolicy?.activate();
             if (entry.pendingAuthoritativeSnapshot) {
@@ -821,15 +994,31 @@ function createEntry(
           },
           onAuthenticationFailed: ({ reason }) => {
             if (!active()) return;
+            if (reason === NATIVE_PEER_ADMISSION_BUSY_REASON) {
+              tokenNetworkFailure = false;
+              tokenAdmissionFailureReason = null;
+              if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+              entry.tokenRetryTimer = undefined;
+              transition(entry, { type: 'admission_busy', message: 'Collaboration is busy. Local changes are preserved.' });
+              provider.configuration?.websocketProvider.cancelWebsocketRetry?.();
+              provider.disconnect();
+              return;
+            }
+            if (entry.clientState.admissionBusy && reason === tokenAdmissionFailureReason) {
+              tokenAdmissionFailureReason = null;
+              provider.disconnect();
+              return;
+            }
             // Hocuspocus emits authenticationFailed even when its token callback
             // only failed to reach HTTP. Never send an old token or turn that
             // network failure into a permanent access denial.
             if (tokenNetworkFailure) {
               tokenNetworkFailure = false;
               provider.disconnect();
+              if (entry.clientState.admissionBusy) return;
               transition(entry, { type: 'provider_status', status: 'disconnected', permission: entry.session!.permission });
               entry.tokenRetryTimer = setTimeout(() => {
-                if (active() && entry.clientState.connection !== 'denied') void provider.connect();
+                if (active() && !entry.clientState.admissionBusy && entry.clientState.connection !== 'denied') void provider.connect();
               }, tokenRetryDelay);
               tokenRetryDelay = Math.min(tokenRetryDelay * 2, 15_000);
               return;
@@ -923,6 +1112,13 @@ function createEntry(
             } catch {}
           },
         });
+        const websocketProvider = provider.configuration?.websocketProvider;
+        if (websocketProvider) {
+          const connect = websocketProvider.connect.bind(websocketProvider);
+          // Hocuspocus's already queued onClose retry calls this owned method
+          // without checking shouldConnect again. Do not create another origin.
+          websocketProvider.connect = () => active() && !entry.clientState.admissionBusy ? connect() : Promise.resolve();
+        }
         entry.provider = provider;
         provider.setAwarenessField('canvas', {
           userId: session.user.id,
@@ -934,6 +1130,8 @@ function createEntry(
       };
       entry.requestCheckpoint = () => {
         if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
+        if (entry.clientState.admissionBusy) return Promise.reject(new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+          entry.clientState.error || 'Collaboration is busy. Local changes are preserved.'));
         if (entry.checkpointPromise) return entry.checkpointPromise;
         const scope = entry.requests;
         let requestedStateProof: string | null = null;
@@ -946,6 +1144,8 @@ function createEntry(
             scope.signal,
           );
           assertRequestActive(entry, scope);
+          if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+            entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
           if (!entry.doc || !entry.session) throw new Error('Collaboration is not ready.');
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
             await refreshEntrySession(entry, scope);
@@ -959,6 +1159,8 @@ function createEntry(
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
             assertRequestActive(entry, scope);
+            if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+              entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
             const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/checkpoint` : '/api/files/collaboration/checkpoint', {
               signal: scope.signal,
               method: 'POST',
@@ -970,6 +1172,8 @@ function createEntry(
               error?: string;
             };
             assertRequestActive(entry, scope);
+            if (entry.clientState.admissionBusy) throw new CollaborationCheckpointRequestError(NATIVE_PEER_ADMISSION_BUSY_REASON,
+              entry.clientState.error || 'Collaboration is busy. Local changes are preserved.');
             const snapshot = durabilitySnapshot(payload);
             if (!response.ok && isCollaborationProjectionErrorCode(payload.code)
               && snapshot && reconcileAuthoritativeSnapshot(snapshot)) {
@@ -1063,6 +1267,7 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     requestLocationRevalidation: () => revalidateEntryLocation(entry, requestScope),
     canRevalidateLocation: canRevalidateEntryLocation(entry),
     revalidatingLocation: Boolean(entry.locationRevalidationPromise),
+    requestAdmissionRejoin: () => rejoinEntryAfterAdmission(entry, requestScope),
   };
 }
 

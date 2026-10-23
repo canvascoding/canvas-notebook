@@ -1,10 +1,28 @@
-import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLinkCoverageV1,
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
+import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3, NativeMixedHtmlBatchPlanV5 } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
+import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
+/** Literal namespace snapshot only; this grants no authority or filesystem identity. */
+export type WorkspaceOperationJobScope = Readonly<{
+  version: 1;
+  workspaceId: string;
+  workspaceType: WorkspaceType;
+  organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
+  ownerUserId: string | null;
+  rootPath: string;
+  rootRelativePath: string | null;
+  legacy: boolean;
+}>;
 /** Direct authorization is an actual mutation request, never an accepted review. */
 export type WorkspaceOperationDirectAuthorization = {
   mode: 'direct';
@@ -14,8 +32,19 @@ export type WorkspaceOperationDirectAuthorization = {
   actorType: 'user' | 'agent';
   actorSessionId?: string;
   requestHash: string;
+  /** Older stored jobs remain readable without inventing their original scope. */
+  jobScope?: WorkspaceOperationJobScope;
 };
-export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization;
+/** Original MCP attribution only. Current rights require the separate live
+ * action principal; actorSessionId remains the first initiating SID_A. */
+export type WorkspaceOperationDirectMcpAuthorization = Readonly<{
+  mode: 'direct-mcp'; version: 1;
+  tool: 'move_knowledge_source' | 'delete_knowledge_source'; clientId: string;
+  actorUserId: string; actorId: string; actorType: 'agent'; actorDisplayName: string;
+  actorSessionId: string; requestHash: string; jobScope: WorkspaceOperationJobScope;
+}>;
+export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization
+  | WorkspaceOperationDirectMcpAuthorization;
 export type WorkspaceOperationBatchAction = {
   /** Stable action identity. Direct jobs have no associated review row. */
   reviewId: string;
@@ -25,7 +54,7 @@ export type WorkspaceOperationBatchAction = {
   selections: Array<{ sourcePath: string; destinationPath?: string }>;
 };
 export type WorkspaceOperationBatchIssue = { code: string; path: string; detail: string; reviewId?: string };
-export type WorkspaceOperationBatchPlan = {
+export type WorkspaceOperationLegacyBatchPlan = {
   version: 1;
   workspaceId: string;
   planId: string;
@@ -46,6 +75,49 @@ export type WorkspaceOperationBatchPlan = {
   /** Internal exact span plan consumed by the fenced plain-file/Yjs writer. */
   linkPlan: WorkspaceFileOperationPreview;
 };
+type WorkspaceOperationNativeDeleteBatchPlanFields = Omit<WorkspaceOperationLegacyBatchPlan, 'version' | 'linkPlan'> & {
+  version: 2;
+  kind: 'native-original-delete';
+  nativeTarget: NativeFileArchiveExpected;
+  nativeGraphPlan: NativeMixedBatchPlan;
+  linkPlan?: never;
+};
+/** Original exact-shape/raw-hash contract, including historical Evidence V2. */
+export type WorkspaceOperationNativeDeleteBatchPlanLegacy = WorkspaceOperationNativeDeleteBatchPlanFields & {
+  planIdentityVersion?: never;
+  integrityProof?: never;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
+};
+/** Semantic preview identity with a separate proof of every historical field. */
+export type WorkspaceOperationNativeDeleteBatchPlanV2 = WorkspaceOperationNativeDeleteBatchPlanFields & {
+  planIdentityVersion: 2;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+};
+/** Explicit mixed read graph. Physical Markdown remains original read evidence,
+ * never a native mutation reference or an imported/copied document. */
+export type WorkspaceOperationNativeDeleteBatchPlanV3 = Omit<WorkspaceOperationNativeDeleteBatchPlanFields, 'nativeGraphPlan'> & {
+  planIdentityVersion: 3;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV3;
+  nativeGraphPlan: NativeMixedReadBatchPlanV3;
+};
+export type WorkspaceOperationNativeDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlanLegacy
+  | WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3 | WorkspaceOperationNativeDeleteBatchPlanV4;
+/** Explicit ordinary-parser4 Delete arm. Original coverage remains factual;
+ * the separate exact-operation HTML assessment never grants write authority. */
+export type WorkspaceOperationNativeDeleteBatchPlanV4 = Omit<WorkspaceOperationNativeDeleteBatchPlanFields, 'nativeGraphPlan'> & {
+  planIdentityVersion: 4;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationMixedSourceEvidenceV5;
+  nativeGraphPlan: NativeMixedHtmlBatchPlanV5;
+};
+export type { WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
+export type WorkspaceOperationDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlan
+  | import('./workspace-operation-physical-delete-html-plan-v5').WorkspaceOperationPhysicalDeleteBatchPlanV5;
+export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationDeleteBatchPlan
+  | import('./workspace-operation-cohort-delete-plan').WorkspaceOperationCohortDeletePlan
+  | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {
   completedActions: number;
   totalActions: number;
@@ -59,5 +131,5 @@ export type WorkspaceOperationBatchExecutionResult = {
   errorCode: string | null;
   stepResults?: Array<{ key: string; phase: 'path' | 'link'; state: 'intent' | 'applied';
     reviewId?: string; path: string; destinationPath?: string; sourceIdentity?: string;
-    mutationId?: string; trashEntryId?: string }>;
+    mutationId?: string; trashEntryId?: string; updatedLinks?: number }>;
 };

@@ -28,6 +28,8 @@ function Harness() {
 }
 
 async function main() {
+  // Unit auth observation only; the existing Review handoff remains a fixture.
+  observeOpenedDocumentAuth({ data: { user: { id: 'user-a' }, session: { id: 'session-a' } } });
   useWorkspaceStore.setState({ activeWorkspaceId: 'ws-a' });
   useFileStore.getState().resetWorkspaceView('ws-a');
   const node = { path: 'docs/target.md', name: 'target.md', type: 'file' as const };
@@ -42,15 +44,32 @@ async function main() {
   const required = { reviewId: 'manual-review-12345678', planId: 'manual-plan', workspaceId: 'ws-a', status: 'blocked' as const };
   let status = 409;
   let result: unknown = { deleted: [], failed: [], trashEntries: [], reviewRequired: required };
+  const previewPlanId = 'd'.repeat(64);
+  let previewCalls = 0, applyCalls = 0, delayed = false;
+  let respond!: (response: Response) => void;
   globalThis.fetch = (async (input, init) => {
     assert.equal(input, '/api/files/delete');
     assert.equal(init?.method, 'DELETE');
     assert.equal(new Headers(init?.headers).get(WORKSPACE_ID_HEADER), 'ws-a');
-    assert.deepEqual(JSON.parse(String(init?.body)), { path: [node.path] });
+    const body = JSON.parse(String(init?.body));
+    if (body.dryRun === true) {
+      previewCalls++;
+      assert.deepEqual(body, { path: [node.path], dryRun: true });
+      return Response.json({ dryRun: true, requiresRevalidation: true, plan: {
+        planId: previewPlanId, kind: 'delete', readiness: 'ready', pathMappings: [], linkEdits: [],
+        coverage: { complete: true, omittedSources: [], unresolvedLinks: [] }, issues: [],
+      } });
+    }
+    applyCalls++;
+    assert.match(String(body.idempotencyKey), /^[a-f0-9-]{36}$/u);
+    assert.deepEqual(body, { path: [node.path], planId: previewPlanId, idempotencyKey: body.idempotencyKey });
+    if (delayed) return new Promise<Response>((resolve) => { respond = resolve; });
     return Response.json(result, { status });
   }) as typeof fetch;
   assert.deepEqual((await deleteWorkspacePaths([node.path], 'ws-a')).reviewRequired, required,
     'a blocked review on HTTP 409 is a review result, not an ordinary delete failure');
+  assert.equal(previewCalls, 1, 'the initial client action performs a separate read-only preview');
+  assert.equal(applyCalls, 1, 'preview is never counted as a delete dispatch');
   const root = createRoot(document.createElement('div'));
   const ReviewAvailability = await createDocumentReviewUiFixture();
   await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><ReviewAvailability enabled><Harness /></ReviewAvailability></NextIntlClientProvider>));
@@ -78,8 +97,7 @@ async function main() {
   await assert.rejects(deleteWorkspacePaths([node.path], 'ws-a'), /Path locked/,
     'ordinary conflicts keep the existing error behavior');
   useWorkspaceOperationReviewStore.setState({ request: null });
-  let respond!: (response: Response) => void;
-  globalThis.fetch = (async () => new Promise<Response>((resolve) => { respond = resolve; })) as typeof fetch;
+  delayed = true;
   await act(async () => {
     const pending = remove(node.path);
     useWorkspaceStore.setState({ activeWorkspaceId: 'ws-b' });

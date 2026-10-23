@@ -83,6 +83,7 @@ async function assertSnapshotVersions(
 export async function buildWorkspacePlannerSnapshot(
   workspaceId: string,
   options: WorkspaceFileOperationOptions,
+  inspection: { readMarkdownContent?: boolean } = {},
 ): Promise<WorkspacePlannerSnapshot> {
   const entries: WorkspacePlannerEntry[] = [];
   const pendingDirectories = ['.'];
@@ -101,7 +102,7 @@ export async function buildWorkspacePlannerSnapshot(
         };
         if (child.type === 'directory') {
           pendingDirectories.push(child.path);
-        } else if (/\.(?:md|markdown)$/iu.test(child.path)) {
+        } else if (inspection.readMarkdownContent !== false && /\.(?:md|markdown)$/iu.test(child.path)) {
           if (stats.size > MAX_INDEXED_MARKDOWN_BYTES) {
             entry.omissionReason = 'source-too-large';
           } else {

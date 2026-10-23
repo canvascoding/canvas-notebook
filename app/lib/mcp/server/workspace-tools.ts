@@ -1,7 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
-import { readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
+import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
 import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
 
 import {
@@ -12,6 +12,13 @@ import {
 } from '@modelcontextprotocol/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { DocumentReadError } from '@/app/lib/documents/contracts';
+import { readDocumentForDirectMcp, searchDocumentsForDirectMcp } from '@/app/lib/documents/service';
+import { DocumentSearchError } from '@/app/lib/documents/search-contract';
+import { DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1, DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1 } from '@/app/lib/documents/search-json-schema';
+import { decodeDirectMcpDocumentSearchSelection, DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES } from './document-search-tool-contract';
+import { DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, DOCUMENT_READ_PAGE_JSON_SCHEMA_V1 } from '@/app/lib/documents/read-json-schema';
+import { decodeDirectMcpDocumentReadSelection, DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES } from './document-read-tool-contract';
 import {
   getFileStats,
   listDirectory,
@@ -47,6 +54,8 @@ import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
   findAgentFileEditOperation, linkStandaloneAgentCheckpoint } from '@/app/lib/collaboration/agent-operations';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { listWorkspaceSearchDocuments, readWorkspaceSearchText, WorkspaceSearchReadError,
+  type WorkspaceSearchText } from '@/app/lib/collaboration/workspace-search-reader';
 import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
@@ -89,6 +98,9 @@ import {
   parseDirectMcpEditIdempotencyKey,
 } from '@/app/lib/mcp/server/document-edit-contract';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
+import { editDocumentForDirectMcp, readDocumentEditStatusForDirectMcp } from '@/app/lib/documents/edit-public-service';
+import { decodeDirectMcpNativeDocumentEditSelection, directMcpDocumentEditInputSchema, directMcpDocumentEditOutputSchema,
+  formatDirectMcpNativeDocumentEditResult, formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
 import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
@@ -97,6 +109,12 @@ import {
   listDirectMcpEnabledWorkspaceIds,
   loadDirectMcpWorkspaceListingForUser,
 } from '@/app/lib/mcp/server/workspace-access-policy';
+import { decodeDirectMcpWorkspaceCopyRequestV1, formatDirectMcpWorkspaceCopyResult, formatDirectMcpWorkspaceCopyError,
+  DIRECT_MCP_WORKSPACE_COPY_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_COPY_OUTPUT_SCHEMA_V1 } from './workspace-copy-tool-contract';
+import { decodeDirectMcpWorkspaceMoveRequestV1, decodeDirectMcpWorkspaceDeleteRequestV1,
+  formatDirectMcpWorkspacePathResult, formatDirectMcpWorkspacePathError,
+  DIRECT_MCP_WORKSPACE_MOVE_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1,
+  DIRECT_MCP_WORKSPACE_DELETE_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1 } from './workspace-path-tool-contract';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { createOrdinaryAgentProposal, type OrdinaryAgentProposalResult } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -109,6 +127,9 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'copy_knowledge_source',
+  'move_knowledge_source',
+  'delete_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
 ] as const satisfies readonly DirectMcpToolId[];
@@ -280,6 +301,32 @@ function getToolSecurity(scope: DirectMcpResourceScope) {
 }
 
 export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): DirectMcpToolDescriptor {
+  if (tool === 'move_knowledge_source' || tool === 'delete_knowledge_source') {
+    const move = tool === 'move_knowledge_source';
+    return {
+      name: tool, title: move ? 'Move workspace files and documents' : 'Delete a workspace document',
+      ...getToolSecurity('knowledge:write'),
+      description: 'Explicit api_version:1 path operation through the central document owner. Use action:preview with workspace_id and '
+        + (move ? 'selections of source_path and destination_path, preserving their order. Existing destinations are hard conflicts; no automatic collision naming. '
+          : 'one Markdown document path. Apply archives the document and removes its file annotations. ')
+        + 'Preview never imports or changes files. A native-path-import-preparation preview has executionReady:false: apply is permitted only for readiness:requires-import-rebinding and centrally imports the listed originals before the action; blocked previews cannot be applied. '
+        + 'Retain the preview planId, exact original paths and a caller-selected operation_id for apply. The resulting operation.planId is the actual native plan; preparation.previewPlanId retains the original preview mapping. Recover is one explicit existing-operation attempt with the same operation_id, plan_id and original paths; it never creates a new job. Status uses workspace_id and operation_id only and publishes no file events. A missing recorded status is separate from a missing recoverable operation. Journal status and historical receipt-confirmed completion are separate facts. Preserve the same request and ID after uncertainty; never automatically replay or generate a replacement ID. Requires knowledge:write and current read/write/delete/agent permission in the same workspace. Preview/apply/recover require native mutations enabled; historical status remains available under current rights when that gate is off. No Undo or legacy Markdown fallback. Results do not invent native document IDs.',
+      inputSchema: { ...(move ? DIRECT_MCP_WORKSPACE_MOVE_INPUT_SCHEMA_V1 : DIRECT_MCP_WORKSPACE_DELETE_INPUT_SCHEMA_V1), type: 'object' },
+      outputSchema: { ...(move ? DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1 : DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1), type: 'object' },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    };
+  }
+  if (tool === 'copy_knowledge_source') {
+    return {
+      name: tool,
+      title: 'Copy workspace files and documents',
+      ...getToolSecurity('knowledge:write'),
+      description: 'Explicit api_version:1 Copy through the central native file owner. Use action:preview with both workspace IDs and selections; retain its planId. For each original selection, take its resolved root destination from preview.pathMappings and preserve the original selection order; mappings also contain descendants. Apply and recover require the same caller-selected operation_id, plan_id and retained resolved selections, with rename_on_collision omitted or false. Collision naming is selected during preview only. Status only observes recorded historical operation facts; COPY_STATUS_NOT_FOUND does not prove that no work has begun. Preserve the original ID and request after uncertainty, and request recover explicitly; never create a replacement key or automatically replay. Requires knowledge:write, current source read permission and destination write permission. Native mutations must be enabled. Preview and status publish no file events. Results contain copied paths, not invented document IDs.',
+      inputSchema: { ...DIRECT_MCP_WORKSPACE_COPY_INPUT_SCHEMA_V1, type: 'object' },
+      outputSchema: { ...DIRECT_MCP_WORKSPACE_COPY_OUTPUT_SCHEMA_V1, type: 'object' },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    };
+  }
   if (tool === 'list_workspaces') {
     return {
       name: tool,
@@ -387,26 +434,34 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Search workspace files',
-      description: 'Searches text files in an accessible workspace and returns short matching excerpts.',
+      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit all native-only fields to retain legacy physical/native path-based text excerpts.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           query: { type: 'string', minLength: 2, description: 'Text to search for.' },
-          path: { type: 'string', description: 'Optional workspace-relative starting path. Defaults to the workspace root.' },
-          max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum matches. Defaults to 10.' },
+          path: { type: 'string', description: 'Workspace-relative starting scope. Defaults to ".".' },
+          max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum whole hits. Defaults to 8 for native V1, 10 for legacy excerpts.' },
+          ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         },
         required: ['workspace_id', 'query'],
+        oneOf: [
+          { not: { anyOf: ['api_version', 'cursor'].map(key => ({ required: [key] })) } },
+          { properties: { api_version: { const: 1 }, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } },
+            required: ['api_version'] },
+        ],
         additionalProperties: false,
       },
       outputSchema: {
         type: 'object' as const,
-        properties: {
-          results: { type: 'array', items: { type: 'object' } },
-          truncated: { type: 'boolean' },
-        },
-        required: ['results', 'truncated'],
-        additionalProperties: false,
+        oneOf: [
+          { type: 'object', additionalProperties: false,
+            properties: { workspace_id: { type: 'string' }, query: { type: 'string' },
+              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' } },
+            required: ['workspace_id', 'query', 'results', 'truncated'] },
+          DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1,
+          DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1,
+        ],
       },
       annotations: {
         readOnlyHint: true,
@@ -422,8 +477,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Edit workspace document',
-      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file. Document Review Center is off by default: direct edits succeed only after the live Yjs change reaches the physical file; unsafe edits return a conflict. When review is enabled, a proposal may require user action. Read the file first, pass its current SHA-256 hash, and inspect status, review_required, requires_user_action, and review_url before reporting success.',
-      inputSchema: {
+      description: 'Use api_version:1 and action:edit for a native documentId/full-version patch with a stable caller idempotency_key; native edits do not require Markdown export or a file projection. Native block patches require tiptap_blocks IDs and their exact local guards. Only state:confirmed confirms persistence; pending or uncertain outcomes require action:status with workspace_id and operation_id through this same tool, never an automatic replay or a new key. Legacy path forms apply one exact SHA-protected text replacement. Document Review Center is off by default: legacy direct edits succeed only after the live Yjs change reaches the physical file; unsafe edits return a conflict. When review is enabled, a proposal may require user action. For legacy forms read the file first, pass its current SHA-256 hash, and inspect status, review_required, requires_user_action, and review_url before reporting success.',
+      inputSchema: directMcpDocumentEditInputSchema({
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
@@ -437,8 +492,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         },
         required: ['workspace_id', 'path', 'old_text', 'new_text', 'expected_sha256'],
         additionalProperties: false,
-      },
-      outputSchema: {
+      }),
+      outputSchema: directMcpDocumentEditOutputSchema({
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string' },
@@ -469,7 +524,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           'operation_id', 'proposal_id', 'proposal_lifecycle', 'review_url', 'document_url', 'idempotency_key',
           'message', 'size', 'modified_at', 'document_id', 'lineage_id'],
         additionalProperties: false,
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -597,36 +652,43 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
   return {
     name: tool,
     title: 'Read workspace document',
-    description: 'Reads a bounded text excerpt from a visible file in an accessible workspace.',
+    description: 'Reads a visible native document by stable document_id with a full version and UTF-8 continuation pages, or preserves the legacy path-based text excerpt and SHA-256 contract. Supply exactly one selector. Native pages contain the full document/currency/projection envelope; follow nextCursor until complete before treating the body as complete.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
-        path: { type: 'string', description: 'Workspace-relative file path.' },
-        offset: { type: 'integer', minimum: 0, description: 'Character offset. Defaults to 0.' },
-        max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Maximum returned characters. Defaults to 12000.' },
+        path: { type: 'string', description: 'Legacy workspace-relative file path. Cannot be combined with document_id or native page fields.' },
+        offset: { type: 'integer', minimum: 0, description: 'Legacy path mode only: UTF-16 character offset. Defaults to 0.' },
+        max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Legacy path mode only: maximum returned characters. Defaults to 12000.' },
+        ...DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES,
       },
-      required: ['workspace_id', 'path'],
+      required: ['workspace_id'],
+      oneOf: [
+        { properties: { path: {} }, required: ['path'],
+          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor', 'include_edit_targets']
+            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
+        { properties: { document_id: {}, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } }, required: ['document_id'],
+          not: { anyOf: ['path', 'offset', 'max_characters']
+            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
+      ],
       additionalProperties: false,
     },
     outputSchema: {
       type: 'object' as const,
-      properties: {
-        path: { type: 'string' },
-        workspace_id: { type: 'string' },
-        document_url: { type: 'string' },
-        document_id: { type: ['string', 'null'] },
-        lineage_id: { type: ['string', 'null'] },
-        size: { type: 'integer' },
-        modified_at: { type: ['string', 'null'] },
-        content: { type: 'string' },
-        sha256: { type: 'string' },
-        source: { type: 'string' },
-        truncated: { type: 'boolean' },
-        next_offset: { type: ['integer', 'null'] },
-      },
-      required: ['path', 'content', 'sha256', 'source', 'truncated', 'next_offset'],
-      additionalProperties: false,
+      oneOf: [
+        {
+          type: 'object', additionalProperties: false,
+          properties: {
+            workspace_id: { type: 'string' }, path: { type: 'string' }, content: { type: 'string' },
+            document_url: { type: 'string' }, document_id: { type: ['string', 'null'] }, lineage_id: { type: ['string', 'null'] },
+            sha256: { type: 'string' }, source: { type: 'string' }, truncated: { type: 'boolean' },
+            next_offset: { type: ['integer', 'null'] }, size: { type: 'integer' }, modified_at: { type: ['string', 'null'] },
+          },
+          required: ['workspace_id', 'path', 'content', 'sha256', 'source', 'truncated', 'next_offset', 'size', 'modified_at'],
+        },
+        DOCUMENT_READ_PAGE_JSON_SCHEMA_V1,
+        DOCUMENT_READ_ERROR_JSON_SCHEMA_V1,
+      ],
     },
     annotations: {
       readOnlyHint: true,
@@ -690,6 +752,7 @@ type DirectMcpTextContent = {
   sha256: string;
   source: 'file' | 'live_yjs';
   documentId?: string;
+  nativeIdentity: WorkspaceSearchText['nativeIdentity'];
 };
 
 async function readDirectMcpTextContent(input: {
@@ -702,6 +765,7 @@ async function readDirectMcpTextContent(input: {
     content: input.buffer.toString('utf8'),
     sha256: sha256Buffer(input.buffer),
     source: 'file' as const,
+    nativeIdentity: null,
   };
   const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
@@ -710,15 +774,8 @@ async function readDirectMcpTextContent(input: {
   });
   if (!collaboration.crdtCapable || !collaboration.document) return fallback;
 
-  await ensureFileRevisionForCurrentContent({
-    workspace: input.workspace,
-    path: input.path,
-    contentHash: fallback.sha256,
-    sizeBytes: input.buffer.length,
-    actorUserId: input.principal.userId,
-    actorType: 'user',
-    sourceSessionId: input.principal.sessionId,
-  });
+  // The physical projection may lag or be empty. Reading it must never create
+  // a revision of an already authoritative Yjs document.
   await resolveTextCollaborationState({
     document: collaboration.document,
     workspace: input.workspace,
@@ -729,12 +786,18 @@ async function readDirectMcpTextContent(input: {
   const snapshot = await readCurrentCollaborationTextSnapshot({
     documentId: collaboration.document.id,
     workspace: input.workspace,
+    path: input.path,
   });
+  if (snapshot.documentId !== collaboration.document.id || snapshot.path !== input.path) {
+    throw new Error('The native text snapshot identity changed.');
+  }
   return {
     content: snapshot.content,
     sha256: snapshot.sha256,
     source: 'live_yjs',
     documentId: snapshot.documentId,
+    // This legacy snapshot proves document identity, but carries no lineage.
+    nativeIdentity: Object.freeze({ documentId: snapshot.documentId, lineageId: null, path: snapshot.path }),
   };
 }
 
@@ -964,6 +1027,30 @@ async function executeSearchKnowledge(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpDocumentSearchSelection>;
+  try { nativeSelection = decodeDirectMcpDocumentSearchSelection(args); }
+  catch { invalidParams('Native search V1 requires api_version:1 and only workspace_id, query, path, max_results and cursor with valid values. Invalid native fields never fall back to legacy file search.'); }
+  if (nativeSelection) {
+    const authorization = await authenticateForTool(authInfo, 'knowledge:search');
+    if ('result' in authorization) return authorization.result;
+    if (!authInfo) return directMcpToolAuthorizationError(undefined, 'knowledge:search');
+    try {
+      const page = await searchDocumentsForDirectMcp(authInfo, nativeSelection);
+      // Audit identity only: the service independently validated actual B and
+      // completed its transaction. Preserve the exact already budgeted page.
+      const workspace = await readableWorkspace(authorization.principal, nativeSelection.workspaceId);
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'search_knowledge',
+        workspace, resultCount: page.hits.length });
+      return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page };
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:search');
+      if (error instanceof DocumentSearchError || error instanceof DocumentReadError) {
+        const failure = { apiVersion: 1, success: false, code: error.code };
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+      }
+      return errorResult('Could not search the Canvas native documents.');
+    }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const query = requiredString(parsed, 'query', 200);
@@ -986,34 +1073,47 @@ async function executeSearchKnowledge(
       path: string;
       excerpt: string;
       modified_at: string | null;
-    }> = [];
+    } & ReturnType<typeof directMcpFileLinkFields>> = [];
     let truncated = tree.truncated;
 
-    for (const entry of tree.entries) {
-      if (entry.type !== 'file' || !isSearchableTextFile(entry.path)) continue;
+    const nativePaths = await listWorkspaceSearchDocuments(workspace, startPath);
+    const candidates = [...new Set([
+      ...nativePaths,
+      ...tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path),
+    ])].filter(filePath => isVisibleWorkspaceNode({ path: filePath, name: path.posix.basename(filePath), type: 'file' })
+      && isSearchableTextFile(filePath)).sort((left, right) => left.localeCompare(right));
+    if (candidates.length > MAX_SEARCH_CANDIDATES) truncated = true;
+
+    for (const filePath of candidates.slice(0, MAX_SEARCH_CANDIDATES)) {
       if (results.length >= maxResults) {
         truncated = true;
         break;
       }
-      const stats = await getFileStats(entry.path, { workspace });
-      if (!stats.isFile || stats.size > MAX_SEARCH_FILE_BYTES) continue;
-      const content = await readFile(entry.path, { workspace });
-      if (isLikelyBinary(entry.path, content)) continue;
-      const excerpt = matchingExcerpt(content.toString('utf8'), query);
+      let current;
+      try { current = await readWorkspaceSearchText(workspace, filePath, MAX_SEARCH_FILE_BYTES); }
+      catch (error) {
+        if (error instanceof WorkspaceSearchReadError && ['SOURCE_TOO_LARGE', 'SOURCE_BINARY'].includes(error.code)) {
+          truncated = true;
+          continue;
+        }
+        throw error;
+      }
+      const excerpt = matchingExcerpt(current.content, query);
       if (!excerpt) continue;
       results.push({
-        path: entry.path,
+        ...directMcpFileLinkFields({ workspaceId: workspace.workspaceId,
+          path: current.nativeIdentity?.path ?? filePath,
+          documentId: current.nativeIdentity?.documentId ?? null, lineageId: current.nativeIdentity?.lineageId ?? null }),
+        path: filePath,
         excerpt,
-        modified_at: toIsoDate(stats.modified),
+        modified_at: toIsoDate(current.modifiedAt === null ? undefined : current.modifiedAt / 1000),
       });
     }
 
-    const links = await readDirectMcpFileLinks(workspace.workspaceId, results.map(entry => entry.path));
-    const linkedResults = results.map(entry => ({ ...entry, ...links.get(entry.path) }));
     const structuredContent = {
       workspace_id: workspace.workspaceId,
       query,
-      results: linkedResults,
+      results,
       truncated,
     };
     await auditWorkspaceToolCall({
@@ -1022,7 +1122,7 @@ async function executeSearchKnowledge(
       workspace,
       resultCount: results.length,
     });
-    return result(structuredContent, [`${results.length} matching workspace document(s) found.`, ...linkedResults.map(entry => `${JSON.stringify(entry.path)}: ${entry.document_url}`)].join('\n'));
+    return result(structuredContent, [`${results.length} matching workspace document(s) found.`, ...results.map(entry => `${JSON.stringify(entry.path)}: ${entry.document_url}`)].join('\n'));
   } catch {
     return errorResult('Could not search the Canvas workspace.');
   }
@@ -1032,6 +1132,32 @@ async function executeReadKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpDocumentReadSelection>;
+  try { nativeSelection = decodeDirectMcpDocumentReadSelection(args); }
+  catch { invalidParams('Native document selection must use only workspace_id, document_id, format, expected_version, max_bytes and cursor with valid values. Do not mix path or character offsets with native pages.'); }
+  if (nativeSelection) {
+    const authorization = await authenticateForTool(authInfo, 'knowledge:read');
+    if ('result' in authorization) return authorization.result;
+    if (!authInfo) return directMcpToolAuthorizationError(undefined, 'knowledge:read');
+    try {
+      const page = await readDocumentForDirectMcp(authInfo, nativeSelection);
+      try { assertVisibleWorkspacePath(page.document.path); }
+      catch { throw new DocumentReadError('ACCESS_DENIED'); }
+      // This genuine workspace read supplies audit identity only; the central
+      // service already performed its own current authorization on actual B.
+      const workspace = await readableWorkspace(authorization.principal, nativeSelection.workspaceId);
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'read_knowledge_source',
+        workspace, resultCount: page.byteLength, path: page.document.path });
+      return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page };
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:read');
+      if (error instanceof DocumentReadError) {
+        const failure = { apiVersion: 1, success: false, code: error.code };
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+      }
+      return errorResult('Could not read the Canvas native document.');
+    }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
@@ -1069,7 +1195,9 @@ async function executeReadKnowledgeSource(
     }
     const content = text.content.slice(offset, offset + maxCharacters);
     const nextOffset = offset + content.length < text.content.length ? offset + content.length : null;
-    const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [filePath])).get(filePath)!;
+    const fileLink = directMcpFileLinkFields({ workspaceId: workspace.workspaceId,
+      path: text.nativeIdentity?.path ?? filePath,
+      documentId: text.nativeIdentity?.documentId ?? null, lineageId: text.nativeIdentity?.lineageId ?? null });
     const structuredContent = {
       ...fileLink,
       workspace_id: workspace.workspaceId,
@@ -1402,6 +1530,18 @@ async function executeEditKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpNativeDocumentEditSelection>;
+  try { nativeSelection = decodeDirectMcpNativeDocumentEditSelection(args); }
+  catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
+  if (nativeSelection) {
+    try {
+      if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+      const value = nativeSelection.action === 'edit'
+        ? await editDocumentForDirectMcp(authInfo, nativeSelection.request)
+        : await readDocumentEditStatusForDirectMcp(authInfo, nativeSelection.request);
+      return formatDirectMcpNativeDocumentEditResult(value);
+    } catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
@@ -1447,7 +1587,9 @@ async function executeEditKnowledgeSource(
       buffer,
       principal: authorization.principal,
     });
-    const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [filePath])).get(filePath)!;
+    const fileLink = directMcpFileLinkFields({ workspaceId: workspace.workspaceId,
+      path: current.nativeIdentity?.path ?? filePath,
+      documentId: current.nativeIdentity?.documentId ?? null, lineageId: current.nativeIdentity?.lineageId ?? null });
     const documentUrl = fileLink.document_url;
     const authorityForSnapshot = (snapshot: { documentId: string; lifecycleGeneration: number }) =>
       createDirectMcpEditAuthority({
@@ -1948,6 +2090,44 @@ async function executeEditKnowledgeSource(
   }
 }
 
+async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    // Capture the complete request before awaiting or entering any authority.
+    const input = decodeDirectMcpWorkspaceCopyRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceCopyService } = await import('../../files/workspace-file-operation-service');
+    const result = await runDirectMcpWorkspaceCopyService(input, authInfo);
+    return formatDirectMcpWorkspaceCopyResult(result, selectedOperationId);
+  } catch (error) {
+    // A hard formatting failure here propagates. In particular, never catch
+    // an oversized genuine OAuth challenge to return a challenge-free result.
+    return formatDirectMcpWorkspaceCopyError(error, selectedOperationId);
+  }
+}
+
+async function executeMoveKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    const input = decodeDirectMcpWorkspaceMoveRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceMoveService } = await import('../../files/workspace-file-operation-service');
+    return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceMoveService(input, authInfo), selectedOperationId);
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+}
+async function executeDeleteKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    const input = decodeDirectMcpWorkspaceDeleteRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceDeleteService } = await import('../../files/workspace-file-operation-service');
+    return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceDeleteService(input, authInfo), selectedOperationId);
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+}
+
 export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDefinition[] {
   return [
     {
@@ -1980,6 +2160,13 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       descriptor: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source'),
       execute: executeEditKnowledgeSource,
     },
+    {
+      id: 'copy_knowledge_source',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('copy_knowledge_source'),
+      execute: executeCopyKnowledgeSource,
+    },
+    { id: 'move_knowledge_source', descriptor: getDirectMcpWorkspaceToolDescriptor('move_knowledge_source'), execute: executeMoveKnowledgeSource },
+    { id: 'delete_knowledge_source', descriptor: getDirectMcpWorkspaceToolDescriptor('delete_knowledge_source'), execute: executeDeleteKnowledgeSource },
     {
       id: 'read_knowledge_asset',
       descriptor: getDirectMcpWorkspaceToolDescriptor('read_knowledge_asset'),

@@ -1,0 +1,26 @@
+import { workspaceOperationNativeDeleteHtmlPlanV4Test } from './workspace-operation-native-delete-html-plan-v4-test';
+import { workspaceOperationOriginalDeleteHtmlFinalGraphTest } from './workspace-operation-original-delete-html-final-graph-test';
+import { workspaceMixedHtmlPublicCoreV5Test } from './workspace-mixed-html-public-core-v5-test';
+import { workspaceNativeLinkMutationsV4Test } from './workspace-native-link-mutations-v4-test';
+import { workspacePathHtmlNoImportPreparationTest } from './workspace-path-html-no-import-preparation-test';
+import { workspaceOperationOriginalMoveHtmlPreparationTest } from './workspace-operation-original-move-html-preparation-test';
+import { workspaceOperationOriginalMoveHtmlSourcesTest } from './workspace-operation-original-move-html-sources-test';
+import { workspacePathHtmlWebPreviewTest } from './workspace-path-html-web-preview-test';
+import { mcpServerWorkspaceHtmlPathContractTest } from './mcp-server-workspace-html-path-contract-test';
+import { workspaceOperationOriginalMovePristineSourcesTest } from './workspace-operation-original-move-pristine-sources-test';
+import { workspaceImplicitMoveSelectionTest } from './workspace-implicit-move-selection-test';
+import { workspaceOperationNativeMoveHashParityTest } from './workspace-operation-native-move-hash-parity-test';
+
+workspaceNativeLinkMutationsV4Test();
+workspaceMixedHtmlPublicCoreV5Test();
+workspacePathHtmlNoImportPreparationTest();
+workspaceOperationOriginalMoveHtmlPreparationTest();
+workspaceOperationOriginalMoveHtmlSourcesTest();
+workspaceOperationOriginalMovePristineSourcesTest();
+workspaceImplicitMoveSelectionTest();
+workspaceOperationNativeMoveHashParityTest();
+workspacePathHtmlWebPreviewTest();
+await mcpServerWorkspaceHtmlPathContractTest();
+
+await workspaceOperationNativeDeleteHtmlPlanV4Test();
+workspaceOperationOriginalDeleteHtmlFinalGraphTest();

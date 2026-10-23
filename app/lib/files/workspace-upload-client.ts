@@ -9,9 +9,20 @@ import {
   getWorkspaceUploadChunkRange,
 } from '@/app/lib/files/upload-limits';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
-import type { WorkspaceUploadCommit } from './upload-result';
+import type { WorkspaceUploadCommit, WorkspaceUploadCompletion } from './upload-result';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { assertSessionRequestCurrent, assertSessionResponseCurrent } from '@/app/lib/auth/session-expiry';
 
-export type WorkspaceUploadClientStatus = 'pending' | 'uploading' | 'retrying' | 'completed' | 'failed';
+export type WorkspaceUploadClientStatus = 'pending' | 'uploading' | 'retrying' | 'completed' | 'failed' | 'awaiting_completion';
+
+/** Public lookup coordinates only. The server must reauthenticate every retry. */
+export interface WorkspaceMarkdownUploadResume {
+  workspaceId: string;
+  uploadId: string;
+  fileId: string;
+  targetPath: string;
+  status: Exclude<WorkspaceUploadCompletion['status'], 'completed'> | 'unconfirmed';
+}
 
 export interface WorkspaceUploadClientFile {
   file: File;
@@ -26,6 +37,7 @@ export interface WorkspaceUploadFileProgress {
   status: WorkspaceUploadClientStatus;
   attempt: number;
   error?: string;
+  resume?: WorkspaceMarkdownUploadResume;
 }
 
 export interface WorkspaceBatchUploadResult {
@@ -33,6 +45,7 @@ export interface WorkspaceBatchUploadResult {
   totalBytes: number;
   completed: Array<{ path: string; size: number; committed?: WorkspaceUploadCommit }>;
   failed: Array<{ path: string; size: number; error: string }>;
+  pending?: Array<{ path: string; size: number; resume: WorkspaceMarkdownUploadResume }>;
 }
 
 interface ServerUploadFile {
@@ -94,6 +107,55 @@ export class WorkspaceBatchUploadError extends Error {
     this.name = 'WorkspaceBatchUploadError';
     this.result = result;
   }
+}
+
+export class WorkspaceMarkdownUploadPendingError extends WorkspaceBatchUploadError {
+  constructor(result: WorkspaceBatchUploadResult) {
+    super(result);
+    this.name = 'WorkspaceMarkdownUploadPendingError';
+    this.message = 'The Markdown import has not been confirmed. Its upload was retained so you can check the same import again.';
+  }
+}
+
+const markdownPendingCodes = {
+  projection_pending: 'MARKDOWN_UPLOAD_PROJECTION_PENDING',
+  recovery_required: 'MARKDOWN_UPLOAD_RECOVERY_REQUIRED',
+  unavailable: 'MARKDOWN_UPLOAD_NATIVE_UNAVAILABLE',
+} as const;
+
+function parseMarkdownCompletion(payload: unknown, locator: Omit<WorkspaceMarkdownUploadResume, 'status'>, httpStatus: number): {
+  completion: WorkspaceUploadCompletion; committed?: WorkspaceUploadCommit;
+} {
+  const body = payload as { success?: unknown; completion?: WorkspaceUploadCompletion; committed?: WorkspaceUploadCommit } | null;
+  const value = body?.completion;
+  if (body?.success !== true || !value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).some(key => !['status', 'uploadId', 'fileId', 'targetPath', 'code'].includes(key))
+    || value.uploadId !== locator.uploadId || value.fileId !== locator.fileId || value.targetPath !== locator.targetPath
+    || httpStatus !== (value.status === 'completed' ? 200 : 202)
+    || (value.status === 'completed' ? value.code !== undefined
+      : !(value.status in markdownPendingCodes) || value.code !== markdownPendingCodes[value.status as keyof typeof markdownPendingCodes])
+    || (body.committed !== undefined && (value.status !== 'completed' || !body.committed
+      || body.committed.targetPath !== locator.targetPath))) {
+    throw new WorkspaceUploadRequestError('The server did not confirm this Markdown import.', 200, 'UPLOAD_INVALID_RESPONSE');
+  }
+  return { completion: value, committed: body.committed };
+}
+
+/** User initiated only: reuse the same completion endpoint and original workspace. */
+export async function resumeWorkspaceMarkdownUpload(locator: WorkspaceMarkdownUploadResume): Promise<{
+  completion: WorkspaceUploadCompletion; committed?: WorkspaceUploadCommit;
+}> {
+  const scope = openedDocumentAuthScope();
+  if (!scope) throw new Error('Sign in before checking this import.');
+  assertSessionRequestCurrent(scope);
+  const response = await fetch(`/api/files/uploads/${encodeURIComponent(locator.uploadId)}/complete`, {
+    method: 'POST', credentials: 'include', headers: requestHeaders(locator.workspaceId, true),
+    body: JSON.stringify({ fileId: locator.fileId }),
+  });
+  assertSessionResponseCurrent(response, scope);
+  const payload = await readJsonResponse<unknown>(response, 'Could not check the Markdown import');
+  assertSessionRequestCurrent(scope);
+  return parseMarkdownCompletion(payload, locator, response.status);
 }
 
 function requestHeaders(workspaceId: string | null, json = false): HeadersInit {
@@ -257,6 +319,10 @@ export async function uploadWorkspaceFilesInChunks(params: {
   let confirmedBytes = 0;
   const completed: WorkspaceBatchUploadResult['completed'] = [];
   const failed: WorkspaceBatchUploadResult['failed'] = [];
+  const pending: NonNullable<WorkspaceBatchUploadResult['pending']> = [];
+  const singleMarkdown = params.files.length === 1 && /\.(?:md|markdown)$/iu.test(params.files[0].path);
+  const requestScope = singleMarkdown ? openedDocumentAuthScope() : null;
+  let retainSession = false;
   const reportOverallProgress = (inFlightBytes = 0) => {
     const progress = totalBytes > 0
       ? Math.round(((confirmedBytes + inFlightBytes) / totalBytes) * 100)
@@ -270,6 +336,7 @@ export async function uploadWorkspaceFilesInChunks(params: {
     uploadedBytes: number,
     attempt: number,
     error?: string,
+    resume?: WorkspaceMarkdownUploadResume,
   ) => params.onFileProgress?.({
     index,
     path: params.files[index].path,
@@ -278,6 +345,7 @@ export async function uploadWorkspaceFilesInChunks(params: {
     status,
     attempt,
     ...(error ? { error } : {}),
+    ...(resume ? { resume } : {}),
   });
 
   params.files.forEach((_entry, index) => reportFile(index, 'pending', 0, 0));
@@ -363,8 +431,19 @@ export async function uploadWorkspaceFilesInChunks(params: {
 
       if (fileFailed) continue;
 
+      const locator = singleMarkdown && params.workspaceId ? {
+        workspaceId: params.workspaceId, uploadId: sessionId, fileId: serverFile.id,
+        targetPath: serverFile.targetPath,
+      } : null;
       try {
-        const completedResponse = await retryRequest(
+        if (singleMarkdown) {
+          retainSession = true;
+          if (!locator || !requestScope || typeof locator.targetPath !== 'string') {
+            throw new Error('The original Markdown import could not be confirmed.');
+          }
+          assertSessionRequestCurrent(requestScope);
+        }
+        const completedResponse = await retryRequest<{ committed?: WorkspaceUploadCommit; completion?: WorkspaceUploadCompletion }>(
           async () => {
             const response = await fetch(`/api/files/uploads/${encodeURIComponent(sessionId)}/complete`, {
               method: 'POST',
@@ -372,23 +451,45 @@ export async function uploadWorkspaceFilesInChunks(params: {
               credentials: 'include',
               body: JSON.stringify({ fileId: serverFile.id }),
             });
-            return readJsonResponse<{ committed?: WorkspaceUploadCommit }>(response, `Could not finalize ${entry.path}`);
+            if (singleMarkdown) assertSessionResponseCurrent(response, requestScope);
+            const payload = await readJsonResponse<{ committed?: WorkspaceUploadCommit }>(response, `Could not finalize ${entry.path}`);
+            if (!singleMarkdown) return payload;
+            assertSessionRequestCurrent(requestScope);
+            return parseMarkdownCompletion(payload, locator!, response.status);
           },
           (attempt, error) => reportFile(index, 'retrying', uploadedBytes, attempt, error.message),
         );
+        if (completedResponse.completion && completedResponse.completion.status !== 'completed') {
+          const resume: WorkspaceMarkdownUploadResume = { ...locator!, status: completedResponse.completion.status };
+          pending.push({ path: entry.path, size: entry.file.size, resume });
+          reportFile(index, 'awaiting_completion', uploadedBytes, 1, undefined, resume);
+          continue;
+        }
+        if (singleMarkdown) retainSession = false;
         completed.push({ path: entry.path, size: entry.file.size, committed: completedResponse.committed });
-        params.onFileCompleted?.(completedResponse.committed ?? { targetPath: joinWorkspacePath(params.targetDir, entry.path) });
+        params.onFileCompleted?.(completedResponse.committed ?? {
+          targetPath: singleMarkdown ? completedResponse.completion!.targetPath : joinWorkspacePath(params.targetDir, entry.path),
+        });
         reportFile(index, 'completed', entry.file.size, 1);
         reportOverallProgress();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not finalize uploaded file.';
+        if (singleMarkdown && locator) {
+          retainSession = true;
+          const resume: WorkspaceMarkdownUploadResume = { ...locator, status: 'unconfirmed' };
+          pending.push({ path: entry.path, size: entry.file.size, resume });
+          if (requestScope && requestScope === openedDocumentAuthScope()) {
+            reportFile(index, 'awaiting_completion', uploadedBytes, WORKSPACE_UPLOAD_MAX_RETRIES, message, resume);
+          }
+          continue;
+        }
         failed.push({ path: entry.path, size: entry.file.size, error: message });
         reportFile(index, 'failed', uploadedBytes, WORKSPACE_UPLOAD_MAX_RETRIES, message);
         reportOverallProgress();
       }
     }
   } finally {
-    await cancelUploadSession(sessionId, params.workspaceId);
+    if (!retainSession) await cancelUploadSession(sessionId, params.workspaceId);
   }
 
   const result: WorkspaceBatchUploadResult = {
@@ -396,7 +497,9 @@ export async function uploadWorkspaceFilesInChunks(params: {
     totalBytes,
     completed,
     failed,
+    ...(pending.length ? { pending } : {}),
   };
+  if (pending.length) throw new WorkspaceMarkdownUploadPendingError(result);
   if (failed.length > 0) {
     throw new WorkspaceBatchUploadError(result);
   }

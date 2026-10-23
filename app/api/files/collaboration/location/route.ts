@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
       error: 'The collaboration document is no longer available.' }, { status: 404, headers });
     return NextResponse.json({ success: true, ...location }, { headers });
   } catch (error) {
-    return NextResponse.json({ success: false, error: error instanceof WorkspaceMutationLockError
+    return NextResponse.json({ success: false, ...(error instanceof WorkspaceMutationLockError
+      ? { code: error.code, retryable: error.retryable } : {}), error: error instanceof WorkspaceMutationLockError
       ? error.message : 'Could not resolve the collaboration document location.' }, {
       status: error instanceof WorkspaceMutationLockError ? error.status : 500, headers,
     });

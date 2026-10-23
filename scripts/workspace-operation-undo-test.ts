@@ -10,6 +10,7 @@ import { assertInverseLinks, assertUnchangedMovedPath, operationLinkStepKey, ope
   WorkspaceOperationUndoError } from '../app/lib/files/workspace-operation-undo';
 import type { WorkspaceFileOperationPreview } from '../app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { emptyNativeBackupDependencies } from './helpers/empty-native-backup-dependencies';
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 
@@ -38,7 +39,10 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(rootPath, 'folder', 'target.md'), '# Target\n');
     const context = workspace(rootPath);
     const backup = await captureWorkspaceOperationBackup({ workspace: context, path: 'folder',
-      operationId: 'undo_test_operation' });
+      operationId: 'undo_test_operation' }, emptyNativeBackupDependencies);
+    await assert.rejects(() => assertUnchangedMovedPath({ workspace: context, destinationPath: 'moved',
+      backup: { ...backup, nativePayload: { version: 2, sizeBytes: 12, sha256: hash('native'), documentCount: 1 } }, linkSteps: [] }),
+    error => error instanceof WorkspaceOperationUndoError && error.code === 'UNDO_UNAVAILABLE');
     await fs.rename(path.join(rootPath, 'folder'), path.join(rootPath, 'moved'));
     await assertUnchangedMovedPath({ workspace: context, destinationPath: 'moved', backup, linkSteps: [] });
 

@@ -258,6 +258,10 @@ async function main(): Promise<void> {
     });
     assert.notEqual(copiedRevision.lineageId, null);
     assert.equal(copiedState.latestRevision, null);
+    await assert.rejects(() => initializeCopiedFileCollaborationPaths({ workspace, paths: ['notes.md'] }),
+      error => error instanceof Error && 'code' in error && error.code === 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED');
+    assert.equal((await postgres.query<{ status: string; lifecycle_generation: number }>(
+      'SELECT status,lifecycle_generation FROM collaboration_yjs_states WHERE document_id=$1', [markdownState.document!.id])).rows[0].status, 'active');
 
     const folderTextRevision = await ensureFileRevisionForCurrentContent({
       workspace,

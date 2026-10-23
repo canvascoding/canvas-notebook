@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "canvas-notebook-python"
+version = "0.1.0.dev0"
+description = "Typed native-document client for an authorized Canvas Notebook MCP connection"
+readme = "README.md"
+license = "LicenseRef-Sustainable-Use-1.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = [
+  "mcp==2.3.0",
+  "mcp-types==2.3.0",
+  "httpx2>=2.10.0,<3",
+]
+keyring = ["keyring>=25,<26"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/canvas_notebook"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/canvas_notebook", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]

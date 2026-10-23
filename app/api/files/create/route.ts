@@ -31,9 +31,12 @@ import {
   readJsonBody,
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { completeManualMarkdownCreate, MarkdownManualCreateError } from '@/app/lib/files/workspace-markdown-manual-create';
 
 export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  // Native services require the local NextRequest constructor, also in compiled routes.
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
@@ -49,12 +52,20 @@ export async function POST(request: NextRequest) {
       path?: string;
       type?: 'file' | 'directory';
       template?: 'excalidraw';
+      requestId?: string;
       idempotencyKey?: string;
     }>(request);
     const { path, type, template } = body;
 
     if (!path || !type) {
       return jsonError('Path and type are required', 400);
+    }
+
+    if (type === 'file' && typeof path === 'string' && /\.(?:md|markdown)$/iu.test(path)) {
+      if (template !== undefined) return jsonError('A Markdown document cannot use a drawing template.', 400, { code: 'MARKDOWN_CREATE_INVALID_TEMPLATE' });
+      const completion = await completeManualMarkdownCreate(original, { workspaceId: workspaceResult.workspace.workspaceId, path, requestId: body.requestId! });
+      return completion.status === 'completed' ? jsonSuccess({ completion })
+        : jsonError('The document creation is not yet confirmed. Keep this attempt and check it again.', 409, { code: completion.code, completion });
     }
 
     if (type === 'directory') {
@@ -140,6 +151,7 @@ export async function POST(request: NextRequest) {
 
     return jsonSuccess();
   } catch (error) {
+    if (error instanceof MarkdownManualCreateError) return jsonError(error.message, error.status, { code: error.code });
     if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
       && /^(?:EXCALIDRAW_|INVALID_EXCALIDRAW_|PATH_EXISTS)/u.test(error.code)) return excalidrawRouteError(error);
     if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });

@@ -22,7 +22,7 @@ export function MarkdownField({ value, onChange, label, readOnly = false, frontm
   const t = useTranslations('notebook.editorModes');
   const labelId = useId();
   const [expanded, setExpanded] = useState(false);
-  const [mode, setMode] = useState<MarkdownDocumentMode>(() => readOnly || value.trim() ? 'read' : 'rich');
+  const [mode, setMode] = useState<MarkdownDocumentMode>(() => readOnly ? 'read' : 'rich');
   const fieldRef = useRef<HTMLDivElement>(null);
 
   const editor = (

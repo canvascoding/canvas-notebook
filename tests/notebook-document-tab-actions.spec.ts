@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, request, test, type APIRequestContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 test('document tabs expose file actions for the clicked file with the explorer hidden', async ({ browser }, info) => {
   test.setTimeout(90_000);
@@ -9,7 +10,9 @@ test('document tabs expose file actions for the clicked file with the explorer h
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { type: string }) => entry.type === 'personal');
   const paths = [`tab-actions-a-${randomUUID()}.md`, `tab-actions-b-${randomUUID()}.md`];
-  try {
+  let cleanupApi: APIRequestContext | undefined;
+  await withOwnedTestCleanup(async () => {
+    cleanupApi = await request.newContext({ baseURL: process.env.BASE_URL, storageState: await context.storageState() });
     for (const path of paths) {
       await uploadWorkspaceTextFile({ request: page.request, workspaceId: workspace.id, filePath: path, content: `# ${path}\n\nTab actions QA.\n` });
     }
@@ -20,7 +23,9 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await page.goto(`/de/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(paths[0])}`);
     const firstTab = page.getByRole('tab', { name: paths[0], exact: true });
     await expect(firstTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    const firstEditor = page.getByRole('tabpanel', { name: paths[0], exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+    await expect(firstEditor).toBeVisible();
+    await expect(firstEditor).toHaveAttribute('contenteditable', 'true');
     await firstTab.click({ button: 'right' });
     const menu = page.getByRole('menu');
     await expect(menu.getByRole('menuitem', { name: 'Pfad kopieren', exact: true })).toBeVisible();
@@ -34,7 +39,9 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await page.goto(`/de/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(paths[1])}`);
     const secondTab = page.getByRole('tab', { name: paths[1], exact: true });
     await expect(secondTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    const secondEditor = page.getByRole('tabpanel', { name: paths[1], exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+    await expect(secondEditor).toBeVisible();
+    await expect(secondEditor).toHaveAttribute('contenteditable', 'true');
     await firstTab.click({ button: 'right' });
     await expect(secondTab).toHaveAttribute('aria-selected', 'true');
     await menu.getByRole('menuitem', { name: 'Umbenennen', exact: true }).click();
@@ -44,7 +51,8 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await firstTab.click({ button: 'right' });
     await menu.getByRole('menuitem', { name: 'Im Dateibrowser anzeigen', exact: true }).click();
     await expect(firstTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    await expect(firstEditor).toBeVisible();
+    await expect(firstEditor).toHaveAttribute('contenteditable', 'true');
     await expect(page.getByRole('button', { name: 'Sidebar ausblenden', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
     await page.setViewportSize({ width: 900, height: 700 });
@@ -60,13 +68,15 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await page.keyboard.press('Escape');
     await secondTab.click();
     await expect(secondTab).toHaveAttribute('aria-selected', 'true');
-  } finally {
-    for (const path of paths) {
-      const response = await page.request.delete('/api/files/delete', {
+  }, [
+    { label: 'document browser context', run: () => context.close() },
+    ...paths.map(path => ({ label: `document file ${path}`, run: async () => {
+      if (!cleanupApi) return;
+      const response = await cleanupApi.delete('/api/files/delete', {
         headers: { 'x-canvas-workspace-id': workspace.id }, data: { path },
       });
       expect(response.ok()).toBeTruthy();
-    }
-    await context.close();
-  }
+    } })),
+    { label: 'document cleanup API', run: async () => { await cleanupApi?.dispose(); } },
+  ]);
 });

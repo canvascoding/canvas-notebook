@@ -163,7 +163,8 @@ test('external mode uses the supplied live server without build/start or killing
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
   assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    ['test:cli:portable', 'test:smoke', 'test:integration', 'test:prompt-builder', 'test:integration:pi', 'playwright']);
+    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable', 'test:smoke', 'test:integration',
+      'test:prompt-builder', 'test:integration:pi', 'playwright']);
   assert.match(run.output(), /Build this checkout before starting/);
   assert.deepEqual(requests, ['/api/health']);
   assert.equal(server.listening, true);
@@ -180,7 +181,8 @@ test('normal mode builds once, uses the exact checkout and cleans its whole proc
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
   assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    ['test:cli:portable', 'build', 'start', 'test:smoke', 'test:integration', 'test:prompt-builder', 'test:integration:pi', 'playwright']);
+    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable', 'build', 'start', 'test:smoke',
+      'test:integration', 'test:prompt-builder', 'test:integration:pi', 'playwright']);
   const start = commands.find(command => command.args[1] === 'start');
   assert.equal(start.env.HOSTNAME, '127.0.0.1');
   assert.equal(start.env.NODE_ENV, 'production');
@@ -193,6 +195,31 @@ test('normal mode builds once, uses the exact checkout and cleans its whole proc
   assert.equal(commands.at(-1).env.TEST_LOGIN_PASSWORD, run.env.TEST_LOGIN_PASSWORD);
   await assertPidStopped(Number(await readFile(path.join(run.directory, 'server.pid'), 'utf8')));
 });
+
+for (const external of [false, true]) {
+  for (const [index, stage] of ['test:server:shutdown', 'test:internal:scheduler'].entries()) {
+    test(`${stage} failure stops ${external ? 'external' : 'owned'} validation before startup or health`, async t => {
+      const requests = [];
+      const server = http.createServer((request, response) => {
+        requests.push(request.url);
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ status: 'healthy' }));
+      });
+      const port = await listen(t, server);
+      const run = await fixture(t, {
+        FIXTURE_FAIL_STAGE: stage,
+        ...(external ? { E2E_EXTERNAL_SERVER: '1', BASE_URL: `http://127.0.0.1:${port}` } : {}),
+      });
+      assert.equal((await run.completion).code, 1, run.output());
+      assert.match(run.output(), new RegExp(`${stage} failed \\(23\\)`));
+      assert.deepEqual((await run.commands()).map(command => command.args[1]),
+        ['test:server:shutdown', 'test:internal:scheduler'].slice(0, index + 1));
+      assert.deepEqual(requests, []);
+      assert.equal(server.listening, true);
+      await assert.rejects(access(path.join(run.directory, 'server-owner.pid')), { code: 'ENOENT' });
+    });
+  }
+}
 
 for (const url of ['http://example.invalid:3000', 'http://runner:secret@localhost:3000',
   'http://localhost:3000/other', 'http://localhost:3000?other=1', 'http://localhost:3000#other',
@@ -303,6 +330,7 @@ test('readiness budget includes a hung response and never starts suites after ti
   assert.match(run.output(), /within 120 seconds/);
   assert.ok(requests >= 1);
   assert.ok(Date.now() - started < 8_000, 'Per-fetch abort must also bound an unresponsive endpoint');
-  assert.deepEqual((await run.commands()).map(command => command.args[1]), ['test:cli:portable']);
+  assert.deepEqual((await run.commands()).map(command => command.args[1]),
+    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable']);
   assert.equal(server.listening, true);
 });

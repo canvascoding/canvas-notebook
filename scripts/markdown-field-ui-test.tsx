@@ -52,9 +52,10 @@ async function main() {
     render(<Form />);
     assert.equal(seen.at(-1)?.frontmatter, 'content');
     assert.equal(seen.at(-1)?.layout, 'field');
-    assert.equal(seen.at(-1)?.mode, 'read');
+    assert.equal(seen.at(-1)?.mode, 'rich', 'a populated prompt is directly editable');
     assert.equal(screen.queryByRole('button', { name: messages.notebook.editorModes.wide }), null);
-    fireEvent.click(screen.getByRole('button', { name: messages.notebook.editorModes.rich }));
+    assert.equal(screen.queryByRole('button', { name: messages.notebook.editorModes.read }), null);
+    assert.equal(screen.queryByRole('button', { name: messages.notebook.editorModes.rich }), null);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Changed before expanding' } });
     fireEvent.click(screen.getByRole('button', { name: 'Expand editor' }));
     assert.ok(screen.getByRole('dialog', { name: 'Task' }));
@@ -71,14 +72,23 @@ async function main() {
     assert.equal((screen.getByRole('textbox') as HTMLTextAreaElement).value, yaml);
     assert.equal(screen.getByTestId('saved-value').textContent, yaml);
     await waitFor(() => assert.equal(document.activeElement?.getAttribute('role'), 'group', 'closing restores focus to the form field'));
-    fireEvent.click(screen.getByRole('button', { name: messages.notebook.editorModes.read }));
+    fireEvent.click(screen.getByRole('button', { name: messages.notebook.editorModes.source }));
+    assert.equal(seen.at(-1)?.mode, 'rich', 'Source toggles back to the editable formatted document');
     assert.equal(screen.getByTestId('saved-value').textContent, yaml, 'mode changes do not write or normalize the prompt');
     cleanup();
     render(<Form initialValue="" />);
     assert.equal(seen.at(-1)?.mode, 'rich', 'a new empty prompt starts ready to type');
     assert.ok(screen.getByRole('textbox'));
     cleanup();
-    console.log('Markdown field mode, dialog and draft persistence tests passed.');
+    render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <MarkdownField label="Read-only task" value="Protected prompt" onChange={() => { throw new Error('Read-only mutation'); }} readOnly />
+    </NextIntlClientProvider>);
+    assert.equal(seen.at(-1)?.readOnly, true);
+    assert.equal(screen.queryByRole('button', { name: messages.notebook.editorModes.rich }), null);
+    fireEvent.click(screen.getByRole('button', { name: messages.notebook.editorModes.source }));
+    assert.equal((screen.getByRole('textbox') as HTMLTextAreaElement).readOnly, true, 'Source preserves the form permission');
+    cleanup();
+    console.log('Markdown field direct editing, Source toggle, dialog draft and read-only tests passed.');
   } finally {
     internals._load = originalLoad;
     cleanup();

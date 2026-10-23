@@ -7,6 +7,7 @@ import { AgentBlockEditError, applyAgentBlockEdit, prepareAgentBlockEdit, previe
 import { readAgentBlockStructure } from '../app/lib/collaboration/agent-block-structure';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
+import { setFixtureTableColumnWidth } from './helpers/rich-markdown-projection-fixtures';
 
 const schema = getSchema(richMarkdownSchemaExtensions());
 const reopen = (doc: Y.Doc) => {
@@ -422,10 +423,13 @@ test('format ranges reject grapheme splits, foreign blocks and unsafe link proto
 });
 
 test('native schema-valid blocks remain editable when Markdown projection is unstable', () => {
-  const doc = createRichMarkdownYDoc('- First\n- Second\n\nTail', 'tiptap_blocks');
+  const doc = createRichMarkdownYDoc('- First\n- Second\n\nTail\n\n| Width |\n| --- |\n| Cell |', 'tiptap_blocks');
   try {
     const first = block(doc, 'First');
     replaceText(doc, first.id, 'A\t\nB');
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true, 'tab/soft-LF text is now losslessly projected');
+    const table = readAgentBlockStructure(doc).find((entry) => entry.type === 'table')!;
+    setFixtureTableColumnWidth(doc, table.id);
     const validation = validateRichMarkdownYDoc(doc);
     assert.equal(validation.valid, false); assert.equal(validation.code, 'roundtrip_unstable');
     const entries = readAgentBlockStructure(doc); const list = entries.find((entry) => entry.type === 'bulletList')!;
@@ -436,5 +440,9 @@ test('native schema-valid blocks remain editable when Markdown projection is uns
     assert.ok(readAgentBlockStructure(doc).some((entry) => entry.id === first.id && entry.text === 'A\t\nB'));
     applyAgentBlockEdit(doc, reverse, 'agent-revert');
     assert.ok(readAgentBlockStructure(doc).some((entry) => entry.id === first.id && entry.text === 'A\t\nB'));
+    assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable', 'native width remains outside GFM after undo');
+    for (const cell of readAgentBlockStructure(doc).filter((entry) => ['tableHeader', 'tableCell'].includes(entry.type))) {
+      assert.deepEqual(cell.attrs.colwidth, [120]);
+    }
   } finally { doc.destroy(); }
 });

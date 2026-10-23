@@ -34,6 +34,8 @@ export function AppLayout({
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [terminalHeight, setTerminalHeight] = useState(260);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  // A hidden terminal retains its instance but cannot cover/lock the workpane.
+  const effectiveTerminalFullscreen = terminalFullscreen && terminalVisible && !terminalHidden;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sidebarPanelRef = useRef<HTMLDivElement | null>(null);
   const terminalPanelRef = useRef<HTMLDivElement | null>(null);
@@ -75,16 +77,16 @@ export function AppLayout({
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent('terminal-fullscreen-state', {
-        detail: { enabled: terminalFullscreen },
+        detail: { enabled: effectiveTerminalFullscreen },
       })
     );
-  }, [terminalFullscreen]);
+  }, [effectiveTerminalFullscreen]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const body = document.body;
     const html = document.documentElement;
-    if (terminalFullscreen) {
+    if (effectiveTerminalFullscreen) {
       body.style.overflow = 'hidden';
       html.style.overflow = 'hidden';
     } else {
@@ -96,17 +98,17 @@ export function AppLayout({
       body.style.overflow = '';
       html.style.overflow = '';
     };
-  }, [terminalFullscreen]);
+  }, [effectiveTerminalFullscreen]);
 
   useEffect(() => {
-    if (!terminalFullscreen) return;
+    if (!effectiveTerminalFullscreen) return;
     const updateHeight = () => {
       setTerminalHeight(window.innerHeight);
     };
     updateHeight();
     window.addEventListener('resize', updateHeight);
     return () => window.removeEventListener('resize', updateHeight);
-  }, [terminalFullscreen]);
+  }, [effectiveTerminalFullscreen]);
 
   const applySidebarWidth = useCallback((nextWidth: number) => {
     sidebarPanelRef.current?.style.setProperty('width', `${nextWidth}px`);
@@ -216,11 +218,11 @@ export function AppLayout({
           ref={sidebarPanelRef}
           id="app-layout-sidebar"
           style={{ width: sidebarWidth }}
-          className={terminalFullscreen || sidebarHidden ? 'hidden' : 'shrink-0 min-h-0'}
+          className={effectiveTerminalFullscreen || sidebarHidden ? 'hidden' : 'shrink-0 min-h-0'}
         >
           {sidebar}
         </div>
-        {terminalFullscreen || sidebarHidden ? null : (
+        {effectiveTerminalFullscreen || sidebarHidden ? null : (
           <ResizeHandle
             orientation="vertical"
             label={sidebarResizeLabel}
@@ -232,19 +234,19 @@ export function AppLayout({
             {...sidebarResize.handleProps}
           />
         )}
-        <div className={terminalFullscreen ? 'hidden' : 'min-w-0 flex-1'}>{main}</div>
+        <div className={effectiveTerminalFullscreen ? 'hidden' : 'min-w-0 flex-1'}>{main}</div>
       </div>
       
       {terminalVisible && (
         <div
           hidden={terminalHidden}
           className={
-            terminalFullscreen
+            effectiveTerminalFullscreen
               ? 'fixed inset-0 z-[100] bg-background overflow-hidden overscroll-contain'
               : 'relative z-30 bg-background flex-shrink-0'
           }
         >
-          {!terminalFullscreen && (
+          {!effectiveTerminalFullscreen && (
             <ResizeHandle
               data-testid="terminal-resize-handle"
               orientation="horizontal"

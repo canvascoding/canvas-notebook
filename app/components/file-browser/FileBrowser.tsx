@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
+import { useRef, useState, useCallback, useEffect, useSyncExternalStore, type DragEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useRouter } from '@/i18n/navigation';
 import { Download, Globe2, Move, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useFileStore } from '@/app/store/file-store';
 import { getParentDirectory, isSameOrDescendantPath, normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
 import { remapPath } from '@/app/lib/files/path-mutation-state';
+import { buildFileBrowserLocationHref } from '@/app/lib/files/file-browser-location';
 import { findPathInTree } from '@/app/lib/files/tree-utils';
 import { FileGridView } from './FileGridView';
 import { FileRevealStatus } from './FileRevealStatus';
@@ -50,9 +52,13 @@ interface FileBrowserProps {
   onFileSelect?: (path: string) => void;
 }
 
+const subscribeToHydration = () => () => {};
+
 export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserProps) {
   const t = useTranslations('notebook');
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const search = searchParams.toString();
   const dragCounter = useRef(0);
   const openedPathParamRef = useRef<string | null>(null);
   const pendingPathParamRef = useRef<string | null>(null);
@@ -66,14 +72,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [publicSharePaths, setPublicSharePaths] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const clientMounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
-
-  const handleFileOpened = useCallback((path: string) => {
-    if (isFullscreen) setActiveFilePath(path);
-    onFileSelect?.(path);
-  }, [isFullscreen, onFileSelect]);
 
   const {
     refreshDirectory,
@@ -85,6 +87,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery,
     collapseAllDirectories,
     fileTree,
+    fileTreeWorkspaceId,
     isMultiSelectMode,
     toggleMultiSelectMode,
     multiSelectPaths,
@@ -104,6 +107,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery: state.setSearchQuery,
     collapseAllDirectories: state.collapseAllDirectories,
     fileTree: state.fileTree,
+    fileTreeWorkspaceId: state.fileTreeWorkspaceId,
     isMultiSelectMode: state.isMultiSelectMode,
     toggleMultiSelectMode: state.toggleMultiSelectMode,
     multiSelectPaths: state.multiSelectPaths,
@@ -114,7 +118,30 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     currentFile: state.currentFile,
     refreshCurrentFileContent: state.refreshCurrentFileContent,
   })));
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const { activeWorkspaceId, workspaceInitialized } = useWorkspaceStore(useShallow((state) => ({
+    activeWorkspaceId: state.activeWorkspaceId,
+    workspaceInitialized: state.initialized,
+  })));
+  const updateDocumentLocation = useCallback((path: string | null, mode: 'push' | 'replace') => {
+    if (!isFullscreen) return;
+    const href = buildFileBrowserLocationHref({ search, workspaceId: activeWorkspaceId, path });
+    if (!href || href === `/files?${search}`) return;
+    router[mode](href, { scroll: false });
+  }, [activeWorkspaceId, isFullscreen, router, search]);
+  const handleFileOpened = useCallback((path: string) => {
+    if (isFullscreen) {
+      const state = useFileStore.getState();
+      // A late completion from a previous workspace cannot publish a new URL.
+      if (!activeWorkspaceId || state.currentFileWorkspaceId !== activeWorkspaceId || state.currentFile?.path !== path) return;
+      setActiveFilePath(path);
+      updateDocumentLocation(path, 'push');
+    }
+    onFileSelect?.(path);
+  }, [activeWorkspaceId, isFullscreen, onFileSelect, updateDocumentLocation]);
+  const handlePreviewClosed = useCallback(() => {
+    setActiveFilePath(null);
+    updateDocumentLocation(null, 'replace');
+  }, [updateDocumentLocation]);
   const deleteWithUndo = useTrashUndo({ toasterId: isMobileSheet ? MOBILE_FILE_ACTION_TOASTER_ID : undefined });
   const moveController = useWorkspaceMove();
   const fileMoveDrag = useFileMoveDrag({ controller: moveController });
@@ -126,7 +153,11 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       const mapPath = (path: string) => remapPath(path, detail.oldPath, detail.newPath);
       setDeletePaths((paths) => paths.map(mapPath));
       setPublicSharePaths((paths) => paths.map(mapPath));
-      setActiveFilePath((path) => path ? mapPath(path) : null);
+      if (activeFilePath) {
+        const nextPath = mapPath(activeFilePath);
+        setActiveFilePath(nextPath);
+        if (nextPath !== activeFilePath) updateDocumentLocation(nextPath, 'replace');
+      }
     };
     const deleted = (event: Event) => {
       const detail = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
@@ -135,6 +166,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       setDeletePaths((paths) => paths.filter((path) => !affected(path)));
       setPublicSharePaths((paths) => paths.filter((path) => !affected(path)));
       setActiveFilePath((path) => path && affected(path) ? null : path);
+      if (activeFilePath && affected(activeFilePath)) updateDocumentLocation(null, 'replace');
     };
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
@@ -142,7 +174,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
     };
-  }, [activeWorkspaceId]);
+  }, [activeFilePath, activeWorkspaceId, updateDocumentLocation]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -290,8 +322,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     }
   };
 
-  const handleConfirmDelete = async () => {
-    const result = await deleteWithUndo(deletePaths);
+  const handleConfirmDelete = async (planId?: string) => {
+    const result = await deleteWithUndo(deletePaths, planId);
     if (result.reviewRequired) return;
     if (deleteSkippedCount > 0) toast.info(t('protectedFoldersSkipped', { count: deleteSkippedCount }));
     clearMultiSelect();
@@ -357,7 +389,21 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
   const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
+  // Initial explorer setup resets selection when it claims the workspace tree.
+  // Do not accept a selection click before that same scope is ready.
+  const isSelectionReady = clientMounted && workspaceInitialized && Boolean(activeWorkspaceId)
+    && fileTreeWorkspaceId === activeWorkspaceId
+    && (!isFullscreen || !requestedWorkspaceId || requestedWorkspaceId === activeWorkspaceId);
   const pathRequestKey = pathParam ? JSON.stringify([activeWorkspaceId, pathParam]) : null;
+
+  useEffect(() => {
+    if (!isFullscreen || pathParam) return;
+    // Browser Back to the listing also closes the preview; Forward reopens it.
+    openedPathParamRef.current = null;
+    pendingPathParamRef.current = null;
+    const handle = window.setTimeout(() => setActiveFilePath(null), 0);
+    return () => window.clearTimeout(handle);
+  }, [isFullscreen, pathParam, requestedWorkspaceId]);
 
   useEffect(() => {
     if (
@@ -375,7 +421,16 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     let cancelled = false;
     const handle = window.setTimeout(() => {
       if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
-      void revealAndLoadFile(pathParam, { workspaceId: activeWorkspaceId })
+      const loaded = useFileStore.getState();
+      // Only publish a location for the preview that was just opened. History
+      // reopens must revalidate content, metadata and permissions via the loader.
+      if (activeFilePath === pathParam && loaded.currentFile?.path === pathParam && loaded.currentFileWorkspaceId === activeWorkspaceId) {
+        openedPathParamRef.current = pathRequestKey;
+        pendingPathParamRef.current = null;
+        setActiveFilePath(pathParam);
+        return;
+      }
+      void revealAndLoadFile(pathParam, { workspaceId: activeWorkspaceId, forceReload: true, isCurrent: () => !cancelled })
         .then((result) => {
           if (cancelled) return;
           if (result.status !== 'opened') {
@@ -405,7 +460,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       }
       window.clearTimeout(handle);
     };
-  }, [activeWorkspaceId, isFullscreen, onFileSelect, pathParam, pathRequestKey, requestedWorkspaceId, revealAndLoadFile, t]);
+  }, [activeFilePath, activeWorkspaceId, isFullscreen, onFileSelect, pathParam, pathRequestKey, requestedWorkspaceId, revealAndLoadFile, t]);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
@@ -470,6 +525,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         <FileToolbar
           variant={toolbarVariant}
           isMultiSelectMode={isMultiSelectMode}
+          isSelectionReady={isSelectionReady}
           isDeleteDisabled={isDeleteDisabled}
           isRefreshing={isRefreshing}
           handlers={toolbarHandlers}
@@ -573,7 +629,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           path={activeFilePath}
           fileTree={fileTree}
           currentDirectory={currentDirectory}
-          onClose={() => setActiveFilePath(null)}
+          onClose={handlePreviewClosed}
           onZipExtracted={handleZipExtracted}
         />
       )}

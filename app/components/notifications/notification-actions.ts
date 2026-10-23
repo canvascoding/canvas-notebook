@@ -197,6 +197,9 @@ export async function updateNotification(payload: NotificationMutation, options:
 
 export async function openWorkspacePathOperationNotificationTarget(target: WorkspacePathOperationNotificationTarget): Promise<boolean> {
   if (!await openWorkspacePathOperationStatus(target)) return false;
+  // An unresolved preparation remains visible in the unread-only Bell until
+  // explicitly marked read; Home also retains it after read/reload. Opening is GET-only.
+  if (target.preparationRequestId) return true;
   const itemId = target.batchId ? `${WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX}${target.batchId}`
     : `${WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX}${target.problemId}`;
   void updateNotification({ action: 'mark_item_read', workspaceId: target.workspaceId, itemId }).catch(() => undefined);

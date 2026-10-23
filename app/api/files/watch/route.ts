@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFileWatcher, type FileEvent } from '@/app/lib/filesystem/file-watcher';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import type { WorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -63,9 +64,21 @@ export async function GET(request: NextRequest) {
             cleanup?.();
           }
         },
+        invalidate: (hint: WorkspaceFileInvalidation) => {
+          if (closed || hint.workspaceId !== workspace.workspaceId) return;
+          try {
+            watcher.touchClient(clientId);
+            controller.enqueue(new TextEncoder().encode(
+              `event: workspace-invalidated\ndata: ${JSON.stringify(hint)}\n\n`
+            ));
+          } catch {
+            console.warn('[FileWatcher SSE]', { code: 'STREAM_INVALIDATION_SEND_FAILED' });
+            cleanup?.();
+          }
+        },
       });
 
-      const heartbeatInterval = setInterval(() => {
+      const sendHeartbeat = () => {
         if (closed) return;
         try {
           watcher.touchClient(clientId);
@@ -76,7 +89,8 @@ export async function GET(request: NextRequest) {
           console.warn('[FileWatcher SSE]', { code: 'STREAM_HEARTBEAT_FAILED' });
           cleanup?.();
         }
-      }, 30000);
+      };
+      const heartbeatInterval = setInterval(sendHeartbeat, 30000);
 
       cleanup = () => {
         if (closed) return;
@@ -90,6 +104,7 @@ export async function GET(request: NextRequest) {
 
       request.signal.addEventListener('abort', cleanup, { once: true });
       if (request.signal.aborted) cleanup();
+      else sendHeartbeat();
     },
 
     cancel() {

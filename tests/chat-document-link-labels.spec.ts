@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { assertCompletedWorkspaceMarkdownCreate, createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 const ASSISTANT_MARKDOWN = [
@@ -123,11 +123,11 @@ for (const viewport of [
         if (filePath === 'überblick.md') {
           // Multipart upload normalizes non-ASCII filenames. JSON creation
           // preserves this real Unicode path and its empty-byte baseline.
+          const requestId = randomUUID();
           const createdFile = await context.request.post('/api/files/create', {
-            headers: { 'x-canvas-workspace-id': workspaceId! }, data: { path: filePath, type: 'file' }, timeout: 15_000,
+            headers: { 'x-canvas-workspace-id': workspaceId! }, data: { path: filePath, type: 'file', requestId }, timeout: 15_000,
           });
-          expect(createdFile.status()).toBe(200);
-          expect(await createdFile.json()).toEqual({ success: true });
+          await assertCompletedWorkspaceMarkdownCreate(createdFile, { requestId, workspaceId: workspaceId!, targetPath: filePath });
           continue;
         }
         await uploadWorkspaceTextFile({ request: context.request, workspaceId: workspaceId!, filePath, content,

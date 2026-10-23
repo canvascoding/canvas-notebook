@@ -1,0 +1,38 @@
+name: Agent sandbox
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-sandbox-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-agent-sandbox:
+    name: Linux agent sandbox
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+      - name: Require native Linux runtimes
+        run: |
+          test "$(uname -s)" = Linux
+          test -x /usr/bin/python3
+          node --version
+          /usr/bin/python3 --version
+      - run: npm ci
+      - name: Enforce the actual shell sandbox
+        run: node --conditions=react-server --import tsx scripts/agent-shell-sandbox-test.ts
+      - name: Enforce the actual skill process sandbox
+        run: npm run test:skills:scripts:process

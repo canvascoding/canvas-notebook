@@ -1,7 +1,7 @@
 import { remapWorkspacePresencePaths } from '@/app/lib/collaboration/presence';
 import { promises as fs, watch as fsWatch, type FSWatcher } from 'fs';
 import path from 'path';
-import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
+import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -9,6 +9,8 @@ import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 import { filesystemFileVersion } from './file-version';
 import type { WorkspaceFileEvent, WorkspaceFileEventType, WorkspacePathRenameMutation } from '@/app/lib/files/file-events';
+import { isWorkspaceFileInvalidation, type WorkspaceFileInvalidation } from '@/app/lib/files/file-events';
+import { installWorkspaceFileInvalidationNotificationListener } from './workspace-file-invalidation';
 
 const IGNORED_PATTERNS = [
   'node_modules',
@@ -33,6 +35,7 @@ export interface FileWatcherServerClient {
   workspaceId: string;
   workspace: WorkspaceContext;
   send: (event: FileEvent) => void;
+  invalidate?: (hint: WorkspaceFileInvalidation) => void;
 }
 
 interface Subscription {
@@ -46,6 +49,13 @@ export interface WorkspaceFileMutation {
   relativePath: string;
   fileVersion?: string;
 }
+
+type FileWatcherDependencies = {
+  /** Raw filesystem notifications carry projection facts, not native births. */
+  classifyFilesystemEvent?: (input: { workspace: WorkspaceContext; event: FileEvent }) => Promise<FileEvent>;
+  /** Only the production singleton installs a PostgreSQL hint subscription. */
+  installInvalidationNotifications?: typeof installWorkspaceFileInvalidationNotificationListener;
+};
 
 function normalizeRelativePath(value: string): string {
   const normalized = value.replaceAll('\\', '/');
@@ -86,14 +96,22 @@ export class FileWatcherService {
   private staleCheckInterval: NodeJS.Timeout | null = null;
   private readonly STALE_TIMEOUT_MS = 90_000;
   private managedRenames = new Map<string, { mutation: WorkspacePathRenameMutation; committed: boolean }>();
+  private invalidationNotifications: ReturnType<typeof installWorkspaceFileInvalidationNotificationListener> | null = null;
 
-  constructor() {
+  constructor(private readonly dependencies: FileWatcherDependencies = {}) {
     this.startStaleCheck();
   }
 
   public subscribe(client: FileWatcherServerClient): () => void {
     this.clients.set(client.id, client);
     this.touchClient(client.id);
+    if (!this.invalidationNotifications && this.dependencies.installInvalidationNotifications) {
+      this.invalidationNotifications = this.dependencies.installInvalidationNotifications({
+        workspaceIds: () => this.getSubscribedWorkspaceIds(),
+        onInvalidate: hint => this.publishInvalidation(hint),
+        onError: () => { console.warn('[FileWatcher]', { code: 'WORKSPACE_INVALIDATION_LISTENER_UNAVAILABLE' }); },
+      });
+    }
     void fs.mkdir(client.workspace.rootPath, { recursive: true }).then(() => {
       void this.subscribeDir(client.id, '.');
     }).catch((error) => {
@@ -196,6 +214,34 @@ export class FileWatcherService {
     return Array.from(this.subscriptions.entries())
       .filter(([key]) => key.startsWith(`${workspaceId}\0`))
       .map(([key]) => key.slice(workspaceId.length + 1));
+  }
+
+  public getSubscribedWorkspaceIds(): string[] {
+    const workspaceIds = new Set<string>();
+    for (const client of this.clients.values()) workspaceIds.add(client.workspaceId);
+    return Array.from(workspaceIds);
+  }
+
+  /** Refresh hints never enter filesystem mutation, presence or rename logic. */
+  public publishInvalidation(hint: WorkspaceFileInvalidation): void {
+    if (!isWorkspaceFileInvalidation(hint)) return;
+    const event = Object.freeze({ workspaceId: hint.workspaceId });
+    let invalidated = false;
+    for (const [clientId, client] of this.clients) {
+      if (client.workspaceId !== event.workspaceId || !client.invalidate) continue;
+      if (!invalidated) {
+        clearFileTreeCache(event.workspaceId);
+        invalidateFileReferenceCache({ workspace: client.workspace });
+        invalidated = true;
+      }
+      try {
+        client.invalidate(event);
+        this.touchClient(clientId);
+      } catch {
+        console.warn('[FileWatcher]', { code: 'WORKSPACE_INVALIDATION_SEND_FAILED' });
+        this.removeClient(clientId);
+      }
+    }
   }
 
   public publishMutation(mutation: WorkspaceFileMutation): void {
@@ -304,8 +350,20 @@ export class FileWatcherService {
         const fullFilePath = path.join(fullPath, filename.toString());
 
         const managedRename = this.findManagedRename(workspace.workspaceId, relativeFilePath);
-        void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then((event) => {
-          if (event && !managedRename?.committed) this.queueEvent(event);
+        const currentWatcher = () => this.watchers.get(key) === watcher
+          && this.subscriptions.get(key) === subscription && subscription.clients.size > 0;
+        void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then(async (event) => {
+          if (!event || !currentWatcher()) return;
+          const classified = this.dependencies.classifyFilesystemEvent
+            ? await this.dependencies.classifyFilesystemEvent({ workspace, event }) : event;
+          if (currentWatcher() && !managedRename?.committed) this.queueEvent(classified);
+        }).catch(() => {
+          if (!currentWatcher()) return;
+          // An unavailable authority read cannot become an invented file birth
+          // or deletion. Refresh views and retain an observable safe diagnostic.
+          clearSubtreeCache(getParentDirectory(relativeFilePath), workspace.workspaceId);
+          invalidateFileReferenceCache({ workspace });
+          console.warn('[FileWatcher]', { code: 'FILESYSTEM_AUTHORITY_UNAVAILABLE' });
         });
       });
 
@@ -470,7 +528,9 @@ export class FileWatcherService {
     this.clientLastActive.delete(clientId);
   }
 
-  public stop(): void {
+  public async stop(): Promise<void> {
+    const notifications = this.invalidationNotifications;
+    this.invalidationNotifications = null;
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();
     this.clients.clear();
@@ -483,13 +543,20 @@ export class FileWatcherService {
     this.debounceTimer = null;
     this.firstPendingAt = null;
     this.pendingEvents = [];
+    await notifications?.stop();
   }
 }
 
 const watcherRuntime = globalThis as typeof globalThis & { __canvasFileWatcherService?: FileWatcherService };
 
 export function getFileWatcher(): FileWatcherService {
-  return watcherRuntime.__canvasFileWatcherService ??= new FileWatcherService();
+  return watcherRuntime.__canvasFileWatcherService ??= new FileWatcherService({
+    installInvalidationNotifications: installWorkspaceFileInvalidationNotificationListener,
+    async classifyFilesystemEvent(input) {
+      const { classifyWorkspaceFilesystemEvent } = await import('./native-file-event');
+      return classifyWorkspaceFilesystemEvent(input);
+    },
+  });
 }
 
 export function withWorkspacePathRenameEvent<T>(

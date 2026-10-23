@@ -1,15 +1,27 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import type { WorkspacePathRenameMutation } from './file-events';
-import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
+import type { WorkspacePathOperationPreviewPublic } from './workspace-path-operation-preview';
 import type { WorkspaceUploadCommit } from './upload-result';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
-import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError } from './workspace-path-operation-client';
+import { WorkspacePathOperationPreviewError } from './workspace-path-operation-preview-error';
+import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError,
+  WorkspacePathOperationOutcomeUnknownError } from './workspace-path-operation-client';
 import { readWorkspacePathOperation } from './workspace-path-operation-parser';
+import { waitForWorkspaceImplicitMoveResponse } from './workspace-implicit-move-client';
+import { reserveWorkspacePathOperationAttempt, settleWorkspacePathOperationAttempt,
+  abandonWorkspacePathOperationAttempt, dispatchWorkspacePathOperationAttempt,
+  bindWorkspacePathOperationAttempt, bindWorkspacePathOperationAttemptPreview, observeWorkspacePathOperationAttemptCompletion,
+  markWorkspacePathOperationAttemptImplicit,
+  type WorkspacePathOperationAttempt } from './workspace-path-operation-attempts';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
-import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
+import { fetchLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { reserveMarkdownCreateAttempt, settleMarkdownCreateAttempt } from '@/app/store/markdown-create-store';
+import { isManualMarkdownCreatePath, parseManualMarkdownCreateCompletion,
+  type ManualMarkdownCreateAttempt } from './markdown-create-result';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { fetchDocumentQuery, fetchDocumentTreeQuery } from '@/app/lib/queries/document-queries';
+import { revalidateBusyFileRead } from './read-busy';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
 import {
   type WorkspaceBatchUploadResult,
@@ -18,6 +30,8 @@ import {
 } from './workspace-upload-client';
 
 export { WorkspaceBatchUploadError } from './workspace-upload-client';
+export { WorkspacePathOperationPreviewError } from './workspace-path-operation-preview-error';
+export type { WorkspacePathOperationBlockedPreview } from './workspace-path-operation-preview-error';
 export type { WorkspaceBatchUploadResult, WorkspaceUploadFileProgress } from './workspace-upload-client';
 
 interface ApiErrorPayload {
@@ -61,6 +75,7 @@ export class WorkspaceFileApiError extends Error {
 
 export interface DeleteWorkspacePathsResult {
   operation?: WorkspacePathOperationPublic;
+  historical?: true;
   deleted?: string[];
   failed?: Array<{ path: string; error: string }>;
   trashEntries?: WorkspaceTrashEntryReference[];
@@ -379,7 +394,8 @@ export async function readWorkspaceFile(
     return await fetchDocumentQuery({ workspaceId: requestWorkspaceId, path, metaOnly, noCache, signal: options.signal,
       collaborationBootstrap: options.collaborationBootstrap },
       async ({ signal }) => {
-        const response = await fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal });
+        const response = await revalidateBusyFileRead(() =>
+          fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal }), signal);
         if (!response.ok) throw response;
         const { data } = await readApiJson<{ data: CurrentFile }>(response, fallbackMessage);
         return data;
@@ -433,12 +449,59 @@ export async function writeWorkspaceFile(
   return data;
 }
 
+export class WorkspaceMarkdownCreatePendingError extends Error {
+  constructor(readonly attempt: ManualMarkdownCreateAttempt) {
+    super('The document creation has not been confirmed. Check the same creation again.');
+    this.name = 'WorkspaceMarkdownCreatePendingError';
+  }
+}
+
+async function createManualMarkdownPath(path: string, workspaceId: string, requestId?: string): Promise<void> {
+  if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed.');
+  const entry = reserveMarkdownCreateAttempt({ targetPath: path, workspaceId, requestId });
+  const current = () => openedDocumentAuthScope() === entry.scope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
+  const pending = (status: ManualMarkdownCreateAttempt['status'] = 'unconfirmed') => {
+    settleMarkdownCreateAttempt(entry, status);
+    return new WorkspaceMarkdownCreatePendingError({ requestId: entry.requestId, workspaceId, targetPath: path, status });
+  };
+  let response: Response;
+  try {
+    response = await fetch('/api/files/create', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+      body: JSON.stringify({ path, type: 'file', requestId: entry.requestId }),
+    });
+  } catch { throw pending(); }
+  let payload: ApiErrorPayload & { success?: unknown; completion?: unknown };
+  try { payload = await readApiJson(response, 'Failed to create document'); } catch { throw pending(); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw pending();
+  if (!current()) throw pending();
+  const completion = parseManualMarkdownCreateCompletion(payload.completion, entry);
+  if (response.status === 200 && payload.success === true && completion?.status === 'completed') {
+    settleMarkdownCreateAttempt(entry, 'completed');
+    return;
+  }
+  if (response.status === 409 && payload.success === false && completion && completion.status !== 'completed'
+    && payload.code === completion.code) throw pending(completion.status);
+  // These responses explicitly reject the request. Unknown server outcomes retain the same attempt.
+  if ([400, 401, 403].includes(response.status) || response.status === 409 && payload.code === 'PATH_EXISTS') {
+    settleMarkdownCreateAttempt(entry, 'rejected');
+    throw new WorkspaceFileApiError(apiErrorMessage(response, 'Failed to create document', payload), response, payload);
+  }
+  throw pending();
+}
+
 export async function createWorkspacePath(
   path: string,
   type: 'file' | 'directory',
-  options: { template?: 'excalidraw'; workspaceId?: string | null } = {}
+  options: { template?: 'excalidraw'; workspaceId?: string | null; requestId?: string } = {}
 ): Promise<void> {
-  const { workspaceId, ...creationOptions } = options;
+  const { workspaceId, requestId, ...creationOptions } = options;
+  if (type === 'file' && !creationOptions.template && isManualMarkdownCreatePath(path)) {
+    const targetWorkspaceId = workspaceId ?? getActiveWorkspaceId();
+    if (!targetWorkspaceId) throw new Error('Choose a workspace before creating a document.');
+    return createManualMarkdownPath(path, targetWorkspaceId, requestId);
+  }
   const response = await fetch('/api/files/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
@@ -451,37 +514,74 @@ export async function createWorkspacePath(
   }
 }
 
-export async function deleteWorkspacePaths(paths: string[], workspaceId?: string | null): Promise<DeleteWorkspacePathsResult> {
+export async function deleteWorkspacePaths(paths: string[], workspaceId?: string | null, planId?: string,
+  suppliedAttempt?: WorkspacePathOperationAttempt): Promise<DeleteWorkspacePathsResult> {
   const requestedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
-  const response = await fetch('/api/files/delete', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
-    credentials: 'include',
-    body: JSON.stringify({ path: paths }),
-  });
-
-  if (response.ok || response.status === 409) {
-    const result = await readApiJson<DeleteWorkspacePathsResult>(response.clone(), 'Failed to delete paths');
-    if (result.reviewRequired) {
-      const review = result.reviewRequired;
-      if (typeof review.reviewId !== 'string' || !review.reviewId
-        || typeof review.planId !== 'string' || !review.planId
-        || typeof review.workspaceId !== 'string' || !review.workspaceId
-        || !['pending', 'blocked'].includes(review.status)
-        || requestedWorkspaceId && review.workspaceId !== requestedWorkspaceId
-        || result.deleted?.length || result.trashEntries?.length) {
-        throw new Error('Invalid file action review response');
-      }
-      return result;
+  const selectedPaths = [...paths];
+  const attempt = suppliedAttempt ?? reserveWorkspacePathOperationAttempt({ workspaceId: requestedWorkspaceId,
+    kind: 'delete', selections: selectedPaths.map(sourcePath => ({ sourcePath })), planId });
+  try {
+    if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
+    if (attempt.planId === undefined) {
+      const preview = await previewWorkspaceDelete(selectedPaths, requestedWorkspaceId);
+      if (preview.dryRun !== true || preview.requiresRevalidation !== true || !preview.plan
+        || !/^[a-f0-9]{64}$/u.test(preview.plan.planId)
+        || !['ready', 'requires-import-rebinding'].includes(preview.plan.readiness)) throw new Error('Check the deletion preview before applying it.');
+      bindWorkspacePathOperationAttemptPreview(attempt, preview.plan.planId);
     }
-    if (result.operation) return waitForWorkspacePathOperationResult(result, requestedWorkspaceId);
-    if (response.ok) return result;
-  }
-  if (!response.ok) {
-    throw new Error(await readApiError(response, 'Failed to delete paths'));
-  }
+    const init: RequestInit = {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
+      credentials: 'include',
+      body: JSON.stringify({ path: selectedPaths, planId: attempt.planId, idempotencyKey: attempt.operationId }),
+    };
+    dispatchWorkspacePathOperationAttempt(attempt);
+    const response = await fetch('/api/files/delete', init);
 
-  return readApiJson<DeleteWorkspacePathsResult>(response, 'Failed to delete paths');
+    if (response.ok || response.status === 409) {
+      const result = await readApiJson<DeleteWorkspacePathsResult>(response.clone(), 'Failed to delete paths');
+      if (result.reviewRequired) {
+        const review = result.reviewRequired;
+        if (typeof review.reviewId !== 'string' || !review.reviewId
+          || typeof review.planId !== 'string' || !review.planId
+          || typeof review.workspaceId !== 'string' || !review.workspaceId
+          || !['pending', 'blocked'].includes(review.status)
+          || requestedWorkspaceId && review.workspaceId !== requestedWorkspaceId
+          || result.deleted?.length || result.trashEntries?.length) {
+          throw new Error('Invalid file action review response');
+        }
+        settleWorkspacePathOperationAttempt(attempt, 'rejected');
+        return result;
+      }
+      if (result.operation) {
+        result.operation = readWorkspacePathOperation(result.operation,
+          { workspaceId: requestedWorkspaceId, planId: attempt.planId, allowPreparation: true });
+        bindWorkspacePathOperationAttempt(attempt, result.operation);
+        if (result.historical !== undefined && (result.historical !== true || attempt.planId === undefined
+          || !result.operation.preparation && result.operation.planId !== attempt.planId)) {
+          throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+        }
+        const completed = await waitForWorkspacePathOperationResult(result, requestedWorkspaceId);
+        if (completed.operation?.status !== 'applied') throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+        observeWorkspacePathOperationAttemptCompletion(completed.operation);
+        return completed;
+      }
+      if (response.ok) throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+    }
+    if (!response.ok) {
+      const failure = await readApiJson<{ code?: string; error?: unknown }>(response.clone(), 'Failed to delete paths');
+      if (['PREVIEW_STALE', 'PREVIEW_BLOCKED', 'PREVIEW_UNSUPPORTED_APPLY'].includes(failure.code ?? '')) {
+        settleWorkspacePathOperationAttempt(attempt, 'rejected');
+      }
+      throw new Error(await readApiError(response, 'Failed to delete paths'));
+    }
+
+    throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+  } catch (error) {
+    abandonWorkspacePathOperationAttempt(attempt);
+    settleWorkspacePathOperationAttempt(attempt, 'unknown');
+    throw error;
+  }
 }
 
 export async function restoreWorkspaceTrashEntry(
@@ -508,6 +608,7 @@ export async function restoreWorkspaceTrashEntry(
 
 export interface WorkspaceRenameResult {
   operation?: WorkspacePathOperationPublic;
+  historical?: true;
   mutation?: WorkspacePathRenameMutation;
   linkStatus?: 'complete' | 'partial' | 'incomplete';
   linkUpdates?: {
@@ -520,7 +621,7 @@ export interface WorkspaceRenameResult {
 export type WorkspaceFileOperationDryRun = {
   dryRun: true;
   requiresRevalidation: true;
-  plan: Omit<WorkspaceFileOperationPreview, 'previewContents'>;
+  plan: WorkspacePathOperationPreviewPublic;
 };
 
 export async function previewWorkspaceRename(
@@ -536,6 +637,14 @@ export async function previewWorkspaceRename(
   });
   if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview path change'));
   return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read path preview');
+}
+
+export async function previewWorkspaceDelete(paths: string[], workspaceId?: string | null): Promise<WorkspaceFileOperationDryRun> {
+  const response = await fetch('/api/files/delete', { method: 'DELETE', credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    body: JSON.stringify({ path: [...paths], dryRun: true }) });
+  if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview deletion'));
+  return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read deletion preview');
 }
 
 export async function previewWorkspaceCopy(params: {
@@ -561,39 +670,100 @@ export async function renameWorkspacePath(
   overwrite = false,
   workspaceId?: string | null,
   planId?: string,
+  suppliedAttempt?: WorkspacePathOperationAttempt,
 ): Promise<WorkspaceRenameResult> {
   const requestedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
-  const response = await fetch('/api/files/rename', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
-    credentials: 'include',
-    body: JSON.stringify({ oldPath, newPath, overwrite, planId }),
-  });
+  const attempt = suppliedAttempt ?? reserveWorkspacePathOperationAttempt({ workspaceId: requestedWorkspaceId,
+    kind: 'rename', selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite, planId });
+  try {
+    if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
+    if (attempt.planId === undefined && !overwrite && !attempt.implicit) {
+      const preview = await previewWorkspaceRename(oldPath, newPath, requestedWorkspaceId);
+      if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
+      if (preview.dryRun !== true || preview.requiresRevalidation !== true || !preview.plan
+        || !/^[a-f0-9]{64}$/u.test(preview.plan.planId)) throw new Error('Check the file action preview before applying it.');
+      if (preview.plan.readiness === 'blocked') throw new WorkspacePathOperationPreviewError(preview, {
+        workspaceId: requestedWorkspaceId!, sourcePath: oldPath, destinationPath: newPath, authScope: attempt.authScope,
+      });
+      if (!['ready', 'requires-import-rebinding'].includes(preview.plan.readiness)) throw new Error('Check the file action preview before applying it.');
+      if ('version' in preview.plan && preview.plan.version === 3 && preview.plan.kind === 'native-path-change') {
+        if (preview.plan.readiness !== 'ready' || preview.plan.workspaceId !== requestedWorkspaceId
+          || !preview.plan.linkAssessment || !preview.plan.linkAssessment.complete
+          || preview.plan.linkAssessment.blockers.length || preview.plan.issues.length) {
+          throw new Error('Check the file action preview before applying it.');
+        }
+        // Diagnostic automatic preview only. Final immutable plan binds after actual room drain.
+        markWorkspacePathOperationAttemptImplicit(attempt);
+      } else bindWorkspacePathOperationAttemptPreview(attempt, preview.plan.planId);
+    }
+    const init: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
+      credentials: 'include',
+      ...(attempt.implicitBinding ? { cache: 'no-store' as const } : {}),
+      body: attempt.implicitBinding ? '{}' : JSON.stringify({ oldPath, newPath, overwrite,
+        planId: attempt.planId, idempotencyKey: attempt.operationId }),
+    };
+    if (attempt.implicit && (openedDocumentAuthScope() !== attempt.authScope
+      || useWorkspaceStore.getState().activeWorkspaceId !== requestedWorkspaceId)) {
+      throw new Error('The file action or signed-in workspace changed. Please retry.');
+    }
+    dispatchWorkspacePathOperationAttempt(attempt);
+    // A known preparation always resumes its original request. A lost first response
+    // may retry only the SAME original idempotency key; it never invents a new action.
+    const response = await fetch(attempt.implicitBinding
+      ? `/api/files/operations/implicit-moves/${attempt.implicitBinding.requestId}` : '/api/files/rename', init);
+    if (attempt.implicit) return await waitForWorkspaceImplicitMoveResponse(response, { attempt,
+      workspaceId: requestedWorkspaceId!, action: 'rename', selections: [{ sourcePath: oldPath, destinationPath: newPath }] });
 
-  if (!response.ok) {
-    const error = await readApiJson<ApiErrorPayload & {
-      code?: string;
-      type?: string;
-      sourcePath?: string;
-      destPath?: string;
-      operation?: unknown;
-    }>(response, 'Failed to rename path');
-    const message = typeof error.error === 'string' && error.error.trim()
-      ? error.error
-      : 'Failed to rename path';
-    const err = (error.operation
-      ? new WorkspacePathOperationClientError(readWorkspacePathOperation(error.operation,
-        { workspaceId: requestedWorkspaceId, planId }), message)
-      : new Error(message)) as WorkspacePathConflictError;
-    err.code = error.code;
-    err.type = error.type;
-    err.sourcePath = error.sourcePath;
-    err.destPath = error.destPath;
-    throw err;
+    if (!response.ok) {
+      const error = await readApiJson<ApiErrorPayload & {
+        code?: string;
+        type?: string;
+        sourcePath?: string;
+        destPath?: string;
+        operation?: unknown;
+      }>(response, 'Failed to rename path');
+      const message = typeof error.error === 'string' && error.error.trim()
+        ? error.error
+        : 'Failed to rename path';
+      if (!error.operation && ['PREVIEW_STALE', 'PREVIEW_BLOCKED', 'PREVIEW_UNSUPPORTED_APPLY',
+        'PATH_IMPORT_OVERWRITE_UNSUPPORTED'].includes(error.code ?? '')) settleWorkspacePathOperationAttempt(attempt, 'rejected');
+      if (error.operation) {
+        const known = readWorkspacePathOperation(error.operation,
+          { workspaceId: requestedWorkspaceId, planId: attempt.planId, allowPreparation: true });
+        bindWorkspacePathOperationAttempt(attempt, known);
+      }
+      const err = (error.operation
+        ? new WorkspacePathOperationClientError(readWorkspacePathOperation(error.operation,
+          { workspaceId: requestedWorkspaceId, planId: attempt.planId, allowPreparation: true }), message)
+        : new Error(message)) as WorkspacePathConflictError;
+      err.code = error.code;
+      err.type = error.type;
+      err.sourcePath = error.sourcePath;
+      err.destPath = error.destPath;
+      throw err;
+    }
+
+    const result = await readApiJson<WorkspaceRenameResult>(response, 'Failed to read rename result');
+    if (!result.operation) throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+    const operation = readWorkspacePathOperation(result.operation,
+      { workspaceId: requestedWorkspaceId, planId: attempt.planId, allowPreparation: true });
+    result.operation = operation;
+    bindWorkspacePathOperationAttempt(attempt, operation);
+    if (result.historical !== undefined && (result.historical !== true || attempt.planId === undefined
+      || !operation.preparation && operation.planId !== attempt.planId)) {
+      throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+    }
+    const completed = await waitForWorkspacePathOperationResult(result, requestedWorkspaceId);
+    if (completed.operation?.status !== 'applied') throw new WorkspacePathOperationOutcomeUnknownError(attempt.operationId, attempt.planId);
+    observeWorkspacePathOperationAttemptCompletion(completed.operation);
+    return completed;
+  } catch (error) {
+    abandonWorkspacePathOperationAttempt(attempt);
+    settleWorkspacePathOperationAttempt(attempt, 'unknown');
+    throw error;
   }
-
-  return waitForWorkspacePathOperationResult(await readApiJson<WorkspaceRenameResult>(response, 'Failed to read rename result'),
-    requestedWorkspaceId);
 }
 
 export async function copyWorkspacePaths(params: {

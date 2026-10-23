@@ -1,0 +1,25 @@
+# Neustartabnahme und aktive Editorverbindung beim Cleanup
+
+Stand: 2026-10-14. Der eigene V18-Browserlauf verwendet exakt `27f7b871369111d27b650c7601a1da49ad802fb5`, Source `a40eeb7c0f6d9a14149868af638d65215081c080754dc220afdd163ac44d522c`, Build `19933e09d704e28570f8ecb86f620b8132dec6af2f6625729cb3bf07058d684c`. Der echte frische Produktionsbuild einschließlich Prebuilds und CLI-Versioninjektion besteht; Root bestätigt Build und tatsächliche geschlossene Buildlaufzeit unabhängig.
+
+## Tatsächlicher Browserbefund
+
+**Zehn Fälle starten: acht bestehen, zwei scheitern, kein Skip, Testtimeout oder unterbrochener Fall.** Alle sechs Create-/Paste-/Importfälle, der Fokus-/Breitenfall und der vollständige Rich-Linkfall bestehen. Root prüft die Reporter unabhängig und betrachtet den tatsächlichen Fokus-Screenshot: Breite und Fokus stehen kompakt nebeneinander rechts im Dokumentheader, Read/Edit fehlt, der Inhalt bleibt editierbar und die breite Tabelle sichtbar.
+
+Beide [Neustartfälle](../tests/editor-yjs-owned-restart.spec.ts) führen ihren vorgesehenen echten Hostneustart aus, einmal geregelt und einmal erzwungen (`restartCount=2`, keine zusätzliche Wiederholung). Die vorhandenen SQL-Durability-Prüfungen vor dem Neustart und die folgenden Prüfungen im separat gestarteten frischen Browser bestehen: kein alter dokumentbezogener IndexedDB-Inhalt, Editierbarkeit, identischer Baum, Dokumentidentität, dauerhafter Inhalt und erneuter Reload. Erst die abschließende Assertion `deleted.ok()` in Zeile 108 scheitert in beiden Fällen. Der Gesamtpass bleibt deshalb offen; bestandene vorgeschaltete Schritte ersetzen ihn nicht.
+
+## Eindeutig zugeordneter gespeicherter Fehler
+
+Die ursprünglichen Traces enthalten die DELETE-Aufrufschritte, aber keine Antwortdaten dieses separat manuell gestarteten Browser-/APIRequestContexts. Originaler HTTP-Status und Body sind nicht erhalten; Root wiederholt keine alte Dateiaktion, um sie nachträglich zu erzeugen.
+
+Root liest die ursprünglichen Zielpfade aus den beiden Traceaufrufen und bindet sie jeweils an genau eine übereinstimmende native Registry-/State-Identität im erhaltenen eigenen PG18. Beide eindeutig zugeordneten Operationsbatches enthalten `failed / COLLABORATION_FILE_LIFECYCLE_BUSY / preparing`, null ausgeführte von einer geplanten Aktion und null Trash-Einträge, Autorisierung `direct`. Der aktive native Zustand ist jeweils Blocks, Generation 1, Schema 1. Das sind tatsächliche gespeicherte Originaldatensätze, keine synthetische Wiederholung oder bloße Schlussfolgerung aus einem sichtbaren Editor.
+
+Die [Lifecycle-Prüfung](../app/lib/files/workspace-file-lifecycle-guard.ts) verweigert überlappende Admission, vorhandene Owner-Felder, aktive lokale Verbindungen oder einen gehaltenen PostgreSQL-Dokumentlock vor Backup und Trash. Der Test fordert die Löschung unmittelbar nach seinem Screenshot an, während der frische Editor noch geöffnet ist. Der Schutz wird beibehalten. Die enge Fixturekorrektur soll die aktive Busy-Antwort ausdrücklich prüfen, danach die tatsächliche UI-Aktion „Close preview“ ausführen und vor der weiterhin positiven DELETE-Assertion die exakte normale Ownerfreigabe nachweisen. DOM-Verschwinden allein genügt nicht: gleiche Epoche, leeres Owner-Triplet, gültige Release-Receipt, freier PG-Dokumentlock und keine überlappende offene Admission sind erforderlich. Kein fixes Sleep, wiederholtes DELETE, erzwungener Peerabschluss oder Löschen von Owner-Feldern ersetzt diesen Nachweis.
+
+## Erhaltene Belege und Grenzen
+
+Root bestätigt unabhängig 99 abwesende eigene PIDs, 18 leere Prozessgruppen, beide freien eigenen Ports, fehlenden Runtime-Lock, unveränderte Root-/DATA-Identitäten sowie beide exakten eigenen PG18-Datenbanken mit Eigentumsmarkern und null Sessions. Eine frische echte Source-/Buildprüfung besteht. DATA, Datenbanken, Originaltraces, DOM, Screenshots und Logs bleiben erhalten; die `.next`-Wurzel ist anschließend einmal atomar mit unveränderter Verzeichnisidentität und Seal archiviert. Keine vollständige erneute Archiv-/Dependencyhashrunde und kein neuer Lauf verdecken das erste Ergebnis.
+
+Die ursprüngliche Produktionsinstanz liefert separat aktuelle `COLLABORATION_ROUNDTRIP_UNSTABLE`-Logs: 100 schmal abgefragte Zeilen vom 13./14.10. betreffen dieselbe Dokument-ID; weitere Treffer existieren. Die aktuelle Zuordnung zu den beiden gemeldeten Basenames ist nicht belegt. Canvas-Connector-Reauthentisierung fehlt, ein rein lesender SSH-/SQL-Versuch endet ohne Ausgabe mit Timeout, Original-Yjs-Binary und Operationsdatensatz sind nicht abgerufen. Diese Logs beweisen weder die originale Codecursache noch eine Produktionsbehebung. Der lokale Lifecycle-Busy-Cleanup und der ursprüngliche `PREVIEW_BLOCKED`-Fall werden nicht gleichgesetzt.
+
+Die vollständige Browsermatrix muss nach der gezielten Fixturekorrektur erneut bestehen. Weitere Abnahmelücken nach §13.3 des [Masterplans](./yjs-document-authority-consolidation-plan.md) und die noch offenen nativen Produktanschlüsse bleiben gesondert offen.

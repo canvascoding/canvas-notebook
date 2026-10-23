@@ -9,11 +9,11 @@ database migration.
 
 | Value | Capture | Center/history/compare | Restore/policy | Intended use |
 | --- | ---: | ---: | ---: | --- |
-| absent or empty | yes | yes | yes | standard behavior for new and updated installations |
+| absent or empty | no | no | no | optional version features disabled by default |
 | unknown or `off` | no | no | no | explicit rollback or fail-closed invalid configuration |
 | `shadow` | yes | no | no | content-free storage and latency measurement |
 | `read_only` | yes | yes | no | authorized read-only canary |
-| `full` | yes | yes | yes | mutation canary and general release |
+| `full` | yes | yes | yes | explicit opt-in for version features |
 
 Notifications are enabled in `full` mode. Existing collaboration-agent
 accept/reject routes and normal file read/write routes do not depend on this

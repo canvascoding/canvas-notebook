@@ -15,8 +15,11 @@ import type { WorkspaceTrashEntry } from '../app/lib/filesystem/workspace-trash'
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 const sha = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
-const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
-  buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
+const buildWorkspaceOperationBatchPlan = async (input: Parameters<typeof buildBatchPlan>[0]) => {
+  const plan = await buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
+  if (plan.version !== 1) throw new Error('Legacy fixture unexpectedly produced a native plan.');
+  return plan;
+};
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-batch-executor-'));
@@ -42,6 +45,7 @@ async function main() {
       await fs.mkdir(path.dirname(absolute(relative)), { recursive: true }); await fs.writeFile(absolute(relative), content);
     };
     const makeExecutor = (overrides: Parameters<typeof createWorkspaceOperationBatchExecutor>[0] = {}) => createWorkspaceOperationBatchExecutor({
+      readBatch: async () => null,
       rebuild: buildWorkspaceOperationBatchPlan,
       snapshot: buildWorkspacePlannerSnapshot,
       htmlEvidenceCurrent: async () => {},
@@ -112,6 +116,42 @@ async function main() {
       releaseLinkRoom: async (input, group) => { events.push(`release:${group.path}:${input.operationId}`); },
       ...overrides,
     });
+    const assertUndoDisabled = async (operation: () => Promise<unknown>) => {
+      // Finish only projectors already started by the preceding forward operation.
+      await Promise.all(queuedProjections.splice(0));
+      const beforeEvents = [...events];
+      const beforeEntries = JSON.stringify([...entries]);
+      const beforeAuthoritative = [...authoritative];
+      const beforeCounters = [archiveFailures, projectionDelay, checkpointFailures];
+      const snapshots: Array<Array<Record<string, unknown>>> = [];
+      for (const phase of ['before', 'after'] as const) {
+        if (phase === 'after') {
+          await assert.rejects(operation, { code: 'FILE_OPERATION_UNDO_DISABLED', status: 409 });
+        }
+        const snapshot: Array<Record<string, unknown>> = [];
+        const pending = [dataRoot];
+        while (pending.length) {
+          const filename = pending.pop()!;
+          const stat = await fs.lstat(filename);
+          const kind = stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : stat.isSymbolicLink() ? 'symlink' : 'other';
+          const row: Record<string, unknown> = { path: path.relative(dataRoot, filename), kind,
+            dev: stat.dev, ino: stat.ino, mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs };
+          if (kind === 'file') row.sha256 = sha(await fs.readFile(filename));
+          else if (kind === 'symlink') row.target = await fs.readlink(filename);
+          else if (kind === 'directory') {
+            for (const entry of await fs.readdir(filename)) pending.push(path.join(filename, entry));
+          }
+          snapshot.push(row);
+        }
+        snapshot.sort((left, right) => String(left.path).localeCompare(String(right.path)));
+        snapshots.push(snapshot);
+      }
+      assert.deepEqual(snapshots[1], snapshots[0], 'Disabled Undo preserves the full DATA tree, file bytes, identities and metadata');
+      assert.deepEqual(events, beforeEvents, 'Disabled Undo invokes no mutation adapter');
+      assert.equal(JSON.stringify([...entries]), beforeEntries, 'Disabled Undo preserves all trash records');
+      assert.deepEqual([...authoritative], beforeAuthoritative, 'Disabled Undo changes no authoritative link state');
+      assert.deepEqual([archiveFailures, projectionDelay, checkpointFailures], beforeCounters);
+    };
     const actions: WorkspaceOperationBatchAction[] = [
       { reviewId: 'delete', kind: 'delete', selections: [{ sourcePath: 'old.md' }] },
       { reviewId: 'move', kind: 'move', selections: [{ sourcePath: 'notes/a.md', destinationPath: 'channels/a.md' }] },
@@ -155,58 +195,35 @@ async function main() {
     assert.equal((await makeExecutor().execute({ batchId, plan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     assert.equal(events.length, eventCount, 'Restart/repeat acceptance never replays completed steps');
     await write('New.md', '[New backlink](channels/a.md)');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId, scope }), { code: 'BATCH_UNDO_NEW_BACKLINK' });
-    assert.equal(events.length, eventCount, 'New backlinks block Undo without touching links or paths');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId, scope }));
+    assert.equal(events.length, eventCount, 'Undo stays disabled with new backlinks');
     await fs.unlink(absolute('New.md'));
     await write('notes/a.md', '# User-created file');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId, scope }), { code: 'BATCH_UNDO_DESTINATION_OCCUPIED' });
-    assert.equal(events.length, eventCount, 'Occupied original slot blocks before backlink mutation');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId, scope }));
+    assert.equal(events.length, eventCount, 'Undo stays disabled with an occupied original slot');
     await fs.unlink(absolute('notes/a.md'));
-    await makeExecutor().assertUndoAvailable({ batchId, scope });
-    const beforeRefusedRelease = events.length;
-    const releaseRefused = await makeExecutor({ releaseLinkRoom: async (input, group) => {
-      if (input.operationId.endsWith('-undo')) {
-        events.push(`release-refused:${group.path}`);
-        throw Object.assign(new Error('Internal owner release is unproven.'), { code: 'ROOM_OWNER_BUSY' });
-      }
-    } }).undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(releaseRefused.status, 'needs_recovery');
-    assert.equal(releaseRefused.errorCode, 'ROOM_OWNER_BUSY');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
     await assert.rejects(fs.stat(absolute('notes/a.md')), { code: 'ENOENT' });
     assert.ok(await fs.stat(absolute('channels/a.md')));
-    assert.ok(!events.slice(beforeRefusedRelease).some(event => event.startsWith('move:') || event.startsWith('restore:')),
-      'An unproven owner release never starts inverse physical paths');
-    const refusedEvents = events.slice(beforeRefusedRelease);
-    const checkpointIndex = refusedEvents.indexOf('checkpoint:channels/a.md');
-    assert.ok(checkpointIndex >= 0 && refusedEvents.indexOf('release-refused:channels/a.md') > checkpointIndex,
-      'Inverse content is durably checkpointed before its exact owner release is requested');
-    const beforeReleaseRecovery = events.length;
-    const undone = await makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(undone.status, 'applied', undone.errorCode ?? '');
-    const inverseEvents = events.slice(beforeReleaseRecovery);
-    const releaseIndex = inverseEvents.indexOf(`release:channels/a.md:${batchId}-undo`);
-    const reversePathIndex = inverseEvents.indexOf('move:channels/a.md');
-    assert.ok(releaseIndex >= 0 && reversePathIndex > releaseIndex, 'Durable owner release precedes the inverse path mutation on recovery');
-    await Promise.all(queuedProjections.splice(0));
-    for (const [filename, content] of Object.entries(baseline)) assert.equal(await fs.readFile(absolute(filename), 'utf8'), content);
-    await assert.rejects(fs.stat(absolute('channels/a.md')), { code: 'ENOENT' });
-    assert.equal((await makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    const undoLedger = (await makeExecutor().publicExecution({ ...forwardPublicInput, actionMode: 'undo', status: 'undone' }))!;
-    assert.equal(undoLedger.mode, 'undo'); assert.equal(undoLedger.finalization, 'complete');
-    assert.ok(undoLedger.steps.every((step) => step.state === 'applied'));
-    assert.ok(undoLedger.steps.some((step) => step.kind === 'restore' && step.path === 'old.md'));
-    assert.ok(undoLedger.steps.some((step) => step.kind === 'move' && step.path === 'channels/a.md' && step.destinationPath === 'notes/a.md'));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.deepEqual(await makeExecutor().publicExecution(forwardPublicInput), forwardLedger,
+      'Disabled Undo never changes the completed forward receipt');
     const manifestPath = path.join(dataRoot, 'manifests', `${batchId}.json`);
     const savedManifest = await fs.readFile(manifestPath, 'utf8');
     try {
       const envelope = JSON.parse(savedManifest) as { payload: string; sha256: string };
-      const corruptInverse = JSON.parse(envelope.payload) as { undoPlan: { planId: string } };
-      corruptInverse.undoPlan.planId = 'f'.repeat(64);
-      envelope.payload = JSON.stringify(corruptInverse); envelope.sha256 = sha(envelope.payload);
+      const corruptForward = JSON.parse(envelope.payload) as { plan: { planId: string } };
+      corruptForward.plan.planId = 'f'.repeat(64);
+      envelope.payload = JSON.stringify(corruptForward); envelope.sha256 = sha(envelope.payload);
       await fs.writeFile(manifestPath, JSON.stringify(envelope));
-      const unknownInverse = (await makeExecutor().publicExecution({ ...forwardPublicInput, actionMode: 'undo', status: 'undone' }))!;
-      assert.equal(unknownInverse.receiptStatus, 'unavailable'); assert.equal(unknownInverse.finalization, 'pending', 'even an intact outer digest cannot bless an invalid inverse plan');
+      const unknownForward = (await makeExecutor().publicExecution(forwardPublicInput))!;
+      assert.equal(unknownForward.receiptStatus, 'unavailable'); assert.equal(unknownForward.finalization, 'pending', 'even an intact outer digest cannot bless an invalid forward plan');
     } finally { await fs.writeFile(manifestPath, savedManifest); }
+
+    // Explicit fixture setup for the next independent forward scenarios; no inverse operation ran.
+    await fs.rename(absolute('channels/a.md'), absolute('notes/a.md'));
+    for (const [filename, content] of Object.entries(baseline)) await write(filename, content);
 
     await write('checkpoint-target.md', '# Target'); await write('checkpoint-home.md', '[Target](checkpoint-target.md)');
     const checkpointPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'checkpoint', kind: 'delete', selections: [{ sourcePath: 'checkpoint-target.md' }] }] });
@@ -291,8 +308,7 @@ async function main() {
     const intentRetry = await makeExecutor().execute({ batchId: intentId, plan: freshPeer, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(intentRetry.status, 'needs_recovery', 'unacknowledged physical mutation never becomes a new preview');
     assert.equal(await fs.readFile(absolute('peer-moved.md'), 'utf8'), '# Source');
-    const invalidUndo = await makeExecutor().undo({ batchId: intentId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(invalidUndo.status, 'needs_recovery', 'Undo cannot promote an incomplete forward receipt to applied');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: intentId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
     assert.equal((await makeExecutor().get({ batchId: intentId, scope }))!.status, 'needs_recovery');
     await fs.writeFile(path.join(dataRoot, 'manifests', `${intentId}.json`), '{corrupt');
     await assert.rejects(makeExecutor().mutationEvidence(intentId, workspace.workspaceId));
@@ -311,8 +327,7 @@ async function main() {
     assert.equal((await makeExecutor().execute({ batchId: protectedId, plan: protectedPlan, scope,
       actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     await write('undo-protected-moved.txt', 'Peer edit must survive');
-    const refusedUndo = await makeExecutor().undo({ batchId: protectedId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(refusedUndo.status, 'failed'); assert.equal(refusedUndo.errorCode, 'BATCH_UNDO_PATH_CHANGED');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: protectedId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
     assert.equal((await makeExecutor().get({ batchId: protectedId, scope }))!.status, 'applied');
     assert.equal(await makeExecutor().mutationEvidence(protectedId, workspace.workspaceId, true), 'pristine');
     const refusedLedger = (await makeExecutor().publicExecution({ batchId: protectedId, scope, plan: protectedPlan,
@@ -371,18 +386,18 @@ async function main() {
       selections: [{ sourcePath: 'resume-a.md', destinationPath: 'deep/resume-a.md' }] }] });
     const resumeId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: resumeId, plan: resumePlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    const undoPaused = await makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
-      onProgress: async () => { if (await fs.stat(absolute('resume-a.md')).then(() => true, () => false)) throw new Error('UNDO_WORKER_INTERRUPTED'); } });
-    assert.equal(undoPaused.status, 'needs_recovery');
-    const partialInverse = (await makeExecutor().publicExecution({ batchId: resumeId, scope, plan: resumePlan,
-      actionMode: 'undo', status: 'needs_recovery', completedActions: undoPaused.completedActions, phase: 'recovery' }))!;
-    assert.equal(partialInverse.mode, 'undo'); assert.equal(partialInverse.receiptStatus, 'available');
-    assert.equal(partialInverse.finalization, 'pending');
-    assert.ok(partialInverse.steps.some((step) => step.kind === 'move' && step.destinationPath === 'resume-a.md' && step.state === 'applied'));
-    const resumedUndo = await makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(resumedUndo.status, 'applied', resumedUndo.errorCode ?? '');
-    assert.equal(await fs.readFile(absolute('resume-a.md'), 'utf8'), '[Shared](resume-shared.md)');
-    assert.equal(await fs.readFile(absolute('resume-home.md'), 'utf8'), '[A](resume-a.md)');
+    let undoProgressCalls = 0;
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
+      onProgress: () => { undoProgressCalls += 1; } }));
+    assert.equal(undoProgressCalls, 0, 'Disabled Undo never enters progress or inverse execution');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: resumeId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    const resumeForward = (await makeExecutor().publicExecution({ batchId: resumeId, scope, plan: resumePlan,
+      actionMode: 'apply', status: 'applied', completedActions: resumePlan.pathSteps.length + resumePlan.previewContents.length, phase: 'complete' }))!;
+    assert.equal(resumeForward.mode, 'apply'); assert.equal(resumeForward.receiptStatus, 'available');
+    assert.equal(resumeForward.finalization, 'complete'); assert.ok(resumeForward.steps.every((step) => step.state === 'applied'));
+    assert.equal(await fs.readFile(absolute('deep/resume-a.md'), 'utf8'), '[Shared](../resume-shared.md)');
+    assert.equal(await fs.readFile(absolute('resume-home.md'), 'utf8'), '[A](deep/resume-a.md)');
+    await assert.rejects(fs.stat(absolute('resume-a.md')), { code: 'ENOENT' });
 
     await write('ledger-anchor.md', '# Anchor');
     await write('ledger-undo-dir/doc.md', '[Anchor](../ledger-anchor.md)');
@@ -394,32 +409,23 @@ async function main() {
     const twoReverseId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: twoReverseId, plan: twoReversePlan, scope,
       actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    const twoReversePaused = await makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester',
-      onProgress: async () => { if (await fs.stat(absolute('ledger-undo-dir/doc.md')).then(() => true, () => false)) throw new Error('LATER_REVERSE_STEP_INTERRUPTED'); } });
-    assert.equal(twoReversePaused.status, 'needs_recovery');
-    assert.ok(twoReversePaused.completedActions < twoReversePaused.totalActions,
-      'Interrupted Undo counts inverse receipts rather than completed forward steps');
-    assert.equal(twoReversePaused.completedActions,
-      twoReversePaused.stepResults!.filter((step) => step.state === 'applied').length);
-    const twoReverseLedger = (await makeExecutor().publicExecution({ batchId: twoReverseId, scope, plan: twoReversePlan,
-      actionMode: 'undo', status: 'needs_recovery', completedActions: twoReversePaused.completedActions, phase: 'recovery' }))!;
-    assert.equal(twoReverseLedger.receiptStatus, 'available'); assert.equal(twoReverseLedger.finalization, 'pending');
-    assert.equal(twoReversePaused.completedActions,
-      twoReverseLedger.steps.filter((step) => step.state === 'applied').length);
-    const restoredDocument = twoReverseLedger.steps.find((step) => step.phase === 'link' && step.path === 'nested/ledger-undo-dir-moved/doc.md')!;
-    assert.equal(restoredDocument.state, 'applied'); assert.equal(restoredDocument.openPath, 'ledger-undo-dir/doc.md');
-    assert.equal(await fs.readFile(absolute(restoredDocument.openPath!), 'utf8'), '[Anchor](../ledger-anchor.md)');
-    assert.ok(twoReverseLedger.steps.some((step) => step.phase === 'path' && step.destinationPath === 'ledger-undo-later.txt' && step.state === 'pending'));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    const twoForwardLedger = (await makeExecutor().publicExecution({ batchId: twoReverseId, scope, plan: twoReversePlan,
+      actionMode: 'apply', status: 'applied', completedActions: twoReversePlan.pathSteps.length + twoReversePlan.previewContents.length, phase: 'complete' }))!;
+    assert.equal(twoForwardLedger.receiptStatus, 'available'); assert.equal(twoForwardLedger.finalization, 'complete');
+    assert.ok(twoForwardLedger.steps.every((step) => step.state === 'applied'));
+    assert.equal(await fs.readFile(absolute('nested/ledger-undo-dir-moved/doc.md'), 'utf8'), '[Anchor](../../ledger-anchor.md)');
     assert.equal(await fs.readFile(absolute('ledger-undo-later-moved.txt'), 'utf8'), 'Later reverse move stays pending');
-    assert.equal((await makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: twoReverseId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
 
     await write('empty-target.md', '# Empty target'); await write('empty-home.md', '[](empty-target.md)');
     const emptyPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'empty', kind: 'delete', selections: [{ sourcePath: 'empty-target.md' }] }] });
     const emptyId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: emptyId, plan: emptyPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     assert.equal(await fs.readFile(absolute('empty-home.md'), 'utf8'), '');
-    assert.equal((await makeExecutor().undo({ batchId: emptyId, scope, actorUserId: 'another-authorized-reviewer', actorDisplayName: 'Reviewer' })).status, 'applied');
-    assert.equal(await fs.readFile(absolute('empty-home.md'), 'utf8'), '[](empty-target.md)');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: emptyId, scope, actorUserId: 'another-authorized-reviewer', actorDisplayName: 'Reviewer' }));
+    assert.equal(await fs.readFile(absolute('empty-home.md'), 'utf8'), '');
+    await assert.rejects(fs.stat(absolute('empty-target.md')), { code: 'ENOENT' });
     await write('repair-old/A.md', '# Repaired document');
     await write('repair-home.md', '[[repair-new/A|Visible label]]');
     const repairPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'exact-repair', kind: 'move',
@@ -429,16 +435,18 @@ async function main() {
     const repairId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: repairId, plan: repairPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     await write('repair-new-backlink.md', '[Later](repair-new/A.md)');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: repairId, scope }), { code: 'BATCH_UNDO_NEW_BACKLINK' });
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: repairId, scope }));
     await fs.unlink(absolute('repair-new-backlink.md'));
-    await makeExecutor().assertUndoAvailable({ batchId: repairId, scope });
-    assert.equal((await makeExecutor().undo({ batchId: repairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    assert.equal(await fs.readFile(absolute('repair-home.md'), 'utf8'), '[[repair-new/A|Visible label]]', 'Undo restores the originally missing path without guessing a target');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: repairId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: repairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('repair-home.md'), 'utf8'), '[[repair-new/A|Visible label]]', 'Disabled Undo preserves the forward repaired link');
+    // Explicit setup for another independent forward repair; not an Undo result.
+    await fs.rename(absolute('repair-new'), absolute('repair-old'));
     const repairAgain = await buildWorkspaceOperationBatchPlan({ scope, actions: repairPlan.actions });
     const repairAgainId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: repairAgainId, plan: repairAgain, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     await write('repair-home.md', '[[repair-new/A|Visible label]] [Later](repair-new/A.md)');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: repairAgainId, scope }), { code: 'BATCH_UNDO_LINK_CHANGED' });
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: repairAgainId, scope }));
 
     await write('mapped-target/A.md', '# Mapped target');
     await write('repair-source.md', '[[repaired-target/A|Repair moved source]]');
@@ -451,12 +459,12 @@ async function main() {
     const movedRepairResult = await makeExecutor().execute({ batchId: movedRepairId, plan: movedRepair, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(movedRepairResult.status, 'applied', movedRepairResult.errorCode ?? '');
     await write('Other/repaired-target/A.md', '# Later suffix candidate');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope }), { code: 'BATCH_UNDO_NEW_BACKLINK' });
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope }));
     await fs.unlink(absolute('Other/repaired-target/A.md'));
-    await makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope });
-    const movedRepairUndo = await makeExecutor().undo({ batchId: movedRepairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(movedRepairUndo.status, 'applied', movedRepairUndo.errorCode ?? '');
-    assert.equal(await fs.readFile(absolute('repair-source.md'), 'utf8'), '[[repaired-target/A|Repair moved source]]');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: movedRepairId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: movedRepairId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('moved-repair-source.md'), 'utf8'), '[[repaired-target/A|Repair moved source]]');
+    await assert.rejects(fs.stat(absolute('repair-source.md')), { code: 'ENOENT' });
 
     await write('missing-old/Plan.md', '[Missing](missing.md) [[The First 100 Collection]]');
     await write('missing-home.md', '[Missing](missing-old/absent.md)');
@@ -467,8 +475,9 @@ async function main() {
     const missingResult = await makeExecutor().execute({ batchId: missingId, plan: missingPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(missingResult.status, 'applied', missingResult.errorCode ?? '');
     assert.equal(await fs.readFile(absolute('missing-home.md'), 'utf8'), '[Missing](missing-new/absent.md)');
-    assert.equal((await makeExecutor().undo({ batchId: missingId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    assert.equal(await fs.readFile(absolute('missing-home.md'), 'utf8'), '[Missing](missing-old/absent.md)');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: missingId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('missing-home.md'), 'utf8'), '[Missing](missing-new/absent.md)');
+    await assert.rejects(fs.stat(absolute('missing-old')), { code: 'ENOENT' });
 
     await write('delete-missing/Present.md', '# Present');
     await write('delete-missing-home.md', '[Gone](delete-missing/absent.md) [[delete-missing/ghost|Ghost]]');
@@ -476,8 +485,9 @@ async function main() {
     const missingDeleteId = randomUUID();
     assert.equal((await makeExecutor().execute({ batchId: missingDeleteId, plan: missingDelete, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
     assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), 'Gone Ghost');
-    assert.equal((await makeExecutor().undo({ batchId: missingDeleteId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' })).status, 'applied');
-    assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), '[Gone](delete-missing/absent.md) [[delete-missing/ghost|Ghost]]');
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: missingDeleteId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('delete-missing-home.md'), 'utf8'), 'Gone Ghost');
+    await assert.rejects(fs.stat(absolute('delete-missing')), { code: 'ENOENT' });
     await write('agent-source.md', '# Agent file');
     await write('agent-backlink.md', '[Agent file](agent-source.md)');
     const agentPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'agent-move', kind: 'move',
@@ -498,10 +508,11 @@ async function main() {
     assert.ok(attribution.length >= 2);
     assert.ok(attribution.every((actor) => actor.id === 'actual-agent' && actor.type === 'agent' && actor.session === 'originating-session'));
     assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-moved.md)');
-    assert.equal((await agentExecutor().undo({ batchId: agentId, scope, actorUserId: 'tester', actorId: 'tester',
-      actorType: 'user', actorDisplayName: 'Tester' })).status, 'applied');
-    assert.deepEqual(attribution.at(-1), { id: 'tester', type: 'user', session: undefined });
-    assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-source.md)');
+    const forwardAttribution = attribution.map((actor) => ({ ...actor }));
+    await assertUndoDisabled(() => agentExecutor().undo({ batchId: agentId, scope, actorUserId: 'tester', actorId: 'tester',
+      actorType: 'user', actorDisplayName: 'Tester' }));
+    assert.deepEqual(attribution, forwardAttribution, 'Disabled human Undo creates no new attribution or inverse receipt');
+    assert.equal(await fs.readFile(absolute('agent-backlink.md'), 'utf8'), '[Agent file](agent-moved.md)');
     const absentAction: WorkspaceOperationBatchAction = { reviewId: 'originally-absent-delete', kind: 'delete', ignoreMissing: true,
       selections: [{ sourcePath: 'reborn-missing.md' }] };
     const absentPlan = await buildWorkspaceOperationBatchPlan({ scope, actions: [absentAction] });
@@ -539,14 +550,15 @@ async function main() {
     const htmlMoved = await makeExecutor().execute({ batchId: htmlId, plan: htmlPlan, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
     assert.equal(htmlMoved.status, 'applied', htmlMoved.errorCode ?? '');
     assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
-    await makeExecutor().assertUndoAvailable({ batchId: htmlId, scope });
-    const htmlUndone = await makeExecutor().undo({ batchId: htmlId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(htmlUndone.status, 'applied', htmlUndone.errorCode ?? '');
-    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
-    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
-    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource, 'Undo preserves HTML and its formatting byte for byte');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: htmlId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: htmlId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource, 'Disabled Undo preserves HTML and its formatting byte for byte');
     assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
 
+    // Explicit setup for a fresh forward move; no Undo ran and the original receipt remains applied.
+    await fs.rename(absolute('html-roundtrip-moved.txt'), absolute('html-roundtrip-source.txt'));
     const htmlAgain = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
     const htmlAgainId = randomUUID();
     const htmlAgainMoved = await makeExecutor().execute({ batchId: htmlAgainId, plan: htmlAgain, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
@@ -554,11 +566,9 @@ async function main() {
     const htmlAppliedEventCount = events.length;
     const newHtmlBacklink = '<a href="html-roundtrip-moved.txt">Created after the move</a>';
     await write('html-undo-backlink.md', newHtmlBacklink);
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
-    const affectedHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(affectedHtmlUndo.status, 'failed');
-    assert.equal(affectedHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
-    assert.equal(events.length, htmlAppliedEventCount, 'Affected HTML refuses Undo before any mutation');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(events.length, htmlAppliedEventCount, 'Undo remains disabled with affected HTML');
     assert.equal(await fs.readFile(absolute('html-undo-backlink.md'), 'utf8'), newHtmlBacklink);
     assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
     await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
@@ -569,23 +579,22 @@ async function main() {
     const opaqueForward = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: 'opaque-forward', kind: 'move',
       selections: [{ sourcePath: 'html-roundtrip-moved.txt', destinationPath: 'html-roundtrip-another.txt' }] }] });
     assert.equal(opaqueForward.readiness, 'blocked', 'An opaque HTML node cannot acquire an unaffected certification');
-    await assert.rejects(makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }), { code: 'BATCH_UNDO_INDEX_INCOMPLETE' });
-    const opaqueHtmlUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(opaqueHtmlUndo.status, 'failed');
-    assert.equal(opaqueHtmlUndo.errorCode, 'BATCH_UNDO_INDEX_INCOMPLETE');
-    assert.equal(events.length, htmlAppliedEventCount, 'Opaque HTML refuses Undo before any mutation');
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(events.length, htmlAppliedEventCount, 'Undo remains disabled with opaque HTML');
     assert.equal(await fs.readFile(absolute('html-opaque.md'), 'utf8'), opaqueHtml);
     assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
     await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
     await fs.unlink(absolute('html-opaque.md'));
-    await makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope });
-    const htmlRecoveredUndo = await makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' });
-    assert.equal(htmlRecoveredUndo.status, 'applied', htmlRecoveredUndo.errorCode ?? '');
-    assert.equal(await fs.readFile(absolute('html-roundtrip-source.txt'), 'utf8'), htmlMovedContent);
-    await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
+    await assertUndoDisabled(() => makeExecutor().assertUndoAvailable({ batchId: htmlAgainId, scope }));
+    await assertUndoDisabled(() => makeExecutor().undo({ batchId: htmlAgainId, scope, actorUserId: 'tester', actorDisplayName: 'Tester' }));
+    assert.equal(await fs.readFile(absolute('html-roundtrip-moved.txt'), 'utf8'), htmlMovedContent);
+    await assert.rejects(fs.stat(absolute('html-roundtrip-source.txt')), { code: 'ENOENT' });
     assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), htmlSource);
     assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
 
+    // Explicit setup for the independent late-peer forward guard below.
+    await fs.rename(absolute('html-roundtrip-moved.txt'), absolute('html-roundtrip-source.txt'));
     const htmlLatePlan = await buildWorkspaceOperationBatchPlan({ scope, actions: htmlActions });
     assert.equal(htmlLatePlan.readiness, 'ready', JSON.stringify(htmlLatePlan.issues));
     assert.ok(htmlLatePlan.linkAssessment.warnings.some((warning) => warning.sourcePath === 'html-roundtrip.md'
@@ -617,7 +626,7 @@ async function main() {
     await assert.rejects(fs.stat(absolute('html-roundtrip-moved.txt')), { code: 'ENOENT' });
     assert.equal(await fs.readFile(absolute('html-roundtrip.md'), 'utf8'), lateHtmlPeerEdit, 'The peer edit survives stale-plan rejection');
     assert.equal(await fs.readFile(absolute('html-roundtrip-image.png'), 'utf8'), htmlImage);
-    console.log('workspace-operation-batch-executor-test: backups, checkpoint, safe recovery/Undo, HTML roundtrip, inverse and late peer guards, actor attribution and durable absent-path no-op passed');
+    console.log('workspace-operation-batch-executor-test: backups, checkpoint, forward recovery, Undo-OFF no-write, HTML and late peer guards, actor attribution and durable absent-path no-op passed');
   } finally {
     if (previousData === undefined) delete process.env.DATA; else process.env.DATA = previousData;
     if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousRoot;

@@ -11,6 +11,7 @@ import { buildFileTreeCacheKey, fileTreeCache } from '../app/lib/utils/file-tree
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { getWorkspacePresenceSnapshot, subscribeWorkspacePresence, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
 import type { FilePresenceEntry, WorkspacePresenceMessage } from '../app/lib/collaboration/types';
+import type { WorkspaceFileInvalidation } from '../app/lib/files/file-events';
 
 function createWorkspace(workspaceId: string, rootPath: string): WorkspaceContext {
   return {
@@ -46,6 +47,12 @@ async function main() {
   const service = new FileWatcherService();
   const eventsA: FileEvent[] = [];
   const eventsB: FileEvent[] = [];
+  const invalidationsA: WorkspaceFileInvalidation[] = [];
+  const invalidationsB: WorkspaceFileInvalidation[] = [];
+  let installedService: FileWatcherService | undefined;
+  let notificationStopWork: Promise<void> | undefined;
+  let finishNotificationStop!: () => void;
+  const notificationStopGate = new Promise<void>(resolve => { finishNotificationStop = resolve; });
 
   try {
     await mkdir(workspaceA.rootPath, { recursive: true });
@@ -55,12 +62,14 @@ async function main() {
       workspaceId: workspaceA.workspaceId,
       workspace: workspaceA,
       send: (event) => eventsA.push(event),
+      invalidate: hint => { invalidationsA.push(hint); },
     });
     service.subscribe({
       id: 'client-b',
       workspaceId: workspaceB.workspaceId,
       workspace: workspaceB,
       send: (event) => eventsB.push(event),
+      invalidate: hint => { invalidationsB.push(hint); },
     });
     await service.subscribeDir('client-a', '.');
 
@@ -68,6 +77,18 @@ async function main() {
     const cacheKeyB = buildFileTreeCacheKey('.', 0, workspaceB.workspaceId, false);
     fileTreeCache.set(cacheKeyA, []);
     fileTreeCache.set(cacheKeyB, []);
+
+    assert.deepEqual(service.getSubscribedWorkspaceIds().sort(), ['workspace-a', 'workspace-b']);
+    const presenceBeforeHint = getWorkspacePresenceSnapshot(workspaceA.workspaceId);
+    service.publishInvalidation({ workspaceId: workspaceA.workspaceId });
+    assert.deepEqual(invalidationsA, [{ workspaceId: workspaceA.workspaceId }]);
+    assert.deepEqual(invalidationsB, []);
+    assert.deepEqual([...eventsA], [], 'a pure invalidation must not become an invented file mutation');
+    assert.deepEqual([...eventsB], []);
+    assert.equal(fileTreeCache.get(cacheKeyA), undefined);
+    assert.deepEqual(fileTreeCache.get(cacheKeyB), [], 'a hint must leave foreign workspace caches intact');
+    assert.deepEqual(getWorkspacePresenceSnapshot(workspaceA.workspaceId), presenceBeforeHint);
+    fileTreeCache.set(cacheKeyA, []);
 
     service.publishMutation({
       workspace: workspaceA,
@@ -168,8 +189,53 @@ async function main() {
     await rm(draftRoot, { recursive: true, force: true });
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(eventsA.some((event) => event.relativePath === '.canvas-skill-drafts'), false, 'removing the hidden root must not publish an unlinkDir event');
+
+    // An explicit installer model proves ownership and awaitable teardown only;
+    // the separate PostgreSQL acceptance must prove real LISTEN/NOTIFY behavior.
+    let installations = 0, notificationStops = 0, stopFinished = false;
+    const installedOptions: { current?: { workspaceIds: () => Iterable<string>;
+      onInvalidate: (hint: WorkspaceFileInvalidation) => void | Promise<void> } } = {};
+    installedService = new FileWatcherService({
+      installInvalidationNotifications(options) {
+        installations++;
+        installedOptions.current = options;
+        return { ready: Promise.resolve(), resync: async () => {}, stop: () => {
+          notificationStops++;
+          return notificationStopGate;
+        } };
+      },
+    });
+    assert.equal(installations, 0, 'constructing a service does not acquire a notification subscription');
+    const installedHints: WorkspaceFileInvalidation[] = [];
+    const detachInstalledA = installedService.subscribe({ id: 'installed-a', workspaceId: workspaceA.workspaceId,
+      workspace: workspaceA, send() {}, invalidate: hint => { installedHints.push(hint); } });
+    const detachInstalledB = installedService.subscribe({ id: 'installed-b', workspaceId: workspaceB.workspaceId,
+      workspace: workspaceB, send() {} });
+    await installedService.subscribeDir('installed-a', '.');
+    await installedService.subscribeDir('installed-b', '.');
+    assert.equal(installations, 1, 'all clients of one service share a single optional installer');
+    assert(installedOptions.current);
+    assert.deepEqual(Array.from(installedOptions.current.workspaceIds()).sort(), ['workspace-a', 'workspace-b']);
+    await installedOptions.current.onInvalidate({ workspaceId: workspaceA.workspaceId });
+    assert.deepEqual(installedHints, [{ workspaceId: workspaceA.workspaceId }]);
+    detachInstalledA();
+    await installedOptions.current.onInvalidate({ workspaceId: workspaceA.workspaceId });
+    assert.equal(installedHints.length, 1, 'unsubscribed clients cannot receive a retained installer callback');
+    assert.deepEqual(Array.from(installedOptions.current.workspaceIds()), ['workspace-b']);
+    detachInstalledB();
+    notificationStopWork = installedService.stop();
+    void notificationStopWork.then(() => { stopFinished = true; });
+    assert.equal(notificationStops, 1);
+    await Promise.resolve();
+    assert.equal(stopFinished, false, 'service stop must await its actual installer disposal promise');
+    finishNotificationStop();
+    await notificationStopWork;
+    assert.equal(stopFinished, true);
   } finally {
-    service.stop();
+    finishNotificationStop();
+    await notificationStopWork;
+    await installedService?.stop();
+    await service.stop();
     await rm(root, { recursive: true, force: true });
   }
 

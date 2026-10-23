@@ -12,6 +12,7 @@ import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import { getWorkspaceOperationReview, rebaseReviewSelections, WorkspaceOperationReviewError } from './workspace-operation-review-service';
 import { assertWorkspaceOperationBatchApprovalCurrent } from './workspace-operation-batch-approval-fence';
+import { WORKSPACE_FILE_UNDO_ENABLED, assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 
 const store = new WorkspaceOperationBatchStore();
 
@@ -51,7 +52,7 @@ export async function getWorkspaceOperationBatchReview(batchId: string, scope?: 
     result.execution = await getWorkspaceOperationBatchExecutionPublic({ batchId, scope, plan: batch.plan,
       actionMode: batch.actionMode, status: batch.status, completedActions: batch.completedActions, phase: batch.phase }) ?? undefined;
   }
-  if (scope && batch.workspaceId === scope.workspace.workspaceId && batch.status === 'applied'
+  if (WORKSPACE_FILE_UNDO_ENABLED && scope && batch.workspaceId === scope.workspace.workspaceId && batch.status === 'applied'
     && scope.workspace.permissions.canWrite && scope.workspace.permissions.canDelete) {
     try {
       await assertWorkspaceOperationBatchUndoAvailable({ batchId, scope });
@@ -128,9 +129,11 @@ export async function enqueueWorkspaceOperationBatch(input: {
   if (!batch) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
   assertAccess(input.scope, batch.workspaceId);
   const action = input.action ?? 'accept';
+  if (action === 'undo' || action === 'resume' && batch.actionMode === 'undo') assertWorkspaceFileUndoEnabled();
   const approve = async () => {
     const scope = input.refreshScope ? await input.refreshScope() : input.scope;
     assertAccess(scope, batch.workspaceId);
+    if (action === 'undo' || action === 'resume' && batch.actionMode === 'undo') assertWorkspaceFileUndoEnabled();
     if (scope.workspace.rootPath !== input.scope.workspace.rootPath) {
       throw new WorkspaceOperationBatchError('BATCH_ACCESS_DENIED', 403, 'Workspace location changed before approval.');
     }
@@ -138,11 +141,17 @@ export async function enqueueWorkspaceOperationBatch(input: {
       try { await assertWorkspaceOperationBatchUndoAvailable({ batchId: batch.batchId, scope }); }
       catch (error) {
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'BATCH_UNDO_CONFLICT';
+        if (batch.plan.version === 2 && error && typeof error === 'object'
+          && Object.getOwnPropertyDescriptor(error, 'status')?.value === 503) {
+          throw new WorkspaceOperationBatchError(/^[A-Z][A-Z0-9_]{1,127}$/u.test(code) ? code : 'BATCH_JOURNAL_UNAVAILABLE',
+            503, 'The saved file action could not be checked. Retry after the connection recovers.');
+        }
         throw new WorkspaceOperationBatchError(code, 409, 'Files or links changed after the batch; automatic undo would overwrite newer work.');
       }
     }
     const current = await store.get(batch.batchId);
     if (!current) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
+    if (action === 'resume' && current.actionMode === 'undo') assertWorkspaceFileUndoEnabled();
     if (action === 'accept' && current.status === 'preview') {
       assertDocumentReviewEnabled();
       await assertWorkspaceOperationBatchApprovalCurrent(batch.plan, scope);

@@ -119,6 +119,47 @@ async function preservedDatabaseHash(client: Client): Promise<string> {
 /** Replaces application tables inside the transaction; target license/Team Seat rows are never written. */
 export async function replacePortableDatabase(client: Client, stage: StagedDatabase): Promise<void> {
   const preserved = await preservedDatabaseHash(client);
+  const permissions = stage.tables.get('organization_user_permissions');
+  const importedUsers = stage.tables.get('user');
+  const accounts = stage.tables.get('account');
+  if (!permissions || !importedUsers || !accounts) throw new Error('Database snapshot has no complete owner identity tables.');
+  // Target licensing and organization ownership survive restore. Retain the
+  // already authorized owner row, rather than deriving a new permission grant.
+  const owner = (await client.query<{ organization_id: string; owner_user_id: string; permission: string }>(`
+    SELECT o.organization_id,o.owner_user_id,row_to_json(p)::text AS permission
+    FROM public.canvas_organization_settings o
+    JOIN public.organization_user_permissions p
+      ON p.organization_id=o.organization_id AND p.user_id=o.owner_user_id
+    JOIN public."user" u ON u.id=o.owner_user_id
+    WHERE o.organization_id=$1 AND p.role='owner' AND p.status='active'
+      AND u.role='admin' AND COALESCE(u.banned,0)=0
+    FOR SHARE OF o,p,u`, [stage.header.organizationId])).rows[0];
+  if (!owner) throw new Error('Database restore requires the existing active target organization owner.');
+  if (stage.users.some(user => user.targetUserId === owner.owner_user_id)) {
+    // Matching identities keep the existing source-credential import policy.
+    // Check the actual staged identity before replacing any application rows.
+    const valid = (await client.query<{ valid: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM ${sqlName(importedUsers.temporary)} u
+        WHERE u.id=$1 AND u.role='admin' AND COALESCE(u.banned,0)=0
+          AND EXISTS (SELECT 1 FROM ${sqlName(accounts.temporary)} a
+            WHERE a.user_id=u.id AND a.provider_id='credential'
+              AND a.issuer='local:credential' AND a.account_id=u.id
+              AND split_part(a.password,':',1)<>'' AND split_part(a.password,':',2)<>'')
+      ) AS valid`, [owner.owner_user_id])).rows[0]?.valid;
+    if (valid !== true) throw new Error('Database snapshot cannot remove the canonical target owner login.');
+  }
+  // The single-owner index is immediate: align incoming owner roles before
+  // insertion, replacing any same-ID source permission with the actual target row.
+  await client.query(`DELETE FROM ${sqlName(permissions.temporary)} WHERE organization_id=$1 AND user_id=$2`,
+    [owner.organization_id, owner.owner_user_id]);
+  await client.query(`UPDATE ${sqlName(permissions.temporary)} SET role='admin' WHERE organization_id=$1 AND role='owner'`,
+    [owner.organization_id]);
+  const permissionColumns = permissions.table.columns.map(column => sqlName(column.name)).join(',');
+  const retained = await client.query(`INSERT INTO ${sqlName(permissions.temporary)} (${permissionColumns})
+    SELECT ${permissionColumns} FROM public.organization_user_permissions WHERE organization_id=$1 AND user_id=$2`,
+  [owner.organization_id, owner.owner_user_id]);
+  if (retained.rowCount !== 1) throw new Error('The target organization owner permission changed before restore.');
   // Application transition triggers govern new edits, not loading already
   // committed history. Internal constraint triggers stay enabled throughout.
   const triggers = (await client.query<{ table_name: string; trigger_name: string; enabled: string }>(`SELECT c.relname table_name,t.tgname trigger_name,t.tgenabled enabled
@@ -145,6 +186,10 @@ export async function replacePortableDatabase(client: Client, stage: StagedDatab
     const columns = table.columns.map(column => sqlName(column.name)).join(',');
     await client.query(`INSERT INTO public.${sqlName(table.name)} (${columns}) SELECT ${columns} FROM ${sqlName(temporary)}`);
   }
+  const restoredOwner = (await client.query<{ permission: string }>(`
+    SELECT row_to_json(p)::text AS permission FROM public.organization_user_permissions p
+    WHERE p.organization_id=$1 AND p.user_id=$2`, [owner.organization_id, owner.owner_user_id])).rows[0];
+  if (restoredOwner?.permission !== owner.permission) throw new Error('Database restore changed the target organization owner permission.');
   // Drain deferred foreign-key events before ALTER TABLE restores trigger modes.
   await client.query('SET CONSTRAINTS ALL IMMEDIATE');
   for (const trigger of triggers) if (trigger.enabled !== 'D') {

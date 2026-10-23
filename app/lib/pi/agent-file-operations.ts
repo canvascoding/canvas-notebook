@@ -70,8 +70,13 @@ import {
 import { listWorkspaceTrashEntries, trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, type AgentToolInvocation } from '@/app/lib/pi/agent-tool-invocation';
 import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
+import { persistAndProjectAgentMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
+import type { DocumentCreateMutationResultV1 } from '@/app/lib/documents/contracts';
 import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -140,6 +145,7 @@ export type AgentFileSnapshotMetadata = {
 };
 
 export type AgentFileChangeResult = {
+  nativeCreate?: DocumentCreateMutationResultV1;
   linkDiagnostics?: WorkspaceLinkDiagnostics;
   proposal?: ProposalToolCreationResultV1;
   path: string;
@@ -195,7 +201,8 @@ export type AgentPathOperationEntry = {
   overwritten: boolean;
   backupId?: string;
   sourceBackupId?: string;
-  bytes: number;
+  /** null when the central document store does not expose a physical byte count. */
+  bytes: number | null;
   files: number;
   directories: number;
   truncated: boolean;
@@ -218,7 +225,8 @@ export type AgentPathOperationResult = {
   type: AgentPathType;
   changed: boolean;
   overwritten: boolean;
-  bytes: number;
+  /** null when any selected document has no authoritative physical byte count. */
+  bytes: number | null;
   files: number;
   directories: number;
   truncated: boolean;
@@ -236,6 +244,7 @@ export type AgentPathOperationResult = {
 };
 
 type PreparedPathOperationEntry = AgentPathOperationEntry & {
+  bytes: number;
   sourceSha256: string | null;
 };
 
@@ -1694,6 +1703,41 @@ async function commitTextChange(params: {
   return captureAgentFileLinkSource(result, { beforeContent, content: readBackText, basis: 'applied' });
 }
 
+async function createOrReplayAgentMarkdownFile(input: {
+  path: string; fullPath: string; content: string; idempotencyKey?: string; expectedSha256?: string;
+  workspaceId: string; workspaceRoot: string; relativePath: string; legacy: false; invocation: AgentToolInvocation;
+}): Promise<AgentFileChangeResult | null> {
+  const original = assertCurrentAgentToolInvocation(input.invocation);
+  if (original.legacy !== input.legacy || original.workspaceId !== input.workspaceId || original.workspaceRoot !== input.workspaceRoot
+    || !isPathWithin(input.fullPath,input.workspaceRoot)
+    || path.relative(input.workspaceRoot,input.fullPath).split(path.sep).join('/') !== input.relativePath) {
+    throw new MarkdownFileImportError('MARKDOWN_IMPORT_INVALID_INPUT');
+  }
+  const validation = validateAgentFileContent(input.path,input.content);
+  if (!validation.ok) throw new Error(`Refusing to write ${input.path}: validation failed.`);
+  const expectedSha256 = normalizeAgentExpectedSha256(input.expectedSha256);
+  const callerKey = input.idempotencyKey ?? original.toolCallId;
+  const nativeCreate = await persistAndProjectAgentMarkdownCreate({workspaceId:input.workspaceId,path:input.relativePath,content:input.content,
+    idempotencyKey:callerKey,
+    ...(expectedSha256 ? {expectedSha256} : {})});
+  assertCurrentAgentToolInvocation(input.invocation);
+  if (!nativeCreate) return null;
+  const created = nativeCreate.outcome === 'created';
+  const result: AgentFileChangeResult = {path:input.path,resolvedPath:input.fullPath,changed:created,snapshot:null,nativeCreate,
+    beforeSha256:null,afterSha256:sha256Text(input.content),size:Buffer.byteLength(input.content,'utf8'),
+    diff:created ? createUnifiedDiff('',input.content,`${input.path} (before)`,`${input.path} (after)`)
+      : 'Original native creation confirmed. This retry did not write the document again.',validation};
+  if (created) {
+    // The central first projection already invalidates the actual native view.
+    // Preserve PI audit only on the first confirmed result, never on replay.
+    try { await recordAgentFileChangeAudit(result,'write'); }
+    catch (error) { throw Object.assign(new MarkdownFileImportError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
+      {cause:error,operationId:nativeCreate.operationId,idempotencyKey:callerKey}); }
+    return captureAgentFileLinkSource(result,{beforeContent:'',content:input.content,basis:'applied'});
+  }
+  return result;
+}
+
 export async function writeAgentTextFile(params: {
   path: string;
   content: string;
@@ -1704,14 +1748,34 @@ export async function writeAgentTextFile(params: {
 }): Promise<AgentFileChangeResult> {
   const proposal = parseOptionalProposalToolEditV1(params);
   const fullPath = resolveAgentPath(params.path);
+  // Detach the Create request before the first asynchronous path check.
+  const createInput = {path:params.path,fullPath,content:params.content,
+    ...(params.idempotencyKey !== undefined ? {idempotencyKey:params.idempotencyKey} : {}),
+    ...(params.expectedSha256 !== undefined ? {expectedSha256:params.expectedSha256} : {})};
+  const createWorkspace = getAgentWorkspaceContext();
+  const nativeSelection = !proposal && authenticatedNativeTextSessionEnabled() && createWorkspace?.legacy === false
+    && /\.(?:md|markdown)$/iu.test(fullPath) && isPathWithin(fullPath,createWorkspace.rootPath)
+    ? Object.freeze({workspaceId:createWorkspace.workspaceId,workspaceRoot:createWorkspace.rootPath,
+      relativePath:workspaceRelativeAgentPath(createWorkspace,fullPath),legacy:false as const,
+      invocation:captureCurrentAgentToolInvocation()}) : null;
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   await assertAgentWritablePathAllowed(fullPath);
+  // Eligibility was selected before the await. A changed invocation cannot
+  // turn an active native request into a legacy/raw fallback afterwards.
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   if (proposal) {
     return createProposedAgentFileChange({ inputPath: params.path, fullPath, proposal,
       idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
       mutation: { operation: 'write', path: params.path, content: params.content, expectedSha256: params.expectedSha256 ?? null },
       content: params.content });
   }
+  if (nativeSelection) {
+    const nativeCreate = await createOrReplayAgentMarkdownFile({...createInput,...nativeSelection});
+    assertCurrentAgentToolInvocation(nativeSelection.invocation);
+    if (nativeCreate) return nativeCreate;
+  }
   const before = await readExistingFile(fullPath);
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
   assertAgentSharedWorkspaceRevision({
@@ -1723,6 +1787,7 @@ export async function writeAgentTextFile(params: {
 
   if (before.existed) {
     const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer ?? undefined);
+    if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
     if (collaboration) {
       const fingerprint = hashAgentBlockJson({ version: 1, operation: 'write', path: collaboration.relativePath,
         expectedSha256, content: params.content });
@@ -1777,6 +1842,7 @@ export async function writeAgentTextFile(params: {
     }
   }
   if (before.existed && before.buffer?.toString('utf8') === params.content) {
+    if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
     return commitTextChange({ inputPath: params.path, fullPath, beforeBuffer: before.buffer,
       beforeExisted: true, nextContent: params.content, operation: params.operation ?? 'write', enforceValidation: true });
   }
@@ -1785,6 +1851,7 @@ export async function writeAgentTextFile(params: {
     throwAgentFileRevisionConflict({ operation: 'write', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
 
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   return commitTextChange({
     inputPath: params.path,
     fullPath,
@@ -2814,7 +2881,8 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
           changed: false, overwritten: false, bytes: 0, files: 0, directories: 0, truncated: true };
         const removal = await agentDirectWorkspacePathResult({ operation: 'delete_path', entries: [entry] },
           await waitForWorkspacePathOperation(known), deletionWorkspace);
-        const original = known.plan.deletedDocuments?.find((document) => document.path === workspacePath)?.content;
+        const original = known.plan.version === 3 ? undefined
+          : known.plan.deletedDocuments?.find((document) => document.path === workspacePath)?.content;
         return snapshotDeletionResult({ snapshot, fullPath, workspacePath, removal, historical: true,
           beforeSha256: known.plan.expectedPathState?.find((state) => state.path === workspacePath)?.contentHash ?? null,
           beforeBuffer: original === undefined ? null : Buffer.from(original) });
@@ -3024,6 +3092,11 @@ function normalizePathList(paths: string[], fieldName: string): string[] {
   return normalized;
 }
 
+function sumAgentPathBytes(entries: readonly AgentPathOperationEntry[]): number | null {
+  return entries.some(entry => entry.bytes === null)
+    ? null : entries.reduce((total, entry) => total + (entry.bytes ?? 0), 0);
+}
+
 function pathOperationSummary(
   operation: AgentPathOperationResult['operation'],
   entries: Array<AgentPathOperationEntry & { sourceSha256?: string | null }>,
@@ -3051,7 +3124,7 @@ function pathOperationSummary(
     type: aggregateType,
     changed: entries.some((entry) => entry.changed),
     overwritten: entries.some((entry) => entry.overwritten),
-    bytes: entries.reduce((total, entry) => total + entry.bytes, 0),
+    bytes: sumAgentPathBytes(entries),
     files: entries.reduce((total, entry) => total + entry.files, 0),
     directories: entries.reduce((total, entry) => total + entry.directories, 0),
     truncated: entries.some((entry) => entry.truncated),
@@ -3402,7 +3475,7 @@ async function agentDirectWorkspacePathResult(input: AgentWorkspacePathRequest,
   }
   if (input.operation === 'delete_path') {
     const changed = input.entries.filter((entry) => entry.changed);
-    result.bytes = changed.reduce((sum, entry) => sum + entry.bytes, 0);
+    result.bytes = sumAgentPathBytes(changed);
     result.files = changed.reduce((sum, entry) => sum + entry.files, 0);
     result.directories = changed.reduce((sum, entry) => sum + entry.directories, 0);
   }
@@ -3713,6 +3786,96 @@ export async function copyAgentPath(params: {
   });
 }
 
+/** The native owner acquires its own lifecycle locks and verifies the genuine
+ * tool invocation. Enter it before legacy filesystem summaries/leases: a
+ * notebook document need not have a Markdown projection on either side. */
+async function copyNativeAgentWorkspacePaths(input: {
+  sourcePaths: string[];
+  destinationPath: string;
+  destinationFullPath: string;
+  overwrite?: boolean;
+  recursive?: boolean;
+}): Promise<AgentPathOperationResult | null> {
+  const workspace = getAgentWorkspaceContext(), context = getAgentExecutionContext();
+  if (!authenticatedNativeTextSessionEnabled() || !workspace || !context
+    || readDocumentReviewAvailability().documentReviewEnabled) return null;
+  const requested = input.sourcePaths.map(sourcePath => {
+    const sourceResolvedPath = resolveAgentPath(sourcePath);
+    const destinationPath = input.sourcePaths.length > 1
+      ? getDestinationPathForSource(input.destinationPath, sourcePath) : input.destinationPath;
+    const destinationResolvedPath = input.sourcePaths.length > 1
+      ? getDestinationPathForSource(input.destinationFullPath, sourceResolvedPath) : input.destinationFullPath;
+    return { sourcePath, sourceResolvedPath, destinationPath, destinationResolvedPath };
+  });
+  if (requested.some(entry => !isPathWithin(entry.sourceResolvedPath, workspace.rootPath)
+    || !isPathWithin(entry.destinationResolvedPath, workspace.rootPath))) return null;
+  if (input.overwrite) {
+    throw Object.assign(new Error('Replacing a workspace path is not supported by the central Copy service. Choose an unused destination without overwrite.'),
+      { code: 'NATIVE_COPY_OVERWRITE_UNSUPPORTED', status: 409 });
+  }
+  for (const entry of requested) {
+    await assertAgentPathAllowed(entry.sourceResolvedPath);
+    await assertAgentPathDestinationAllowed(entry.destinationResolvedPath);
+    if (entry.sourceResolvedPath === entry.destinationResolvedPath) {
+      throw new Error('Source and destination must be different paths.');
+    }
+  }
+  const identity = collaborationAgentIdentity(context);
+  const actor = { type: 'agent' as const, userId: context.userId, actorId: identity.actorId, sessionId: context.sessionId };
+  const selections = requested.map(entry => ({
+    sourcePath: workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath),
+    destinationPath: workspaceRelativeAgentPath(workspace, entry.destinationResolvedPath),
+  }));
+  const [{ captureWorkspaceOperationCopyOrigin }, { previewWorkspaceNativeCopyOperation }] = await Promise.all([
+    import('@/app/lib/files/workspace-operation-copy-origin'),
+    import('@/app/lib/files/workspace-operation-native-copy-owner'),
+  ]);
+  const origin = captureWorkspaceOperationCopyOrigin({ actor, sourceWorkspace: workspace, destinationWorkspace: workspace });
+  const plan = await previewWorkspaceNativeCopyOperation({ origin, selections });
+  const entries: AgentPathOperationEntry[] = requested.map((entry, index) => {
+    const selection = selections[index];
+    const root = plan.nativePathPlan.pathMappings.find(mapping => mapping.source.path === selection.sourcePath);
+    if (!root || root.destinationPath !== selection.destinationPath) {
+      throw Object.assign(new Error('The central Copy plan does not match the requested paths.'), { code: 'NATIVE_COPY_PLAN_CHANGED', status: 409 });
+    }
+    if (root.source.kind === 'directory' && input.recursive === false) {
+      throw new Error('Source is a directory. Set recursive to true to copy directories.');
+    }
+    assertDestinationIsNotInsideSource(entry.sourceResolvedPath, entry.destinationResolvedPath, root.source.kind);
+    const mapped = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.path === selection.sourcePath
+      || mapping.source.path.startsWith(`${selection.sourcePath}/`));
+    return { ...entry, type: root.source.kind, changed: false, overwritten: false, bytes: null,
+      files: mapped.filter(mapping => mapping.source.kind === 'file').length,
+      directories: mapped.filter(mapping => mapping.source.kind === 'directory').length, truncated: false };
+  });
+  assertNoDuplicateDestinations(entries);
+  assertNoNestedCopyMoveSources(entries);
+  const fileOptions = { workspace, mutationActorUserId: context.userId };
+  // Owner errors are terminal for this route; none may select the raw fs.cp fallback.
+  const operation = await executeWorkspaceFileOperationService({ kind: 'copy', operationId: randomUUID(), source: { workspace, fileOptions },
+    destination: { workspace, fileOptions }, selections, expectedPlanId: plan.planId,
+    actorUserId: context.userId, actorId: identity.actorId, actorDisplayName: identity.actorDisplayName,
+    actorType: 'agent', actorSessionId: context.sessionId });
+  const { execution } = operation;
+  if (execution.status !== 'complete' || execution.planId !== plan.planId || operation.copied.length !== selections.length
+    || selections.some(selection => !operation.copied.includes(selection.destinationPath))) {
+    throw Object.assign(new Error(`Copy outcome could not be verified. Inspect operation ${execution.operationId} before retrying.`),
+      { code: 'NATIVE_COPY_OUTCOME_UNAVAILABLE', status: 409, operationId: execution.operationId });
+  }
+  for (const entry of entries) {
+    entry.changed = true;
+    entry.verification = { destinationExists: true, destinationTypeMatches: true, sourceRemoved: null, contentVerified: true };
+  }
+  const result = pathOperationSummary('copy_path', entries, input.destinationPath, input.destinationFullPath);
+  result.changed = true;
+  result.verified = true;
+  result.linkStatus = 'complete';
+  result.operationIds = [execution.operationId];
+  result.linkWarnings = [];
+  await recordAgentPathOperationAudit(result);
+  return result;
+}
+
 export async function copyAgentPaths(params: {
   sourcePaths: string[];
   destinationPath: string;
@@ -3732,6 +3895,9 @@ export async function copyAgentPaths(params: {
   if (multipleSources) {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
+
+  const native = await copyNativeAgentWorkspacePaths({ ...params, sourcePaths, destinationFullPath });
+  if (native) return native;
 
   const entries: PreparedPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
@@ -4206,7 +4372,7 @@ export async function deleteAgentPaths(params: {
         result.trashEntries = trashEntries;
         result.failedPaths = failedPaths;
         result.verified = failedPaths.length === 0;
-        result.bytes = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.bytes, 0);
+        result.bytes = sumAgentPathBytes(entries.filter(entry => entry.changed));
         result.files = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.files, 0);
         result.directories = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.directories, 0);
         await recordAgentPathOperationAudit(result);

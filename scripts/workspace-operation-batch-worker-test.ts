@@ -4,8 +4,10 @@ import { PGlite } from '@electric-sql/pglite';
 import type { SqlConnection } from '../app/lib/db';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-operation-review-migration';
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError } from '../app/lib/files/workspace-operation-batch-store';
+import { WorkspaceFileUndoDisabledError } from '../app/lib/files/workspace-file-undo-policy';
 import { createWorkspaceOperationBatchWorker, projectWorkspaceOperationBatchFileViews } from '../app/lib/files/workspace-operation-batch-worker';
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 
 const planId = 'a'.repeat(64);
 const scope = (id = 'workspace'): WorkspaceOperationBatchScope => ({ workspace: {
@@ -21,7 +23,8 @@ function plan(reviewId: string, workspaceId = 'workspace'): WorkspaceOperationBa
     pathMappings: [], deletedPaths: [], pathSteps: [{ reviewId, kind: 'move', sourcePath: 'old', destinationPath: 'new' }],
     linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
     coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+    linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId, kind: 'move', selections: [{ sourcePath: 'old', destinationPath: 'new' }] }]) };
 }
 
 async function main(): Promise<void> {
@@ -138,22 +141,44 @@ async function main(): Promise<void> {
 
     const missingUndo = await seed('missing-undo', 'missing-undo-workspace'); await missingUndo.enqueue();
     await store.claim('missing-undo-original'); await store.finish(missingUndo.batchId, 'missing-undo-original', { status: 'applied', completedActions: 1 });
-    await store.enqueue({ batchId: missingUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' });
+    const missingUndoHeader = await store.get(missingUndo.batchId);
+    const missingUndoRow = (await pg.query<{ row_xmin: string }>(
+      'SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1', [missingUndo.batchId])).rows[0]!;
+    assert.match(missingUndoRow.row_xmin, /^\d+$/u);
+    await assert.rejects(store.enqueue({ batchId: missingUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' }),
+      (error: unknown) => error instanceof WorkspaceFileUndoDisabledError
+        && error.code === 'FILE_OPERATION_UNDO_DISABLED' && error.status === 409);
     let undoCalls = 0;
-    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('missing-undo-workspace'),
+    assert.equal(await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('missing-undo-workspace'),
       lock: async (_id, action) => action(), hasExecution: async () => false, mutationEvidence: async () => 'absent',
-      undo: async () => { undoCalls += 1; throw new Error('unexpected Undo'); } }).tick();
-    assert.equal((await store.get(missingUndo.batchId))!.status, 'needs_recovery'); assert.equal(undoCalls, 0);
+      undo: async () => { undoCalls += 1; throw new Error('unexpected Undo'); } }).tick(), false);
+    assert.equal(undoCalls, 0);
+    assert.equal(missingUndoHeader!.status, 'applied'); assert.equal(missingUndoHeader!.actionMode, 'apply');
+    assert.equal(missingUndoHeader!.completedActions, 1);
+    assert.deepEqual(await store.get(missingUndo.batchId), missingUndoHeader, 'disabled Undo preserves the completed forward header');
+    assert.deepEqual((await pg.query('SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1',
+      [missingUndo.batchId])).rows[0], missingUndoRow, 'disabled Undo and an idle worker leave the original row and xmin unchanged');
 
     const refusedUndo = await seed('refused-undo', 'refused-undo-workspace'); await refusedUndo.enqueue();
     await store.claim('refused-undo-original'); await store.finish(refusedUndo.batchId, 'refused-undo-original', { status: 'applied', completedActions: 1 });
-    await store.enqueue({ batchId: refusedUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' });
-    await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('refused-undo-workspace'),
+    const refusedUndoHeader = await store.get(refusedUndo.batchId);
+    const refusedUndoRow = (await pg.query<{ row_xmin: string }>(
+      'SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1', [refusedUndo.batchId])).rows[0]!;
+    assert.match(refusedUndoRow.row_xmin, /^\d+$/u);
+    await assert.rejects(store.enqueue({ batchId: refusedUndo.batchId, planId, action: 'undo', userId: 'reviewer', displayName: 'Reviewer' }),
+      (error: unknown) => error instanceof WorkspaceFileUndoDisabledError
+        && error.code === 'FILE_OPERATION_UNDO_DISABLED' && error.status === 409);
+    let refusedUndoCalls = 0;
+    assert.equal(await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('refused-undo-workspace'),
       lock: async (_id, action) => action(), hasExecution: async () => true, mutationEvidence: async () => 'pristine',
-      undo: async () => ({ status: 'failed', errorCode: 'BATCH_UNDO_LINK_CHANGED', completedActions: 1, totalActions: 1, trashEntryIds: [] }),
-    }).tick();
-    assert.equal((await store.get(refusedUndo.batchId))!.status, 'applied', 'pre-intent Undo refusal preserves the completed forward receipt');
-    assert.equal((await store.get(refusedUndo.batchId))!.errorCode, 'BATCH_UNDO_LINK_CHANGED');
+      undo: async () => { refusedUndoCalls += 1; throw new Error('unexpected Undo'); },
+    }).tick(), false);
+    assert.equal(refusedUndoCalls, 0);
+    assert.equal(refusedUndoHeader!.status, 'applied'); assert.equal(refusedUndoHeader!.actionMode, 'apply');
+    assert.equal(refusedUndoHeader!.completedActions, 1); assert.equal(refusedUndoHeader!.errorCode, null);
+    assert.deepEqual(await store.get(refusedUndo.batchId), refusedUndoHeader, 'disabled Undo preserves the completed forward receipt');
+    assert.deepEqual((await pg.query('SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1',
+      [refusedUndo.batchId])).rows[0], refusedUndoRow, 'disabled Undo cannot record a refusal or change the original row/xmin');
 
     const zeroAck = await seed('zero-ack-intent', 'zero-ack-intent-workspace'); await zeroAck.enqueue();
     await createWorkspaceOperationBatchWorker({ store, resolveScope: async () => scope('zero-ack-intent-workspace'),
@@ -199,22 +224,26 @@ async function main(): Promise<void> {
     assert.equal(executes, 2);
     assert.equal(builds, 1, 'mutated state is never replanned during recovery');
     assert.equal(dependentRefreshes, 1);
-    const undoByOtherReviewer = await store.enqueue({ batchId: restart.batchId, planId, action: 'undo',
-      userId: 'second-reviewer', displayName: 'Second reviewer' });
-    assert.equal(undoByOtherReviewer.actionMode, 'undo', 'Undo can still be approved by another authorized reviewer');
-    assert.equal(undoByOtherReviewer.reviewerUserId, 'second-reviewer');
-    const undoClaim = await store.claim('undo-worker');
-    assert.equal(undoClaim?.batchId, restart.batchId);
-    await store.finish(restart.batchId, 'undo-worker', { status: 'needs_recovery', errorCode: 'INTERRUPTED_UNDO' });
-    await assert.rejects(store.enqueue({ batchId: restart.batchId, planId, action: 'resume',
-      userId: 'reviewer', displayName: 'Reviewer' }),
-    (error: unknown) => error instanceof WorkspaceOperationBatchError && error.code === 'BATCH_RESUME_REVIEWER_REQUIRED');
-    const resumedUndo = await store.enqueue({ batchId: restart.batchId, planId, action: 'resume',
-      userId: 'second-reviewer', displayName: 'Renamed reviewer' });
-    assert.equal(resumedUndo.actionMode, 'undo');
-    assert.equal(resumedUndo.reviewerDisplayName, 'Second reviewer', 'resume preserves the approved actor metadata');
-    await store.claim('undo-worker');
-    await store.finish(restart.batchId, 'undo-worker', { status: 'undone' });
+    const completedForwardHeader = await store.get(restart.batchId);
+    const completedForwardRow = (await pg.query<{ row_xmin: string }>(
+      'SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1', [restart.batchId])).rows[0]!;
+    assert.match(completedForwardRow.row_xmin, /^\d+$/u);
+    for (const [userId, displayName] of [['second-reviewer', 'Second reviewer'], ['reviewer', 'Reviewer']] as const) {
+      await assert.rejects(store.enqueue({ batchId: restart.batchId, planId, action: 'undo', userId, displayName }),
+        (error: unknown) => error instanceof WorkspaceFileUndoDisabledError
+          && error.code === 'FILE_OPERATION_UNDO_DISABLED' && error.status === 409);
+    }
+    let restartUndoCalls = 0;
+    assert.equal(await createWorkspaceOperationBatchWorker({ ...dependencies,
+      undo: async () => { restartUndoCalls += 1; throw new Error('unexpected Undo'); } }).tick(), false);
+    assert.equal(restartUndoCalls, 0); assert.equal(durableReceipt, true);
+    assert.equal(executes, 2); assert.equal(builds, 1); assert.equal(dependentRefreshes, 1);
+    assert.equal(completedForwardHeader!.status, 'applied'); assert.equal(completedForwardHeader!.actionMode, 'apply');
+    assert.equal(completedForwardHeader!.completedActions, 1); assert.equal(completedForwardHeader!.reviewerUserId, 'reviewer');
+    assert.deepEqual(await store.get(restart.batchId), completedForwardHeader,
+      'neither reviewer can replace the completed forward header while Undo is disabled');
+    assert.deepEqual((await pg.query('SELECT *, xmin::text AS row_xmin FROM workspace_file_operation_batches WHERE batch_id = $1',
+      [restart.batchId])).rows[0], completedForwardRow, 'rejected Undo leaves the forward row and xmin unchanged');
 
     const revoked = await seed('revoked', 'revoked-workspace');
     await revoked.enqueue();
@@ -245,7 +274,7 @@ async function main(): Promise<void> {
     assert.deepEqual(projections[1], [{ path: 'deleted.md', type: 'add' }, { path: 'remaining.md', type: 'add' }]);
     console.log('workspace batch worker: durable approval, idempotent migrations, ordered leases, stale guards, restart receipts, revoked access OK');
     console.log('workspace batch projection: receipted partial deletion only, incomplete Undo withheld, restored paths published OK');
-    console.log('workspace batch resume: alternate reviewer denied before enqueue, original manifest actor retained, alternate authorized Undo and its reviewer resume preserved OK');
+    console.log('workspace batch resume: alternate reviewer denied before enqueue, original manifest actor retained, disabled Undo preserves forward receipts and row/xmin OK');
   } finally { await pg.close(); }
 }
 

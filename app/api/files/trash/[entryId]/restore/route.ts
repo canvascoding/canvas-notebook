@@ -12,6 +12,7 @@ import {
   jsonSuccess,
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { assertWorkspaceFileUndoEnabled, WorkspaceFileUndoDisabledError } from '@/app/lib/files/workspace-file-undo-policy';
 
 export async function POST(
   request: NextRequest,
@@ -33,6 +34,7 @@ export async function POST(
   if (!entryId.trim()) return jsonError('Trash entry ID is required', 400);
 
   try {
+    assertWorkspaceFileUndoEnabled();
     const restored = await restoreWorkspaceTrashEntry({
       workspace: workspaceResult.workspace, entryId, restoredByUserId: workspaceResult.session.user.id,
       finalize: async entry => { await restoreFileCollaborationPath({
@@ -73,6 +75,7 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof WorkspaceFileUndoDisabledError) return jsonError(error.message, error.status, { code: error.code });
     if ((error as { code?: string })?.code === 'COLLABORATION_FILE_LIFECYCLE_BUSY') {
       return jsonError(error instanceof Error ? error.message : 'The document is still open.', 409,
         { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' });

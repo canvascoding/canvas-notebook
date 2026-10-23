@@ -5,7 +5,11 @@ import { promises as fs } from 'node:fs';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
+import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
+import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
+import { WorkspaceOperationNativeMovePlanError } from './workspace-operation-native-move-plan';
 import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
+import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope,
@@ -66,7 +70,15 @@ dependencies: PlanDependencies = {}) {
   }
   actions.push({ reviewId: `${actionId}-request`, kind: input.kind, selections: input.selections,
     ...(input.ignoreMissing ? { ignoreMissing: true } : {}) });
-  return (dependencies.buildPlan ?? buildWorkspaceOperationBatchPlan)({ scope: input.scope, actions });
+  const plan = await (dependencies.buildPlan ?? buildWorkspaceOperationBatchPlan)({ scope: input.scope, actions });
+  // New active requests must import selected raw Markdown before a fresh native
+  // plan. Historical V1 executor rebuilds retain their existing separate entry.
+  if (!dependencies.buildPlan && authenticatedNativeTextSessionEnabled() && plan.version === 1
+    && (plan.pathMappings.some(mapping => mapping.sourceKind === 'file' && /\.(?:md|markdown)$/iu.test(mapping.sourcePath))
+      || plan.deletedPaths.some(entry => entry.kind === 'file' && /\.(?:md|markdown)$/iu.test(entry.path)))) {
+    throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_IMPORT_REQUIRED');
+  }
+  return plan;
 }
 
 /** The request is authorized once; the durable worker rechecks authority before every mutation. */
@@ -87,23 +99,38 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
   }
   const selections = input.selections.map((selection) => ({ sourcePath: selection.sourcePath,
     ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) }));
+  const jobScope = captureWorkspaceOperationJobScope(workspace);
   const requestHash = hash(['workspace-path-operation-v1', workspace.workspaceId, input.kind, selections,
     Boolean(input.overwrite), Boolean(input.ignoreMissing), input.expectedPlanId ?? null, input.actorUserId, input.actorType, input.actorId,
     input.actorSessionId ?? null]);
   const batchId = batchIdFor(input);
   const authorization: WorkspaceOperationDirectAuthorization = { mode: 'direct', actorUserId: input.actorUserId,
     actorId: input.actorId, actorDisplayName: input.actorDisplayName, actorType: input.actorType,
-    ...(input.actorSessionId ? { actorSessionId: input.actorSessionId } : {}), requestHash };
+    ...(input.actorSessionId ? { actorSessionId: input.actorSessionId } : {}), requestHash, jobScope };
   const store = dependencies.store ?? new WorkspaceOperationBatchStore();
   return (dependencies.lock ?? withWorkspaceMutationLock)(workspace.workspaceId, async () => {
     // An acknowledged retry must return the original outcome, even if its source has moved already.
     const known = await store.get(batchId);
     if (known) return store.createDirect({ batchId, plan: known.plan, authorization });
-    const plan = await buildWorkspacePathOperationPlan({ ...input, selections }, dependencies);
+    let plan: Awaited<ReturnType<typeof buildWorkspacePathOperationPlan>>;
+    try {
+      plan = await buildWorkspacePathOperationPlan({ ...input, selections }, dependencies);
+    } catch (error) {
+      if (input.expectedPlanId && error instanceof WorkspaceOperationNativeMovePlanError
+        && (error.code === 'NATIVE_MOVE_PLAN_UNSUPPORTED' || error.code === 'NATIVE_MOVE_PLAN_CHANGED')) {
+        throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
+      }
+      throw error;
+    }
     if (input.expectedPlanId && input.expectedPlanId !== plan.planId) {
       throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
     }
-    if (plan.readiness === 'ready') await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
+    // Native Move3 and explicit Delete4 replay complete original E5/HTML
+    // evidence under the genuine owner before Intent, outside the span fence.
+    if (plan.readiness === 'ready' && plan.version !== 3 && plan.version !== 5 && plan.version !== 6
+      && !(plan.version === 2 && plan.planIdentityVersion === 4)) {
+      await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
+    }
     return store.createDirect({ batchId, plan, authorization });
   });
 }

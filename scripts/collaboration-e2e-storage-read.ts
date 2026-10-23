@@ -8,9 +8,11 @@ import { Y } from '../app/lib/collaboration/server-runtime';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 import { validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { proposalYjsCurrentProof } from '../app/lib/file-version-center/proposal-yjs-candidate';
+import { requireOwnedYjsQaTarget } from './lib/owned-yjs-authority-qa';
 
 async function main() {
   assert.equal(process.env.COLLABORATION_E2E, '1');
+  if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
   const url = new URL(process.env.DATABASE_URL!);
   assert(['localhost', '127.0.0.1'].includes(url.hostname)); assert.equal(url.port, '55433');
   const input = JSON.parse(Buffer.from(process.argv[2], 'base64url').toString('utf8')) as {

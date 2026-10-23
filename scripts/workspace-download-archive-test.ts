@@ -1,63 +1,49 @@
 import assert from 'node:assert/strict';
 import { readFileSync, promises as fs } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import ts from 'typescript';
 
-type Entry = { archivePath: string; fullPath: string | null; stats?: Awaited<ReturnType<typeof fs.stat>>; type: 'file' | 'directory' };
 type ArchiveMethods = {
-  collectArchiveEntries(paths: string[], options: object): Promise<Entry[]>;
-  writeArchive(entries: Entry[]): Promise<{ archivePath: string; tempDirectory: string }>;
   storePreparedArchive(archive: { archivePath: string; tempDirectory: string; fileName: string }, owner: object): string;
   claimPreparedArchive(token: string, owner: object): { archivePath: string; tempDirectory: string };
 };
 
 async function main() {
+  // This legacy entry retains the actual planner/writer contract through its
+  // sole central owner. A fixed serial child keeps its node:test completion and
+  // Date.now expiry oracles independent; no server, DB or suite selection here.
+  const central = spawnSync(process.execPath, [
+    path.resolve('scripts/run-document-read-tool-dispatch-test.mjs'),
+    'scripts/native-workspace-download-archive-test.ts',
+  ], { cwd: process.cwd(), stdio: 'inherit' });
+  if (central.error) throw central.error;
+  assert.equal(central.signal, null, 'Central native archive contract was interrupted.');
+  assert.equal(central.status, 0, 'Central native archive contract failed.');
+
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-download-contract-'));
   const requireDependency = createRequire(import.meta.url);
   const routePath = path.resolve('app/api/files/download/route.ts');
-  const actualFile = path.join(root, 'actual.txt'); await fs.writeFile(actualFile, 'before');
-  const fileStats = await fs.stat(actualFile); const directoryStats = await fs.stat(root);
-  // A case-insensitive macOS filesystem cannot hold both names. Only that
-  // directory listing is substituted; the production archive planner runs intact.
-  const virtualFs = { ...fs,
-    readdir: async (filename: string, options: unknown) => filename === path.join(root, 'case-conflict')
-      ? [{ name: 'Report.txt' }, { name: 'report.txt' }]
-      : fs.readdir(filename, options as { withFileTypes: true }),
-    lstat: async (filename: string) => filename === path.join(root, 'case-conflict') ? directoryStats
-      : filename.startsWith(path.join(root, 'case-conflict') + path.sep) ? fileStats : fs.lstat(filename),
-  };
-  const javascript = ts.transpileModule(readFileSync(routePath, 'utf8')
-    + '\nexport const archiveContractMethods = { collectArchiveEntries, writeArchive, storePreparedArchive, claimPreparedArchive };', {
-    fileName: routePath,
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
-  }).outputText;
-  const evaluated = { exports: {} as { archiveContractMethods: ArchiveMethods } };
-  const load = (name: string) => {
-    if (name === 'fs') return { ...requireDependency('node:fs'), promises: virtualFs };
-    if (name === '@/app/lib/filesystem/workspace-files') return { validatePath: (relative: string) => path.join(root, relative) };
-    if (name.startsWith('@/')) return {};
-    return requireDependency(name);
-  };
-  new Function('require', 'module', 'exports', javascript)(load, evaluated, evaluated.exports);
-  const { collectArchiveEntries, writeArchive, storePreparedArchive, claimPreparedArchive } = evaluated.exports.archiveContractMethods;
-  const rejections: unknown[] = [];
-  const recordRejection = (error: unknown) => rejections.push(error);
-  process.on('unhandledRejection', recordRejection);
+  // Tickets own an opaque already-materialized artifact. ZIP byte fidelity,
+  // planning, source races and publication cleanup ran in the central suite.
+  const archivePath = path.join(root, 'opaque-ticket-artifact');
+  await fs.writeFile(archivePath, 'owned opaque ticket fixture');
   try {
-    await assert.rejects(() => collectArchiveEntries(['case-conflict'], {}),
-      (error: unknown) => (error as { code?: string }).code === 'ARCHIVE_NAME_CONFLICT');
-    console.log('PASS: conflicting case-folded ZIP entry names are rejected.');
-    const plan = await collectArchiveEntries(['actual.txt'], {});
-    await fs.writeFile(actualFile, 'changed source bytes');
-    await assert.rejects(() => writeArchive(plan),
-      (error: unknown) => (error as { code?: string }).code === 'ARCHIVE_SOURCE_CHANGED');
-    console.log('PASS: a file changed after planning is rejected before ZIP publication.');
-    await delay(50);
-    assert.equal(rejections.length, 0, 'Source-change rejection must also settle the output stream completion promise.');
-    const archive = { ...await writeArchive(await collectArchiveEntries(['actual.txt'], {})), fileName: 'fixture.zip' };
+    const javascript = ts.transpileModule(readFileSync(routePath, 'utf8')
+      + '\nexport const archiveContractMethods = { storePreparedArchive, claimPreparedArchive };', {
+      fileName: routePath,
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+    }).outputText;
+    const evaluated = { exports: {} as { archiveContractMethods: ArchiveMethods } };
+    const load = (name: string) => {
+      if (name.startsWith('@/')) return {};
+      return requireDependency(name);
+    };
+    new Function('require', 'module', 'exports', javascript)(load, evaluated, evaluated.exports);
+    const { storePreparedArchive, claimPreparedArchive } = evaluated.exports.archiveContractMethods;
+    const archive = { archivePath, tempDirectory: root, fileName: 'fixture.zip' };
     const owner = { userId: 'owner', sessionId: 'session', workspaceId: 'workspace' };
     try {
       const token = storePreparedArchive(archive, owner);
@@ -73,9 +59,8 @@ async function main() {
         assert.throws(() => claimPreparedArchive(expired, owner), (error: unknown) => (error as { status: number }).status === 410);
       } finally { Date.now = now; }
     } finally { await fs.rm(archive.tempDirectory, { recursive: true, force: true }); }
-    console.log('PASS: prepared archives are session/workspace bound, single-use and expire; source-change failures have no unhandled rejection.');
+    console.log('PASS: prepared archives remain user/session/workspace bound, single-use and expiring; central native archive contract completed first.');
   } finally {
-    process.off('unhandledRejection', recordRejection);
     await fs.rm(root, { recursive: true, force: true });
   }
 }

@@ -4,9 +4,12 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Module from 'node:module';
+import ts from 'typescript';
 
 import { restoreWorkspaceOperationBackup } from '../app/lib/files/workspace-operation-backup';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { emptyNativeBackupDependencies } from './helpers/empty-native-backup-dependencies';
+import { emptyNativeCopyDependencies } from './helpers/empty-native-copy-dependencies';
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
@@ -18,6 +21,9 @@ async function main(): Promise<void> {
   const originalLoad = internals._load;
   let guardDepth = 0;
   internals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/collaboration/workspace-native-copy' || request === path.resolve('app/lib/collaboration/workspace-native-copy.ts')) {
+      return { workspaceNativeCopyDependencies: emptyNativeCopyDependencies };
+    }
     if (request === '@/app/lib/files/workspace-file-lifecycle-guard') return {
       withWorkspaceFileLifecycleGuards: async (_scopes: unknown, work: () => Promise<unknown>) => {
         guardDepth += 1;
@@ -29,10 +35,23 @@ async function main(): Promise<void> {
       detectFileCollaborationStrategy: () => 'none',
       initializeCopiedFileCollaborationPaths: async () => { assert.equal(guardDepth, 1); },
     };
+    if (request === '@/app/lib/files/workspace-operation-backup' || request === path.resolve('app/lib/files/workspace-operation-backup.ts')) {
+      const actual = originalLoad(request, parent, isMain) as typeof import('../app/lib/files/workspace-operation-backup');
+      return { ...actual, captureWorkspaceOperationBackup: (input: Parameters<typeof actual.captureWorkspaceOperationBackup>[0]) =>
+        actual.captureWorkspaceOperationBackup(input, emptyNativeBackupDependencies) };
+    }
     return originalLoad(request, parent, isMain);
   };
   try {
-    const { batchCopyBetweenWorkspaces } = await import('../app/lib/filesystem/workspace-files');
+    // Transpile the real copy entrypoint so its dynamic imports resolve through this fixture's explicit adapters.
+    const copyFile = path.resolve('app/lib/filesystem/workspace-files.ts');
+    const copySource = ts.transpileModule(await fs.readFile(copyFile, 'utf8'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+    }).outputText;
+    const copyModule = { exports: {} as typeof import('../app/lib/filesystem/workspace-files') };
+    const copyRequire = Module.createRequire(copyFile);
+    new Function('require', 'module', 'exports', copySource)(copyRequire, copyModule, copyModule.exports);
+    const { batchCopyBetweenWorkspaces } = copyModule.exports;
     const rootPath = path.join(dataRoot, 'workspaces', 'overwrite-test', 'files');
     await fs.mkdir(path.join(rootPath, 'source'), { recursive: true });
     await fs.mkdir(path.join(rootPath, 'destination'), { recursive: true });
@@ -53,7 +72,7 @@ async function main(): Promise<void> {
     assert.equal(copied.backups?.length, 1);
     assert.equal(sha256(await fs.readFile(path.join(rootPath, 'destination', 'large.bin'))), sha256(replacement));
     await restoreWorkspaceOperationBackup({ workspace, backupId: copied.backups![0].backupId,
-      targetPath: 'recovered.bin' });
+      targetPath: 'recovered.bin' }, emptyNativeBackupDependencies);
     assert.equal(sha256(await fs.readFile(path.join(rootPath, 'recovered.bin'))), sha256(previous));
 
     await fs.writeFile(path.join(rootPath, 'destination', 'large.bin'), previous);
@@ -69,7 +88,7 @@ async function main(): Promise<void> {
     assert.equal(failed.backups?.length, 1);
     assert.equal(failed.failed[0].backupId, failed.backups![0].backupId);
     await restoreWorkspaceOperationBackup({ workspace, backupId: failed.backups![0].backupId,
-      targetPath: 'recovered-after-failure.bin' });
+      targetPath: 'recovered-after-failure.bin' }, emptyNativeBackupDependencies);
     assert.equal(sha256(await fs.readFile(path.join(rootPath, 'recovered-after-failure.bin'))), sha256(previous));
     console.log('workspace overwrite backup: large binary and recovery after copy failure OK');
   } finally {

@@ -10,6 +10,7 @@ import {
   getNotebookNavigationIntent,
 } from '../app/lib/chat/chat-navigation-intent';
 import { handleOpenChatSessionEvent } from '../app/lib/chat/open-chat-session-event';
+import { normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
 import {
   clearWorkspaceScopedNavigationParams,
   getWorkspaceNavigationSyncAction,
@@ -58,6 +59,18 @@ function main() {
     workspaceId: null,
     shouldOpenChat: true,
   });
+  for (const exact of [' leading.md', 'folder/ leading.MARKDOWN']) {
+    for (const input of [exact, `/data/workspace/${exact}`]) {
+      const query = new URLSearchParams({ path: input, workspaceId: 'workspace-a' });
+      assert.equal(getNotebookNavigationIntent(query).path, exact);
+      assert.equal(getNotebookNavigationIntent(query).workspaceId, 'workspace-a');
+    }
+  }
+  for (const [input, expected] of [[' leading.md', 'leading.md'], [' office.docx ', 'office.docx'],
+    ['`docs/brief.md`', 'docs/brief.md'], ['/data/workspace/docs/brief.md', 'docs/brief.md']]) {
+    assert.equal(normalizeChatFilePath(input), expected, 'free-text chat references retain their existing parsing');
+  }
+  assert.equal(getNotebookNavigationIntent(new URLSearchParams({ path: ' office.docx ' })).path, 'office.docx');
   assert.equal(
     buildChatSessionHref(NOTEBOOK_CHAT_PATH, 'session-a', 'workspace-a'),
     '/notebook?session=session-a&workspaceId=workspace-a&chat=open',

@@ -40,6 +40,7 @@ data
 
 # OS/editor noise
 .DS_Store
+native/fd-publication
 
 # Documentation is excluded from the image except for the compliance artifacts
 # required by the build-time license gate and the runtime legal-notice API.

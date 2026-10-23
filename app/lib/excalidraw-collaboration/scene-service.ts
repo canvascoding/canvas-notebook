@@ -22,6 +22,7 @@ import { withExcalidrawPublication } from './publication-context';
 import { captureExcalidrawVersion } from './version-history';
 import { assertExcalidrawProviderAvailable } from './provider';
 import { inspectExcalidrawCheckpoint } from './checkpoint-inspection';
+import { assertExcalidrawLifecycleAvailable } from './lifecycle-availability';
 
 export class ExcalidrawDocumentError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) {
@@ -120,6 +121,10 @@ export async function getExcalidrawDocument(input: {
       } finally { await database.close(); }
     }
     if (!path) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_REQUEST', 400, 'Document ID or path is required.');
+    // Wait only when this caller can refresh authority after acquisition and
+    // before inspection/bootstrap DML. A captured workspace alone stays fail-fast.
+    await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, path,
+      { admissionLock: input.beforeRead ? 'wait' : 'try' });
     let collaboration = await getFileCollaborationState({ workspace: input.workspace, path, ensureDocument: false });
     if (!collaboration.sceneCapable) {
       throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503, 'This workspace does not provide Excalidraw scene collaboration.');
@@ -256,15 +261,23 @@ export async function createExcalidrawDocument(input: {
     let receipt: CreateReceipt;
     const scope = [input.workspace.workspaceId, input.actor.userId, input.actor.actorId, input.idempotencyKey];
     try {
-      await database.run(`INSERT INTO collaboration_excalidraw_creates
-        (workspace_id,actor_user_id,actor_id,idempotency_key,request_fingerprint,path,created_at,updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT DO NOTHING`, [...scope, fingerprint, path, Date.now()]);
-      receipt = await database.get(`SELECT * FROM collaboration_excalidraw_creates
+      const existingReceipt = await database.get(`SELECT * FROM collaboration_excalidraw_creates
+        WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4`, scope) as CreateReceipt;
+      if (!existingReceipt) {
+        // Do not leave a new preparing receipt or file inside another action's
+        // durable reservation. Existing retries first follow their own identity.
+        await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, path);
+        await database.run(`INSERT INTO collaboration_excalidraw_creates
+          (workspace_id,actor_user_id,actor_id,idempotency_key,request_fingerprint,path,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT DO NOTHING`, [...scope, fingerprint, path, Date.now()]);
+      }
+      receipt = existingReceipt ?? await database.get(`SELECT * FROM collaboration_excalidraw_creates
         WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4`, scope) as CreateReceipt;
       if (receipt.request_fingerprint !== fingerprint) throw new ExcalidrawDocumentError('EXCALIDRAW_IDEMPOTENCY_CONFLICT', 409, 'This idempotency key belongs to a different create request.');
       if (receipt.status === 'completed') return getExcalidrawDocument({ workspace: input.workspace, documentId: receipt.document_id!, actor: input.actor });
       if (receipt.document_id) return completeCreate(input.workspace, receipt, input.actor);
       const currentPath = normalizedPath(receipt.path);
+      if (existingReceipt) await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, currentPath);
       await assertWorkspacePathHasNoAliases(input.workspace, currentPath);
       if (!receipt.file_dev || !receipt.file_ino) {
         const managed = await database.get(`SELECT d.id FROM collaboration_documents d

@@ -453,7 +453,7 @@ export const CanvasDetails = Node.create({
   renderMarkdown(node, helpers) {
     const summaryNode = node.content?.find((child) => child.type === 'canvasDetailsSummary');
     const contentNode = node.content?.find((child) => child.type === 'canvasDetailsContent');
-    const summary = summaryNode ? renderInlineWithMarkedWhitespace(summaryNode.content ?? [], helpers) : 'Details';
+    const summary = summaryNode ? renderInlineWithMarkedWhitespace(summaryNode.content ?? [], helpers, { inlineOnly: true }) : 'Details';
     const body = contentNode ? helpers.renderChildren(contentNode.content ?? [], '\n\n') : '';
     const open = node.attrs?.open ? ' open' : '';
     return `<details${open}>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;

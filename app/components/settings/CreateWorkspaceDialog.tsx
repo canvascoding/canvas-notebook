@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
+import { readWorkspaceStarterInitializationResult, WorkspaceStarterInitializationStatus } from '@/app/components/settings/WorkspaceStarterInitializationStatus';
 import { WorkspaceColorPicker } from '@/app/components/workspaces/WorkspaceColorPicker';
 import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
@@ -26,6 +27,7 @@ import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/work
 import { DEFAULT_WORKSPACE_COLOR, type WorkspaceColor } from '@/app/lib/workspaces/colors';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
+import type { WorkspaceStarterInitializationResult } from '@/app/lib/workspaces/starter-document-initialization-contract';
 
 type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'organization' | 'team' | 'project'>;
 
@@ -71,6 +73,7 @@ export function CreateWorkspaceDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdWorkspace, setCreatedWorkspace] = useState<ClientWorkspaceSummary | null>(null);
+  const [starterInitialization, setStarterInitialization] = useState<WorkspaceStarterInitializationResult | null>(null);
   const createdWorkspaceSupportsMembers = createdWorkspace?.type === 'team' || createdWorkspace?.type === 'project';
 
   const loadProjects = useCallback(async () => {
@@ -149,6 +152,7 @@ export function CreateWorkspaceDialog({
     setIconCustomized(false);
     setProjectId('');
     setCreatedWorkspace(null);
+    setStarterInitialization(null);
     setError(null);
     setIsSubmitting(false);
   };
@@ -205,8 +209,13 @@ export function CreateWorkspaceDialog({
         throw new Error(key ? t(key) : payload.error || t('errors.createFailed'));
       }
       const workspace = payload.workspace as ClientWorkspaceSummary;
-      await onCreated(workspace);
+      // Keep the committed workspace even if refreshing the surrounding list fails.
       setCreatedWorkspace(workspace);
+      setStarterInitialization(payload.starterDocumentInitialization === undefined ? null
+        : readWorkspaceStarterInitializationResult(payload.starterDocumentInitialization, workspace.id)
+          ?? { version: 1, workspaceId: workspace.id, status: 'pending' });
+      try { await onCreated(workspace); }
+      catch { setError(t('errors.createdRefreshFailed')); }
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.createFailed');
       setError(message);
@@ -233,6 +242,8 @@ export function CreateWorkspaceDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+              {starterInitialization ? <WorkspaceStarterInitializationStatus key={createdWorkspace.id} initial={starterInitialization} /> : null}
+              {error ? <p className="mb-4 text-sm text-destructive" role="alert">{error}</p> : null}
               {createdWorkspaceSupportsMembers ? (
                 <WorkspaceMembersEditor
                   key={createdWorkspace.id}

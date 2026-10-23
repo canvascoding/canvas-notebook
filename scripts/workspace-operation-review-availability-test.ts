@@ -12,7 +12,7 @@ import * as fileOperationPreview from '../app/lib/markdown/workspace-file-operat
 import { WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { WorkspaceOperationCheckStore } from '../app/lib/files/workspace-operation-check-store';
 import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-operation-batch-worker';
-import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchScope, WorkspaceOperationLegacyBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
 import type * as ReviewService from '../app/lib/files/workspace-operation-review-service';
 import type * as BatchService from '../app/lib/files/workspace-operation-batch-service';
 import type * as DeleteService from '../app/lib/files/workspace-operation-delete-review';
@@ -138,12 +138,12 @@ async function main() {
       dependentReviews: async () => undefined, projectFileViews: () => undefined,
       execute: async ({ plan }) => {
         executions += 1;
-        if (executions === 1) return { status: 'failed', completedActions: 0, totalActions: plan.pathSteps.length + plan.previewContents.length,
+        if (executions === 1) return { status: 'failed', completedActions: 0, totalActions: plan.pathSteps.length + (plan as WorkspaceOperationLegacyBatchPlan).previewContents.length,
           trashEntryIds: [], errorCode: 'RETRY_REQUIRED' };
         await fs.rename(path.join(root, 'source.md'), path.join(root, 'moved.md'));
-        for (const document of plan.previewContents) await fs.writeFile(path.join(root, document.path), document.content);
-        return { status: 'applied', completedActions: plan.pathSteps.length + plan.previewContents.length,
-          totalActions: plan.pathSteps.length + plan.previewContents.length, trashEntryIds: [], errorCode: null };
+        for (const document of (plan as WorkspaceOperationLegacyBatchPlan).previewContents) await fs.writeFile(path.join(root, document.path), document.content);
+        return { status: 'applied', completedActions: plan.pathSteps.length + (plan as WorkspaceOperationLegacyBatchPlan).previewContents.length,
+          totalActions: plan.pathSteps.length + (plan as WorkspaceOperationLegacyBatchPlan).previewContents.length, trashEntryIds: [], errorCode: null };
       },
       undo: async () => {
         await fs.rename(path.join(root, 'moved.md'), path.join(root, 'source.md'));

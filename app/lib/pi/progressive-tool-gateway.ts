@@ -98,7 +98,9 @@ function buildGatewayTool(
   const tool: ProgressiveGatewayTool = {
     name: definition.name,
     label: definition.label,
-    description: definition.name === 'composio' && !findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')
+    description: definition.name === 'canvas_extensions' && !findOperation(operations, 'create_canvas_package_draft')
+      ? 'On-demand gateway for permitted Canvas extension and skill package operations. Use search to list permitted operations, describe to load the selected schema, then call.'
+      : definition.name === 'composio' && !findOperation(operations, 'COMPOSIO_SEARCH_TOOLS')
       ? 'On-demand gateway for permitted Composio-connected external-app operations. Use search without a query to list permitted operations, describe to load a schema, then call.'
       : [
           definition.description,

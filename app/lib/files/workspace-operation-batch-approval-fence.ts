@@ -12,6 +12,8 @@ import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 /** Targeted approval fence only. The executor worker still validates the entire graph before writes. */
 export async function assertWorkspaceOperationBatchApprovalCurrent(plan: WorkspaceOperationBatchPlan, scope: WorkspaceOperationBatchScope): Promise<void> {
+  if (plan.version === 3) throw new WorkspaceOperationBatchError('BATCH_NATIVE_REVIEW_UNSUPPORTED', 409,
+    'Native path changes require the direct operation flow.');
   const stale = (): never => { throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409,
     'Files changed after the combined preview. Check again before approval.'); };
   if (plan.readiness !== 'ready') stale();

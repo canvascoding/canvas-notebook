@@ -96,11 +96,13 @@ export async function migrateLegacySettingsDirectoryIfMissing(relativePath: stri
 export async function ensureSettingsStorageDirectory(): Promise<string> {
   try {
     await fs.mkdir(SETTINGS_STORAGE_DIR, { recursive: true, mode: 0o700 });
-    await fs.chmod(SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
+    const mode = await fs.stat(SETTINGS_STORAGE_DIR).then(info => info.mode & 0o7777).catch(() => null);
+    if (mode !== 0o700) await fs.chmod(SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
     return SETTINGS_STORAGE_DIR;
   } catch {
     await fs.mkdir(LEGACY_SETTINGS_STORAGE_DIR, { recursive: true, mode: 0o700 });
-    await fs.chmod(LEGACY_SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
+    const mode = await fs.stat(LEGACY_SETTINGS_STORAGE_DIR).then(info => info.mode & 0o7777).catch(() => null);
+    if (mode !== 0o700) await fs.chmod(LEGACY_SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
     return LEGACY_SETTINGS_STORAGE_DIR;
   }
 }

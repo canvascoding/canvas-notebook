@@ -254,6 +254,7 @@ function EditorModuleLoadingSkeleton() {
 interface FileEditorProps {
   onClosePreview?: () => void;
   onRevealInExplorer?: () => void;
+  onRetryMissingFile?: () => Promise<void>;
 }
 
 class SupersededEditorOperation extends Error {}
@@ -268,8 +269,9 @@ function captureEditorScope() {
 
 type HtmlViewMode = 'code' | 'preview';
 
-export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorProps = {}) {
+export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingFile }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
+  const [markdownControlsTarget, setMarkdownControlsTarget] = useState<HTMLDivElement | null>(null);
   const {
     currentFile,
     currentFileWorkspaceId,
@@ -602,6 +604,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
     representation: activeCollaborationDocument?.session?.representation === 'excalidraw_scene'
       ? undefined : activeCollaborationDocument?.session?.representation,
     connection: activeCollaborationDocument?.connection,
+    requestAdmissionRejoin: activeCollaborationDocument?.requestAdmissionRejoin,
   });
   const updateCollaborativeDraft = useCallback((value: string) => {
     if (isCrdtCollaboration) {
@@ -990,6 +993,10 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
 
   const retryOperation = async () => {
     try {
+      if (!currentFile && missingFilePath && onRetryMissingFile) {
+        await onRetryMissingFile();
+        return;
+      }
       if (currentFile && (isDirty || isCrdtCollaboration || isSceneCollaboration)) {
         await useFileStore.getState().prepareCurrentFileForTransition();
       } else {
@@ -1069,7 +1076,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
         </div>
       ) : null}
       <TooltipProvider delayDuration={150}>
-        <div className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-2 text-sm text-muted-foreground sm:px-4">
+        <div data-testid="document-header" className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-1 text-sm text-muted-foreground sm:px-4">
           <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground sm:gap-2">
             <span className="shrink-0 text-foreground">{t('fileLabel')}</span>
             <div className="flex min-w-0 items-center overflow-hidden">
@@ -1082,6 +1089,9 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
             </div>
           </div>
           <div className="flex min-w-0 shrink-0 items-center justify-end gap-1 text-xs text-muted-foreground">
+            {isMarkdown && (!isMarpMarkdownFile || markdownViewMode === 'markdown') && (
+              <div ref={setMarkdownControlsTarget} data-testid="document-header-controls" className="flex items-center" />
+            )}
             {isHtml && (
               <>
                 {htmlViewMode === 'preview' && (
@@ -1429,10 +1439,12 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
                 externalCollaboration={{ resolution: textSession, document: activeCollaborationDocument }}
                 value={draft}
                 onChange={updateCollaborativeDraft}
+                readOnly={Boolean(currentFile.unavailable)}
                 filePath={currentFile.path}
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
                 agentTargets={agentTargets}
                 showNotebookMetadata
+                controlsTarget={markdownControlsTarget}
               />
             )
           ) : (
@@ -1441,7 +1453,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
               documentKey={currentFile.editorIdentity}
               expectedCollaborationDocumentId={collaborationDocumentId}
               onChange={updateCollaborativeDraft}
-              readOnly={false}
+              readOnly={Boolean(currentFile.unavailable)}
               path={currentFile.path}
               collaborationEnabled={Boolean(collaboration?.crdtCapable)}
               collaborationSession={textSession.session}

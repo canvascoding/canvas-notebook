@@ -5,8 +5,8 @@ import {
   jsonServerError,
   jsonSuccess,
 } from '@/app/lib/api/route-helpers';
-import { buildWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { readWorkspaceDocumentLinkIndex } from '@/app/lib/markdown/workspace-document-link-index';
+import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 export async function GET(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
-    const index = await buildWorkspaceLinkIndex(workspaceFileOptions(workspaceResult.workspace));
+    const index = await readWorkspaceDocumentLinkIndex(workspaceResult.workspace);
     const path = new URL(request.url).searchParams.get('path')?.trim();
     if (!path) return jsonSuccess({ index });
 
@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
       outgoing: index.edges.filter((edge) => edge.sourcePath === path),
       brokenLinks: index.brokenLinks.filter((edge) => edge.sourcePath === path),
       generatedAt: index.generatedAt,
+      indexVersion: index.indexVersion,
+      coverage: index.coverage,
+      gaps: index.gaps,
     });
   } catch (error) {
     return jsonServerError('[Markdown Link Index] Failed to build index:', error, 'Failed to build link index');

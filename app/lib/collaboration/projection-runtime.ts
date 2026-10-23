@@ -3,7 +3,7 @@ import 'server-only';
 import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from './checkpoint';
-import { COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { logCollaborationDiagnostic } from './diagnostics';
 import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
 import { hasPendingCollaborationProjection, listPendingCollaborationProjections, loadCollaborationProjectionWorkspace, recordCollaborationProjectionFailure } from './projection-repository';
@@ -62,6 +62,7 @@ export function createCollaborationProjectionRuntime(callbacks: {
               generation: state.lifecycleGeneration, code: 'COLLABORATION_GUEST_VERSION_FAILED' });
           }
         } catch (error) {
+          if (error instanceof CollaborationCopyPublicationPendingError || error instanceof CollaborationFileOperationProjectionPendingError) return;
           if (error instanceof CollaborationCheckpointSupersededError) {
             logCollaborationDiagnostic('debug', { event: 'projection_superseded', documentId: state.documentId,
               generation: state.lifecycleGeneration, documentSequence: state.documentSequence });

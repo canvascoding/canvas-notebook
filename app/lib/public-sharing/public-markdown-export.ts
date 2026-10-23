@@ -9,6 +9,7 @@ import { resolveMarkdownExportBrandState } from '@/app/lib/pdf/markdown-export-c
 import type { WorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
 import { readWorkspaceBrandLogoDataUri } from '@/app/lib/workspaces/brand-logo-service';
 import { assertPublicShareStillActive, readPublicShareText } from './public-share-text';
+import { nativePublicExportMetadata } from './native-public-export';
 import {
   resolvePublicShareToken,
   type PublicShareResolution,
@@ -79,7 +80,7 @@ async function resolvePublicMarkdownShare(token: string): Promise<PublicMarkdown
   }
 
   const extension = path.extname(resolved.workspacePath).toLowerCase();
-  if (!MARKDOWN_EXTENSIONS.has(extension)) {
+  if (resolved.kind !== 'native' && !MARKDOWN_EXTENSIONS.has(extension)) {
     return {
       ok: false,
       status: 400,
@@ -104,7 +105,7 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
   await assertPublicShareStillActive(resolved);
   return {
     ok: true,
-    fileName: resolved.share.fileName,
+    fileName: resolved.kind === 'native' ? nativePublicExportMetadata(resolved.share.fileName, resolved.snapshot).fileName : resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
     brandProfile: brandState.profile,
@@ -120,7 +121,10 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
   const { resolved } = publicMarkdown;
   const fileOptions = { workspace: resolved.workspace };
   const markdown = await readPublicShareText(resolved);
-  if (!isMarpMarkdown(resolved.workspacePath, markdown)) {
+  const presentationPath = resolved.kind === 'native'
+    ? path.posix.join(path.posix.dirname(resolved.workspacePath),
+      nativePublicExportMetadata(resolved.share.fileName, resolved.snapshot).fileName.replace(/\.txt$/u, '.md')) : resolved.workspacePath;
+  if (!isMarpMarkdown(presentationPath, markdown)) {
     return {
       ok: false,
       status: 400,
@@ -129,7 +133,7 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
   }
 
   const html = await renderMarpMarkdownToHtmlDocument(markdown, {
-    filePath: resolved.workspacePath,
+    filePath: presentationPath,
     title: resolved.share.fileName,
     fileOptions,
   });
@@ -140,7 +144,7 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
   await assertPublicShareStillActive(resolved);
   return {
     ok: true,
-    fileName: resolved.share.fileName,
+    fileName: resolved.kind === 'native' ? nativePublicExportMetadata(resolved.share.fileName, resolved.snapshot).fileName : resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
     brandProfile: brandState.profile,

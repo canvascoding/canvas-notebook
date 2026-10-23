@@ -10,9 +10,9 @@ import {
   subscribeWorkspaceLinkIndexInvalidation,
 } from '@/app/lib/markdown/workspace-link-index-client';
 import type {
-  WorkspaceLinkEdge,
-  WorkspaceLinkIndex,
-} from '@/app/lib/markdown/workspace-link-index-core';
+  WorkspaceLinkReadEdge as WorkspaceLinkEdge,
+  WorkspaceLinkReadIndex as WorkspaceLinkIndex,
+} from '@/app/lib/markdown/workspace-document-link-index-contract';
 import type { WorkspaceDocumentReference } from '@/app/lib/markdown/workspace-document-preview';
 import {
   groupWorkspaceReferenceEdges,
@@ -148,8 +148,8 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
   const outgoing = useMemo(() => currentIndex?.edges.filter((edge) => (
     edge.sourcePath === normalizedPath && edge.status === 'resolved' && edge.targetPath
   )) ?? [], [currentIndex, normalizedPath]);
-  const broken = useMemo(() => currentIndex?.edges.filter((edge) => (
-    edge.sourcePath === normalizedPath && edge.status !== 'resolved'
+  const broken = useMemo(() => currentIndex?.brokenLinks.filter((edge) => (
+    edge.sourcePath === normalizedPath
   )) ?? [], [currentIndex, normalizedPath]);
   const incomingGroups = useMemo(() => groupWorkspaceReferenceEdges(
     backlinks,
@@ -200,7 +200,7 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
           <span className="block text-sm font-semibold">{t('markdownEditorBacklinks')}</span>
           <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
             {currentIndex
-              ? t('markdownEditorBacklinksSummary', {
+              ? !currentIndex.coverage.complete ? t('markdownEditorBacklinksPartial') : t('markdownEditorBacklinksSummary', {
                   documents: incomingGroups.length,
                   references: backlinks.length,
                 })
@@ -226,6 +226,12 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
 
         {currentIndex ? (
           <section className="grid gap-3">
+            {!currentIndex.coverage.complete ? (
+              <p role="status" className="flex items-start gap-2 border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {t('markdownEditorBacklinksPartial')}
+              </p>
+            ) : null}
             <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border/55 bg-muted/35 p-1" role="tablist" aria-label={t('markdownEditorBacklinks')}>
               {([
                 ['incoming', t('markdownEditorBacklinksIncoming', { count: incomingGroups.length })],

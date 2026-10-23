@@ -4,11 +4,13 @@ import { isRichTextCollaborationRepresentation } from '@/app/lib/collaboration/t
 import { createHash, randomUUID } from 'node:crypto';
 import type { Doc } from 'yjs';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '@/app/lib/db';
+import { db, type SqlConnection } from '@/app/lib/db';
 import { fileGuestInvitations, fileGuestVersions } from '@/app/lib/db/schema';
 import { Y } from '@/app/lib/collaboration/server-runtime';
-import { richMarkdownFromYDoc, replaceRichMarkdownInYDoc } from '@/app/lib/collaboration/markdown-state';
-import { loadCollaborationState, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { richMarkdownFromYDoc, replaceRichMarkdownInYDoc, validateRichMarkdownYDoc } from '@/app/lib/collaboration/markdown-state';
+import { loadCollaborationState, loadCollaborationStateOnConnection, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { inspectPersistedNativeCollaborationSnapshot } from '@/app/lib/collaboration/document-snapshot';
+import type { WorkspaceSideEffectWriterTarget } from '@/app/lib/files/workspace-side-effect-writer-fence';
 import { readCurrentCollaborationDocument } from '@/app/lib/collaboration/document-access';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -16,6 +18,36 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export class FileGuestVersionError extends Error {
   constructor(message: string, readonly status = 409) { super(message); }
+}
+
+/** Compatibility history, additional to the mandatory complete native backup.
+ * The actual member writer owns this B/Principal/Shared target and COMMIT.
+ * Read and label one persisted snapshot; never export a newer live room under
+ * its old sequence. Non-lossless native content keeps only its native backup. */
+export async function recordFileGuestBaselineOnConnection(database:SqlConnection,target:WorkspaceSideEffectWriterTarget):Promise<void> {
+  const state = await loadCollaborationStateOnConnection(database,target.documentId);
+  if (!state || state.workspaceId !== target.workspaceId || state.organizationId !== target.organizationId
+    || state.path !== target.path || state.lifecycleGeneration !== target.lifecycleGeneration
+    || state.representation !== target.representation || state.schemaVersion !== target.schemaVersion) {
+    throw new FileGuestVersionError('Der ursprüngliche Dokumentstand wurde geändert. Bitte neu laden.');
+  }
+  const content = inspectPersistedNativeCollaborationSnapshot(state,(doc,snapshot) => {
+    if (snapshot.content.kind === 'plain_text') return snapshot.content.text;
+    const validation = validateRichMarkdownYDoc(doc);
+    if (!validation.valid) {
+      if (validation.code === 'roundtrip_unstable' || validation.code === 'serialization_failed') return null;
+      throw new FileGuestVersionError('Der native Dokumentstand ist nicht gültig.');
+    }
+    if (typeof validation.markdown !== 'string') throw new FileGuestVersionError('Der Versionsstand ist nicht verfügbar.');
+    return validation.markdown;
+  });
+  if (content === null || Buffer.byteLength(content) > 5*1024*1024) return;
+  const hash = createHash('sha256').update(content).digest('hex');
+  await database.run(`INSERT INTO file_guest_versions(id,workspace_id,document_id,lifecycle_generation,document_sequence,content,content_hash,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+  [randomUUID(),state.workspaceId,state.documentId,state.lifecycleGeneration,state.documentSequence,content,hash,Date.now()]);
+  await database.run(`DELETE FROM file_guest_versions WHERE document_id=$1 AND id IN
+    (SELECT id FROM file_guest_versions WHERE document_id=$1 ORDER BY created_at DESC,id DESC OFFSET 20 LIMIT 100)`,[state.documentId]);
 }
 
 /** Keep twenty recovery points; normal saves add at most one point per minute. */

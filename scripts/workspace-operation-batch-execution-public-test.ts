@@ -8,6 +8,7 @@ import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-o
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 import type * as Service from '../app/lib/files/workspace-operation-batch-service';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
+import * as fileUndoPolicy from '../app/lib/files/workspace-file-undo-policy';
 
 async function main() {
   const plan = createWorkspaceOperationBatchPlan({ snapshot: { workspaceId: 'ledger-workspace', entries: [
@@ -127,6 +128,7 @@ async function main() {
   }).outputText;
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === 'server-only') return {};
+    if (name === './workspace-file-undo-policy') return fileUndoPolicy;
     if (name === '@/app/lib/document-review-availability') return {
       readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }),
     };

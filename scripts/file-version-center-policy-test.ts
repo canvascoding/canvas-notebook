@@ -102,7 +102,7 @@ async function main() {
   }
   assert.deepEqual(
     resolveFileVersionRolloutV1(undefined),
-    fixtures.rolloutCases.find((testCase) => testCase.expected.mode === 'full')?.expected,
+    fixtures.rolloutCases.find((testCase) => testCase.expected.mode === 'off')?.expected,
   );
   assert.deepEqual(
     [...new Set(fixtures.rolloutCases

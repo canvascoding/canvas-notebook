@@ -1,7 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import assert from 'node:assert/strict';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { waitForFileCreateBudget } from './create-request-budget';
+import { MANUAL_MARKDOWN_CREATE_CODES, parseManualMarkdownCreateCompletion } from '../../app/lib/files/markdown-create-result';
 
 import type {
   APIRequestContext,
@@ -341,8 +344,59 @@ export async function uploadWorkspaceTextFile(input: {
   }
 }
 
+/** A successful transport is insufficient: only this exact native birth opens. */
+export async function assertCompletedWorkspaceMarkdownCreate(
+  response: Pick<APIResponse, 'status' | 'json'>,
+  expected: { requestId: string; workspaceId: string; targetPath: string },
+): Promise<void> {
+  assert.match(expected.requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u);
+  assert.equal(response.status(), 200, 'Native Markdown fixture requires HTTP 200 Completed.');
+  assert.deepEqual(await response.json(), {
+    success: true,
+    completion: { status: 'completed', requestId: expected.requestId, workspaceId: expected.workspaceId, targetPath: expected.targetPath },
+  });
+}
+
+export async function createCompletedWorkspaceMarkdownFile(input: {
+  request: APIRequestContext;
+  workspaceId: string;
+  filePath: string;
+}): Promise<{ status: 'completed'; requestId: string; workspaceId: string; targetPath: string }> {
+  assert.match(input.filePath, /\.(?:md|markdown)$/iu);
+  const completion = { status: 'completed' as const, requestId: randomUUID(), workspaceId: input.workspaceId, targetPath: input.filePath };
+  await waitForFileCreateBudget();
+  const deadline = performance.now() + 45_000;
+  while (true) {
+    const remaining = Math.floor(deadline - performance.now());
+    assert(remaining > 0, 'Native Markdown fixture did not reach Completed within its same-request check window.');
+    const response = await input.request.post('/api/files/create', {
+      headers: { [WORKSPACE_ID_HEADER]: completion.workspaceId },
+      data: { path: completion.targetPath, type: 'file', requestId: completion.requestId },
+      timeout: remaining,
+    });
+    if (response.status() !== 409) {
+      await assertCompletedWorkspaceMarkdownCreate(response, completion);
+      return completion;
+    }
+    const payload: unknown = await response.json();
+    assert(payload && typeof payload === 'object' && !Array.isArray(payload), 'Native Markdown fixture received an invalid pending response.');
+    const pending = payload as { success?: unknown; code?: unknown; completion?: unknown };
+    assert.equal(pending.success, false);
+    assert.equal(pending.code, MANUAL_MARKDOWN_CREATE_CODES.projection_pending);
+    const observed = parseManualMarkdownCreateCompletion(pending.completion, completion);
+    assert(observed?.status === 'projection_pending', 'Native Markdown pending coordinates must match the original creation.');
+    assert.equal(observed.code, MANUAL_MARKDOWN_CREATE_CODES.projection_pending);
+    assert(performance.now() < deadline, 'Native Markdown fixture did not reach Completed within its same-request check window.');
+    // Fully await the existing shared request budget; do not orphan its ledger
+    // reservation. The loop rechecks the deadline before issuing another POST.
+    await waitForFileCreateBudget();
+  }
+}
+
 export async function enterMarkdownEditMode(page: Page): Promise<void> {
-  const editButton = page.getByRole('button', { name: /^(?:Edit|Bearbeiten)$/i }).first();
-  await editButton.waitFor({ state: 'visible' });
-  await editButton.click();
+  // Writers enter an editable surface directly. Keep normalization explicit in
+  // the calling test when the original Markdown requires that separate action.
+  await page.locator(
+    '.tiptap-editor-shell .ProseMirror[contenteditable="true"], .markdown-source-shell .cm-content[contenteditable="true"]',
+  ).waitFor({ state: 'visible' });
 }

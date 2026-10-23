@@ -7,6 +7,7 @@ const fixtureOrigin = 'http://localhost:43121';
 const workspaceId = 'recovery-workspace';
 const recoveryContent = 'First item\nLast item';
 const recoveryPath = /^broken\.recovered-[a-f0-9-]+\.md$/;
+const recoveryDeletePlanId = '1'.repeat(64);
 let bundle: string;
 test.beforeAll(async () => {
   const built = await build({ entryPoints: ['tests/fixtures/collaboration-recovery-browser.tsx'],
@@ -20,17 +21,49 @@ async function mountFixture(page: Page, options: { failStorage?: boolean; allowC
   const reads: string[] = [];
   const treeReads: string[] = [];
   const unexpected: string[] = [];
+  let deletePreviewed = false;
   await page.route(`${fixtureOrigin}/**`, async route => {
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === '/' && request.method() === 'GET') {
       return route.fulfill({ contentType: 'text/html', body: '<style>body{font:16px system-ui;margin:32px}button{padding:10px;margin:5px}p{max-width:800px}output{display:block}</style><div id="root"></div><pre id="restored"></pre>' });
     }
+    if (url.pathname === '/api/auth/get-session' && request.method() === 'GET') {
+      expect(url.search).toBe('');
+      // Controlled BetterAuth read, not a document ticket or a real server login.
+      return route.fulfill({ json: {
+        session: { id: 'recovery-fixture-session', userId: 'fixture', token: 'recovery-fixture-token',
+          createdAt: '2026-10-20T00:00:00.000Z', updatedAt: '2026-10-20T00:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z' },
+        user: { id: 'fixture', name: 'Fixture', email: 'fixture@recovery.test', emailVerified: true,
+          createdAt: '2026-10-20T00:00:00.000Z', updatedAt: '2026-10-20T00:00:00.000Z' },
+      } });
+    }
     if (url.pathname.startsWith('/api/files/')) expect(request.headers()['x-canvas-workspace-id']).toBe(workspaceId);
     if (url.pathname === '/api/files/delete' && request.method() === 'DELETE') {
-      expect(request.postDataJSON()).toEqual({ path: ['broken.md'] });
+      const body = request.postDataJSON();
+      expect(files.get('broken.md')).toBe(recoveryContent);
+      if (body.dryRun === true) {
+        expect(body).toEqual({ path: ['broken.md'], dryRun: true });
+        expect(deletePreviewed).toBe(false);
+        deletePreviewed = true;
+        return route.fulfill({ json: { success: true, dryRun: true, requiresRevalidation: true, plan: {
+          version: 2, kind: 'native-original-delete', workspaceId, planId: recoveryDeletePlanId, readiness: 'ready',
+          pathMappings: [], linkEdits: [], coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
+          linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+        } } });
+      }
+      expect(deletePreviewed).toBe(true);
+      expect(body).toEqual({ path: ['broken.md'], planId: recoveryDeletePlanId,
+        idempotencyKey: expect.stringMatching(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u) });
       files.delete('broken.md');
-      return route.fulfill({ json: { deleted: ['broken.md'], failed: [] } });
+      return route.fulfill({ json: { success: true, deleted: ['broken.md'], failed: [],
+        operation: { batchId: 'recovery-delete-fixture', planId: recoveryDeletePlanId, workspaceId, kind: 'delete',
+          selections: [{ sourcePath: 'broken.md' }], status: 'applied', phase: 'complete',
+          completedActions: 1, totalActions: 1, errorCode: null },
+        linkStatus: 'complete', linkUpdates: { updatedFiles: [], updatedLinks: 0, warnings: [] },
+        trashEntries: [{ id: 'recovery-fixture-trash', originalPath: 'broken.md', itemType: 'file',
+          sizeBytes: Buffer.byteLength(recoveryContent), expiresAt: '2099-01-01T00:00:00.000Z' }],
+      } });
     }
     if (url.pathname === '/api/files/write' && request.method() === 'POST' && options.allowCopy) {
       const write = request.postDataJSON();

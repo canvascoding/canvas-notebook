@@ -167,3 +167,145 @@ test('acknowledged COMMIT with failed ordinary close throws without rollback or 
   assert.deepEqual(h.closeErrors, [undefined]);
   assert.equal(h.connectionCloses, 1);
 });
+
+for (const failingStage of ['BEGIN', 'execute'] as const) {
+  test(`${failingStage} failure notifies the observer only after confirmed rollback and normal close`, async () => {
+    const failure = new Error(`${failingStage} failed`);
+    const h = harness(failingStage === 'BEGIN' ? { failBegin: failure } : { failExecute: failure });
+    const observed: unknown[] = [];
+
+    await assert.rejects(executeLifecycleTransaction({ ...h, afterRollbackClosed: (error) => {
+      assert.equal(h.connectionCloses, 1);
+      assert.deepEqual(h.closeErrors, [undefined]);
+      assert.equal(h.events.at(-1), 'close:release');
+      observed.push(error);
+      h.events.push('observer');
+    } }), (error: unknown) => error === failure);
+
+    assert.deepEqual(observed, [failure]);
+    assert.deepEqual(h.events, failingStage === 'BEGIN'
+      ? ['open', 'BEGIN', 'ROLLBACK', 'close:release', 'observer']
+      : ['open', 'BEGIN', 'execute', 'ROLLBACK', 'close:release', 'observer']);
+  });
+}
+
+test('rollback observer waits for normal close fulfillment, not merely its invocation', async () => {
+  const failure = new Error('execute failed');
+  const h = harness({ failExecute: failure });
+  const observed: unknown[] = [];
+  let releaseClose!: () => void;
+  let markCloseStarted!: () => void;
+  const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
+  const closeStarted = new Promise<void>((resolve) => { markCloseStarted = resolve; });
+  const pending = executeLifecycleTransaction({ ...h, openConnection: async () => {
+    const database = await h.openConnection();
+    return { ...database, close: async (error?: Error) => {
+      await database.close(error);
+      markCloseStarted();
+      await closeGate;
+      h.events.push('close:fulfilled');
+    } };
+  }, afterRollbackClosed: (error) => { observed.push(error); h.events.push('observer'); } });
+  const rejection = assert.rejects(pending, (error: unknown) => error === failure);
+  try {
+    await closeStarted;
+    assert.deepEqual(observed, []);
+    assert.equal(h.events.at(-1), 'close:release');
+  } finally { releaseClose(); }
+  await rejection;
+  assert.deepEqual(observed, [failure]);
+  assert.deepEqual(h.events, ['open', 'BEGIN', 'execute', 'ROLLBACK', 'close:release', 'close:fulfilled', 'observer']);
+});
+
+for (const operationError of [undefined, null]) {
+  test(`rollback observer preserves the exact thrown ${String(operationError)} value`, async () => {
+    const h = harness();
+    const observed: unknown[] = [];
+    const result = await executeLifecycleTransaction({ ...h, execute: async () => {
+      h.events.push('execute');
+      throw operationError;
+    }, afterRollbackClosed: (error) => { observed.push(error); h.events.push('observer'); } }).then(
+      () => ({ rejected: false, error: undefined }),
+      (error: unknown) => ({ rejected: true, error }),
+    );
+    assert.equal(result.rejected, true);
+    assert.equal(result.error, operationError);
+    assert.equal(observed.length, 1);
+    assert.equal(observed[0], operationError);
+    assert.deepEqual(h.events, ['open', 'BEGIN', 'execute', 'ROLLBACK', 'close:release', 'observer']);
+  });
+}
+
+test('an acknowledged successful transaction never calls the rollback observer', async () => {
+  const h = harness();
+  const observed: unknown[] = [];
+  assert.equal(await executeLifecycleTransaction({ ...h, afterRollbackClosed: (error) => { observed.push(error); } }), 'committed-value');
+  assert.deepEqual(observed, []);
+  assert.deepEqual(h.events, ['open', 'BEGIN', 'execute', 'MUTATE', 'COMMIT', 'close:release']);
+});
+
+for (const stage of ['rollback', 'rollback-discard', 'rollback-close', 'commit-recovery', 'commit-discard', 'recovery', 'commit-close'] as const) {
+  test(`${stage} cannot publish a confirmed rollback-close observation`, async () => {
+    const operationError = new Error('execute failed');
+    const rollbackError = new Error('rollback failed');
+    const commitError = new Error('commit reply lost');
+    const discardError = new Error('discard failed');
+    const closeError = new Error('ordinary close failed');
+    const recoveryError = new Error('recovery failed');
+    const faults: Faults = stage === 'rollback' ? { failExecute: operationError, failRollback: rollbackError }
+      : stage === 'rollback-discard' ? { failExecute: operationError, failRollback: rollbackError, failDiscard: discardError }
+        : stage === 'rollback-close' ? { failExecute: operationError, failClose: closeError }
+          : stage === 'commit-discard' ? { failCommit: commitError, failDiscard: discardError }
+            : stage === 'commit-close' ? { failClose: closeError }
+              : { failCommit: commitError };
+    const h = harness(faults);
+    if (stage === 'recovery') h.recoverCommitted = async () => { h.events.push('recover'); throw recoveryError; };
+    const observed: unknown[] = [];
+    const result = await executeLifecycleTransaction({ ...h, afterRollbackClosed: (error) => { observed.push(error); } }).then(
+      (value) => ({ rejected: false as const, value }),
+      (error: unknown) => ({ rejected: true as const, error }),
+    );
+    if (stage === 'commit-recovery') {
+      assert.equal(result.rejected, false);
+      if (!result.rejected) assert.equal(result.value, 'recovered-value');
+    } else {
+      assert.equal(result.rejected, true);
+      if (result.rejected) {
+        if (stage === 'rollback' || stage === 'rollback-discard' || stage === 'commit-discard') {
+          assert(result.error instanceof AggregateError);
+          assert.deepEqual(result.error.errors, stage === 'rollback' ? [operationError, rollbackError]
+            : stage === 'rollback-discard' ? [operationError, rollbackError, discardError] : [commitError, discardError]);
+        } else assert.equal(result.error, stage === 'recovery' ? recoveryError : closeError);
+      }
+    }
+    assert.deepEqual(observed, []);
+    assert.equal(h.connectionCloses, 1);
+    assert.equal(h.events.filter((event) => event === 'ROLLBACK').length, stage.startsWith('rollback') ? 1 : 0);
+  });
+}
+
+test('a throwing rollback observer cannot replace the original operation error', async () => {
+  const failure = new Error('execute failed');
+  const observerError = new Error('observer failed');
+  const h = harness({ failExecute: failure });
+  const observed: unknown[] = [];
+  await assert.rejects(executeLifecycleTransaction({ ...h, afterRollbackClosed: (error) => {
+    observed.push(error);
+    h.events.push('observer');
+    throw observerError;
+  } }), (error: unknown) => error === failure);
+  assert.deepEqual(observed, [failure]);
+  assert.deepEqual(h.events, ['open', 'BEGIN', 'execute', 'ROLLBACK', 'close:release', 'observer']);
+  assert.equal(h.connectionCloses, 1);
+});
+
+test('connection-open failure never calls the rollback observer', async () => {
+  const failure = new Error('connection open failed');
+  const h = harness();
+  const observed: unknown[] = [];
+  await assert.rejects(executeLifecycleTransaction({ ...h, openConnection: async () => { throw failure; },
+    afterRollbackClosed: (error) => { observed.push(error); } }), (error: unknown) => error === failure);
+  assert.deepEqual(observed, []);
+  assert.deepEqual(h.events, []);
+  assert.equal(h.connectionCloses, 0);
+});

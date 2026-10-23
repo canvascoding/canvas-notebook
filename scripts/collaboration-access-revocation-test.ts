@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,23 @@ import { createCollaborationAccessMonitor } from '../app/lib/collaboration/acces
 import { createInitialTextCollaborationClientState, reduceTextCollaborationClientState } from '../app/lib/collaboration/client-state';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import { whileWorkspaceOutputBlocked } from './collaboration-output-lock-test-helper';
+
+let stage = 'fixture setup';
+let fixtureSettled = false;
+let incompleteExitReported = false;
+function guardIncompleteExit(reason: 'beforeExit' | 'exit' | 'watchdog'): void {
+  if (fixtureSettled) return;
+  if (!incompleteExitReported) console.error(`collaboration-access-revocation-test: incomplete (${reason}) at ${stage}; cleanup completion is unconfirmed.`);
+  incompleteExitReported = true;
+  process.exitCode = 1;
+}
+process.once('beforeExit', () => guardIncompleteExit('beforeExit'));
+process.once('exit', () => guardIncompleteExit('exit'));
+const fixtureWatchdog = setTimeout(() => {
+  guardIncompleteExit('watchdog');
+  process.exit(1);
+}, 180_000);
+fixtureWatchdog.ref();
 
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-collaboration-access-'));
@@ -25,11 +43,26 @@ async function main() {
         ? result.rows.map((row) => result.fields.map((field) => row[field.name])) : result.rows };
   };
   const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
+  const createClient = () => Object.assign(new EventEmitter(), { query, release() {} });
+  type FixtureClient = ReturnType<typeof createClient>;
+  type ConnectCallback = (error: Error | undefined, client: FixtureClient | undefined, release: (error?: Error) => void) => void;
+  function connect(): Promise<FixtureClient>;
+  function connect(callback: ConnectCallback): void;
+  function connect(callback?: ConnectCallback): Promise<FixtureClient> | void {
+    const client = createClient();
+    if (callback) {
+      queueMicrotask(() => callback(undefined, client, client.release));
+      return;
+    }
+    return Promise.resolve(client);
+  }
   Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
-  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
+  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: connect });
   try {
+    stage = 'actual PGlite migrations';
     const { runPostgresMigrations } = await import('../app/lib/db/postgres');
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    stage = 'member and document fixture';
     const { db } = await import('../app/lib/db');
     const { user, session, canvasOrganizationSettings, canvasWorkspaces, organizationUserPermissions } = await import('../app/lib/db/schema');
     const now = new Date();
@@ -55,6 +88,7 @@ async function main() {
       documentId: metadata.document.id, path: 'notes.md', provider: 'yjs', representation: 'plain_text', permission: 'write',
       lifecycleGeneration: 1, schemaVersion: 1, issuedAt: Date.now() - 120_000, expiresAt: Date.now() - 30_000,
     };
+    stage = 'member access and workspace output lock';
     assert.ok((await revalidateCollaborationAccess(claims)).workspace.permissions.canWrite, 'An expired join ticket does not end an otherwise valid ongoing session');
     const readClaims = { ...claims, permission: 'read' as const };
     await whileWorkspaceOutputBlocked(workspace.workspaceId, async () => {
@@ -64,6 +98,7 @@ async function main() {
       await revalidateCollaborationAccess(readClaims);
       await db.update(organizationUserPermissions).set({ canWriteTeamWorkspace: true }).where(eq(organizationUserPermissions.userId, 'member'));
     });
+    stage = 'rights authentication and stale identity assertions';
     await db.update(organizationUserPermissions).set({ canWriteTeamWorkspace: false }).where(eq(organizationUserPermissions.userId, 'member'));
     await assert.rejects(revalidateCollaborationAccess(claims), /write access was revoked/);
     await revalidateCollaborationAccess(readClaims);
@@ -83,6 +118,7 @@ async function main() {
     await assert.rejects(revalidateCollaborationAccess(claims), /no longer authenticated/);
     await db.update(session).set({ expiresAt: new Date(Date.now() + 60_000) }).where(eq(session.id, 'member-session'));
 
+    stage = 'idle reader and queued writer revocation';
     const denied: string[] = [];
     const monitor = createCollaborationAccessMonitor<{ name: string; claims: CollaborationTicketClaims }>({
       validate: async (connection) => { await revalidateCollaborationAccess(connection.claims); },
@@ -107,6 +143,7 @@ async function main() {
       monitor.dispose();
     }
 
+    stage = 'concurrent monitor validation';
     let complete: () => void = () => {};
     let validations = 0;
     const queued = createCollaborationAccessMonitor<object>({
@@ -124,18 +161,28 @@ async function main() {
     assert.ok(pending.every((result) => result.status === 'rejected'), 'Closing during validation prevents queued writes');
     queued.dispose();
 
+    stage = 'local recovery assertions';
     let client = { ...createInitialTextCollaborationClientState(), remoteSynced: true, indexedDbHydrated: true, unsyncedChanges: 2 };
     client = reduceTextCollaborationClientState(client, { type: 'authentication_failed', message: 'Access revoked' });
     client = reduceTextCollaborationClientState(client, { type: 'provider_status', status: 'connected', permission: 'write' });
     client = reduceTextCollaborationClientState(client, { type: 'remote_synced', permission: 'write' });
     assert.equal(client.connection, 'denied');
     assert.equal(client.unsyncedChanges, 2, 'Local pending edits are retained');
-    console.log('collaboration-access-revocation-test: session, workspace permissions, document lifecycle, idle readers, queued writes and local recovery ok');
   } finally {
+    stage = 'fixture cleanup';
     Object.assign(Pool.prototype, original);
     await postgres.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().then(() => {
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.log('collaboration-access-revocation-test: session, workspace permissions, document lifecycle, idle readers, queued writes and local recovery ok');
+}, (error) => {
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.error(error);
+  process.exitCode = 1;
+});

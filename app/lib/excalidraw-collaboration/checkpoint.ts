@@ -19,6 +19,7 @@ import { loadExcalidrawSceneInTransaction, withExcalidrawSceneTransaction, type 
 import { withExcalidrawPublication } from './publication-context';
 import { captureExcalidrawVersion, createExcalidrawVersionContentStore, MAX_PORTABLE_EXCALIDRAW_BYTES } from './version-history';
 import { EXCALIDRAW_ASSET_MAX_BYTES } from './limits';
+import { serializePortableExcalidrawSceneFromReadonlyAssets, ExcalidrawPortableSerializationError } from './portable-serialization';
 
 export class ExcalidrawCheckpointError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) {
@@ -89,24 +90,25 @@ export async function serializePortableExcalidrawScene(
   if (Buffer.byteLength(JSON.stringify(scene, null, 2), 'utf8') + base64Bytes > MAX_PORTABLE_EXCALIDRAW_BYTES) {
     throw new ExcalidrawCheckpointError('EXCALIDRAW_CHECKPOINT_TOO_LARGE', 413, 'Portable Excalidraw checkpoint exceeds the 50 MiB limit.');
   }
+  const loaded: Array<{ metadata: PersistedExcalidrawScene['assets'][number]; bytes: Uint8Array }> = [];
   for (const metadata of state.assets) {
     const asset = await loadExcalidrawAsset({ workspaceId: state.workspaceId, fileId: metadata.fileId });
     if (!asset) throw new Error(`Excalidraw checkpoint asset is missing: ${metadata.fileId}.`);
     if (asset.data.byteLength !== metadata.sizeBytes || asset.metadata.contentHash !== metadata.contentHash
       || asset.metadata.mimeType !== metadata.mimeType) throw new Error(`Excalidraw checkpoint asset metadata changed: ${metadata.fileId}.`);
-    files[metadata.fileId] = {
-      id: metadata.fileId,
-      mimeType: metadata.mimeType,
-      dataURL: `data:${metadata.mimeType};base64,${asset.data.toString('base64')}`,
-      created: metadata.createdAt,
-      lastRetrieved: metadata.createdAt,
-      version: metadata.version,
-    };
+    loaded.push({ metadata: asset.metadata, bytes: new Uint8Array(asset.data) });
   }
-  const content = JSON.stringify(scene, null, 2);
-  if (Buffer.byteLength(content, 'utf8') > MAX_PORTABLE_EXCALIDRAW_BYTES) throw new ExcalidrawCheckpointError(
-    'EXCALIDRAW_CHECKPOINT_TOO_LARGE', 413, 'Portable Excalidraw checkpoint exceeds the 50 MiB limit.');
-  return content;
+  try {
+    return serializePortableExcalidrawSceneFromReadonlyAssets({ elements: state.elements, appState: state.appState,
+      assets: state.assets, canonicalHash: state.canonicalHash }, loaded);
+  } catch (error) {
+    if (error instanceof ExcalidrawPortableSerializationError) throw new ExcalidrawCheckpointError(
+      error.code === 'EXCALIDRAW_PORTABLE_TOO_LARGE' ? 'EXCALIDRAW_CHECKPOINT_TOO_LARGE' : 'EXCALIDRAW_ASSET_INVALID',
+      error.code === 'EXCALIDRAW_PORTABLE_TOO_LARGE' ? 413 : 503,
+      error.code === 'EXCALIDRAW_PORTABLE_TOO_LARGE' ? 'Portable Excalidraw checkpoint exceeds the 50 MiB limit.'
+        : 'The stored Excalidraw scene or asset data is invalid.');
+    throw error;
+  }
 }
 export async function materializeExcalidrawCheckpoint(input: {
   state: PersistedExcalidrawScene;

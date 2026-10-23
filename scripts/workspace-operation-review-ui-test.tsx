@@ -15,6 +15,10 @@ import type { WorkspaceOperationBatchPublic } from '../app/lib/files/workspace-o
 import type { WorkspaceOperationCheckPublic, WorkspaceOperationCheckResponse } from '../app/lib/files/workspace-operation-check-contract';
 import type * as Ui from '../app/components/file-version-center/WorkspaceOperationReviewPanel';
 
+type LegacyBatchPublic = Omit<WorkspaceOperationBatchPublic, 'preview'> & {
+  preview: Extract<WorkspaceOperationBatchPublic['preview'], { version: 1 }>;
+};
+
 const workspaceId = 'workspace-one';
 const reviewId = 'review-one';
 
@@ -366,7 +370,7 @@ test('workspace operation review shows all decisions against the displayed plan 
   }
 });
 
-function batchPreview(status: WorkspaceOperationBatchPublic['status'] = 'preview'): WorkspaceOperationBatchPublic {
+function batchPreview(status: WorkspaceOperationBatchPublic['status'] = 'preview'): LegacyBatchPublic {
   const original = review();
   assert.ok(!('deletedPaths' in original.preview));
   const mapping = original.preview.pathMappings[0];

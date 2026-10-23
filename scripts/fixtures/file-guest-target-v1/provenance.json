@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "sourceCommit": "6cac42e1873d873f1ef311cd7f362a02e51b0c56",
+  "adjustments": "Only quoted relative import paths were changed to resolve production dependencies from this fixture directory. No declarations, SQL, function bodies or stored data were changed.",
+  "files": [
+    {
+      "originalPath": "app/lib/db/native-file-operation-side-effects-migration.ts",
+      "fixturePath": "scripts/fixtures/file-guest-target-v1/native-file-operation-side-effects-migration.ts",
+      "originalSha256": "31e6831caa6ecf5df91538921b2f9aebf1fc829c09a2819878b67766e31eff22",
+      "fixtureSha256": "5abe6cc42937cfeaf56ffa2c8d99f105bedccaf9e337756075d4dcf518ff1191"
+    },
+    {
+      "originalPath": "app/lib/markdown/native-file-operation-side-effects.ts",
+      "fixturePath": "scripts/fixtures/file-guest-target-v1/native-file-operation-side-effects.ts",
+      "originalSha256": "eca2fbe2dcbb22f578cbb5d272ba640e3720edc2f5565d603c6d837ebc4a9d9c",
+      "fixtureSha256": "b03c601ded12faa51151313b7c1be827448a2c1829f78917a1bff83cce376579"
+    }
+  ]
+}

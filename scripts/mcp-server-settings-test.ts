@@ -53,12 +53,17 @@ async function main(): Promise<void> {
       'search_knowledge',
       'read_knowledge_source',
     ]);
+    assert(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS.includes('copy_knowledge_source'));
+    assert.deepEqual(getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: 'copy_knowledge_source' }), ['copy_knowledge_source']);
+    assert.throws(() => getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: 'Copy_knowledge_source' }), /unsupported tools/u);
     await setServerPreferredTimeZone('admin-1', 'Europe/Berlin');
     const preferences = await setDirectMcpServerPreferences('admin-1', {
       enabled: true,
       tools: ['auth_probe'],
     });
     assert.equal(preferences.enabled, true);
+    assert.equal(preferences.tools.includes('copy_knowledge_source'), false,
+      'Activating MCP must not opt in to the reserved Copy capability.');
     assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool)));
     assert.equal(preferences.toolsVersion, 7);
     assert.equal(typeof preferences.updatedAt, 'string');
@@ -157,6 +162,9 @@ async function main(): Promise<void> {
         { id: 'search_knowledge', available: true, enabled: true, scopes: ['knowledge:search'] },
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
+        { id: 'copy_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'move_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'delete_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
         { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'create_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
@@ -254,6 +262,37 @@ async function main(): Promise<void> {
     const selected = await setDirectMcpServerPreferences('admin-1', { enabled: true,
       tools: ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'] });
     assert.deepEqual(selected.tools, ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene']);
+    assert.equal(reactivated.tools.includes('copy_knowledge_source'), false);
+    const reservedStatus = buildDirectMcpServerSettingsStatus(null, {
+      BASE_URL: 'https://canvas.example.test', BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+      CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: 'copy_knowledge_source',
+    });
+    assert.equal(reservedStatus.configurationError, null);
+    assert.deepEqual(reservedStatus.capabilities.find(capability => capability.id === 'copy_knowledge_source'),
+      { id: 'copy_knowledge_source', available: true, scopes: ['knowledge:write'], enabled: true },
+      'The connected Copy capability is advertised after explicit selection with its actual Write scope.');
+    const selectedCopy = await setDirectMcpServerPreferences('admin-1', { enabled: true,
+      tools: ['auth_probe', 'copy_knowledge_source'] });
+    assert.deepEqual(selectedCopy.tools, ['auth_probe', 'copy_knowledge_source']);
+    assert.deepEqual((await getDirectMcpServerPreferences())?.tools, selectedCopy.tools);
+    for (const tool of ['move_knowledge_source', 'delete_knowledge_source'] as const) {
+      assert(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS.includes(tool));
+      assert.equal(getDirectMcpEnabledTools({}).includes(tool), false);
+      assert.equal(preferences.tools.includes(tool), false);
+      assert.equal(reactivated.tools.includes(tool), false);
+      assert.deepEqual(getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: tool }), [tool]);
+      const status = buildDirectMcpServerSettingsStatus(null, {
+        BASE_URL: 'https://canvas.example.test', BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+        CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: tool,
+      });
+      assert.equal(status.configurationError, null);
+      assert.deepEqual(status.capabilities.find(capability => capability.id === tool),
+        { id: tool, available: true, scopes: ['knowledge:write'], enabled: true },
+        'The connected Move/Delete capability is advertised after explicit selection with its actual Write scope.');
+      const saved = await setDirectMcpServerPreferences('admin-1', { enabled: true, tools: ['auth_probe', tool] });
+      assert.deepEqual(saved.tools, ['auth_probe', tool]);
+      assert.deepEqual((await getDirectMcpServerPreferences())?.tools, saved.tools);
+    }
     console.log('mcp-server-settings-test: ok (scene capabilities require explicit activation, upgrade and reactivation selection)');
   } finally {
     for (const key of runtimeEnvironmentKeys) {

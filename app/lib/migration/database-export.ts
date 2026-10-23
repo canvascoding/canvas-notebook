@@ -9,6 +9,7 @@ import { readPortableDatabaseSchema, portableSchemaHash, portableSequences, sqlN
 import { migrationFileSha256 } from './archive';
 import { portableDatabaseProviderConfig } from './database-config';
 import { assertDatabaseWorkspaceRoot, type DatabaseWorkspaceRoot } from './database-workspaces';
+import { assertPortableDocumentOperationsQuiescent } from './database-document-quiescence';
 
 /** A repeatable-read logical snapshot contains data, never executable SQL/DDL. */
 export async function exportPortableDatabase(filename: string): Promise<{ header: PortableDatabaseHeader; bytes: number; sha256: string }> {
@@ -17,6 +18,7 @@ export async function exportPortableDatabase(filename: string): Promise<{ header
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const { tables } = await readPortableDatabaseSchema(client);
+    await assertPortableDocumentOperationsQuiescent(client);
     const organizationId = (await client.query<{ organization_id: string }>('SELECT organization_id FROM canvas_organization_settings ORDER BY created_at LIMIT 1')).rows[0]?.organization_id;
     if (!organizationId) throw new Error('PostgreSQL migration requires an initialized organization.');
     const users = (await client.query<{ id: string; email: string | null }>('SELECT id,email FROM "user" ORDER BY id')).rows;

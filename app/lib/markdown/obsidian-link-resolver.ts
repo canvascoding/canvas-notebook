@@ -34,6 +34,10 @@ export type ObsidianLinkCandidate = Pick<
   aliases?: string[];
 };
 
+/** Semantic eligibility from an actual native inventory; no storage or write
+ * authority is implied. Omitted options retain Markdown-only legacy behavior. */
+export type NativeWikiTargetOptions = { nativeTargetPaths: ReadonlySet<string> };
+
 function normalizeWorkspacePath(value: string): string {
   const segments: string[] = [];
   for (const segment of value.replace(/\\/g, '/').split('/')) {
@@ -124,12 +128,14 @@ export function resolveObsidianWikiLink(
   rawTarget: string,
   entries: ObsidianLinkCandidate[],
   sourcePath?: string | null,
+  options?: NativeWikiTargetOptions,
 ): ObsidianLinkResolution | null {
   const target = parseObsidianWikiTarget(rawTarget);
   if (!target) return null;
 
   const normalizedSourcePath = sourcePath ? normalizeWorkspacePath(sourcePath) : null;
-  const markdownEntries = entries.filter(isMarkdownReferenceEntry);
+  const markdownEntries = entries.filter(entry => isMarkdownReferenceEntry(entry)
+    || entry.type === 'file' && options?.nativeTargetPaths.has(entry.path));
 
   let candidates: string[];
   if (!target.path) {
@@ -253,8 +259,7 @@ export function getWorkspaceMarkdownLinkTarget(
   return safelyDecodeLinkTarget(`${path}${fragment}`);
 }
 
-/** Resolves legacy full/relative Canvas Notebook routes into a wiki-link target. */
-export function getCanvasNotebookMarkdownLinkTarget(href: string): string | null {
+function canvasNotebookLinkUrl(href: string): URL | null {
   const trimmed = href.trim();
   if (!trimmed) return null;
 
@@ -268,6 +273,25 @@ export function getCanvasNotebookMarkdownLinkTarget(href: string): string | null
   if (!['http:', 'https:'].includes(url.protocol)) return null;
   const routeName = url.pathname.split('/').filter(Boolean).at(-1)?.toLocaleLowerCase();
   if (routeName !== 'notebook') return null;
+
+  return url;
+}
+
+/** Inventory callers keep the already form-decoded query path separate from the
+ * once-decoded URL fragment. Literal path whitespace, # and % are not syntax. */
+export function getCanvasNotebookExactLinkTarget(href: string): { path: string; fragment: string | null } | null {
+  const url = canvasNotebookLinkUrl(href);
+  if (!url) return null;
+  const path = url.searchParams.get('path');
+  if (!path) return null;
+  return { path, fragment: url.hash ? safelyDecodeLinkTarget(url.hash.slice(1)) : null };
+}
+
+/** Resolves legacy full/relative Canvas Notebook routes into a wiki-link target.
+ * Preserve this historical trim/combined decoding for existing UI/V1 callers. */
+export function getCanvasNotebookMarkdownLinkTarget(href: string): string | null {
+  const url = canvasNotebookLinkUrl(href);
+  if (!url) return null;
 
   const path = url.searchParams.get('path')?.trim();
   if (!path) return null;

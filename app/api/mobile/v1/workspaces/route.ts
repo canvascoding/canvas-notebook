@@ -9,6 +9,7 @@ import { createMobileWorkspace } from '@/app/lib/mobile/workspaces';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { initializeCreatedWorkspaceStarter } from '@/app/lib/workspaces/starter-document-initialization-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +65,8 @@ export async function POST(request: NextRequest) {
       projectId: payload.projectId,
       initialMembers: payload.initialMembers,
     });
-    return NextResponse.json({ success: true, workspace }, { status: 201, headers: responseHeaders });
+    const starterDocumentInitialization = await initializeCreatedWorkspaceStarter(request, workspace.id);
+    return NextResponse.json({ success: true, workspace, starterDocumentInitialization }, { status: 201, headers: responseHeaders });
   } catch (error) {
     return errorResponse(error);
   }

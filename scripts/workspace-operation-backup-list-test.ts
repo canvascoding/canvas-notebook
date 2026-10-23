@@ -6,6 +6,7 @@ import path from 'node:path';
 import { captureWorkspaceOperationBackup, listWorkspaceOperationBackups,
   WorkspaceOperationBackupError } from '../app/lib/files/workspace-operation-backup';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { emptyNativeBackupDependencies } from './helpers/empty-native-backup-dependencies';
 
 function workspace(rootPath: string, workspaceId: string): WorkspaceContext {
   return {
@@ -31,9 +32,9 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(rootA, 'one.md'), 'one');
     await fs.writeFile(path.join(rootA, 'two.md'), 'two');
     await fs.writeFile(path.join(rootB, 'other.md'), 'other');
-    const first = await captureWorkspaceOperationBackup({ workspace: a, path: 'one.md', operationId: 'first' });
-    const second = await captureWorkspaceOperationBackup({ workspace: a, path: 'two.md', operationId: 'second' });
-    const other = await captureWorkspaceOperationBackup({ workspace: b, path: 'other.md', operationId: 'other' });
+    const first = await captureWorkspaceOperationBackup({ workspace: a, path: 'one.md', operationId: 'first' }, emptyNativeBackupDependencies);
+    const second = await captureWorkspaceOperationBackup({ workspace: a, path: 'two.md', operationId: 'second' }, emptyNativeBackupDependencies);
+    const other = await captureWorkspaceOperationBackup({ workspace: b, path: 'other.md', operationId: 'other' }, emptyNativeBackupDependencies);
 
     const firstPage = await listWorkspaceOperationBackups({ workspace: a, limit: 1 });
     assert.equal(firstPage.backups.length, 1);

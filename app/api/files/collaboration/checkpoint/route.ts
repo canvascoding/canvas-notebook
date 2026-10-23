@@ -11,6 +11,8 @@ import {
   materializeCollaborationCheckpoint,
 } from '@/app/lib/collaboration/checkpoint';
 import {
+  CollaborationCopyPublicationPendingError,
+  CollaborationFileOperationProjectionPendingError,
   COLLABORATION_CHECKPOINT_ERROR_CODES,
   collaborationCheckpointValidationFailure,
 } from '@/app/lib/collaboration/checkpoint-errors';
@@ -151,6 +153,9 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(checkpointResponse(result.state, { revisionId: result.revisionId }));
   } catch (error) {
+    if (error instanceof CollaborationCopyPublicationPendingError || error instanceof CollaborationFileOperationProjectionPendingError) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
+    }
     const failure = classifyCollaborationProjectionError(error);
     if (attemptedState && failure.permanent) {
       const latest = await loadCollaborationState(attemptedState.documentId).catch(() => attemptedState);

@@ -19,8 +19,11 @@ import * as fileOperationPreview from '../app/lib/markdown/workspace-file-operat
 import { createWorkspaceOperationBatchExecutor } from '../app/lib/files/workspace-operation-batch-executor';
 import { groupWorkspaceLinkWrites } from '../app/lib/markdown/workspace-link-write-groups';
 
-const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
-  buildBatchPlan(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot });
+const buildWorkspaceOperationBatchPlan = async (input: Parameters<typeof buildBatchPlan>[0]) => {
+  const plan = await buildBatchPlan(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot });
+  if (plan.version !== 1) throw new Error('Legacy fixture unexpectedly produced a native plan.');
+  return plan;
+};
 const filePreviewModule = { ...fileOperationPreview,
   buildWorkspaceFileOperationPreview: (input: Parameters<typeof fileOperationPreview.buildWorkspaceFileOperationPreview>[0]) =>
     fileOperationPreview.buildWorkspaceFileOperationPreview(input, { buildSnapshot: fileOperationPreview.buildWorkspacePlannerSnapshot }) };
@@ -208,6 +211,7 @@ async function main(): Promise<void> {
     assert.equal(await fs.readFile(path.join(workspace.rootPath, 'index.md'), 'utf8'), '[Target](Archive/Docs/target.md)\n',
       'saving a cleanup review leaves both target and inbound link intact until explicit approval');
     const atomicExecutor = createWorkspaceOperationBatchExecutor({
+      readBatch: async () => null,
       rebuild: buildWorkspaceOperationBatchPlan,
       snapshot: fileOperationPreview.buildWorkspacePlannerSnapshot,
       documentProof: async (_scope, filePath) => documentStates.get(filePath) ?? null,

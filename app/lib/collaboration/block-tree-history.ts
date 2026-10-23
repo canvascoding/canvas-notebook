@@ -3,8 +3,9 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type * as Y from 'yjs';
 
 import { typingTransaction, type Typing } from '../editor/typing-transaction';
-import type { CollaborationBlockTree } from './block-tree';
+import { BLOCK_TREE_ALLOCATION_ORIGIN, type CollaborationBlockTree } from './block-tree';
 import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSelection } from './block-tree-anchors';
+import { Y as YRuntime } from './yjs-runtime';
 
 const histories = new WeakMap<Y.Doc, BlockTreeHistory>();
 const beforeSelectionKey = Symbol('block-history-selection-before');
@@ -70,6 +71,15 @@ export class BlockTreeHistory {
     const before = captureBlockTreeSelection(tree, state.doc, state.selection);
     const oldItem = this.manager.undoStack.at(-1);
     if (!recorded) this.manager.removeTrackedOrigin(origin);
+    // IME edits are prepared in a replica, then applied to the live document
+    // under the view origin. Preserve neutral allocation's separate origin
+    // before that combined delta reaches the live history manager.
+    const publishAllocation = tree.doc !== this.manager.doc ? (update: Uint8Array, updateOrigin: unknown) => {
+      if (updateOrigin === BLOCK_TREE_ALLOCATION_ORIGIN) {
+        YRuntime.applyUpdate(this.manager.doc, update, BLOCK_TREE_ALLOCATION_ORIGIN);
+      }
+    } : null;
+    if (publishAllocation) tree.doc.on('update', publishAllocation);
     try {
       apply();
       if (recorded) {
@@ -85,6 +95,7 @@ export class BlockTreeHistory {
       this.boundary();
       throw error;
     } finally {
+      if (publishAllocation) tree.doc.off('update', publishAllocation);
       if (!recorded) this.manager.addTrackedOrigin(origin);
     }
   }
