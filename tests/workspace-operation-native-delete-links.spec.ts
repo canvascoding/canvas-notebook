@@ -185,8 +185,14 @@ test.describe('native Delete atomically removes incoming link marks and preserve
         await targetRow.getByRole('button', { name: /^More actions for /u }).click();
         await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
         const deletionDialog = page.getByRole('alertdialog'); await expect(deletionDialog).toContainText(targetPath);
-        const response = page.waitForResponse(value => new URL(value.url()).pathname === '/api/files/delete'
-          && value.request().method() === 'DELETE', { timeout: 90_000 });
+        const response = page.waitForResponse(value => {
+          const request = value.request();
+          if (new URL(value.url()).pathname !== '/api/files/delete' || request.method() !== 'DELETE'
+            || request.headers()['x-canvas-workspace-id'] !== workspaceId) return false;
+          const input = request.postDataJSON();
+          return input?.dryRun !== true && Array.isArray(input?.path)
+            && input.path.length === 1 && input.path[0] === targetPath;
+        }, { timeout: 90_000 });
         await deletionDialog.getByRole('button', { name: 'Delete', exact: true }).click();
         const deletion = await response; expect(deletion.status()).toBe(200);
         const deleted = await deletion.json() as WorkspacePathOperationResponse;
