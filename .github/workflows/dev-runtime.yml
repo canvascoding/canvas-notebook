@@ -11,12 +11,16 @@ on:
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/notebook-session-readiness.ts
       - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
       - tests/chat-delegation-session-resume.spec.ts
+      - tests/code-block-copy.spec.ts
+      - tests/ollama-integration.spec.ts
+      - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -32,12 +36,16 @@ on:
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/notebook-session-readiness.ts
       - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
       - tests/chat-delegation-session-resume.spec.ts
+      - tests/code-block-copy.spec.ts
+      - tests/ollama-integration.spec.ts
+      - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -69,6 +77,7 @@ jobs:
       - run: npm run test:server:shutdown
       - run: npm run test:browser:environment
       - run: npm run test:browser:lifecycle
+      - run: npm run test:agent:provider-setup
       - run: >-
           npx --no-install eslint scripts/run-dev.mjs scripts/dev-checkout-lifetime.mjs
           scripts/dev-checkout-lifetime-test.mjs scripts/browser-test-environment-test.ts
@@ -76,4 +85,6 @@ jobs:
           scripts/playwright-suite-discovery-test.mjs tests/helpers/browser-fixture-url.ts
           tests/helpers/managed-acceptance-suites.mjs tests/browser-lab.spec.ts
           tests/chat-delegation-session-resume.spec.ts tests/collaboration-release-recovery.spec.ts
+          tests/helpers/notebook-session-readiness.ts tests/code-block-copy.spec.ts
+          tests/ollama-integration.spec.ts app/components/settings/AiProvidersModelsPanel.tsx
           playwright.config.ts

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
 import { createBrowserFixtureUrl } from './helpers/browser-fixture-url';
+import { waitForNotebookSession } from './helpers/notebook-session-readiness';
 
 function browserFixtureUrl(access: string, promptOnLoad = false): string {
   return createBrowserFixtureUrl({ access, promptOnLoad,
@@ -714,7 +715,6 @@ test.describe('Browser Lab', () => {
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
         scrollWidth: document.documentElement.scrollWidth,
-        browserFrameHeight: document.querySelector<HTMLImageElement>('img[tabindex]')?.getBoundingClientRect().height ?? 0,
         visibleButtons: [...document.querySelectorAll('button')].filter((button) => {
           const bounds = button.getBoundingClientRect();
           return bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.left < window.innerWidth;
@@ -724,7 +724,9 @@ test.describe('Browser Lab', () => {
         }),
       }));
       expect(mobileMetrics.scrollWidth).toBeLessThanOrEqual(mobileMetrics.innerWidth + 1);
-      expect(mobileMetrics.browserFrameHeight).toBeGreaterThanOrEqual(180);
+      await expect.poll(() => page.evaluate(() => (
+        document.querySelector<HTMLImageElement>('img[tabindex]')?.getBoundingClientRect().height ?? 0
+      )), { timeout: 15_000 }).toBeGreaterThanOrEqual(180);
       expect(mobileMetrics.visibleButtons.every((button) => button.left >= -1 && button.right <= mobileMetrics.innerWidth + 1)).toBeTruthy();
 
       await page.getByTitle(labels.disconnect).click();
@@ -732,6 +734,21 @@ test.describe('Browser Lab', () => {
       await expect(frame).toHaveCount(0);
       expect(pageErrors).toEqual([]);
     } catch (error) {
+      const geometry = await page.evaluate(() => {
+        const image = document.querySelector<HTMLImageElement>('img[tabindex]');
+        const box = image?.getBoundingClientRect();
+        const parent = image?.parentElement?.getBoundingClientRect();
+        return {
+          viewport: { width: innerWidth, height: innerHeight },
+          image: image && box ? { width: box.width, height: box.height,
+            naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight } : null,
+          parent: parent ? { width: parent.width, height: parent.height } : null,
+          alerts: [...document.querySelectorAll('[role="alert"]')].map(element => element.textContent?.slice(0, 160)),
+        };
+      }).catch(() => null);
+      await test.info().attach('browser-layout-failure', {
+        body: JSON.stringify(geometry), contentType: 'application/json',
+      }).catch(() => undefined);
       console.error('Browser cooperative flow failed:', error instanceof Error ? safeBrowserLabPrimary(error.message) : 'Unknown failure.');
       throw error;
     }
@@ -1194,6 +1211,7 @@ test.describe('Browser Lab', () => {
     });
     try {
       await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
+      await waitForNotebookSession(page, session.sessionId);
       const browserSurface = page.getByTestId('notebook-surface-browser');
       await expect(browserSurface).toBeVisible({ timeout: 30_000 });
       await browserSurface.click();

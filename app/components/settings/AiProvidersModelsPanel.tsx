@@ -605,24 +605,10 @@ export function AiProvidersModelsPanel({
   const [defaultDraft, setDefaultDraft] = useState<AiRuntimeSelection | null>(null);
 
   const applyCatalogData = useCallback((nextData: AdminRuntimeCatalogData) => {
-    const nextDraft = catalogDataToDraft(nextData);
     setData(nextData);
-    setDraft({
-      ...nextDraft,
-      providers: nextDraft.providers.map((provider) => provider.providerId === 'ollama'
-        ? {
-            ...provider,
-            config: {
-              ...provider.config,
-              ollamaHost: provider.config.ollamaHost?.trim() || defaultOllamaServerUrl(),
-              ollamaAdditionalModels: Array.from(new Set([
-                ...(provider.config.ollamaAdditionalModels ?? []),
-                ...(provider.config.ollamaCustomModel?.trim() ? [provider.config.ollamaCustomModel.trim()] : []),
-              ])),
-            },
-          }
-        : provider),
-    });
+    // Normalize editor fields only inside the selected provider dialog. Loading
+    // the catalog must preserve unrelated providers and their verification.
+    setDraft(catalogDataToDraft(nextData));
   }, []);
 
   const loadCatalog = useCallback(async () => {

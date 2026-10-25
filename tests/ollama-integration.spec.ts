@@ -1,18 +1,65 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { AiAppRuntimeCatalog, AiCatalogProviderUpdate, AiCatalogUpdate } from '../app/lib/agent-runtime-policy/types';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+type Provider = AiAppRuntimeCatalog['providers'][number];
+type CatalogFixture = { before: AiAppRuntimeCatalog; attempted: boolean; created?: Provider };
+const catalogFixtures = new WeakMap<Page, CatalogFixture>();
+
+function providerUpdate(provider: Provider): AiCatalogProviderUpdate {
+  return { providerInstallationId: provider.installationId, providerId: provider.providerId,
+    enabled: provider.enabled, credentialScope: provider.credentialScope, config: provider.config,
+    modelIds: provider.models.filter(model => model.enabled).map(model => model.id),
+    defaultModelId: provider.models.find(model => model.isProviderDefault)?.id ?? '' };
+}
+
+async function readCatalog(page: Page): Promise<AiAppRuntimeCatalog> {
+  const response = await page.request.get('/api/admin/agent-runtime/catalog');
+  expect(response.status(), 'Read the genuine catalog for fixture preservation.').toBe(200);
+  return (await response.json()).data.catalog;
+}
+
+async function restoreCatalogFixture(page: Page, fixture: CatalogFixture): Promise<void> {
+  if (!fixture.attempted) return;
+  const current = await readCatalog(page);
+  const originalIds = new Set(fixture.before.providers.map(provider => provider.installationId));
+  // Reconcile a lost save response only through the exact submitted fixture.
+  const candidates = current.providers.filter(provider => !originalIds.has(provider.installationId)
+    && provider.providerId === 'ollama' && provider.credentialScope === 'organization'
+    && provider.config.ollamaHost === 'http://ollama:11434' && provider.enabled
+    && provider.models.length === 1 && provider.models[0].id === 'research/custom:latest'
+    && provider.models[0].enabled && provider.models[0].isProviderDefault);
+  expect(candidates, 'Only the newly created fixture provider can be removed.').toHaveLength(1);
+  const owned = candidates[0];
+  if (fixture.created) expect(providerUpdate(owned)).toEqual(providerUpdate(fixture.created));
+  const providers = current.providers.filter(provider => provider.installationId !== owned.installationId).map(providerUpdate);
+  const defaultSelection = current.defaultSelection?.providerInstallationId === owned.installationId
+    ? fixture.before.defaultSelection : current.defaultSelection;
+  if (defaultSelection) expect(providers.some(provider => provider.providerInstallationId === defaultSelection.providerInstallationId
+    && provider.enabled && provider.modelIds.includes(defaultSelection.modelId)), 'Retained default must still be available.').toBe(true);
+  const restored = await page.request.put('/api/admin/agent-runtime/catalog', {
+    data: { expectedRevision: current.revision, providers, defaultSelection },
+  });
+  expect(restored.status(), 'Restore through the revision-protected catalog API.').toBe(200);
+  const verified = await readCatalog(page);
+  expect(verified.providers.map(providerUpdate), 'Preserve every non-fixture provider.').toEqual(providers);
+  expect(verified.defaultSelection).toEqual(defaultSelection);
+  for (const original of fixture.before.providers) {
+    const retained = verified.providers.find(provider => provider.installationId === original.installationId);
+    expect(retained, 'Retain the original provider.').toBeDefined();
+    expect(providerUpdate(retained!), 'Preserve the original provider configuration.').toEqual(providerUpdate(original));
+    expect({ status: retained!.status, verifiedAt: retained!.verifiedAt },
+      'Preserve genuine provider verification.').toEqual({ status: original.status, verifiedAt: original.verifiedAt });
+  }
+}
 
 async function login(page: Page) {
-  await page.goto('/en/login');
-  await page.getByRole('textbox', { name: /email/i }).fill(TEST_EMAIL);
-  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(TEST_PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 });
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
 async function openProviderSettings(page: Page) {
-  await login(page);
   await page.goto('/en/settings?tab=ai-providers');
   await expect(page.getByRole('heading', { name: 'AI providers & models' })).toBeVisible();
   await expect(page.getByTestId('chat-default-card')).toBeVisible();
@@ -20,6 +67,43 @@ async function openProviderSettings(page: Page) {
 
 test.describe('Ollama provider setup', () => {
   test.setTimeout(90_000);
+
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+    catalogFixtures.set(page, { before: await readCatalog(page), attempted: false });
+  });
+  test.afterEach(async ({ page }) => {
+    const fixture = catalogFixtures.get(page);
+    try { if (fixture) await restoreCatalogFixture(page, fixture); }
+    finally { catalogFixtures.delete(page); }
+  });
+
+  test('preserves unedited provider configuration when saving the default', async ({ page }) => {
+    const response = await page.request.get('/api/admin/agent-runtime/catalog');
+    expect(response.status()).toBe(200);
+    const payload = await response.json();
+    const catalog = payload.data.catalog as AiAppRuntimeCatalog;
+    // Older valid catalogs omit optional model-editor fields. Exercise that
+    // transport shape without changing the managed provider or its readiness.
+    for (const provider of catalog.providers) {
+      if (provider.providerId === 'ollama') delete provider.config.ollamaAdditionalModels;
+    }
+    expect(catalog.providers.some(provider => provider.providerId === 'ollama')).toBe(true);
+    let submitted: AiCatalogUpdate | undefined;
+    await page.route('**/api/admin/agent-runtime/catalog', async route => {
+      if (route.request().method() === 'PUT') submitted = route.request().postDataJSON() as AiCatalogUpdate;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await openProviderSettings(page);
+    await page.getByTestId('chat-default-card').getByRole('button', { name: 'Edit' }).click();
+    await page.getByTestId('chat-default-dialog').getByRole('button', { name: 'Save default' }).click();
+    await expect.poll(() => submitted?.providers).toEqual(catalog.providers.map(providerUpdate));
+    expect(submitted?.defaultSelection).toEqual(catalog.defaultSelection);
+    await page.unroute('**/api/admin/agent-runtime/catalog');
+    expect(await readCatalog(page), 'The controlled transport test must not mutate the real catalog.')
+      .toEqual(catalogFixtures.get(page)!.before);
+  });
 
   test('uses a progressive setup dialog with discovered and custom models', async ({ page }, testInfo) => {
     await page.route('**/api/admin/agent-runtime/providers/ollama/discover', async (route) => {
@@ -80,6 +164,8 @@ test.describe('Ollama provider setup', () => {
 
     await expect(page.getByTestId('provider-save')).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('ollama-provider-dialog-desktop.png'), fullPage: false });
+    const fixture = catalogFixtures.get(page)!;
+    fixture.attempted = true;
     const [savedResponse] = await Promise.all([
       page.waitForResponse((response) => new URL(response.url()).pathname === '/api/admin/agent-runtime/catalog'
         && response.request().method() === 'PUT'),
@@ -98,6 +184,7 @@ test.describe('Ollama provider setup', () => {
     expect(ownedProviders).toHaveLength(1);
     const ownedInstallationId = ownedProviders[0].installationId;
     expect(ownedInstallationId).toBeTruthy();
+    fixture.created = ownedProviders[0];
 
     const summary = page.getByTestId('provider-summary-ollama-organization');
     await expect(summary).toBeVisible();
