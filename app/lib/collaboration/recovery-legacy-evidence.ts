@@ -12,6 +12,7 @@ export type HistoricalCollaborationIdentityEvidence = {
   revision: CollaborationRevisionRecord & { historyOnly: false };
   lineage?: CollaborationLineageRecord;
   history?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
+  historicalRevisionPaths?: string[];
 };
 
 export class HistoricalCollaborationEvidenceError extends Error {
@@ -72,6 +73,7 @@ export function decodeHistoricalCollaborationIdentity(
   documentRow: Row,
   revisionRow: Row,
   lineageRow?: Row,
+  options: { allowHistoricalRevisionPaths?: boolean } = {},
 ): HistoricalCollaborationIdentityEvidence {
   const document: CollaborationDocumentRecord = {
     id: text(documentRow.id), ...scope(documentRow), lineageId: nullableText(documentRow.lineage_id),
@@ -108,7 +110,9 @@ export function decodeHistoricalCollaborationIdentity(
     record.workspaceId === document.workspaceId && record.workspaceType === document.workspaceType
     && record.organizationId === document.organizationId && record.customerId === document.customerId
     && record.projectId === document.projectId && record.path === document.path;
-  requireValue(sameScope(revision) && (!lineage || sameScope(lineage)), 'foreign_metadata');
+  const historicalRevisionScope = options.allowHistoricalRevisionPaths && lineage && document.lineageId === lineage.id
+    && revision.lineageId === lineage.id && sameScope({ ...revision, path: document.path });
+  requireValue((sameScope(revision) || historicalRevisionScope) && (!lineage || sameScope(lineage)), 'foreign_metadata');
   requireValue(document.lineageId === revision.lineageId && document.lineageId === (lineage?.id ?? null), 'lineage_binding_mismatch');
   return { document, revision, ...(lineage ? { lineage } : {}) };
 }
@@ -204,8 +208,10 @@ export function exportHistoricalCollaborationIdentities(
       const snapshot = history.find(row => row.id === revisionId);
       requireValue(snapshot && integer(snapshot.revision_number, 1) === history.length, 'historical_snapshot_not_latest');
       const decoded = history.map(row => decodeHistoricalCollaborationIdentity(
-        { ...document, snapshot_revision_id: row.id }, row, lineage));
-      result.push({ ...decoded[decoded.length - 1], history: decoded.slice(0, -1).map(item => item.revision) });
+        { ...document, snapshot_revision_id: row.id }, row, lineage, { allowHistoricalRevisionPaths: true }));
+      const historicalRevisionPaths = [...new Set(decoded.map(item => item.revision.path).filter(filePath => filePath !== document.path))].sort();
+      result.push({ ...decoded[decoded.length - 1], history: decoded.slice(0, -1).map(item => item.revision),
+        ...(historicalRevisionPaths.length ? { historicalRevisionPaths } : {}) });
     }
     database.exec('COMMIT');
   } catch (error) {

@@ -145,6 +145,53 @@ test('complete historical revision chain imports atomically and keeps original I
   } finally { await f.close(); }
 });
 
+test('an explicitly proven historical move retains the original revision path and identity', async () => {
+  const f = await fixture();
+  try {
+    f.input.revision.path = 'previous-note.txt';
+    await assert.rejects(f.transact(f.input), /historical_scope_mismatch/u);
+    f.input.historicalRevisionPaths = ['previous-note.txt'];
+    await assert.rejects(f.transact(f.input), /invalid_historical_paths/u);
+    f.input.recoveryOperationId = recoveryHash('isolated moved identity fixture');
+    const before = await f.raw.get('SELECT * FROM collaboration_yjs_states');
+    assert.equal((await f.transact(f.input)).status, 'imported');
+    assert.equal((await f.transact(f.input)).status, 'already_imported');
+    assert.equal((await f.raw.get('SELECT path FROM collaboration_documents') as { path: string }).path, 'note.txt');
+    assert.equal((await f.raw.get('SELECT path FROM file_revisions') as { path: string }).path, 'previous-note.txt');
+    assert.deepEqual(await f.raw.get('SELECT * FROM collaboration_yjs_states'), before);
+  } finally { await f.close(); }
+});
+
+test('historical path evidence cannot substitute a foreign workspace or lineage', async () => {
+  const f = await fixture();
+  try {
+    f.input.revision.path = 'previous-note.txt'; f.input.revision.workspaceId = 'foreign';
+    f.input.historicalRevisionPaths = ['previous-note.txt']; f.input.recoveryOperationId = recoveryHash('foreign move fixture');
+    await assert.rejects(f.transact(f.input), /historical_scope_mismatch/u);
+    assert.equal((await f.raw.all('SELECT * FROM collaboration_documents')).length, 0);
+    assert.equal((await f.raw.all('SELECT * FROM file_revisions')).length, 0);
+  } finally { await f.close(); }
+});
+
+test('only the exact recovery path checkpoint permits an interrupted historical move to resume', async () => {
+  const f = await fixture();
+  try {
+    f.input.revision.path = 'previous-note.txt'; f.input.historicalRevisionPaths = ['previous-note.txt'];
+    const operationId = recoveryHash('interrupted path checkpoint fixture'); f.input.recoveryOperationId = operationId;
+    assert.equal((await f.transact(f.input)).status, 'imported');
+    const id = `file-rev-recovery-${recoveryHash(operationId + ':path-checkpoint')}`;
+    await f.raw.run(`INSERT INTO file_revisions (id,organization_id,workspace_id,workspace_type,path,lineage_id,
+      revision_number,content_hash,size_bytes,created_by_actor_type,source_session_id,base_revision_id,created_at,history_only)
+      VALUES ($1,'organization','workspace','team','note.txt','historical-lineage',5,$2,$3,'system',$4,'historical-revision',2,false)`,
+    [id, f.input.expectedFileHash, f.file.byteLength, `collaboration-recovery:${operationId}`]);
+    assert.equal((await f.transact(f.input)).status, 'already_imported');
+    await f.raw.run("UPDATE file_revisions SET source_session_id='unrelated' WHERE id=$1", [id]);
+    const before = await f.raw.all('SELECT * FROM file_revisions ORDER BY id');
+    await assert.rejects(f.transact(f.input), /existing_revision_conflict/u);
+    assert.deepEqual(await f.raw.all('SELECT * FROM file_revisions ORDER BY id'), before);
+  } finally { await f.close(); }
+});
+
 test('foreign historical revision chain cannot leave a partial import', async () => {
   const f = await fixture();
   try {

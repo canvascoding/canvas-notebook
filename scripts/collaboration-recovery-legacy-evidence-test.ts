@@ -127,6 +127,24 @@ test('pre-PostgreSQL adapter does not silently accept a different schema', () =>
   } finally { f.close(); }
 });
 
+test('pre-PostgreSQL moved identity retains the original revision path through its exact lineage', () => {
+  const f = fixture(database => database.exec(`
+    UPDATE collaboration_documents SET path='folder/note.txt';
+    UPDATE file_collaboration_lineages SET path='folder/note.txt';
+    ALTER TABLE collaboration_documents DROP COLUMN lineage_id;
+    ALTER TABLE file_revisions DROP COLUMN revision_number;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN organization_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN customer_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN project_id;`));
+  try {
+    const [identity] = exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document'], { schema: 'pre-postgres-v1' });
+    assert.equal(identity.document.path, 'folder/note.txt'); assert.equal(identity.lineage?.path, 'folder/note.txt');
+    assert.equal(identity.revision.path, 'note.txt', 'historical revision metadata is never rewritten to the new path');
+    assert.deepEqual(identity.historicalRevisionPaths, ['note.txt']);
+    assert.equal(identity.document.id, 'historical-document'); assert.equal(identity.revision.id, 'historical-revision');
+  } finally { f.close(); }
+});
+
 const invalidFixtures: Array<[string, (database: FixtureDatabase) => void]> = [
   ['missing document', database => database.exec('DELETE FROM collaboration_documents')],
   ['ambiguous document ID', database => database.exec('INSERT INTO collaboration_documents SELECT * FROM collaboration_documents')],

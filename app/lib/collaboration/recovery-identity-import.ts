@@ -24,6 +24,8 @@ export type HistoricalCollaborationIdentityImport = {
   revision: CollaborationRevisionRecord & { historyOnly: false };
   lineage?: CollaborationLineageRecord;
   history?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
+  historicalRevisionPaths?: string[];
+  recoveryOperationId?: string;
 };
 
 export class HistoricalCollaborationIdentityImportError extends Error {
@@ -90,6 +92,11 @@ export async function importHistoricalCollaborationIdentity(
   const document = { ...input.document }; const revision = { ...input.revision };
   const lineage = input.lineage ? { ...input.lineage } : undefined;
   const history = (input.history ?? []).map(record => ({ ...record }));
+  const historicalPaths = [...(input.historicalRevisionPaths ?? [])]; const recoveryOperationId = input.recoveryOperationId;
+  requireValue(historicalPaths.length <= 10_000 && historicalPaths.every(validPath)
+    && new Set(historicalPaths).size === historicalPaths.length
+    && (!historicalPaths.length || typeof recoveryOperationId === 'string' && /^[a-f0-9]{64}$/u.test(recoveryOperationId)),
+  'invalid_historical_paths');
   const expectedFileHash = input.expectedFileHash; const readCurrentFile = input.readCurrentFile;
   requireValue(input.operation === 'import_historical_identity', 'explicit_operation_required');
   requireValue(validPath(expectedState.path) && validPath(workspace.rootRelativePath ?? ''), 'noncanonical_path');
@@ -108,13 +115,16 @@ export async function importHistoricalCollaborationIdentity(
     record.workspaceId === workspace.workspaceId && record.workspaceType === workspace.workspaceType
     && record.organizationId === (workspace.organizationId ?? null) && record.customerId === (workspace.customerId ?? null)
     && record.projectId === (workspace.projectId ?? null) && record.path === expectedState.path;
-  requireValue(recordScope(document) && recordScope(revision) && (!lineage || recordScope(lineage)), 'historical_scope_mismatch');
+  const revisionScope = (record: CollaborationRevisionRecord) => recordScope(record)
+    || historicalPaths.includes(record.path) && lineage && record.lineageId === lineage.id
+      && recordScope({ ...record, path: expectedState.path });
+  requireValue(recordScope(document) && revisionScope(revision) && (!lineage || recordScope(lineage)), 'historical_scope_mismatch');
   requireValue(history.length <= 10_000 && new Set([...history, revision].map(record => record.id)).size === history.length + 1
     && new Set([...history, revision].map(record => record.revisionNumber)).size === history.length + 1,
     'invalid_historical_history');
   for (const record of history) {
     requireValue(typeof record.id === 'string' && record.id.length > 0 && !record.id.includes('\0')
-      && recordScope(record) && record.lineageId === revision.lineageId && record.lineageId !== null
+      && revisionScope(record) && record.lineageId === revision.lineageId && record.lineageId !== null
       && record.historyOnly === false && /^[a-f0-9]{64}$/u.test(record.contentHash)
       && integer(record.revisionNumber) > 0 && record.revisionNumber < revision.revisionNumber
       && ['user', 'agent', 'automation', 'system'].includes(record.createdByActorType), 'invalid_historical_history');
@@ -164,7 +174,7 @@ export async function importHistoricalCollaborationIdentity(
   const documentFields = { id: document.id, ...scope, lineage_id: document.lineageId, provider: document.provider,
     state_version: document.stateVersion, snapshot_revision_id: document.snapshotRevisionId, status: 'active',
     created_at: document.createdAt, updated_at: document.updatedAt, yjs_state_lifecycle: 'initialized' };
-  const fieldsForRevision = (record: typeof revision) => ({ id: record.id, ...scope, lineage_id: record.lineageId, revision_number: record.revisionNumber,
+  const fieldsForRevision = (record: typeof revision) => ({ id: record.id, ...scope, path: record.path, lineage_id: record.lineageId, revision_number: record.revisionNumber,
     content_hash: record.contentHash, size_bytes: record.sizeBytes, created_by_user_id: record.createdByUserId,
     created_by_actor_type: record.createdByActorType, source_session_id: record.sourceSessionId,
     base_revision_id: record.baseRevisionId, created_at: record.createdAt, history_only: false });
@@ -182,17 +192,23 @@ export async function importHistoricalCollaborationIdentity(
     OR (workspace_id = $2 AND path = $3) OR ($4::text IS NOT NULL AND lineage_id = $4) FOR UPDATE`,
   [historicalRevisions.map(record => record.id), workspace.workspaceId, expectedState.path, revision.lineageId]) as Row[];
   const existingRevision = revisions.find((row) => row.id === revision.id);
+  const ownPathCheckpoint = (row: Row) => historicalPaths.length > 0 && recoveryOperationId
+    && matchingRow(row, { ...scope, lineage_id: revision.lineageId, content_hash: expectedFileHash, size_bytes: revision.sizeBytes,
+      revision_number: revision.revisionNumber + 1, base_revision_id: revision.id, created_by_actor_type: 'system', created_by_user_id: null,
+      source_session_id: `collaboration-recovery:${recoveryOperationId}`, history_only: false })
+    && row.id === `file-rev-recovery-${recoveryHash(recoveryOperationId + ':path-checkpoint')}`;
   requireValue(revisions.every((row) => historicalRevisions.some(record => record.id === row.id)
     ? matchingRow(row, fieldsForRevision(historicalRevisions.find(record => record.id === row.id)!))
     // An existing older revision belongs to this same historical lineage. It
     // remains unchanged; a newer checkpoint or unbound path history conflicts.
-    : revision.lineageId !== null && matchingRow(row, { ...scope, lineage_id: revision.lineageId })
+    : ownPathCheckpoint(row) || revision.lineageId !== null && matchingRow(row, { ...scope, lineage_id: revision.lineageId })
       && integer(row.revision_number) < revision.revisionNumber), 'existing_revision_conflict');
   for (const record of historicalRevisions) if (record.baseRevisionId !== null) {
     const supplied = historicalRevisions.find(item => item.id === record.baseRevisionId);
     const base = supplied ? fieldsForRevision(supplied)
       : await transaction.get(`SELECT * FROM file_revisions WHERE id = $1 FOR SHARE`, [record.baseRevisionId]) as Row | undefined;
-    requireValue(base && matchingRow(base, { ...scope, lineage_id: revision.lineageId })
+    requireValue(base && matchingRow(base, { ...scope, path: base.path, lineage_id: revision.lineageId })
+      && (base.path === expectedState.path || historicalPaths.includes(String(base.path)))
       && integer(base.revision_number) < record.revisionNumber, 'base_revision_not_verified');
   }
   const allExist = documents.length === 1 && existingRevision && historicalRevisions.every(record => revisions.some(row => row.id === record.id))

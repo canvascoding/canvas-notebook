@@ -23,8 +23,10 @@ import { Y } from './server-runtime';
 import { lockIdentity } from './room-owner';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 import { withNativeInspectionSchema } from './native-inspection-schema';
+import { appendFileRevision, getLatestFileRevisionForLineage } from '../files/collaboration-repository';
 
-type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport, 'document' | 'revision' | 'lineage' | 'history'>;
+type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport,
+  'document' | 'revision' | 'lineage' | 'history' | 'historicalRevisionPaths'>;
 type WorkspaceIdentity = { id: string; organizationId: string | null; customerId: string | null; projectId: string | null;
   type: WorkspaceContext['workspaceType']; rootRelativePath: string; status: 'active' };
 type Operation = {
@@ -481,6 +483,51 @@ async function seedMissingRecoverySuccessor(input: {
   } finally { await owner.close(new Error('Discarding missing-successor recovery guard.')); }
 }
 
+/** Keep historical revision paths intact. A moved document receives an explicit
+ * new recovery checkpoint at its current path, retaining the original as base. */
+async function ensureRecoveredCurrentPathRevision(input: {
+  operation: Operation; historical: HistoricalIdentity; expected: PersistedCollaborationState;
+  guard: OfflineCollaborationRecoveryGuard; openConnection: () => Promise<SqlConnection>;
+}): Promise<void> {
+  const { operation, historical, expected } = input;
+  if (historical.revision.path === expected.path) return;
+  requireValue(historical.document.lineageId && historical.historicalRevisionPaths?.includes(historical.revision.path),
+    'historical move evidence required');
+  const id = `file-rev-recovery-${recoveryHash(operation.id + ':path-checkpoint')}`;
+  const execute = async (database: SqlConnection) => {
+    await input.guard.assertActive();
+    const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as RecoveryRow[];
+    await lockCollaborationAdmissionWorkspace(query, expected.workspaceId); await assertCollaborationAdmissionOpen(query, expected);
+    requireValue(recoveryStateFingerprint(await currentState(database, expected)) === recoveryStateFingerprint(expected), 'moved state changed');
+    const registry = await database.get('SELECT * FROM collaboration_documents WHERE id=$1 FOR UPDATE', [expected.documentId]) as RecoveryRow;
+    requireValue(registry && scoped(registry, expected, operation.workspace) && registry.provider === 'yjs' && registry.status === 'active'
+      && registry.lineage_id === historical.document.lineageId && registry.snapshot_revision_id === historical.revision.id
+      && recoveryPostgresInteger(registry.state_version) === expected.checkpointSequence && registry.yjs_state_lifecycle === 'initialized',
+    'moved registry changed');
+    requireValue((await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).hash === operation.expectedFileHash,
+      'moved file changed');
+    const latest = await getLatestFileRevisionForLineage(database, historical.document.lineageId!);
+    if (latest?.id === id) {
+      requireValue(latest.path === expected.path && latest.workspaceId === expected.workspaceId
+        && latest.organizationId === expected.organizationId && latest.contentHash === operation.expectedFileHash
+        && latest.sizeBytes === historical.revision.sizeBytes && latest.baseRevisionId === historical.revision.id
+        && latest.revisionNumber === historical.revision.revisionNumber + 1
+        && latest.sourceSessionId === `collaboration-recovery:${operation.id}` && latest.createdByActorType === 'system'
+        && latest.createdByUserId === null, 'moved recovery revision changed');
+      return;
+    }
+    requireValue(latest?.id === historical.revision.id && latest.revisionNumber === historical.revision.revisionNumber
+      && latest.contentHash === operation.expectedFileHash, 'moved history advanced');
+    await appendFileRevision(database, { id, lineageId: historical.document.lineageId!, workspace: workspaceContext(operation.workspace),
+      path: expected.path, contentHash: operation.expectedFileHash, sizeBytes: historical.revision.sizeBytes,
+      createdByUserId: null, createdByActorType: 'system', sourceSessionId: `collaboration-recovery:${operation.id}`,
+      baseRevisionId: historical.revision.id, nowMs: Date.now() });
+  };
+  await executeLifecycleTransaction({ openConnection: input.openConnection, execute,
+    recoverCommitted: () => executeLifecycleTransaction({ openConnection: input.openConnection, execute,
+      recoverCommitted: async proven => proven }) });
+}
+
 /** Explicit offline operator only. No route, scheduler or normal startup invokes this. */
 export async function applyCollaborationRecoverySelection(input: {
   bundle: RecoveryBundle; selection: RecoverySelection; selectionHash: string; proof: RecoveryExecutionProof; journalDirectory: string;
@@ -563,7 +610,8 @@ export async function applyCollaborationRecoverySelection(input: {
             await guard.assertActive();
             return importHistoricalCollaborationIdentity(transaction, { operation: 'import_historical_identity', workspace, expectedState: expected,
               expectedFileHash: operation.expectedFileHash, readCurrentFile: async () => (await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).bytes,
-              document: historical.document, revision: historical.revision, lineage: historical.lineage, history: historical.history });
+              document: historical.document, revision: historical.revision, lineage: historical.lineage, history: historical.history,
+              historicalRevisionPaths: historical.historicalRevisionPaths, recoveryOperationId: operation.id });
           };
           let importedAndProjected = false;
           if (resuming) {
@@ -581,10 +629,13 @@ export async function applyCollaborationRecoverySelection(input: {
               }
             } finally { await connection.close(); }
           }
-          if (!importedAndProjected) await executeLifecycleTransaction({ openConnection: input.openConnection, execute,
-            recoverCommitted: async () => executeLifecycleTransaction({ openConnection: input.openConnection,
-              execute: async transaction => { const outcome = await execute(transaction); requireValue(outcome.status === 'already_imported', 'import commit unproved'); return outcome; },
-              recoverCommitted: async () => { throw new Error('Recovery import confirmation unavailable.'); } }) });
+          if (!importedAndProjected) {
+            await executeLifecycleTransaction({ openConnection: input.openConnection, execute,
+              recoverCommitted: async () => executeLifecycleTransaction({ openConnection: input.openConnection,
+                execute: async transaction => { const outcome = await execute(transaction); requireValue(outcome.status === 'already_imported', 'import commit unproved'); return outcome; },
+                recoverCommitted: async () => { throw new Error('Recovery import confirmation unavailable.'); } }) });
+            await ensureRecoveredCurrentPathRevision({ operation, historical, expected, guard, openConnection: input.openConnection });
+          }
         }
         await guard.assertActive();
         const beforeProjectionHash = (await observeRecoveryFile(operation.workspace.rootRelativePath, state.path)).hash;
