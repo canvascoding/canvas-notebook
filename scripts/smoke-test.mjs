@@ -102,9 +102,18 @@ async function assertAdminUserManagement(cookie) {
 async function run() {
   await assertUserProvisioningIsAdminOnly();
   const cookie = await signIn();
+  const workspaceHeaders = { cookie };
+  const workspaceName = process.env.TEST_WORKSPACE_NAME?.trim();
+  if (workspaceName) {
+    const listing = await fetch(`${baseUrl}/api/workspaces`, { headers: { cookie } });
+    if (!listing.ok) throw new Error(`Workspace listing failed: ${listing.status}`);
+    const workspace = (await listing.json()).workspaces?.find((candidate) => candidate.name === workspaceName);
+    if (!workspace?.id) throw new Error('The configured test workspace was not found');
+    workspaceHeaders['x-canvas-workspace-id'] = workspace.id;
+  }
 
   const treeResponse = await fetch(`${baseUrl}/api/files/tree?path=.&depth=1`, {
-    headers: { cookie },
+    headers: workspaceHeaders,
   });
 
   if (!treeResponse.ok) {
