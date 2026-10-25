@@ -4079,7 +4079,9 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
     const rows = await database.all(
       `SELECT * FROM collaboration_agent_operations
        WHERE status IN ('preparing', 'ready', 'applying', 'cancel_requested', 'applied_to_ydoc')
-         OR (status = 'partially_applied' AND error_code = 'persistence_degraded')`,
+         OR (status = 'partially_applied' AND error_code = 'persistence_degraded')
+         OR (status = 'needs_review' AND expires_at IS NOT NULL AND expires_at <= $1
+           AND native_edit_original_json IS NULL)`, [now],
     ) as AgentOperationRow[];
     for (const row of rows) {
       if (row.native_edit_original_json != null) {

@@ -307,6 +307,31 @@ test('graph-bound operations reject every legacy action and retry without mutati
   } finally { h.close(); }
 });
 
+test('restart recovery expires an overdue legacy proposal while preserving its candidate and original document', async () => {
+  const h = harness();
+  try {
+    h.row.status = 'needs_review'; h.row.expires_at = Date.now() - 1;
+    const candidate = h.row.operation_payload, before = Y.encodeStateAsUpdate(h.doc);
+    await h.agent.recoverCollaborationAgentOperations();
+    assert.equal(h.row.status, 'expired');
+    assert.equal(h.row.error_code, 'operation_expired');
+    assert.equal(h.row.operation_payload, candidate);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+    assert.equal(h.directCalls(), 0);
+  } finally { h.close(); }
+});
+
+test('an overdue graph proposal remains owned by graph recovery', async () => {
+  const h = harness();
+  try {
+    h.row.status = 'needs_review'; h.row.expires_at = Date.now() - 1; h.setGraphBound(true);
+    const before = { ...h.row };
+    await h.agent.recoverCollaborationAgentOperations();
+    assert.deepEqual(h.row, before);
+    assert.equal(h.directCalls(), 0);
+  } finally { h.close(); }
+});
+
 test('stale or missing preview cannot start application', async () => {
   const h = harness();
   try {
