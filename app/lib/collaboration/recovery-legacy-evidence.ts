@@ -13,6 +13,7 @@ export type HistoricalCollaborationIdentityEvidence = {
   lineage?: CollaborationLineageRecord;
   history?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
   historicalRevisionPaths?: string[];
+  laterRevisions?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
 };
 
 export class HistoricalCollaborationEvidenceError extends Error {
@@ -133,7 +134,7 @@ function fileHash(filename: string): string {
 export function exportHistoricalCollaborationIdentities(
   sqlitePath: string,
   documentIds: string[],
-  options: { schema?: 'pre-postgres-v1' } = {},
+  options: { schema?: 'pre-postgres-v1'; includeLaterRevisions?: boolean } = {},
 ): HistoricalCollaborationIdentityEvidence[] {
   requireValue(path.isAbsolute(sqlitePath) && !sqlitePath.includes('\0'), 'absolute_evidence_path_required');
   const ids = [...documentIds];
@@ -205,13 +206,14 @@ export function exportHistoricalCollaborationIdentities(
         lineageId ?? text(document.workspace_id) + ':' + text(document.path));
       requireValue(history.length > 0 && history.length + selectedRecords.size <= MAX_RECORDS, 'historical_record_limit');
       for (const row of history) selectedRecords.add('file_revisions\0' + text(row.id));
-      const snapshot = history.find(row => row.id === revisionId);
-      requireValue(snapshot && integer(snapshot.revision_number, 1) === history.length, 'historical_snapshot_not_latest');
+      const snapshotIndex = history.findIndex(row => row.id === revisionId);
+      requireValue(snapshotIndex >= 0 && (options.includeLaterRevisions || snapshotIndex === history.length - 1), 'historical_snapshot_not_latest');
       const decoded = history.map(row => decodeHistoricalCollaborationIdentity(
         { ...document, snapshot_revision_id: row.id }, row, lineage, { allowHistoricalRevisionPaths: true }));
       const historicalRevisionPaths = [...new Set(decoded.map(item => item.revision.path).filter(filePath => filePath !== document.path))].sort();
-      result.push({ ...decoded[decoded.length - 1], history: decoded.slice(0, -1).map(item => item.revision),
-        ...(historicalRevisionPaths.length ? { historicalRevisionPaths } : {}) });
+      result.push({ ...decoded[snapshotIndex], history: decoded.slice(0, snapshotIndex).map(item => item.revision),
+        ...(historicalRevisionPaths.length ? { historicalRevisionPaths } : {}),
+        ...(snapshotIndex < decoded.length - 1 ? { laterRevisions: decoded.slice(snapshotIndex + 1).map(item => item.revision) } : {}) });
     }
     database.exec('COMMIT');
   } catch (error) {

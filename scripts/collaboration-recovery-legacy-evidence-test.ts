@@ -145,6 +145,29 @@ test('pre-PostgreSQL moved identity retains the original revision path through i
   } finally { f.close(); }
 });
 
+test('complete legacy history retains a stale snapshot pointer and explicitly exposes newer revisions', () => {
+  const f = fixture(database => database.exec(`
+    INSERT INTO file_revisions SELECT 'later-revision',organization_id,customer_id,project_id,workspace_id,workspace_type,
+      path,content_hash,size_bytes,created_by_user_id,created_by_actor_type,source_session_id,'historical-revision',
+      lineage_id,5,created_at+1 FROM file_revisions;
+    ALTER TABLE collaboration_documents DROP COLUMN lineage_id;
+    ALTER TABLE file_revisions DROP COLUMN revision_number;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN organization_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN customer_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN project_id;`));
+  try {
+    assert.throws(() => exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document'],
+      { schema: 'pre-postgres-v1' }), /historical_snapshot_not_latest/u);
+    const [identity] = exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document'],
+      { schema: 'pre-postgres-v1', includeLaterRevisions: true });
+    assert.equal(identity.document.snapshotRevisionId, 'historical-revision');
+    assert.equal(identity.revision.id, 'historical-revision'); assert.equal(identity.revision.revisionNumber, 1);
+    assert.deepEqual(identity.history, []);
+    assert.equal(identity.laterRevisions?.[0].id, 'later-revision'); assert.equal(identity.laterRevisions?.[0].revisionNumber, 2);
+    assert.equal(identity.laterRevisions?.[0].baseRevisionId, 'historical-revision');
+  } finally { f.close(); }
+});
+
 const invalidFixtures: Array<[string, (database: FixtureDatabase) => void]> = [
   ['missing document', database => database.exec('DELETE FROM collaboration_documents')],
   ['ambiguous document ID', database => database.exec('INSERT INTO collaboration_documents SELECT * FROM collaboration_documents')],

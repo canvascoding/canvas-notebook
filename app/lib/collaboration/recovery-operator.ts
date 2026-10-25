@@ -14,9 +14,9 @@ import { recoveryHash, planCollaborationRecovery } from './recovery-plan';
 import { buildCollaborationRecoveryEvidence, decodeRecoveryState, observeRecoveryFile,
   recoveryPostgresInteger, recoveryPostgresFlag, recoveryStateFingerprint, type RecoveryRows, type RecoveryRow } from './recovery-evidence';
 import { withOfflineCollaborationRecoveryGuards, applyCodeMarkRecoveryClone, archiveCollaborationRecoveryOrphan,
-  type OfflineCollaborationRecoveryGuard } from './recovery-state-mutations';
+  applyInitialAppendRecovery, type OfflineCollaborationRecoveryGuard } from './recovery-state-mutations';
 import { importHistoricalCollaborationIdentity, equivalentInitialCollaborationFile,
-  type HistoricalCollaborationIdentityImport } from './recovery-identity-import';
+} from './recovery-identity-import';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { cloneNativeCollaborationDocument } from './native-document-recovery';
 import { Y } from './server-runtime';
@@ -24,17 +24,19 @@ import { lockIdentity } from './room-owner';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 import { withNativeInspectionSchema } from './native-inspection-schema';
 import { appendFileRevision, getLatestFileRevisionForLineage } from '../files/collaboration-repository';
+import type { HistoricalCollaborationIdentityEvidence } from './recovery-legacy-evidence';
+import { prepareLegacyInitialAppendRepair, identityForInitialAppendCheckpoint, type LegacyInitialAppendIdentity } from './initial-append-repair';
 
-type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport,
-  'document' | 'revision' | 'lineage' | 'history' | 'historicalRevisionPaths'>;
+type HistoricalIdentity = HistoricalCollaborationIdentityEvidence;
 type WorkspaceIdentity = { id: string; organizationId: string | null; customerId: string | null; projectId: string | null;
   type: WorkspaceContext['workspaceType']; rootRelativePath: string; status: 'active' };
 type Operation = {
-  id: string; kind: 'recover_orphans' | 'repair_code_marks' | 'import_historical_identity' | 'seed_missing_successor';
+  id: string; kind: 'recover_orphans' | 'repair_code_marks' | 'import_historical_identity' | 'seed_missing_successor' | 'repair_initial_append';
   documentId: string; workspace: WorkspaceIdentity; expectedState: RecoveryRow; expectedRegistry: RecoveryRow | null;
   expectedRevision: RecoveryRow | null; expectedFileHash: string; projectedFileHash: string;
   orphans: Array<{ expectedState: RecoveryRow; caseFingerprint: string }>;
   repairedYjsHash?: string; lostFormatting?: Array<{ mark: string; utf16Units: number }>; historicalIdentity?: HistoricalIdentity;
+  appendedUtf16Units?: number;
 };
 export type RecoverySelection = { version: 1; bundleManifestHash: string;
   operations: Array<Operation & { selected: boolean }>; manual: Array<{ documentId: string; reason: string }> };
@@ -192,6 +194,22 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
       } catch { manual.push({ documentId: state.documentId, reason: 'quarantine_not_deterministically_repairable' }); }
     } else if (!registry) {
       const historicalIdentity = bundle.historicalIdentities.find(record => record.document.id === state.documentId);
+      if (historicalIdentity?.laterRevisions?.length
+        && !bundle.rows.registry.some(record => record.id === state.documentId
+          || record.workspace_id === state.workspaceId && record.path === state.path)
+        && bundle.rows.states.filter(record => record.workspace_id === state.workspaceId && record.path === state.path).length === 1
+        && !bundle.rows.receipts.some(record => record.document_id === state.documentId)) {
+        try {
+          const bytes = bundle.observedFiles?.[state.workspaceId + '\0' + state.path];
+          requireValue(bytes && recoveryHash(bytes) === file.hash, 'verified original file required');
+          const repair = prepareLegacyInitialAppendRepair(state, bytes, historicalIdentity as LegacyInitialAppendIdentity);
+          operations.push({ id: '', selected: false, kind: 'repair_initial_append', documentId: state.documentId, workspace,
+            expectedState: row, expectedRegistry: null, expectedRevision: null, expectedFileHash: file.hash,
+            projectedFileHash: file.hash, historicalIdentity, repairedYjsHash: repair.repairedHash,
+            appendedUtf16Units: repair.appendedUtf16Units, orphans: [] });
+          continue;
+        } catch { /* Ambiguous historical content stays in the manual list. */ }
+      }
       if (!historicalIdentity || state.degraded || state.projectionError || state.documentSequence !== state.checkpointSequence
         || (state.checkpointSequence === 0 && state.lifecycleGeneration !== 1) || state.serializedHash !== file.hash
         || bundle.rows.registry.some(record => record.workspace_id === state.workspaceId && record.path === state.path)) continue;
@@ -212,7 +230,7 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
     operation.id = recoveryHash(canonical({ ...operation, selected: undefined, id: undefined }));
   }
   return { version: 1, bundleManifestHash: bundle.manifestHash, operations: operations.sort((a, b) => a.id.localeCompare(b.id)),
-    manual: manual.filter(item => !operations.some(operation => ['import_historical_identity', 'seed_missing_successor'].includes(operation.kind)
+    manual: manual.filter(item => !operations.some(operation => ['import_historical_identity', 'seed_missing_successor', 'repair_initial_append'].includes(operation.kind)
       && operation.documentId === item.documentId)) };
 }
 
@@ -595,7 +613,7 @@ export async function applyCollaborationRecoverySelection(input: {
               requireValue(recordCanonical(before) === recordCanonical(after), 'registry identity changed during resume');
               if (recordCanonical(registry) !== recordCanonical(operation.expectedRegistry)) requireValue(await verifiedProjection(database, state, operation), 'unproved registry change');
             }
-            if (operation.kind !== 'repair_code_marks') requireValue(sameBinaryIdentity(expected, state), 'state changed during resume');
+            if (!['repair_code_marks', 'repair_initial_append'].includes(operation.kind)) requireValue(sameBinaryIdentity(expected, state), 'state changed during resume');
           }
         } finally { await database.close(); }
         if (operation.kind === 'repair_code_marks') {
@@ -603,6 +621,20 @@ export async function applyCollaborationRecoverySelection(input: {
             backupId: recoveryHash(input.proof.backupId + ':' + operation.id), guard, openConnection: input.openConnection });
           requireValue(repaired.repairedHash === operation.repairedYjsHash && canonical(repaired.lostFormatting) === canonical(operation.lostFormatting), 'repair outcome changed');
           state = repaired.state;
+        } else if (operation.kind === 'repair_initial_append') {
+          requireValue(operation.historicalIdentity?.laterRevisions?.length, 'complete legacy history required');
+          const historical = operation.historicalIdentity as LegacyInitialAppendIdentity;
+          const repaired = await applyInitialAppendRecovery({ expected, operationId: operation.id,
+            backupId: recoveryHash(input.proof.backupId + ':' + operation.id), guard, openConnection: input.openConnection,
+            workspace, historicalIdentity: historical, expectedFileHash: operation.expectedFileHash,
+            readCurrentFile: async () => (await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).bytes });
+          requireValue(repaired.repairedHash === operation.repairedYjsHash && repaired.appendedUtf16Units === operation.appendedUtf16Units,
+            'initial append outcome changed');
+          state = repaired.state;
+          const connection = await input.openConnection(); let projected: string | null;
+          try { projected = await verifiedProjection(connection, state, operation); } finally { await connection.close(); }
+          if (!projected) await ensureRecoveredCurrentPathRevision({ operation, expected: state,
+            historical: identityForInitialAppendCheckpoint(historical, state), guard, openConnection: input.openConnection });
         } else if (operation.kind === 'import_historical_identity') {
           requireValue(operation.historicalIdentity, 'legacy identity missing');
           const historical = operation.historicalIdentity;

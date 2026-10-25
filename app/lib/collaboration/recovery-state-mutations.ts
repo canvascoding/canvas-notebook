@@ -14,11 +14,14 @@ import { assertCollaborationAdmissionOpen, captureCollaborationAdmissionTargetRo
 import { findCollaborationAdmissionOutcomeSource } from './room-admission-outcome';
 import { getCollaborationRoomConnectionCount } from './runtime-state';
 import { decodeRecoveryState, recoveryStateFingerprint, recoveryPostgresInteger as integer } from './recovery-evidence';
+import type { WorkspaceContext } from '../workspaces/types';
+import { importHistoricalCollaborationIdentity } from './recovery-identity-import';
+import { prepareLegacyInitialAppendRepair, identityForInitialAppendCheckpoint, type LegacyInitialAppendIdentity } from './initial-append-repair';
 
 type Row = Record<string, unknown>;
 type OpenConnection = () => Promise<SqlConnection>;
 type Metadata = Omit<PersistedCollaborationState, 'yjsState' | 'stateVector' | 'projectionFinalized'>;
-type Kind = 'repair_code_marks' | 'archive_orphan';
+type Kind = 'repair_code_marks' | 'archive_orphan' | 'repair_initial_append';
 type BackupMetadata = { state: Metadata; row: Row };
 type OutcomeMetadata = { state: Metadata; ownerEpoch: number;
   projectedCanonicalHash?: string; projectedSerializedHash?: string };
@@ -82,7 +85,7 @@ function outputMatches(row: Row, outcome: Row): boolean {
       || ownerEpoch(row) !== after.ownerEpoch) return false;
     const actual = recoveryStateMetadata(current);
     if (canonical(actual) === canonical(after.state)) return true;
-    if (outcome.kind !== 'repair_code_marks') return false;
+    if (!['repair_code_marks', 'repair_initial_append'].includes(String(outcome.kind))) return false;
     // Checkpoint finalization changes only these four persisted fields. Every
     // identity, binary, sequence, encoding, error and durability field stays exact.
     const finalized = { ...after.state, checkpointSequence: after.state.documentSequence,
@@ -263,7 +266,7 @@ async function recoverOutcome(input: MutationInput, kind: Kind): Promise<Persist
   return executeLifecycleTransaction({ openConnection: input.openConnection, execute: async (database) => {
     const row = await lockMutation(database, input);
     if (!await existingOutcome(database, input, kind, row)) fail('recovery_operation_conflict');
-    if (kind === 'repair_code_marks') await assertCurrentCollaborationProjectionIdentity(decodeRecoveryState(row), database);
+    if (kind !== 'archive_orphan') await assertCurrentCollaborationProjectionIdentity(decodeRecoveryState(row), database);
     else await assertOrphanRegistryIdentity(database, input.expected);
     return decodeRecoveryState(row);
   }, recoverCommitted: async (proven) => proven });
@@ -329,4 +332,61 @@ export async function archiveCollaborationRecoveryOrphan(source: MutationInput):
       await requireGuard(input.guard, input.expected.documentId); return decodeRecoveryState(after);
     }, recoverCommitted: () => recoverOutcome(input, 'archive_orphan') });
   return { state, disposition };
+}
+
+/** An explicit offline reconciliation of a stale initial identity. The newer
+ * physical file already contains the entire native prefix. Append on a clone,
+ * import its exact original metadata, and retain the full old binary atomically. */
+export async function applyInitialAppendRecovery(source: MutationInput & {
+  workspace: WorkspaceContext; historicalIdentity: LegacyInitialAppendIdentity; expectedFileHash: string;
+  readCurrentFile: () => Promise<Uint8Array>;
+}): Promise<{ state: PersistedCollaborationState; repairedHash: string; appendedUtf16Units: number;
+  disposition: 'applied' | 'already_applied' }> {
+  const input = captureInput(source), workspace = structuredClone(source.workspace);
+  const historical = structuredClone(source.historicalIdentity), readCurrentFile = source.readCurrentFile;
+  const expectedFileHash = source.expectedFileHash;
+  await requireGuard(input.guard, input.expected.documentId);
+  const file = await readCurrentFile(), repair = prepareLegacyInitialAppendRepair(input.expected, file, historical);
+  if (hash(file) !== expectedFileHash || repair.serializedHash !== expectedFileHash
+    || workspace.workspaceId !== input.expected.workspaceId || workspace.organizationId !== input.expected.organizationId
+    || workspace.status !== 'active' || !workspace.permissions.canRead || !workspace.permissions.canWrite) fail('recovery_invalid_state');
+  let disposition: 'applied' | 'already_applied' = 'applied';
+  const state = await executeLifecycleTransaction({ openConnection: input.openConnection,
+    execute: async database => {
+      const before = await lockMutation(database, input);
+      if (await existingOutcome(database, input, 'repair_initial_append', before)) {
+        const current = decodeRecoveryState(before);
+        await assertCurrentCollaborationProjectionIdentity(current, database);
+        const registry = await database.get('SELECT * FROM collaboration_documents WHERE id=$1 FOR SHARE', [current.documentId]) as Row;
+        const latest = historical.laterRevisions.at(-1)!;
+        const checkpointId = `file-rev-recovery-${hash(input.operationId + ':path-checkpoint')}`;
+        if (registry.lineage_id !== historical.document.lineageId || integer(registry.created_at) !== historical.document.createdAt
+          || integer(registry.state_version) !== 1 || ![latest.id, checkpointId].includes(String(registry.snapshot_revision_id))) {
+          fail('recovery_operation_conflict');
+        }
+        disposition = 'already_applied'; return current;
+      }
+      if (recoveryStateFingerprint(decodeRecoveryState(before)) !== recoveryStateFingerprint(input.expected)) fail('recovery_state_changed');
+      const identities = await database.all(`SELECT id FROM collaboration_documents WHERE id=$1
+        OR (workspace_id=$2 AND path=$3) FOR SHARE`, [input.expected.documentId, input.expected.workspaceId, input.expected.path]);
+      if (identities.length) fail('recovery_state_changed');
+      await released(database, before);
+      const now = Date.now();
+      const after = await database.get(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,
+        lifecycle_generation=2,document_sequence=1,checkpoint_sequence=1,persisted_at=$3,checkpointed_at=$3,
+        canonical_hash=$4,serialized_hash=$5
+        WHERE document_id=$6 AND workspace_id=$7 AND path=$8 AND lifecycle_generation=1 AND document_sequence=0
+          AND checkpoint_sequence=0 AND status='active' AND degraded=0 AND yjs_state=$9 AND state_vector=$10 RETURNING *`,
+      [Buffer.from(repair.repairedYjsState), Buffer.from(repair.stateVector), now, repair.canonicalHash, repair.serializedHash,
+        input.expected.documentId, input.expected.workspaceId, input.expected.path,
+        Buffer.from(input.expected.yjsState), Buffer.from(input.expected.stateVector)]) as Row | undefined;
+      if (!after) fail('recovery_state_changed');
+      const current = decodeRecoveryState(after), identity = identityForInitialAppendCheckpoint(historical, current);
+      await importHistoricalCollaborationIdentity(database, { operation: 'import_historical_identity', workspace, expectedState: current,
+        expectedFileHash, readCurrentFile, ...identity, recoveryOperationId: input.operationId });
+      await recordOutcome(database, input, 'repair_initial_append', before, after,
+        { canonicalHash: repair.canonicalHash, serializedHash: repair.serializedHash });
+      await requireGuard(input.guard, input.expected.documentId); return current;
+    }, recoverCommitted: () => recoverOutcome(input, 'repair_initial_append') });
+  return { state, repairedHash: repair.repairedHash, appendedUtf16Units: repair.appendedUtf16Units, disposition };
 }
