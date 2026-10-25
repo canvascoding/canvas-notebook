@@ -8,6 +8,7 @@ import process from 'node:process';
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
 import { randomBytes } from 'node:crypto';
+import { watchDevCheckout } from './dev-checkout-lifetime.mjs';
 
 const DEFAULT_ENV_FILE = '.env.local';
 const FALLBACK_DEV_PORT = 3001;
@@ -164,65 +165,62 @@ async function main() {
 
   // Track all child processes for cleanup
   const childProcesses = [];
-
-  // Start terminal service first
-  console.log('[dev] Starting terminal service on port 3457...');
-  const terminalService = spawn('npx', ['tsx', 'server/terminal-service.ts'], {
-    cwd: process.cwd(),
-    env: childEnv,
-    stdio: 'inherit',
-  });
-  childProcesses.push(terminalService);
-
-  // Wait for terminal service to start
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  // Start Next.js
-  console.log(`[dev] Starting Next.js on port ${selectedPort}...`);
-  const child = spawn('tsx', ['server.js'], {
-    cwd: process.cwd(),
-    env: childEnv,
-    stdio: 'inherit',
-  });
-  childProcesses.push(child);
-
-  const cleanupAndExit = (signal, code) => {
-    console.log(`[dev] ${signal} received, shutting down all services...`);
-    
-    // Kill all child processes
-    childProcesses.forEach((proc, index) => {
-      if (!proc.killed) {
-        console.log(`[dev] Stopping process ${index + 1}/${childProcesses.length}...`);
-        proc.kill('SIGTERM');
+  let shuttingDown = false;
+  let stopWatchingCheckout;
+  const signalOwnedProcess = (child, signal) => {
+    if (!child.pid) return;
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])], { stdio: 'ignore' });
+      } else {
+        // npx/tsx can have grandchildren. Each launcher owns a separate group.
+        process.kill(-child.pid, signal);
       }
-    });
-    
-    // Wait a bit for graceful shutdown, then force kill
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error;
+    }
+  };
+  const cleanupAndExit = (signal, code) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    stopWatchingCheckout?.();
+    console.log(`[dev] ${signal}, shutting down all services...`);
+    childProcesses.forEach(child => signalOwnedProcess(child, 'SIGTERM'));
+    // child.killed only means a signal was sent; it does not prove an exit.
     setTimeout(() => {
-      childProcesses.forEach((proc) => {
-        if (!proc.killed) {
-          proc.kill('SIGKILL');
-        }
-      });
+      childProcesses.forEach(child => signalOwnedProcess(child, 'SIGKILL'));
       process.exit(code ?? 0);
     }, 2000);
   };
-
-  const forwardSignal = (signal) => {
-    cleanupAndExit(signal, null);
-  };
-
+  stopWatchingCheckout = watchDevCheckout(process.cwd(), () => {
+    console.error('[dev] Checkout was removed, replaced, or became unavailable. Stop background work before restarting from an existing checkout.');
+    cleanupAndExit('Checkout unavailable', 1);
+  });
+  const forwardSignal = signal => cleanupAndExit(signal || 'Signal received', 0);
   process.on('SIGINT', forwardSignal);
   process.on('SIGTERM', forwardSignal);
   process.on('SIGHUP', forwardSignal);
   process.on('exit', () => {
-    // Ensure cleanup on exit
-    childProcesses.forEach((proc) => {
-      if (!proc.killed) {
-        proc.kill('SIGTERM');
-      }
-    });
+    stopWatchingCheckout?.();
+    childProcesses.forEach(child => signalOwnedProcess(child, 'SIGTERM'));
   });
+  const childOptions = { cwd: process.cwd(), env: childEnv, stdio: 'inherit', detached: process.platform !== 'win32' };
+
+  // Start terminal service first
+  console.log('[dev] Starting terminal service on port 3457...');
+  const terminalService = spawn('npx', ['tsx', 'server/terminal-service.ts'], childOptions);
+  childProcesses.push(terminalService);
+  terminalService.once('error', () => cleanupAndExit('Terminal launch failed', 1));
+
+  // Wait for terminal service to start
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  if (shuttingDown) return;
+
+  // Start Next.js
+  console.log(`[dev] Starting Next.js on port ${selectedPort}...`);
+  const child = spawn('tsx', ['server.js'], childOptions);
+  childProcesses.push(child);
+  child.once('error', () => cleanupAndExit('Next.js launch failed', 1));
 
   child.on('exit', (code) => {
     console.log('[dev] Next.js server exited');
@@ -233,9 +231,9 @@ async function main() {
     console.log(`[dev] Terminal service exited with code ${code}`);
     // Don't exit immediately - Next.js might still be running
     // Only exit if both services are down
-    const allExited = childProcesses.every(p => p.killed);
+    const allExited = childProcesses.every(p => p.exitCode !== null || p.signalCode !== null);
     if (allExited) {
-      process.exit(code ?? 0);
+      cleanupAndExit('All services exited', code ?? 0);
     }
   });
 }
