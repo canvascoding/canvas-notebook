@@ -22,7 +22,7 @@ if (process.argv[2] === 'pack') {
   execFileSync('tar', ['--exclude=.next/cache', '--exclude=.next/dev', '--exclude=.next/multiprocess-*',
     '--exclude=.next/standalone', '-czf', archive, '.next']);
   fs.writeFileSync(metadataFile, JSON.stringify({
-    schemaVersion: 1, version, commitSha, runId, deploymentId,
+    schemaVersion: 2, version, commitSha, runId, deploymentId, buildPlatform: process.platform,
     buildId: fs.readFileSync('.next/BUILD_ID', 'utf8').trim(),
     sha256: createHash('sha256').update(fs.readFileSync(archive)).digest('hex'),
   }, null, 2) + '\n');
@@ -31,7 +31,10 @@ if (process.argv[2] === 'pack') {
 }
 
 const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
-assert.equal(metadata.schemaVersion, 1);
+assert.equal(metadata.schemaVersion, 2);
+// Turbopack folds operating-system branches while compiling. JavaScript built
+// on macOS is not a Linux application artifact, even without native binaries.
+assert.equal(metadata.buildPlatform, process.platform, 'Application artifact operating system mismatch');
 assert.equal(metadata.version, version);
 assert.equal(metadata.commitSha, commitSha);
 assert.equal(metadata.runId, runId);

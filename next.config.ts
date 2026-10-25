@@ -154,6 +154,9 @@ const nextConfig: NextConfig = {
     ...(lowMemoryReleaseBuild ? {
       cpus: 1,
       memoryBasedWorkersCount: true,
+      // Keep generated application maps, but avoid retaining large vendor
+      // input maps again while compiling the production module graph.
+      turbopackInputSourceMaps: false,
     } : {}),
     serverActions: {
       bodySizeLimit: '10mb', // Für File Uploads

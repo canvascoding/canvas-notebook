@@ -120,6 +120,7 @@ RUN npm ci --force --loglevel=warn \
 FROM app-base AS builder
 WORKDIR /app
 ARG NPM_VERSION
+ARG TARGETPLATFORM
 ENV NODE_ENV=production \
     PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
     LD_LIBRARY_PATH=/usr/local/lib
@@ -135,22 +136,26 @@ COPY . .
 ARG CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=0
 ARG CANVAS_RELEASE_BUILD_LOW_MEMORY=0
 ARG CANVAS_RELEASE_USE_PREBUILT_APP=0
+ARG CANVAS_RELEASE_NATIVE_PARALLELISM=4
 ARG CANVAS_RELEASE_SOURCE_SHA
 ARG CANVAS_RELEASE_BUILD_RUN_ID
 ENV NODE_OPTIONS=--max-old-space-size=6144 \
     CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=${CANVAS_RELEASE_BUILD_SKIP_TYPECHECK} \
-    CANVAS_RELEASE_BUILD_LOW_MEMORY=${CANVAS_RELEASE_BUILD_LOW_MEMORY}
+    CANVAS_RELEASE_BUILD_LOW_MEMORY=${CANVAS_RELEASE_BUILD_LOW_MEMORY} \
+    CANVAS_RELEASE_NATIVE_PARALLELISM=${CANVAS_RELEASE_NATIVE_PARALLELISM}
 RUN npm run prebuild
 RUN if [ "$CANVAS_RELEASE_BUILD_SKIP_TYPECHECK" != "1" ]; then \
       node ./node_modules/next/dist/bin/next typegen \
       && node ./node_modules/typescript/bin/tsc --project tsconfig.release.json --noEmit --incremental false; \
     fi
-RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" = "1" ]; then \
+RUN --mount=type=cache,id=canvas-notebook-next-${TARGETPLATFORM},target=/app/.next/cache,sharing=locked \
+    if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" = "1" ]; then \
       CANVAS_RELEASE_SOURCE_SHA="$CANVAS_RELEASE_SOURCE_SHA" CANVAS_RELEASE_BUILD_RUN_ID="$CANVAS_RELEASE_BUILD_RUN_ID" node scripts/release-app-build.mjs verify; \
     else \
       node scripts/release-next-build.mjs compile; \
     fi
-RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" != "1" ]; then \
+RUN --mount=type=cache,id=canvas-notebook-next-${TARGETPLATFORM},target=/app/.next/cache,sharing=locked \
+    if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" != "1" ]; then \
       node scripts/release-next-build.mjs generate \
       && bash scripts/inject-cli-version.sh; \
     fi \
@@ -162,6 +167,9 @@ RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" != "1" ]; then \
 RUN npm prune --omit=dev --force --ignore-scripts \
   && node --import tsx -e "require('node:assert/strict').equal(require('tsx/package.json').version, require('./package-lock.json').packages['node_modules/tsx'].version)" \
   && find node_modules -type d -path '*/@img/sharp-*' -prune -exec rm -rf '{}' +
+
+# Keep generated compiler caches out of the runtime image.
+RUN rm -rf /app/.next/cache /app/.next/dev
 
 FROM app-base AS runner
 WORKDIR /app

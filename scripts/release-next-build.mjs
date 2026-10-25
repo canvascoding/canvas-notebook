@@ -12,7 +12,10 @@ if (!['compile', 'generate'].includes(phase)) {
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const startedAt = Date.now();
-const nativeParallelism = '4';
+const nativeParallelism = process.env.CANVAS_RELEASE_NATIVE_PARALLELISM?.trim() || '4';
+if (!/^[1-4]$/u.test(nativeParallelism)) {
+  throw new Error('CANVAS_RELEASE_NATIVE_PARALLELISM must be an integer from 1 to 4.');
+}
 const prefix = `[release-build:${phase}]`;
 let peakRssKiB = 0;
 let timedOut = false;
@@ -35,7 +38,7 @@ const child = spawn(process.execPath, [
     CANVAS_RELEASE_BUILD_SKIP_TYPECHECK: '1',
     CANVAS_RELEASE_BUILD_LOW_MEMORY: '1',
     // experimental.cpus only limits page workers. Bound the native transform
-    // pools as well, identically on local and CI builds.
+    // pools as well. Smaller local builders may explicitly lower the bound.
     TURBO_TASKS_AVAILABLE_PARALLELISM: nativeParallelism,
     RAYON_NUM_THREADS: nativeParallelism,
   },
