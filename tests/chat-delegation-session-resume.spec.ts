@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { parse as parseEnv } from 'dotenv';
 import { existsSync, readFileSync } from 'node:fs';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { waitForNotebookSession } from './helpers/notebook-session-readiness';
 
 const envFile = process.env.CANVAS_ENV_FILE || '.env.local';
 const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile)) : {};
@@ -74,10 +75,7 @@ test('a completed managed worker can be selected for a follow-up in the chat', a
 
   try {
     await page.goto(`/notebook?chat=open&session=${encodeURIComponent(sourceSessionId!)}`);
-    // Session loading clears its navigation intent through a router transition.
-    // Wait for that transition before editing a dialog that it can remount.
-    await page.waitForURL((url) => !url.searchParams.has('session'));
-    await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', sourceSessionId!);
+    await waitForNotebookSession(page, sourceSessionId!);
     await expect(page.getByTestId('chat-delegation-panel')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('chat-delegation-start').click();
     const sessionSelect = page.getByLabel(/Agenten-Session|Agent session/i);

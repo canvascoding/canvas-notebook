@@ -11,12 +11,14 @@ on:
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/notebook-session-readiness.ts
       - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
       - tests/chat-delegation-session-resume.spec.ts
+      - tests/code-block-copy.spec.ts
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -32,12 +34,14 @@ on:
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/notebook-session-readiness.ts
       - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
       - tests/chat-delegation-session-resume.spec.ts
+      - tests/code-block-copy.spec.ts
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -76,4 +80,5 @@ jobs:
           scripts/playwright-suite-discovery-test.mjs tests/helpers/browser-fixture-url.ts
           tests/helpers/managed-acceptance-suites.mjs tests/browser-lab.spec.ts
           tests/chat-delegation-session-resume.spec.ts tests/collaboration-release-recovery.spec.ts
+          tests/helpers/notebook-session-readiness.ts tests/code-block-copy.spec.ts
           playwright.config.ts

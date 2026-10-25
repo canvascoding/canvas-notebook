@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
+import { waitForNotebookSession } from './helpers/notebook-session-readiness';
 
 const CODE = 'First line\nSecond line\n\nOne empty line\n\n\n\nThree empty lines\n  Indented <tag> & text\n- literal bullet\n1. literal number';
 const MARKDOWN = `\`\`\`text\n${CODE}\n\`\`\`\n`;
@@ -179,6 +180,7 @@ for (const viewport of [
       });
       await mockCodeConversation(page, { workspaceId: workspace.id, workspaceName: workspace.name, userId: userId!, sessionId });
       await page.goto(`/en/notebook?workspaceId=${workspace.id}&chat=open&session=${sessionId}`, { waitUntil: 'domcontentloaded' });
+      await waitForNotebookSession(page, sessionId);
       const assistant = page.getByTestId('chat-message-assistant');
       await expect(assistant).toHaveCount(1, { timeout: 30_000 });
       await checkCodeBlockCopy(page, assistant.getByTestId('chat-code-block-copy'));
