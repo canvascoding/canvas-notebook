@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.25.2] - 2026-10-25
+## [2026.10.25.3] - 2026-10-25
 
 ### Fixed
 
@@ -24,6 +24,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Audited recovery of verified legacy document identities, moved revision history, missing successor snapshots and strictly proven text appends, with immutable evidence, backup/restore verification and resumable preservation journals.
 - Operating-system provenance checks for application build artifacts and bounded compiler settings.
+- Additional temporary swap for cold Linux release builds, restricted to ephemeral runners with disk-headroom checks and a fixed build deadline.
 
 ### Verification
 
