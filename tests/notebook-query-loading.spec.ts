@@ -168,7 +168,7 @@ async function fixture(page: Page) {
   }
 }
 
-test('targeted bootstrap shows skeleton and does not wait for session history', async ({ browser }, info) => {
+test('targeted bootstrap shows skeleton and does not wait for session history', { tag: '@owned-yjs' }, async ({ browser }, info) => {
   const context = await createAuthenticatedContext(browser);
   const page = await context.newPage();
   const data = await fixture(page);
@@ -202,7 +202,7 @@ test('targeted bootstrap shows skeleton and does not wait for session history', 
   } finally { held.release(); await data.cleanup(); await context.close(); }
 });
 
-test('warm history stays mounted and late A response cannot replace B', async ({ browser }, info) => {
+test('warm history stays mounted and late A response cannot replace B', { tag: '@owned-yjs' }, async ({ browser }, info) => {
   const context = await createAuthenticatedContext(browser);
   const page = await context.newPage();
   const data = await fixture(page);
@@ -242,7 +242,7 @@ test('warm history stays mounted and late A response cannot replace B', async ({
   } finally { held.release(); await data.cleanup(); await context.close(); }
 });
 
-test('failed bootstrap can be retried without creating a session', async ({ browser }) => {
+test('failed bootstrap can be retried without creating a session', { tag: '@owned-yjs' }, async ({ browser }) => {
   const context = await createAuthenticatedContext(browser);
   const page = await context.newPage();
   const data = await fixture(page);

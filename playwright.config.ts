@@ -4,9 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { managedAcceptanceTestIgnore } from './tests/helpers/managed-acceptance-suites.mjs';
+import { managedAcceptanceSelection } from './tests/helpers/managed-acceptance-suites.mjs';
 
-loadEnv({ path: '.env.local', quiet: true });
+loadEnv({ path: process.env.CANVAS_ENV_FILE || '.env.local', quiet: true });
 
 const useExternalServer = process.env.E2E_EXTERNAL_SERVER === '1';
 const e2eDataRoot = process.env.E2E_DATA_DIR || mkdtempSync(path.join(os.tmpdir(), 'canvas-notebook-e2e-'));
@@ -30,7 +30,7 @@ process.env.TEST_LOGIN_PASSWORD ||= e2eAdminPassword;
 
 export default defineConfig({
   testDir: 'tests',
-  testIgnore: managedAcceptanceTestIgnore,
+  ...managedAcceptanceSelection(),
   timeout: 30_000,
   retries: 0,
   use: {

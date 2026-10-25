@@ -20,6 +20,9 @@ on:
       - tests/chat-delegation-session-resume.spec.ts
       - tests/code-block-copy.spec.ts
       - tests/ollama-integration.spec.ts
+      - tests/pi-chat.spec.ts
+      - tests/notebook-query-loading.spec.ts
+      - tests/playwright/playwright.pi-chat-live.config.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
@@ -45,6 +48,9 @@ on:
       - tests/chat-delegation-session-resume.spec.ts
       - tests/code-block-copy.spec.ts
       - tests/ollama-integration.spec.ts
+      - tests/pi-chat.spec.ts
+      - tests/notebook-query-loading.spec.ts
+      - tests/playwright/playwright.pi-chat-live.config.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
@@ -87,4 +93,6 @@ jobs:
           tests/chat-delegation-session-resume.spec.ts tests/collaboration-release-recovery.spec.ts
           tests/helpers/notebook-session-readiness.ts tests/code-block-copy.spec.ts
           tests/ollama-integration.spec.ts app/components/settings/AiProvidersModelsPanel.tsx
+          tests/pi-chat.spec.ts tests/notebook-query-loading.spec.ts
+          tests/playwright/playwright.pi-chat-live.config.ts
           playwright.config.ts
