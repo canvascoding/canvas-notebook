@@ -51,6 +51,8 @@ async function main(): Promise<void> {
       tsxCli,
       '--tsconfig',
       path.join(repositoryRoot, 'tsconfig.json'),
+      '--conditions',
+      'react-server',
       bootstrapScript,
     ], { cwd: fixtureRoot, env, timeout: 60_000, maxBuffer: 10 * 1024 * 1024 });
   }

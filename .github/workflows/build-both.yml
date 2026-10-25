@@ -79,6 +79,9 @@ jobs:
       - name: Verify internal scheduler authorization
         run: npm run test:internal:scheduler
 
+      - name: Verify production agent bootstrap and restart
+        run: npm run test:agent-runtime:startup
+
       - name: Verify owned review fixture cooldown contracts
         run: node --import tsx --conditions react-server scripts/owned-review-cooldown-contract-test.ts
 

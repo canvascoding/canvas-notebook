@@ -230,7 +230,7 @@ fi
 
 # ─── Step 3: Agent runtime bootstrap ─────────────────────────────────────
 step "Agent runtime bootstrap"
-if npx tsx scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
+if npx tsx --conditions react-server scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
   step_ok
 else
   step_fail
