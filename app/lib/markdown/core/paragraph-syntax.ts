@@ -1,6 +1,6 @@
 // Inline serialization escapes emphasis but not punctuation that can introduce
 // a block. After deletion, paragraph text such as "-" must remain paragraph text.
-const BLOCK_START = /^( {0,3})(#{1,6}(?=[\t ]|\r?$)|[-+](?=[\t ]|\r?$)|\d{1,9}[.)](?=[\t ]|\r?$)|>|(?:\*[\t ]*){3,}(?=\r?$)|(?:_[\t ]*){3,}(?=\r?$)|(?:-[\t ]*){3,}(?=\r?$)|((?:=+|-+)[\t ]*(?=\r?$)|(?:\|[\t ]*)?:?-+:?[\t ]*(?:\|[\t ]*:?-+:?[\t ]*)*\|?(?=\r?$)))/gmu;
+const BLOCK_START = /^( {0,3})(#{1,6}(?=[\t ]|\r?$)|[-+](?=[\t ]|\r?$)|(?:\d{1,9}|[a-zA-Z]{1,2}|[ivxlcdmIVXLCDM]+)[.)](?=[\t ]|\r?$)|>|(?:\*[\t ]*){3,}(?=\r?$)|(?:_[\t ]*){3,}(?=\r?$)|(?:-[\t ]*){3,}(?=\r?$)|((?:=+|-+)[\t ]*(?=\r?$)|(?:\|[\t ]*)?:?-+:?[\t ]*(?:\|[\t ]*:?-+:?[\t ]*)*\|?(?=\r?$)))/gmu;
 
 /** Matched backtick spans are literal code, including their physical newlines. */
 function inlineCodeRanges(markdown: string): Array<{ from: number; to: number }> {
@@ -42,8 +42,9 @@ export function escapeParagraphBlockSyntax(markdown: string): string {
     while (codeIndex < code.length && code[codeIndex].to <= position) codeIndex++;
     const range = code[codeIndex];
     if (range && range.from <= position && position < range.to) return match;
-    // The punctuation, rather than the number, needs a backslash for CommonMark.
-    return indentation + (/^\d{1,9}[.)]$/u.test(marker)
+    // Numeric, alphabetic and Roman list markers need their punctuation escaped.
+    // Escaping a letter itself would leave a literal backslash in the paragraph.
+    return indentation + (/[.)]$/u.test(marker)
       ? marker.slice(0, -1) + '\\' + marker.at(-1)
       : '\\' + marker);
   });

@@ -13,6 +13,8 @@ const extensions = richMarkdownCodecExtensions();
 const schema = getSchema(extensions);
 const manager = createRichMarkdownManager();
 const paragraphTexts = ['-', '+', '#', '1.', '1)', '# Heading', '- Item', '+ Item', '1. Item', '> quote',
+  'Ja. Ein synthetischer Beispielsatz.', 'A. Item', 'a) Item', 'aa. Item', 'ZZ) Item',
+  'I. Item', 'iii) Item', 'MMXXVI. Item', 'Ja.', 'A\nJa. Weiterer Satz.',
   'A\n---', 'A\n===', 'A\n# Heading', 'A\n- Item', 'A\n> quote', '- - -',
   'A\n|---|', 'A | B\n--- | ---', 'A\n:---:', 'A | B\n| :--- | ---: |'];
 
@@ -20,6 +22,9 @@ test('paragraph punctuation is escaped at physical line starts without changing 
   const examples: Array<[string, string]> = [
     ['-', '\\-'], ['+', '\\+'], ['#', '\\#'], ['1.', '1\\.'], ['1)', '1\\)'],
     ['# Heading', '\\# Heading'], ['- **Item**', '\\- **Item**'], ['1. *Item*', '1\\. *Item*'],
+    ['Ja. Satz', 'Ja\\. Satz'], ['a) Item', 'a\\) Item'], ['ZZ. Item', 'ZZ\\. Item'],
+    ['iii) Item', 'iii\\) Item'], ['MMXXVI. Item', 'MMXXVI\\. Item'],
+    ['A\r\n  Ja. Satz', 'A\r\n  Ja\\. Satz'], ['Ja.', 'Ja\\.'],
     ['> quote', '\\> quote'], ['A\n---', 'A\n\\---'], ['A\r\n===', 'A\r\n\\==='],
     ['  - Item', '  \\- Item'], ['- - -', '\\- - -'],
     ['A\n|---|', 'A\n\\|---|'], ['A | B\n--- | ---', 'A | B\n\\--- | ---'],
@@ -32,6 +37,7 @@ test('paragraph punctuation is escaped at physical line starts without changing 
   for (const unchanged of ['A **bold** B', '[link](https://example.com/#heading)', '\\- literal',
     '&#32;- text', 'A&#10;---', '<br data-canvas-hard-break>', '<strong>text</strong>',
     '`A\n---`', '`A\n|---|`', '``A\n# heading\n`literal` ``', '1234567890. text', '####### text',
+    '`Ja. Satz`', '`A\nJa. Satz`', 'Nein. Ein Satz.', 'ABC. Text', 'A.example', 'Ja\\. Satz',
     '| ordinary pipe', 'A | B', '--', '===', '|---|', ':---:']) {
     assert.equal(escapeParagraphBlockSyntax(unchanged), unchanged);
   }
@@ -104,10 +110,15 @@ for (const text of ['#', '###', 'A #', 'A ###', 'C#', 'A \\#']) {
 
 test('actual structural blocks and ordinary inline formatting retain their renderer', () => {
   for (const markdown of ['# Heading', '- Item', '+ Item', '1. Item', '> quote', 'A **bold** B',
+    'A. Item', 'a) Item', 'aa. Item', 'II. Item',
     '[link](https://example.com)', '`# literal`']) {
     const before = manager.parse(markdown);
     const projected = manager.serialize(before);
     assert.equal(equivalentRichDocument(before, manager.parse(projected)), true, markdown);
+    if (/^(?:A\.|a\)|aa\.|II\.) /u.test(markdown)) {
+      assert.equal(before.content?.[0].type, 'orderedList');
+      assert.equal(manager.parse(projected).content?.[0].type, 'orderedList');
+    }
     if (markdown === '# Heading' || markdown === '- Item' || markdown === '1. Item') {
       assert.equal(projected, markdown, 'structural markers are not escaped');
     }
