@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.25.2] - 2026-10-25
+
+### Fixed
+
+- Restored support for safe existing trash namespaces during folder operations while retaining private trash entries and filesystem identity checks.
+- Preserved literal alphabetic and Roman list markers in authored paragraphs during native-document Markdown export.
+- Kept backup, recovery and standalone checkpoint commands independent of authentication and agent-provider startup.
+- Distinguished documents in disabled workspaces from active document identity conflicts.
+
+### Added
+
+- Audited recovery of verified legacy document identities, moved revision history, missing successor snapshots and strictly proven text appends, with immutable evidence, backup/restore verification and resumable preservation journals.
+- Operating-system provenance checks for application build artifacts and bounded compiler settings.
+
+### Verification
+
+- `npm run verify:release`
+- Recovery planner, identity import, legacy evidence, journal replay and schema migration regression tests.
+- Native paragraph projection and deletion regression tests, including exact content and block-identity preservation.
+- Isolated PostgreSQL restore and document-recovery rehearsal with original native binaries and revision history retained.
+
 ## [2026.10.25.1] - 2026-10-25
 
 ### Fixed
