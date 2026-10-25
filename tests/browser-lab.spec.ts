@@ -655,6 +655,7 @@ test.describe('Browser Lab', () => {
       await address.fill(fixtureUrl);
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
       // Chromium can replace the initial about:blank entry. Create real history.
       await address.fill(`${fixtureUrl}#history`);
       await page.getByRole('button', { name: labels.navigate }).click();
@@ -708,6 +709,7 @@ test.describe('Browser Lab', () => {
       await expect(address).toHaveValue(fixtureUrl);
       await address.press('Enter');
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
       await page.screenshot({ path: 'test-results/browser-lab-mobile.png', fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
@@ -726,6 +728,8 @@ test.describe('Browser Lab', () => {
       expect(mobileMetrics.visibleButtons.every((button) => button.left >= -1 && button.right <= mobileMetrics.innerWidth + 1)).toBeTruthy();
 
       await page.getByTitle(labels.disconnect).click();
+      await expect(page.getByText(labels.disconnected)).toBeVisible();
+      await expect(frame).toHaveCount(0);
       expect(pageErrors).toEqual([]);
     } catch (error) {
       console.error('Browser cooperative flow failed:', error instanceof Error ? safeBrowserLabPrimary(error.message) : 'Unknown failure.');

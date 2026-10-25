@@ -17,18 +17,27 @@ let launchGate = Promise.resolve();
 let pageGate = Promise.resolve();
 let transferGate = Promise.resolve();
 let auditGate = Promise.resolve();
+let frameCaptureGate = Promise.resolve();
+let frameCaptureAttempts = 0;
 let launches = 0;
 let newPages = 0;
 const browsers: FakeBrowser[] = [];
 const clients: Client[] = [];
 class Client extends EventEmitter {
   detached = false;
+  private detachedSignal = deferred();
   constructor() { super(); clients.push(this); }
-  async send(method: string) {
+  async send(method: string, _params?: unknown, options?: { timeout?: number }) {
     if (method === 'Browser.setDownloadBehavior') await transferGate;
-    return { frameTree: { frame: { id: 'frame' } }, currentIndex: 0, entries: [], targetInfo: { title: 'Test' } };
+    if (method === 'Page.captureScreenshot') {
+      frameCaptureAttempts++;
+      assert.ok(options?.timeout && options.timeout <= 5_000, 'live captures need a bounded protocol deadline');
+      await Promise.race([frameCaptureGate, this.detachedSignal.promise]);
+      if (this.detached) throw new Error('Capture target detached');
+    }
+    return { data: Buffer.from('frame').toString('base64'), frameTree: { frame: { id: 'frame' } }, currentIndex: 0, entries: [], targetInfo: { title: 'Test' } };
   }
-  async detach() { this.detached = true; }
+  async detach() { this.detached = true; this.detachedSignal.resolve(); }
 }
 class FakePage extends EventEmitter {
   closed = false;
@@ -53,7 +62,7 @@ class FakePage extends EventEmitter {
   async evaluate() { return false; }
   waitForFileChooser() { return new Promise(() => {}); }
   async createCDPSession() { return new Client(); }
-  async screenshot() { return Buffer.from('frame'); }
+  async screenshot() { frameCaptureAttempts++; await frameCaptureGate; return Buffer.from('frame'); }
 }
 class FakeBrowser extends EventEmitter {
   connected = true;
@@ -315,11 +324,32 @@ async function main() {
     assert.equal(snapshots.getBrowserSessionSnapshot(runtime.getBrowserRuntimeContextKey(context))?.running, false);
     assert.ok(clients.every((client) => client.detached));
 
+    const capture = deferred(); frameCaptureGate = capture.promise;
+    const captureMessages: unknown[] = [];
+    const capturing = makeView('stalled-capture', captureMessages);
+    const priorCaptures = frameCaptureAttempts;
+    const captureStart = capturing.start();
+    let captureDeadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await until(() => frameCaptureAttempts > priorCaptures);
+      capturing.close();
+      await Promise.race([captureStart, new Promise((_, reject) => {
+        captureDeadline = setTimeout(() => reject(new Error('Closing a view did not cancel its stalled screenshot')), 1_000);
+      })]);
+      assert.ok(!captureMessages.some((message) => (message as { type: string }).type === 'frame'), 'a closed view must not publish a late screenshot');
+      assert.ok(clients.every((client) => client.detached), 'closing must release the capture protocol client');
+    } finally {
+      clearTimeout(captureDeadline); capture.resolve(); frameCaptureGate = Promise.resolve();
+      await captureStart;
+      await runtime.closeBrowserRuntime(context, 'capture cleanup');
+    }
+
     const audit = deferred(); auditGate = audit.promise;
+    const pagesBeforeAudit = newPages;
     const duringAudit = makeView('audit', []);
     const auditStart = duringAudit.start();
     const auditRejected = assert.rejects(auditStart, /Browser view closed/);
-    await until(() => newPages > pagesBeforeStop);
+    await until(() => newPages > pagesBeforeAudit);
     await tick(); duringAudit.close(); audit.resolve(); await auditRejected;
     auditGate = Promise.resolve();
     await runtime.closeBrowserRuntime(context, 'cleanup');

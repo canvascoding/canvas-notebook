@@ -793,7 +793,7 @@
     "test:pi:session-exclusive": "tsx scripts/pi-session-exclusive-execution-test.ts",
     "test:e2e": "npm run build && playwright test --pass-with-no-tests",
     "test:browser:environment": "tsx scripts/browser-test-environment-test.ts && tsx scripts/managed-test-context-contract-test.ts && node scripts/playwright-suite-discovery-test.mjs",
-    "test:all": "npm run test:browser:environment && node scripts/test-all.mjs",
+    "test:all": "npm run test:browser:environment && npm run test:browser:lifecycle && node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",
     "test:websocket:client": "tsx scripts/websocket-client-lifecycle-test.ts",
     "test:websocket:multitab": "node scripts/test-websocket-multitab.js",

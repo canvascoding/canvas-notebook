@@ -7,14 +7,16 @@ on:
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
       - scripts/browser-test-environment-test.ts
+      - scripts/browser-runtime-lifecycle-test.ts
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
-      - tests/helpers/managed-test-workspace.ts
+      - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
+      - tests/chat-delegation-session-resume.spec.ts
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -26,14 +28,16 @@ on:
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
       - scripts/browser-test-environment-test.ts
+      - scripts/browser-runtime-lifecycle-test.ts
       - scripts/managed-test-context-contract-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/helpers/browser-fixture-url.ts
-      - tests/helpers/managed-test-workspace.ts
+      - app/lib/pi/browser/view-service.ts
       - tests/helpers/managed-test-context.ts
       - tests/helpers/managed-acceptance-suites.mjs
       - tests/browser-lab.spec.ts
       - tests/collaboration-release-recovery.spec.ts
+      - tests/chat-delegation-session-resume.spec.ts
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -64,4 +68,12 @@ jobs:
       - run: npm ci
       - run: npm run test:server:shutdown
       - run: npm run test:browser:environment
-      - run: npx --no-install eslint scripts/run-dev.mjs scripts/dev-checkout-lifetime.mjs scripts/dev-checkout-lifetime-test.mjs
+      - run: npm run test:browser:lifecycle
+      - run: >-
+          npx --no-install eslint scripts/run-dev.mjs scripts/dev-checkout-lifetime.mjs
+          scripts/dev-checkout-lifetime-test.mjs scripts/browser-test-environment-test.ts
+          app/lib/pi/browser/view-service.ts scripts/browser-runtime-lifecycle-test.ts
+          scripts/playwright-suite-discovery-test.mjs tests/helpers/browser-fixture-url.ts
+          tests/helpers/managed-acceptance-suites.mjs tests/browser-lab.spec.ts
+          tests/chat-delegation-session-resume.spec.ts tests/collaboration-release-recovery.spec.ts
+          playwright.config.ts
