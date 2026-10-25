@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { requireLivePiChatTarget } from './helpers/managed-acceptance-suites.mjs';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -150,6 +151,7 @@ async function startFreshChat(page: Page) {
 }
 
 async function startLiveMainAgentChat(page: Page) {
+  requireLivePiChatTarget();
   const agentsResponse = await page.request.get('/api/agents', { timeout: 15_000 });
   expect(agentsResponse.ok()).toBe(true);
   const agentsPayload = await agentsResponse.json() as { success?: boolean; data?: { agents?: AgentProfile[] } };
@@ -705,7 +707,7 @@ contentKind: document
     await expect(page.getByRole('button', { name: /session title smoke/i }).first()).toBeVisible();
   });
 
-  test('should keep structured PI context for a second turn', async ({ page }, testInfo) => {
+  test('should keep structured PI context for a second turn', { tag: '@live-model' }, async ({ page }, testInfo) => {
     test.setTimeout(180_000);
     await startLiveMainAgentChat(page);
 
@@ -749,7 +751,7 @@ contentKind: document
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
   });
 
-  test('should send a chat prompt over WebSocket without surfacing an HTTP 401 runtime error', async ({ page }) => {
+  test('should send a chat prompt over WebSocket without surfacing an HTTP 401 runtime error', { tag: '@live-model' }, async ({ page }) => {
     let websocket401Count = 0;
     page.on('console', (message) => {
       const text = message.text();
