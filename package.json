@@ -73,7 +73,7 @@
     "prebuild": "npm run build:fd-publication && npm run build:decision-models && npm run build:tool-apps && npm run test:licenses",
     "build": "npm run build:release:compile && npm run build:release:typecheck && npm run build:release:generate",
     "build:release": "npm run build",
-    "test:release:app-build": "node scripts/release-app-build-test.mjs",
+    "test:release:app-build": "node scripts/release-app-build-test.mjs && node scripts/prepare-release-runner-test.mjs",
     "build:release:compile": "node scripts/release-next-build.mjs compile",
     "build:release:generate": "node scripts/release-next-build.mjs generate && bash scripts/inject-cli-version.sh && npm run test:collaboration:production-modules",
     "build:release:typecheck": "npm run build:decision-models && node ./node_modules/next/dist/bin/next typegen && node --max-old-space-size=6144 ./node_modules/typescript/bin/tsc --project tsconfig.release.json --noEmit --incremental false",

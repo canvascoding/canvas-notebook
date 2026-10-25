@@ -96,10 +96,10 @@ const diagnosticsTimer = setInterval(reportResources, 30_000);
 const firstDiagnosticsTimer = setTimeout(reportResources, 5_000);
 const timeoutTimer = setTimeout(() => {
   timedOut = true;
-  console.error(`${prefix} Exceeded the 25-minute build limit; stopping the build process group.`);
+  console.error(`${prefix} Exceeded the 35-minute build limit; stopping the build process group.`);
   reportResources();
   stopBuild('SIGTERM');
-}, 25 * 60_000);
+}, 35 * 60_000);
 process.once('SIGINT', () => stopBuild('SIGINT'));
 process.once('SIGTERM', () => stopBuild('SIGTERM'));
 child.once('error', error => console.error(`${prefix} Could not start Next.js: ${error.message}`));

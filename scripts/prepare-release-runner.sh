@@ -9,7 +9,9 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" || "${CANVAS_RELEASE_RUNNER_ENVIRONMENT:-}
 fi
 
 swap_file="${RUNNER_TEMP:?RUNNER_TEMP must be set}/canvas-release.swap"
-swap_gib=16
+# The cold compiler has exceeded 34 GiB of RAM plus swap. Keep enough bounded
+# headroom for its peak without depending on the runner's incidental swap size.
+swap_gib=32
 workspace_gib=14
 required_kib=$(((swap_gib + workspace_gib) * 1024 * 1024))
 
