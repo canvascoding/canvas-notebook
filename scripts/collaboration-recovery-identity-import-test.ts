@@ -4,7 +4,10 @@ import * as Y from 'yjs';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { createPiTestDatabase } from './helpers/pi-test-database';
-import { importHistoricalCollaborationIdentity, type HistoricalCollaborationIdentityImport } from '../app/lib/collaboration/recovery-identity-import';
+import { importHistoricalCollaborationIdentity, equivalentInitialCollaborationFile,
+  type HistoricalCollaborationIdentityImport } from '../app/lib/collaboration/recovery-identity-import';
+import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
+import { authoritativeCollaborationSnapshot } from '../app/lib/collaboration/authoritative-snapshot';
 import { recoveryHash } from '../app/lib/collaboration/recovery-plan';
 import { decodeRecoveryState } from '../app/lib/collaboration/recovery-evidence';
 
@@ -98,6 +101,35 @@ test('verified generation-one sequence-zero snapshot imports without changing na
     assert.equal((await f.transact(f.input)).status, 'already_imported');
     assert.deepEqual(await f.raw.get('SELECT * FROM collaboration_yjs_states'), before);
   } finally { await f.close(); }
+});
+
+test('an original rich initial file may canonicalize only after proving identical native content', async () => {
+  const f = await fixture(); const original = 'Initial text  \n\nAnother paragraph.\n'; const file = Buffer.from(original);
+  const doc = createRichMarkdownYDoc(original);
+  try {
+    const fileHash = recoveryHash(file);
+    await f.raw.run(`UPDATE collaboration_yjs_states SET representation='tiptap_xml',lifecycle_generation=1,
+      document_sequence=0,checkpoint_sequence=0,yjs_state=$1,state_vector=$2,canonical_hash=$3,serialized_hash=$3,newline_style='lf',has_bom=0`,
+    [Y.encodeStateAsUpdate(doc), Y.encodeStateVector(doc), fileHash]);
+    f.input.expectedState = decodeRecoveryState(await f.connection.get('SELECT * FROM collaboration_yjs_states') as Record<string, unknown>);
+    f.input.document.stateVersion = 0; f.input.revision.contentHash = fileHash; f.input.revision.sizeBytes = file.byteLength;
+    f.input.expectedFileHash = fileHash; f.input.readCurrentFile = async () => file;
+    const state = f.input.expectedState;
+    assert.notEqual(recoveryHash(authoritativeCollaborationSnapshot(state).canonicalContent), fileHash,
+      'the fixture must reproduce an original input/canonical-export difference');
+    assert.equal(equivalentInitialCollaborationFile(state, file), true);
+    assert.equal(equivalentInitialCollaborationFile({ ...state, documentSequence: 1, checkpointSequence: 1 }, file), false);
+    assert.equal(equivalentInitialCollaborationFile({ ...state, lifecycleGeneration: 2 }, file), false);
+    assert.equal(equivalentInitialCollaborationFile({ ...state, degraded: true }, file), false);
+    assert.equal(equivalentInitialCollaborationFile(state, Buffer.from('Other content')), false);
+    const changed = Buffer.from('Other content');
+    assert.equal(equivalentInitialCollaborationFile({ ...state, canonicalHash: recoveryHash(changed), serializedHash: recoveryHash(changed) }, changed), false,
+      'even matching file hashes cannot authorize different rich content');
+    const before = await f.raw.get('SELECT * FROM collaboration_yjs_states');
+    assert.equal((await f.transact(f.input)).status, 'imported');
+    assert.deepEqual(await f.raw.get('SELECT * FROM collaboration_yjs_states'), before,
+      'identity import cannot rewrite native bytes or pretend the canonical export was checkpointed');
+  } finally { doc.destroy(); await f.close(); }
 });
 
 test('complete historical revision chain imports atomically and keeps original IDs', async () => {

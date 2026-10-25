@@ -15,7 +15,8 @@ import { buildCollaborationRecoveryEvidence, decodeRecoveryState, observeRecover
   recoveryPostgresInteger, recoveryPostgresFlag, recoveryStateFingerprint, type RecoveryRows, type RecoveryRow } from './recovery-evidence';
 import { withOfflineCollaborationRecoveryGuards, applyCodeMarkRecoveryClone, archiveCollaborationRecoveryOrphan,
   type OfflineCollaborationRecoveryGuard } from './recovery-state-mutations';
-import { importHistoricalCollaborationIdentity, type HistoricalCollaborationIdentityImport } from './recovery-identity-import';
+import { importHistoricalCollaborationIdentity, equivalentInitialCollaborationFile,
+  type HistoricalCollaborationIdentityImport } from './recovery-identity-import';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { cloneNativeCollaborationDocument } from './native-document-recovery';
 import { Y } from './server-runtime';
@@ -36,7 +37,7 @@ type Operation = {
 export type RecoverySelection = { version: 1; bundleManifestHash: string;
   operations: Array<Operation & { selected: boolean }>; manual: Array<{ documentId: string; reason: string }> };
 export type RecoveryBundle = { manifestHash: string; rows: RecoveryRows; evidence: ReturnType<typeof buildCollaborationRecoveryEvidence>;
-  historicalIdentities: HistoricalIdentity[] };
+  historicalIdentities: HistoricalIdentity[]; observedFiles?: Record<string, Uint8Array> };
 export type RecoveryExecutionProof = {
   version: 1; bundleManifestHash: string; backupId: string;
   backup: { archive: string; archiveHash: string; completedAt: string; report: string; reportHash: string };
@@ -107,7 +108,9 @@ export async function readCollaborationRecoveryBundle(directory: string): Promis
   }
   const historicalIdentities = verified.has('legacy-identities.json') ? parsed('legacy-identities.json') : [];
   requireValue(Array.isArray(historicalIdentities), 'invalid legacy evidence');
-  return { manifestHash: recoveryHash(manifestBytes), rows, evidence, historicalIdentities };
+  const observedFiles = Object.fromEntries(evidence.files.filter(file => file.hash).map(file => [file.workspaceId + '\0' + file.path,
+    new Uint8Array(verified.get(`file-${recoveryHash(file.workspaceId + '\0' + file.path)}.bin`)!)]));
+  return { manifestHash: recoveryHash(manifestBytes), rows, evidence, historicalIdentities, observedFiles };
 }
 
 export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): RecoverySelection {
@@ -191,11 +194,14 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
         || (state.checkpointSequence === 0 && state.lifecycleGeneration !== 1) || state.serializedHash !== file.hash
         || bundle.rows.registry.some(record => record.workspace_id === state.workspaceId && record.path === state.path)) continue;
       try {
-        requireValue(recoveryHash(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state)) === file.hash,
+        const projectedFileHash = recoveryHash(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state));
+        const originalFile = bundle.observedFiles?.[state.workspaceId + '\0' + state.path];
+        requireValue(projectedFileHash === file.hash || originalFile && recoveryHash(originalFile) === file.hash
+          && equivalentInitialCollaborationFile(state, originalFile),
           'historical snapshot mismatch');
         operations.push({ id: '', selected: false, kind: 'import_historical_identity', documentId: state.documentId, workspace,
           expectedState: row, expectedRegistry: null, expectedRevision: null, expectedFileHash: file.hash,
-          projectedFileHash: file.hash, historicalIdentity, orphans: [] });
+          projectedFileHash, historicalIdentity, orphans: [] });
       } catch { manual.push({ documentId: state.documentId, reason: 'historical_snapshot_unverified' }); }
     }
   }

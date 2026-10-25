@@ -4,10 +4,14 @@ import type { SqlConnection } from '@/app/lib/db';
 import type { CollaborationDocumentRecord, CollaborationLineageRecord, CollaborationRevisionRecord } from '@/app/lib/files/collaboration-repository/types';
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { authoritativeCollaborationSnapshot } from './checkpoint';
+import { authoritativeCollaborationSnapshot } from './authoritative-snapshot';
 import { serializeCanonicalText, type PersistedCollaborationState } from './persistence';
 import { recoveryHash } from './recovery-plan';
 import { decodeRecoveryState, recoveryStateFingerprint, recoveryPostgresInteger } from './recovery-evidence';
+import { Y } from './server-runtime';
+import { createRichMarkdownYDoc } from './markdown-state';
+import { readRichDocumentJson } from './rich-document';
+import { equivalentRichDocument } from '../markdown/core/equivalence';
 
 export type HistoricalCollaborationIdentityImport = {
   operation: 'import_historical_identity';
@@ -45,6 +49,27 @@ function matchingRow(row: Row, fields: Row): boolean {
 function scopedFields(workspace: WorkspaceContext, path: string): Row {
   return { organization_id: workspace.organizationId ?? null, customer_id: workspace.customerId ?? null,
     project_id: workspace.projectId ?? null, workspace_id: workspace.workspaceId, workspace_type: workspace.workspaceType, path };
+}
+
+/** Some original sequence-zero rich births recorded the input Markdown hash
+ * before its canonical export. Prove identical rich content without changing
+ * native bytes; the normal checkpoint will retain the original file revision. */
+export function equivalentInitialCollaborationFile(state: PersistedCollaborationState, bytes: Uint8Array): boolean {
+  if (state.status !== 'active' || state.lifecycleGeneration !== 1 || state.documentSequence !== 0
+    || state.checkpointSequence !== 0 || state.degraded || state.projectionError || bytes.byteLength > 5 * 1024 * 1024
+    || !['tiptap_xml', 'tiptap_blocks'].includes(state.representation)) return false;
+  const doc = new Y.Doc({ gc: false }); let parsed: InstanceType<typeof Y.Doc> | undefined;
+  try {
+    const file = Buffer.from(bytes), text = file.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(file) || state.serializedHash !== recoveryHash(file)
+      || state.hasBom !== text.startsWith('\uFEFF') || state.newlineStyle !== (text.includes('\r\n') ? 'crlf' : 'lf')) return false;
+    const canonicalInput = text.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
+    if (state.canonicalHash !== recoveryHash(canonicalInput)) return false;
+    authoritativeCollaborationSnapshot(state);
+    Y.applyUpdate(doc, state.yjsState); parsed = createRichMarkdownYDoc(canonicalInput);
+    return equivalentRichDocument(readRichDocumentJson(doc), readRichDocumentJson(parsed));
+  } catch { return false; }
+  finally { doc.destroy(); parsed?.destroy(); }
 }
 
 /**
@@ -118,8 +143,8 @@ export async function importHistoricalCollaborationIdentity(
   requireValue(stateRow && recoveryStateFingerprint(decodeRecoveryState(stateRow)) === recoveryStateFingerprint(expectedState), 'state_changed');
   // Validate the binary and its state vector independently of historical hashes.
   const canonical = authoritativeCollaborationSnapshot(expectedState).canonicalContent;
-  requireValue(recoveryHash(canonical) === expectedState.canonicalHash
-    && recoveryHash(serializeCanonicalText(canonical, expectedState)) === expectedFileHash, 'snapshot_hash_mismatch');
+  const exactSnapshot = recoveryHash(canonical) === expectedState.canonicalHash
+    && recoveryHash(serializeCanonicalText(canonical, expectedState)) === expectedFileHash;
   const receipt = await transaction.get(`SELECT * FROM collaboration_file_projections
     WHERE document_id = $1 FOR UPDATE`, [expectedState.documentId]) as Row | undefined;
   requireValue(!receipt || matchingRow(receipt, { document_id: expectedState.documentId,
@@ -129,6 +154,7 @@ export async function importHistoricalCollaborationIdentity(
   const file = await readCurrentFile();
   requireValue(file instanceof Uint8Array && recoveryHash(file) === expectedFileHash
     && file.byteLength === revision.sizeBytes, 'file_changed');
+  requireValue(exactSnapshot || equivalentInitialCollaborationFile(expectedState, file), 'snapshot_hash_mismatch');
 
   const trash = await transaction.all(`SELECT original_path FROM workspace_trash_entries
     WHERE workspace_id = $1 AND status <> 'restored' FOR SHARE`, [workspace.workspaceId]) as Row[];
