@@ -87,6 +87,42 @@ for (const withLineage of [true, false]) {
   });
 }
 
+test('verified generation-one sequence-zero snapshot imports without changing native bytes', async () => {
+  const f = await fixture();
+  try {
+    await f.raw.run('UPDATE collaboration_yjs_states SET lifecycle_generation=1,document_sequence=0,checkpoint_sequence=0');
+    f.input.expectedState = decodeRecoveryState(await f.connection.get('SELECT * FROM collaboration_yjs_states') as Record<string, unknown>);
+    f.input.document.stateVersion = 0;
+    const before = await f.raw.get('SELECT * FROM collaboration_yjs_states');
+    assert.equal((await f.transact(f.input)).status, 'imported');
+    assert.equal((await f.transact(f.input)).status, 'already_imported');
+    assert.deepEqual(await f.raw.get('SELECT * FROM collaboration_yjs_states'), before);
+  } finally { await f.close(); }
+});
+
+test('complete historical revision chain imports atomically and keeps original IDs', async () => {
+  const f = await fixture();
+  try {
+    const older = { ...f.input.revision, id: 'older-revision', revisionNumber: 3, contentHash: recoveryHash('Earlier text'),
+      sizeBytes: 12, baseRevisionId: null };
+    f.input.revision.baseRevisionId = older.id; f.input.history = [older];
+    assert.equal((await f.transact(f.input)).status, 'imported');
+    assert.equal((await f.transact(f.input)).status, 'already_imported');
+    assert.deepEqual((await f.raw.all('SELECT id FROM file_revisions ORDER BY revision_number') as Array<{ id: string }>).map(row => row.id),
+      ['older-revision', 'historical-revision']);
+  } finally { await f.close(); }
+});
+
+test('foreign historical revision chain cannot leave a partial import', async () => {
+  const f = await fixture();
+  try {
+    f.input.history = [{ ...f.input.revision, id: 'foreign-revision', revisionNumber: 3, workspaceId: 'foreign' }];
+    await assert.rejects(f.transact(f.input), /invalid_historical_history/u);
+    assert.equal((await f.raw.all('SELECT * FROM collaboration_documents')).length, 0);
+    assert.equal((await f.raw.all('SELECT * FROM file_revisions')).length, 0);
+  } finally { await f.close(); }
+});
+
 const invalidCases: Array<[string, (f: Awaited<ReturnType<typeof fixture>>) => Promise<HistoricalCollaborationIdentityImport>]> = [
   ['explicit operation', async (f) => ({ ...f.input, operation: 'automatic_fallback' as never })],
   ['historical scope', async (f) => ({ ...f.input, revision: { ...f.input.revision, organizationId: 'foreign' } })],

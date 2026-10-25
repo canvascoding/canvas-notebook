@@ -11,6 +11,7 @@ export type HistoricalCollaborationIdentityEvidence = {
   document: CollaborationDocumentRecord;
   revision: CollaborationRevisionRecord & { historyOnly: false };
   lineage?: CollaborationLineageRecord;
+  history?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
 };
 
 export class HistoricalCollaborationEvidenceError extends Error {
@@ -128,6 +129,7 @@ function fileHash(filename: string): string {
 export function exportHistoricalCollaborationIdentities(
   sqlitePath: string,
   documentIds: string[],
+  options: { schema?: 'pre-postgres-v1' } = {},
 ): HistoricalCollaborationIdentityEvidence[] {
   requireValue(path.isAbsolute(sqlitePath) && !sqlitePath.includes('\0'), 'absolute_evidence_path_required');
   const ids = [...documentIds];
@@ -158,6 +160,20 @@ export function exportHistoricalCollaborationIdentities(
     const tables = database.prepare(`SELECT name, type, sql FROM sqlite_schema WHERE name IN (?, ?, ?)`).all(...TABLES);
     requireValue(tables.length === TABLES.length && TABLES.every((table) => tables.some((row) => row.name === table
       && row.type === 'table' && typeof row.sql === 'string' && /^CREATE\s+TABLE\s/iu.test(row.sql.trim()))), 'historical_schema_unavailable');
+    const legacy = options.schema === 'pre-postgres-v1';
+    if (legacy) {
+      const expected: Record<typeof TABLES[number], string[]> = {
+        collaboration_documents: ['id', 'organization_id', 'customer_id', 'project_id', 'workspace_id', 'workspace_type', 'path',
+          'provider', 'state_version', 'snapshot_revision_id', 'status', 'created_at', 'updated_at'],
+        file_revisions: ['id', 'organization_id', 'customer_id', 'project_id', 'workspace_id', 'workspace_type', 'path',
+          'content_hash', 'size_bytes', 'created_by_user_id', 'created_by_actor_type', 'source_session_id', 'base_revision_id', 'created_at', 'lineage_id'],
+        file_collaboration_lineages: ['id', 'workspace_id', 'workspace_type', 'path', 'status', 'created_at', 'archived_at', 'trash_entry_id'],
+      };
+      for (const table of TABLES) {
+        const columns = database.prepare(`PRAGMA table_info("${table}")`).all().map(row => row.name);
+        requireValue(columns.length === expected[table].length && expected[table].every(name => columns.includes(name)), 'unsupported_legacy_schema');
+      }
+    }
     const find = (table: typeof TABLES[number], id: string): Row => {
       const rows = database.prepare(`SELECT * FROM "${table}" WHERE id = ? LIMIT 2`).all(id);
       requireValue(rows.length === 1 && rows[0].id === id, 'missing_or_ambiguous_historical_id');
@@ -166,12 +182,30 @@ export function exportHistoricalCollaborationIdentities(
       return rows[0];
     };
     for (const id of ids) {
-      const document = find('collaboration_documents', id);
+      let document = find('collaboration_documents', id);
       const revisionId = text(document.snapshot_revision_id);
-      const lineageId = nullableText(document.lineage_id);
       const revision = find('file_revisions', revisionId);
-      const lineage = lineageId ? find('file_collaboration_lineages', lineageId) : undefined;
-      result.push(decodeHistoricalCollaborationIdentity(document, revision, lineage));
+      // The old document had no lineage column. Its explicit snapshot FK binds
+      // the lineage, never a same-path search. Ordinals use the exact existing
+      // PostgreSQL migration ordering; no historical IDs or timestamps change.
+      const lineageId = nullableText(legacy ? revision.lineage_id : document.lineage_id);
+      let lineage = lineageId ? find('file_collaboration_lineages', lineageId) : undefined;
+      if (!legacy) { result.push(decodeHistoricalCollaborationIdentity(document, revision, lineage)); continue; }
+      document = { ...document, lineage_id: lineageId };
+      if (lineage) lineage = { ...lineage, organization_id: document.organization_id,
+        customer_id: document.customer_id, project_id: document.project_id };
+      const history = database.prepare(`SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY COALESCE(lineage_id, workspace_id || ':' || path)
+          ORDER BY created_at ASC, id ASC) AS revision_number FROM file_revisions
+        ) WHERE COALESCE(lineage_id, workspace_id || ':' || path) = ? ORDER BY revision_number`).all(
+        lineageId ?? text(document.workspace_id) + ':' + text(document.path));
+      requireValue(history.length > 0 && history.length + selectedRecords.size <= MAX_RECORDS, 'historical_record_limit');
+      for (const row of history) selectedRecords.add('file_revisions\0' + text(row.id));
+      const snapshot = history.find(row => row.id === revisionId);
+      requireValue(snapshot && integer(snapshot.revision_number, 1) === history.length, 'historical_snapshot_not_latest');
+      const decoded = history.map(row => decodeHistoricalCollaborationIdentity(
+        { ...document, snapshot_revision_id: row.id }, row, lineage));
+      result.push({ ...decoded[decoded.length - 1], history: decoded.slice(0, -1).map(item => item.revision) });
     }
     database.exec('COMMIT');
   } catch (error) {

@@ -17,7 +17,7 @@ import { withOfflineCollaborationRecoveryGuards, applyCodeMarkRecoveryClone, arc
 import { importHistoricalCollaborationIdentity, type HistoricalCollaborationIdentityImport } from './recovery-identity-import';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 
-type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport, 'document' | 'revision' | 'lineage'>;
+type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport, 'document' | 'revision' | 'lineage' | 'history'>;
 type WorkspaceIdentity = { id: string; organizationId: string | null; customerId: string | null; projectId: string | null;
   type: WorkspaceContext['workspaceType']; rootRelativePath: string; status: 'active' };
 type Operation = {
@@ -158,7 +158,7 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
     } else if (!registry) {
       const historicalIdentity = bundle.historicalIdentities.find(record => record.document.id === state.documentId);
       if (!historicalIdentity || state.degraded || state.projectionError || state.documentSequence !== state.checkpointSequence
-        || !state.checkpointSequence || state.serializedHash !== file.hash
+        || (state.checkpointSequence === 0 && state.lifecycleGeneration !== 1) || state.serializedHash !== file.hash
         || bundle.rows.registry.some(record => record.workspace_id === state.workspaceId && record.path === state.path)) continue;
       try {
         requireValue(recoveryHash(serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state)) === file.hash,
@@ -371,7 +371,7 @@ export async function applyCollaborationRecoverySelection(input: {
             await guard.assertActive();
             return importHistoricalCollaborationIdentity(transaction, { operation: 'import_historical_identity', workspace, expectedState: expected,
               expectedFileHash: operation.expectedFileHash, readCurrentFile: async () => (await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).bytes,
-              document: historical.document, revision: historical.revision, lineage: historical.lineage });
+              document: historical.document, revision: historical.revision, lineage: historical.lineage, history: historical.history });
           };
           let importedAndProjected = false;
           if (resuming) {

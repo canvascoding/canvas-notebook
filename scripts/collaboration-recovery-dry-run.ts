@@ -10,10 +10,11 @@ async function main() {
   const args = process.argv.slice(2);
   const flags = new Map<string, string>();
   while (args.length) { const key = args.shift()!; const value = args.shift();
-    if (!['--output', '--legacy-sqlite', '--legacy-document-ids'].includes(key) || !value || flags.has(key)) throw new Error('Invalid capture arguments.');
+    if (!['--output', '--legacy-sqlite', '--legacy-document-ids', '--legacy-schema'].includes(key) || !value || flags.has(key)) throw new Error('Invalid capture arguments.');
     flags.set(key, value); }
   const output = flags.get('--output');
-  if (!output || !path.isAbsolute(output) || (flags.has('--legacy-sqlite') !== flags.has('--legacy-document-ids'))) {
+  if (!output || !path.isAbsolute(output) || (flags.has('--legacy-sqlite') !== flags.has('--legacy-document-ids'))
+    || (flags.has('--legacy-schema') && (!flags.has('--legacy-sqlite') || flags.get('--legacy-schema') !== 'pre-postgres-v1'))) {
     throw new Error('Usage: --output /absolute/new-directory [--legacy-sqlite /closed/read-only.sqlite --legacy-document-ids ID,ID]');
   }
   if (!process.env.DATABASE_URL || !process.env.DATA) throw new Error('DATABASE_URL and DATA are required.');
@@ -42,7 +43,8 @@ async function main() {
       const sqlitePath = flags.get('--legacy-sqlite')!; if (!path.isAbsolute(sqlitePath)) throw new Error('Absolute SQLite evidence path required.');
       const ids = flags.get('--legacy-document-ids')!.split(',');
       if (ids.some(id => !evidence.states.some(state => state.documentId === id))) throw new Error('Legacy identity must refer to captured state.');
-      await save('legacy-identities.json', exportHistoricalCollaborationIdentities(sqlitePath, ids));
+      await save('legacy-identities.json', exportHistoricalCollaborationIdentities(sqlitePath, ids,
+        flags.has('--legacy-schema') ? { schema: 'pre-postgres-v1' } : {}));
     }
     for (const state of evidence.states) {
       if (evidence.files.some((item) => item.workspaceId === state.workspaceId && item.path === state.path)) continue;

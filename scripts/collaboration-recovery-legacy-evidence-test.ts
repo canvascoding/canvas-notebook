@@ -93,6 +93,40 @@ test('explicit null lineage is retained without generating or looking up a path 
   } finally { f.close(); }
 });
 
+test('explicit pre-PostgreSQL adapter preserves snapshot-linked identities and orders the complete original history', () => {
+  const f = fixture(database => database.exec(`
+    INSERT INTO file_revisions SELECT 'older-revision', organization_id, customer_id, project_id, workspace_id,
+      workspace_type, path, content_hash, size_bytes, created_by_user_id, created_by_actor_type, source_session_id,
+      NULL, lineage_id, 3, created_at-1 FROM file_revisions;
+    UPDATE file_revisions SET base_revision_id='older-revision' WHERE id='historical-revision';
+    ALTER TABLE collaboration_documents DROP COLUMN lineage_id;
+    ALTER TABLE file_revisions DROP COLUMN revision_number;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN organization_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN customer_id;
+    ALTER TABLE file_collaboration_lineages DROP COLUMN project_id;`));
+  try {
+    assert.throws(() => exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document']),
+      'schema compatibility must be explicitly selected');
+    const [identity] = exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document'], { schema: 'pre-postgres-v1' });
+    assert.equal(identity.document.id, 'historical-document');
+    assert.equal(identity.document.lineageId, 'historical-lineage', 'lineage comes from the exact snapshot FK');
+    assert.equal(identity.revision.id, 'historical-revision');
+    assert.equal(identity.revision.revisionNumber, 2, 'ordinal matches the existing PostgreSQL migration');
+    assert.equal(identity.revision.baseRevisionId, 'older-revision');
+    assert.equal(identity.history?.[0].id, 'older-revision');
+    assert.equal(identity.history?.[0].revisionNumber, 1);
+    assert.equal(identity.lineage?.organizationId, 'organization');
+  } finally { f.close(); }
+});
+
+test('pre-PostgreSQL adapter does not silently accept a different schema', () => {
+  const f = fixture();
+  try {
+    assert.throws(() => exportHistoricalCollaborationIdentities(f.sqlitePath, ['historical-document'],
+      { schema: 'pre-postgres-v1' }), /unsupported_legacy_schema/u);
+  } finally { f.close(); }
+});
+
 const invalidFixtures: Array<[string, (database: FixtureDatabase) => void]> = [
   ['missing document', database => database.exec('DELETE FROM collaboration_documents')],
   ['ambiguous document ID', database => database.exec('INSERT INTO collaboration_documents SELECT * FROM collaboration_documents')],

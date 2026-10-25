@@ -19,6 +19,7 @@ export type HistoricalCollaborationIdentityImport = {
   document: CollaborationDocumentRecord;
   revision: CollaborationRevisionRecord & { historyOnly: false };
   lineage?: CollaborationLineageRecord;
+  history?: Array<CollaborationRevisionRecord & { historyOnly: false }>;
 };
 
 export class HistoricalCollaborationIdentityImportError extends Error {
@@ -63,12 +64,14 @@ export async function importHistoricalCollaborationIdentity(
     ...(input.expectedState.projectionError ? { projectionError: { ...input.expectedState.projectionError } } : {}) };
   const document = { ...input.document }; const revision = { ...input.revision };
   const lineage = input.lineage ? { ...input.lineage } : undefined;
+  const history = (input.history ?? []).map(record => ({ ...record }));
   const expectedFileHash = input.expectedFileHash; const readCurrentFile = input.readCurrentFile;
   requireValue(input.operation === 'import_historical_identity', 'explicit_operation_required');
   requireValue(validPath(expectedState.path) && validPath(workspace.rootRelativePath ?? ''), 'noncanonical_path');
   requireValue(/^[a-f0-9]{64}$/u.test(expectedFileHash), 'invalid_file_hash');
   requireValue(expectedState.status === 'active' && !expectedState.degraded && !expectedState.projectionError
-    && expectedState.documentSequence === expectedState.checkpointSequence && expectedState.checkpointSequence > 0,
+    && expectedState.documentSequence === expectedState.checkpointSequence
+    && (expectedState.checkpointSequence > 0 || expectedState.lifecycleGeneration === 1),
   'state_not_verified_checkpoint');
   requireValue(expectedState.workspaceId === workspace.workspaceId
     && expectedState.organizationId === (workspace.organizationId ?? null), 'state_scope_mismatch');
@@ -81,6 +84,17 @@ export async function importHistoricalCollaborationIdentity(
     && record.organizationId === (workspace.organizationId ?? null) && record.customerId === (workspace.customerId ?? null)
     && record.projectId === (workspace.projectId ?? null) && record.path === expectedState.path;
   requireValue(recordScope(document) && recordScope(revision) && (!lineage || recordScope(lineage)), 'historical_scope_mismatch');
+  requireValue(history.length <= 10_000 && new Set([...history, revision].map(record => record.id)).size === history.length + 1
+    && new Set([...history, revision].map(record => record.revisionNumber)).size === history.length + 1,
+    'invalid_historical_history');
+  for (const record of history) {
+    requireValue(typeof record.id === 'string' && record.id.length > 0 && !record.id.includes('\0')
+      && recordScope(record) && record.lineageId === revision.lineageId && record.lineageId !== null
+      && record.historyOnly === false && /^[a-f0-9]{64}$/u.test(record.contentHash)
+      && integer(record.revisionNumber) > 0 && record.revisionNumber < revision.revisionNumber
+      && ['user', 'agent', 'automation', 'system'].includes(record.createdByActorType), 'invalid_historical_history');
+    integer(record.createdAt); integer(record.sizeBytes);
+  }
   requireValue(document.lineageId === revision.lineageId && document.lineageId === (lineage?.id ?? null), 'lineage_binding_mismatch');
   requireValue(!lineage || (lineage.status === 'active' && lineage.archivedAt === null && lineage.trashEntryId === null), 'historical_lineage_archived');
   requireValue(revision.historyOnly === false && revision.contentHash === expectedFileHash
@@ -124,10 +138,11 @@ export async function importHistoricalCollaborationIdentity(
   const documentFields = { id: document.id, ...scope, lineage_id: document.lineageId, provider: document.provider,
     state_version: document.stateVersion, snapshot_revision_id: document.snapshotRevisionId, status: 'active',
     created_at: document.createdAt, updated_at: document.updatedAt, yjs_state_lifecycle: 'initialized' };
-  const revisionFields = { id: revision.id, ...scope, lineage_id: revision.lineageId, revision_number: revision.revisionNumber,
-    content_hash: revision.contentHash, size_bytes: revision.sizeBytes, created_by_user_id: revision.createdByUserId,
-    created_by_actor_type: revision.createdByActorType, source_session_id: revision.sourceSessionId,
-    base_revision_id: revision.baseRevisionId, created_at: revision.createdAt, history_only: false };
+  const fieldsForRevision = (record: typeof revision) => ({ id: record.id, ...scope, lineage_id: record.lineageId, revision_number: record.revisionNumber,
+    content_hash: record.contentHash, size_bytes: record.sizeBytes, created_by_user_id: record.createdByUserId,
+    created_by_actor_type: record.createdByActorType, source_session_id: record.sourceSessionId,
+    base_revision_id: record.baseRevisionId, created_at: record.createdAt, history_only: false });
+  const historicalRevisions = [...history, revision].sort((a, b) => a.revisionNumber - b.revisionNumber);
   const lineageFields = lineage ? { id: lineage.id, ...scope, status: 'active', created_at: lineage.createdAt,
     archived_at: null, trash_entry_id: null } : null;
   const documents = await transaction.all(`SELECT * FROM collaboration_documents WHERE id = $1
@@ -137,21 +152,25 @@ export async function importHistoricalCollaborationIdentity(
   const lineages = await transaction.all(`SELECT * FROM file_collaboration_lineages WHERE ($1::text IS NOT NULL AND id = $1)
     OR (workspace_id = $2 AND path = $3) FOR UPDATE`, [lineage?.id ?? null, workspace.workspaceId, expectedState.path]) as Row[];
   requireValue(lineages.length === 0 || (lineages.length === 1 && lineageFields && matchingRow(lineages[0], lineageFields)), 'existing_lineage_conflict');
-  const revisions = await transaction.all(`SELECT * FROM file_revisions WHERE id = $1
+  const revisions = await transaction.all(`SELECT * FROM file_revisions WHERE id = ANY($1::text[])
     OR (workspace_id = $2 AND path = $3) OR ($4::text IS NOT NULL AND lineage_id = $4) FOR UPDATE`,
-  [revision.id, workspace.workspaceId, expectedState.path, revision.lineageId]) as Row[];
+  [historicalRevisions.map(record => record.id), workspace.workspaceId, expectedState.path, revision.lineageId]) as Row[];
   const existingRevision = revisions.find((row) => row.id === revision.id);
-  requireValue(revisions.every((row) => row.id === revision.id ? matchingRow(row, revisionFields)
+  requireValue(revisions.every((row) => historicalRevisions.some(record => record.id === row.id)
+    ? matchingRow(row, fieldsForRevision(historicalRevisions.find(record => record.id === row.id)!))
     // An existing older revision belongs to this same historical lineage. It
     // remains unchanged; a newer checkpoint or unbound path history conflicts.
     : revision.lineageId !== null && matchingRow(row, { ...scope, lineage_id: revision.lineageId })
       && integer(row.revision_number) < revision.revisionNumber), 'existing_revision_conflict');
-  if (revision.baseRevisionId !== null) {
-    const base = await transaction.get(`SELECT * FROM file_revisions WHERE id = $1 FOR SHARE`, [revision.baseRevisionId]) as Row | undefined;
+  for (const record of historicalRevisions) if (record.baseRevisionId !== null) {
+    const supplied = historicalRevisions.find(item => item.id === record.baseRevisionId);
+    const base = supplied ? fieldsForRevision(supplied)
+      : await transaction.get(`SELECT * FROM file_revisions WHERE id = $1 FOR SHARE`, [record.baseRevisionId]) as Row | undefined;
     requireValue(base && matchingRow(base, { ...scope, lineage_id: revision.lineageId })
-      && integer(base.revision_number) < revision.revisionNumber, 'base_revision_not_verified');
+      && integer(base.revision_number) < record.revisionNumber, 'base_revision_not_verified');
   }
-  const allExist = documents.length === 1 && existingRevision && (!lineage || lineages.length === 1);
+  const allExist = documents.length === 1 && existingRevision && historicalRevisions.every(record => revisions.some(row => row.id === record.id))
+    && (!lineage || lineages.length === 1);
   if (allExist) return { status: 'already_imported', documentId: document.id, revisionId: revision.id };
 
   // A caller may catch an error and continue its transaction: never leave a
@@ -160,7 +179,7 @@ export async function importHistoricalCollaborationIdentity(
   try {
     for (const [table, fields, existing] of [
       ['file_collaboration_lineages', lineageFields, lineages.length],
-      ['file_revisions', revisionFields, existingRevision ? 1 : 0],
+      ...historicalRevisions.map(record => ['file_revisions', fieldsForRevision(record), revisions.some(row => row.id === record.id) ? 1 : 0] as const),
       ['collaboration_documents', documentFields, documents.length],
     ] as const) {
       if (!fields || existing) continue;
