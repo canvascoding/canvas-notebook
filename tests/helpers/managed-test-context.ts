@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { waitForFileCreateBudget } from './create-request-budget';
 import { MANUAL_MARKDOWN_CREATE_CODES, parseManualMarkdownCreateCompletion } from '../../app/lib/files/markdown-create-result';
+import { initializeManagedTestWorkspace } from './managed-test-workspace';
 
 import type {
   APIRequestContext,
@@ -316,6 +317,11 @@ export async function authenticateManagedTestPage(
     if (typeof payload?.user?.id !== 'string' || !payload.user.id || payload.user.email !== identity.email) {
       throw new Error('Managed page authentication session identity does not match the configured account.');
     }
+    await initializeManagedTestWorkspace({ page, request: authenticated.request, email: identity.email,
+      primaryEmail: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
+      workspaceName: process.env.TEST_WORKSPACE_NAME,
+      baseUrl: process.env.BASE_URL || 'http://localhost:3000',
+      timeout: authRequestTimeout(deadline, 'Managed page authentication') });
     await page.context().addCookies(await authenticated.cookies());
   }, [() => authenticated.close()], 'Managed page authentication');
 }

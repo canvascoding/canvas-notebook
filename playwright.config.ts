@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { managedAcceptanceTestIgnore } from './tests/helpers/managed-acceptance-suites.mjs';
 
 loadEnv({ path: '.env.local', quiet: true });
 
@@ -29,6 +30,7 @@ process.env.TEST_LOGIN_PASSWORD ||= e2eAdminPassword;
 
 export default defineConfig({
   testDir: 'tests',
+  testIgnore: managedAcceptanceTestIgnore,
   timeout: 30_000,
   retries: 0,
   use: {

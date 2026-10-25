@@ -6,6 +6,16 @@ on:
       - scripts/run-dev.mjs
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
+      - scripts/browser-test-environment-test.ts
+      - scripts/managed-test-context-contract-test.ts
+      - scripts/playwright-suite-discovery-test.mjs
+      - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/managed-test-workspace.ts
+      - tests/helpers/managed-test-context.ts
+      - tests/helpers/managed-acceptance-suites.mjs
+      - tests/browser-lab.spec.ts
+      - tests/collaboration-release-recovery.spec.ts
+      - playwright.config.ts
       - package.json
       - package-lock.json
       - .github/workflows/dev-runtime.yml
@@ -15,6 +25,16 @@ on:
       - scripts/run-dev.mjs
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
+      - scripts/browser-test-environment-test.ts
+      - scripts/managed-test-context-contract-test.ts
+      - scripts/playwright-suite-discovery-test.mjs
+      - tests/helpers/browser-fixture-url.ts
+      - tests/helpers/managed-test-workspace.ts
+      - tests/helpers/managed-test-context.ts
+      - tests/helpers/managed-acceptance-suites.mjs
+      - tests/browser-lab.spec.ts
+      - tests/collaboration-release-recovery.spec.ts
+      - playwright.config.ts
       - package.json
       - package-lock.json
       - .github/workflows/dev-runtime.yml
@@ -43,4 +63,5 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run test:server:shutdown
+      - run: npm run test:browser:environment
       - run: npx --no-install eslint scripts/run-dev.mjs scripts/dev-checkout-lifetime.mjs scripts/dev-checkout-lifetime-test.mjs

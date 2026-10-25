@@ -2,14 +2,11 @@ import { expect, request as playwrightRequest, test, type APIRequestContext, typ
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
+import { createBrowserFixtureUrl } from './helpers/browser-fixture-url';
 
 function browserFixtureUrl(access: string, promptOnLoad = false): string {
-  const url = new URL('/api/browser/view/fixture-page', process.env.BASE_URL || 'http://localhost:3000');
-  // Signed local fixtures require localhost and the running server's port.
-  url.hostname = 'localhost';
-  url.searchParams.set('access', access);
-  if (promptOnLoad) url.searchParams.set('promptOnLoad', '1');
-  return url.toString();
+  return createBrowserFixtureUrl({ access, promptOnLoad,
+    baseUrl: process.env.BASE_URL || 'http://localhost:3000', fixturePort: process.env.TEST_BROWSER_FIXTURE_PORT });
 }
 
 const labels = {
