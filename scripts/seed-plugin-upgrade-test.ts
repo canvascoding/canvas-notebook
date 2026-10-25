@@ -42,6 +42,8 @@ async function main() {
       tsxCli,
       '--tsconfig',
       path.join(repositoryRoot, 'tsconfig.json'),
+      '--conditions',
+      'react-server',
       bootstrapScript,
     ], {
       cwd: fixtureRoot,
