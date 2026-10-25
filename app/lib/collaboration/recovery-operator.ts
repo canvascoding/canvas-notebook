@@ -13,15 +13,21 @@ import { serializeCanonicalText, type PersistedCollaborationState } from './pers
 import { recoveryHash, planCollaborationRecovery } from './recovery-plan';
 import { buildCollaborationRecoveryEvidence, decodeRecoveryState, observeRecoveryFile,
   recoveryPostgresInteger, recoveryPostgresFlag, recoveryStateFingerprint, type RecoveryRows, type RecoveryRow } from './recovery-evidence';
-import { withOfflineCollaborationRecoveryGuards, applyCodeMarkRecoveryClone, archiveCollaborationRecoveryOrphan } from './recovery-state-mutations';
+import { withOfflineCollaborationRecoveryGuards, applyCodeMarkRecoveryClone, archiveCollaborationRecoveryOrphan,
+  type OfflineCollaborationRecoveryGuard } from './recovery-state-mutations';
 import { importHistoricalCollaborationIdentity, type HistoricalCollaborationIdentityImport } from './recovery-identity-import';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { cloneNativeCollaborationDocument } from './native-document-recovery';
+import { Y } from './server-runtime';
+import { lockIdentity } from './room-owner';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { withNativeInspectionSchema } from './native-inspection-schema';
 
 type HistoricalIdentity = Pick<HistoricalCollaborationIdentityImport, 'document' | 'revision' | 'lineage' | 'history'>;
 type WorkspaceIdentity = { id: string; organizationId: string | null; customerId: string | null; projectId: string | null;
   type: WorkspaceContext['workspaceType']; rootRelativePath: string; status: 'active' };
 type Operation = {
-  id: string; kind: 'recover_orphans' | 'repair_code_marks' | 'import_historical_identity';
+  id: string; kind: 'recover_orphans' | 'repair_code_marks' | 'import_historical_identity' | 'seed_missing_successor';
   documentId: string; workspace: WorkspaceIdentity; expectedState: RecoveryRow; expectedRegistry: RecoveryRow | null;
   expectedRevision: RecoveryRow | null; expectedFileHash: string; projectedFileHash: string;
   orphans: Array<{ expectedState: RecoveryRow; caseFingerprint: string }>;
@@ -146,6 +152,30 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
     const file = bundle.evidence.files.find(record => record.workspaceId === state.workspaceId && record.path === state.path);
     if (!workspaceRow || !file?.hash) continue;
     const workspace = workspaceIdentity(workspaceRow);
+    if (!registry) {
+      const successors = bundle.rows.registry.filter(record => record.workspace_id === state.workspaceId
+        && record.path === state.path && record.status === 'active');
+      const successor = successors.length === 1 ? successors[0] : undefined;
+      const revision = successor && bundle.rows.revisions.find(record => record.id === successor.snapshot_revision_id);
+      if (successor && successor.provider === 'yjs' && scoped(successor, state, workspace)
+        && recoveryPostgresInteger(successor.state_version) === 0
+        && ['legacy_unknown', 'never_initialized'].includes(String(successor.yjs_state_lifecycle))
+        && !bundle.rows.states.some(record => record.document_id === successor.id)
+        && !state.degraded && !state.projectionError && state.documentSequence === state.checkpointSequence
+        && revisionVerified(revision, state, workspace) && revision.lineage_id === successor.lineage_id
+        && state.serializedHash === file.hash) {
+        try {
+          const canonical = authoritativeCollaborationSnapshot(state).canonicalContent;
+          requireValue(recoveryHash(canonical) === state.canonicalHash
+            && recoveryHash(serializeCanonicalText(canonical, state)) === file.hash
+            && Buffer.byteLength(serializeCanonicalText(canonical, state), 'utf8') === recoveryPostgresInteger(revision.size_bytes),
+          'successor source not verified');
+          operations.push({ id: '', selected: false, kind: 'seed_missing_successor', documentId: state.documentId, workspace,
+            expectedState: row, expectedRegistry: successor, expectedRevision: revision, expectedFileHash: file.hash,
+            projectedFileHash: file.hash, orphans: [] });
+        } catch { /* Leave an ambiguous source in the manual list. */ }
+      }
+    }
     if (registry && registry.provider === 'yjs' && scoped(registry, state, workspace) && state.degraded) {
       try {
         const revision = bundle.rows.revisions.find(record => record.id === registry.snapshot_revision_id);
@@ -174,7 +204,8 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
     operation.id = recoveryHash(canonical({ ...operation, selected: undefined, id: undefined }));
   }
   return { version: 1, bundleManifestHash: bundle.manifestHash, operations: operations.sort((a, b) => a.id.localeCompare(b.id)),
-    manual: manual.filter(item => !operations.some(operation => operation.kind === 'import_historical_identity' && operation.documentId === item.documentId)) };
+    manual: manual.filter(item => !operations.some(operation => ['import_historical_identity', 'seed_missing_successor'].includes(operation.kind)
+      && operation.documentId === item.documentId)) };
 }
 
 async function readPrivateRegularFile(filename: string): Promise<Buffer> {
@@ -292,6 +323,158 @@ async function publicShareProjectionHash(database: SqlConnection, operation: Ope
   })));
 }
 
+/** Explicit offline birth only: retain the current registry identity and clone
+ * an independently verified historical snapshot into an ABSENT current state.
+ * Never merge updates, replace a current state, or infer authority from a path. */
+async function seedMissingRecoverySuccessor(input: {
+  operation: Operation; guard: OfflineCollaborationRecoveryGuard; openConnection: () => Promise<SqlConnection>;
+  journalDirectory: string; journalPath: string; intent: unknown; resuming: boolean; backupId: string; selectionHash: string;
+}) {
+  const operation = input.operation, expected = decodeRecoveryState(operation.expectedState);
+  const target = operation.expectedRegistry, revision = operation.expectedRevision;
+  requireValue(target && revision && typeof target.id === 'string' && target.id !== expected.documentId,
+    'missing successor evidence');
+  const workspace = workspaceContext(operation.workspace), lock = lockIdentity(target.id);
+  const owner = await input.openConnection();
+  const birthPath = path.join(input.journalDirectory, `${operation.id}.birth.json`);
+  const completedPath = path.join(input.journalDirectory, `${operation.id}.complete.json`);
+  try {
+    requireValue((await owner.get('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key]) as RecoveryRow)?.locked === true,
+      'successor room busy');
+    const verifyOwner = async () => {
+      await input.guard.assertActive();
+      requireValue((await owner.get(`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted
+        AND mode='ExclusiveLock' AND pid=pg_backend_pid() AND classid::bigint=$1 AND objid::bigint=$2
+        AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND objsubid=1) AS held`,
+      [lock.high, lock.low]) as RecoveryRow)?.held === true, 'successor guard lost');
+    };
+    await verifyOwner();
+    let birth: { operationId: string; sourceFingerprint: string; state: RecoveryRow; blockIdMapping: Record<string, string> };
+    try { birth = JSON.parse((await readPrivateRegularFile(birthPath)).toString('utf8')); }
+    catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
+      requireValue(recoveryStateFingerprint(await currentState(owner, expected)) === recoveryStateFingerprint(expected), 'source changed');
+      requireValue((await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).hash === operation.expectedFileHash,
+        'source file changed');
+      if (!input.resuming) await durablePrivateWrite(input.journalPath, input.intent);
+      const cloned = await withNativeInspectionSchema(() => cloneNativeCollaborationDocument(expected));
+      try {
+        const now = Date.now();
+        const seed = { ...expected, documentId: target.id, lifecycleGeneration: 1, documentSequence: 0, checkpointSequence: 0,
+          persistedAt: now, checkpointedAt: now, yjsState: Y.encodeStateAsUpdate(cloned.doc), stateVector: Y.encodeStateVector(cloned.doc),
+          degraded: false, projectionError: undefined, projectionFinalized: false };
+        const canonicalContent = authoritativeCollaborationSnapshot(seed).canonicalContent;
+        requireValue(recoveryHash(canonicalContent) === expected.canonicalHash
+          && recoveryHash(serializeCanonicalText(canonicalContent, seed)) === operation.expectedFileHash, 'clone changed content');
+        birth = { operationId: operation.id, sourceFingerprint: recoveryStateFingerprint(expected), blockIdMapping: cloned.blockIdMapping,
+          state: { document_id: target.id, workspace_id: expected.workspaceId, organization_id: expected.organizationId, path: expected.path,
+            representation: expected.representation, lifecycle_generation: 1, schema_version: expected.schemaVersion,
+            yjs_state: { encoding: 'base64', bytes: Buffer.from(seed.yjsState).toString('base64') },
+            state_vector: { encoding: 'base64', bytes: Buffer.from(seed.stateVector).toString('base64') },
+            document_sequence: 0, checkpoint_sequence: 0, persisted_at: now, checkpointed_at: now,
+            canonical_hash: expected.canonicalHash, serialized_hash: expected.serializedHash,
+            newline_style: expected.newlineStyle, has_bom: expected.hasBom ? 1 : 0, degraded: 0, status: 'active' } };
+        await durablePrivateWrite(birthPath, birth);
+      } finally { cloned.doc.destroy(); }
+    }
+    requireValue(birth.operationId === operation.id && birth.sourceFingerprint === recoveryStateFingerprint(expected), 'birth journal changed');
+    const birthColumns = ['document_id', 'workspace_id', 'organization_id', 'path', 'representation', 'lifecycle_generation',
+      'schema_version', 'yjs_state', 'state_vector', 'document_sequence', 'checkpoint_sequence', 'persisted_at', 'checkpointed_at',
+      'canonical_hash', 'serialized_hash', 'newline_style', 'has_bom', 'degraded', 'status'];
+    requireValue(Object.keys(birth.state).length === birthColumns.length && birthColumns.every(key => Object.hasOwn(birth.state, key)),
+      'unexpected birth columns');
+    const seeded = decodeRecoveryState(birth.state);
+    requireValue(seeded.documentId === target.id && seeded.workspaceId === expected.workspaceId && seeded.path === expected.path
+      && seeded.organizationId === expected.organizationId && seeded.lifecycleGeneration === 1 && seeded.documentSequence === 0
+      && seeded.checkpointSequence === 0 && seeded.status === 'active' && !seeded.degraded && !seeded.projectionError
+      && seeded.schemaVersion === expected.schemaVersion && seeded.representation === expected.representation
+      && seeded.newlineStyle === expected.newlineStyle && seeded.hasBom === expected.hasBom
+      && seeded.canonicalHash === expected.canonicalHash && seeded.serializedHash === expected.serializedHash
+      && seeded.checkpointedAt === seeded.persistedAt
+      && recoveryHash(serializeCanonicalText(authoritativeCollaborationSnapshot(seeded).canonicalContent, seeded)) === operation.expectedFileHash,
+    'invalid birth');
+    const resolveSeed = async (database: SqlConnection, allowInsert: boolean): Promise<PersistedCollaborationState> => {
+      await verifyOwner();
+      const query = async (sql: string, params?: unknown[]) => await database.all(sql, params) as RecoveryRow[];
+      await lockCollaborationAdmissionWorkspace(query, expected.workspaceId);
+      await assertCollaborationAdmissionOpen(query, seeded);
+      const actualWorkspace = await database.get('SELECT * FROM canvas_workspaces WHERE id=$1 FOR SHARE', [expected.workspaceId]) as RecoveryRow;
+      requireValue(canonical(workspaceIdentity(actualWorkspace)) === canonical(operation.workspace), 'workspace changed');
+      const actual = await database.get('SELECT * FROM collaboration_documents WHERE id=$1 FOR UPDATE', [target.id]) as RecoveryRow;
+      const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id=$1 FOR UPDATE', [target.id]) as RecoveryRow | undefined;
+      const file = await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path);
+      requireValue(file.hash === operation.expectedFileHash && file.bytes.byteLength === recoveryPostgresInteger(revision.size_bytes), 'file changed');
+      if (row) {
+        const current = decodeRecoveryState(row);
+        requireValue(sameBinaryIdentity(seeded, current) && current.canonicalHash === seeded.canonicalHash
+          && current.serializedHash === seeded.serializedHash && scoped(actual, seeded, operation.workspace)
+          && actual.status === 'active' && actual.provider === 'yjs' && actual.lineage_id === target.lineage_id
+          && actual.yjs_state_lifecycle === 'initialized' && recoveryPostgresInteger(actual.state_version) === 0,
+        'existing successor state is not our birth');
+        return current;
+      }
+      requireValue(allowInsert && recordCanonical(actual) === recordCanonical(target), 'successor registry changed');
+      const history = await database.get(`SELECT EXISTS(SELECT 1 FROM collaboration_yjs_state_backups WHERE document_id=$1)
+        OR EXISTS(SELECT 1 FROM collaboration_agent_operations WHERE document_id=$1)
+        OR EXISTS(SELECT 1 FROM collaboration_recovery_state_mutations WHERE document_id=$1) AS present`, [target.id]) as RecoveryRow;
+      requireValue(history.present === false, 'successor has native history');
+      const currentRevision = await database.get('SELECT * FROM file_revisions WHERE id=$1 FOR SHARE', [revision.id]);
+      requireValue(recordCanonical(currentRevision) === recordCanonical(revision) && revisionVerified(revision, expected, operation.workspace),
+        'successor revision changed');
+      if (target.lineage_id !== null) {
+        const lineage = await database.get('SELECT * FROM file_collaboration_lineages WHERE id=$1 FOR SHARE', [target.lineage_id]) as RecoveryRow;
+        requireValue(lineage && scoped(lineage, expected, operation.workspace) && lineage.status === 'active'
+          && lineage.archived_at === null && lineage.trash_entry_id === null, 'successor lineage changed');
+      }
+      requireValue(recoveryStateFingerprint(await currentState(database, expected)) === recoveryStateFingerprint(expected), 'source changed before birth');
+      const entries = birthColumns.map(key => [key,
+        key === 'yjs_state' ? Buffer.from(seeded.yjsState) : key === 'state_vector' ? Buffer.from(seeded.stateVector) : birth.state[key]] as const);
+      await database.run(`INSERT INTO collaboration_yjs_states (${entries.map(([key]) => key).join(',')})
+        VALUES (${entries.map((_, index) => '$' + (index + 1)).join(',')})`, entries.map(([, value]) => value));
+      await database.run("UPDATE collaboration_documents SET yjs_state_lifecycle='initialized' WHERE id=$1", [target.id]);
+      return seeded;
+    };
+    const state = await executeLifecycleTransaction({ openConnection: input.openConnection,
+      execute: database => resolveSeed(database, true),
+      recoverCommitted: () => executeLifecycleTransaction({ openConnection: input.openConnection,
+        execute: database => resolveSeed(database, false), recoverCommitted: async proven => proven }) });
+    await verifyOwner();
+    let completed: RecoveryRow | undefined;
+    try { completed = JSON.parse((await readPrivateRegularFile(completedPath)).toString('utf8')); }
+    catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error; }
+    let revisionId: string;
+    if (completed) {
+      const database = await input.openConnection();
+      try {
+        revisionId = (await verifiedProjection(database, state, operation))!;
+        const receipt = await database.get('SELECT finalized FROM collaboration_file_projections WHERE document_id=$1', [target.id]) as RecoveryRow;
+        requireValue(revisionId && recoveryPostgresFlag(receipt.finalized) && completed.revisionId === revisionId
+          && completed.operationId === operation.id && completed.selectionHash === input.selectionHash
+          && completed.publicSharesHash === await publicShareProjectionHash(database, operation)
+          && canonical(completed.fileIdentity) === canonical((await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).fileIdentity),
+        'seed completion changed');
+      } finally { await database.close(); }
+    } else {
+      const projected = await materializeCollaborationCheckpoint({ state, workspace, actorType: 'system', sourceSessionId: `collaboration-recovery:${operation.id}` });
+      requireValue(projected.state.projectionFinalized && recoveryHash(projected.content) === operation.expectedFileHash, 'seed projection incomplete');
+      revisionId = projected.revisionId;
+    }
+    await verifyOwner();
+    await archiveCollaborationRecoveryOrphan({ expected, operationId: recoveryHash(operation.id + ':' + expected.documentId),
+      backupId: recoveryHash(input.backupId + ':' + operation.id + ':' + expected.documentId), guard: input.guard, openConnection: input.openConnection });
+    const outcome = { operationId: operation.id, documentId: expected.documentId, revisionId,
+      disposition: input.resuming ? 'already_applied' as const : 'applied' as const };
+    if (!completed) {
+      const database = await input.openConnection();
+      try { await durablePrivateWrite(completedPath, { ...outcome, disposition: undefined, selectionHash: input.selectionHash,
+        publicSharesHash: await publicShareProjectionHash(database, operation),
+        fileIdentity: (await observeRecoveryFile(operation.workspace.rootRelativePath, expected.path)).fileIdentity }); }
+      finally { await database.close(); }
+    }
+    return outcome;
+  } finally { await owner.close(new Error('Discarding missing-successor recovery guard.')); }
+}
+
 /** Explicit offline operator only. No route, scheduler or normal startup invokes this. */
 export async function applyCollaborationRecoverySelection(input: {
   bundle: RecoveryBundle; selection: RecoverySelection; selectionHash: string; proof: RecoveryExecutionProof; journalDirectory: string;
@@ -322,6 +505,9 @@ export async function applyCollaborationRecoverySelection(input: {
       documentIds: [expected.documentId, ...operation.orphans.map(orphan => String(orphan.expectedState.document_id))],
       openGuardConnection: input.openConnection, operation: async guard => withWorkspaceMutationLock(expected.workspaceId, async () => {
         await guard.assertActive();
+        if (operation.kind === 'seed_missing_successor') return seedMissingRecoverySuccessor({ operation, guard,
+          openConnection: input.openConnection, journalDirectory: input.journalDirectory, journalPath, intent, resuming,
+          backupId: input.proof.backupId, selectionHash: input.selectionHash });
         let state: PersistedCollaborationState; const database = await input.openConnection();
         try {
           const actualWorkspace = await database.get('SELECT * FROM canvas_workspaces WHERE id=$1', [expected.workspaceId]) as RecoveryRow | undefined;
