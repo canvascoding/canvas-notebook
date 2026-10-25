@@ -272,13 +272,18 @@ export class BrowserViewService {
         await this.applyViewport(page);
         await this.ensurePageTransfers(page);
         scheduleIdleClose(this.context);
-        const bytes = await page.screenshot({
-          type: 'jpeg',
+        const client = this.pageTransfers.get(page)?.pageClient;
+        if (!client) throw new Error('Browser capture target is unavailable.');
+        // This view owns the CDP session and detaches it on close. Puppeteer's
+        // page.screenshot holds a context-wide mutex that can block tab/profile
+        // shutdown when Chromium stops answering a capture request.
+        const frame = await client.send('Page.captureScreenshot', {
+          format: 'jpeg',
           quality: this.resourceBudget.jpegQuality,
           optimizeForSpeed: true,
           captureBeyondViewport: false,
-        });
-        return Buffer.from(bytes).toString('base64');
+        }, { timeout: 5_000 });
+        return frame.data;
       });
       if (this.closed) return;
       const nextSequence = this.sequence + 1;

@@ -74,6 +74,10 @@ test('a completed managed worker can be selected for a follow-up in the chat', a
 
   try {
     await page.goto(`/notebook?chat=open&session=${encodeURIComponent(sourceSessionId!)}`);
+    // Session loading clears its navigation intent through a router transition.
+    // Wait for that transition before editing a dialog that it can remount.
+    await page.waitForURL((url) => !url.searchParams.has('session'));
+    await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', sourceSessionId!);
     await expect(page.getByTestId('chat-delegation-panel')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('chat-delegation-start').click();
     const sessionSelect = page.getByLabel(/Agenten-Session|Agent session/i);

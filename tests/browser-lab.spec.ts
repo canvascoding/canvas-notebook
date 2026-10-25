@@ -2,14 +2,11 @@ import { expect, request as playwrightRequest, test, type APIRequestContext, typ
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
+import { createBrowserFixtureUrl } from './helpers/browser-fixture-url';
 
 function browserFixtureUrl(access: string, promptOnLoad = false): string {
-  const url = new URL('/api/browser/view/fixture-page', process.env.BASE_URL || 'http://localhost:3000');
-  // Signed local fixtures require localhost and the running server's port.
-  url.hostname = 'localhost';
-  url.searchParams.set('access', access);
-  if (promptOnLoad) url.searchParams.set('promptOnLoad', '1');
-  return url.toString();
+  return createBrowserFixtureUrl({ access, promptOnLoad,
+    baseUrl: process.env.BASE_URL || 'http://localhost:3000', fixturePort: process.env.TEST_BROWSER_FIXTURE_PORT });
 }
 
 const labels = {
@@ -658,6 +655,7 @@ test.describe('Browser Lab', () => {
       await address.fill(fixtureUrl);
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
       // Chromium can replace the initial about:blank entry. Create real history.
       await address.fill(`${fixtureUrl}#history`);
       await page.getByRole('button', { name: labels.navigate }).click();
@@ -711,6 +709,7 @@ test.describe('Browser Lab', () => {
       await expect(address).toHaveValue(fixtureUrl);
       await address.press('Enter');
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
       await page.screenshot({ path: 'test-results/browser-lab-mobile.png', fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
@@ -729,6 +728,8 @@ test.describe('Browser Lab', () => {
       expect(mobileMetrics.visibleButtons.every((button) => button.left >= -1 && button.right <= mobileMetrics.innerWidth + 1)).toBeTruthy();
 
       await page.getByTitle(labels.disconnect).click();
+      await expect(page.getByText(labels.disconnected)).toBeVisible();
+      await expect(frame).toHaveCount(0);
       expect(pageErrors).toEqual([]);
     } catch (error) {
       console.error('Browser cooperative flow failed:', error instanceof Error ? safeBrowserLabPrimary(error.message) : 'Unknown failure.');
