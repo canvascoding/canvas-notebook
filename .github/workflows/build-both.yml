@@ -82,6 +82,9 @@ jobs:
       - name: Verify production agent bootstrap and restart
         run: npm run test:agent-runtime:startup
 
+      - name: Verify standalone recovery and backup imports
+        run: npm run test:server:standalone-imports
+
       - name: Verify owned review fixture cooldown contracts
         run: node --import tsx --conditions react-server scripts/owned-review-cooldown-contract-test.ts
 

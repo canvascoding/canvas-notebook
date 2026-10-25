@@ -2,7 +2,7 @@ import 'server-only';
 import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { workspaceAbsoluteRoot } from '../workspaces/contracts';
-import { authoritativeCollaborationSnapshot } from './checkpoint';
+import { authoritativeCollaborationSnapshot } from './authoritative-snapshot';
 import { serializeCanonicalText, type PersistedCollaborationState } from './persistence';
 import { isCollaborationStateQuarantined } from './failure';
 import { recoveryHash, type CollaborationRecoveryEvidence } from './recovery-plan';

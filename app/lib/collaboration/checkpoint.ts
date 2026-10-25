@@ -15,8 +15,6 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import type { SqlConnection } from '@/app/lib/db';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { validateRichMarkdownYDoc } from './markdown-state';
-import { CollaborationCheckpointValidationError } from './checkpoint-errors';
 import {
   serializeCanonicalText,
   sha256Text,
@@ -24,10 +22,10 @@ import {
   loadCollaborationState,
   withCollaborationCheckpointFence,
 } from './persistence';
-import { Y } from './server-runtime';
 import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, loadCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
 import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from './projection-identity';
 import { inCollaborationProjectionPhase } from './projection-errors';
+import { authoritativeCollaborationSnapshot } from './authoritative-snapshot';
 import { withCollaborationProjectionPublicationGuard } from './projection-publication-guard';
 
 export class CollaborationCheckpointSupersededError extends Error {
@@ -47,48 +45,7 @@ type CompensatableCollaborationCheckpointFileWrite = CollaborationCheckpointFile
   rollback: () => Promise<void>;
 };
 
-export type AuthoritativeCollaborationSnapshot = {
-  canonicalContent: string;
-  checkpointSequence: number;
-  documentSequence: number;
-  stateVector: string;
-};
-
-/**
- * Serializes only the persisted Yjs snapshot. Callers cannot supply a second
- * text truth that happens to share the same sequence or state vector.
- */
-export function authoritativeCollaborationSnapshot(
-  state: PersistedCollaborationState,
-): AuthoritativeCollaborationSnapshot {
-  const doc = new Y.Doc({ gc: true });
-  try {
-    Y.applyUpdate(doc, state.yjsState);
-    const encodedVector = Buffer.from(Y.encodeStateVector(doc));
-    if (!encodedVector.equals(Buffer.from(state.stateVector))) {
-      throw new Error('Persisted collaboration state and state vector do not match.');
-    }
-
-    let canonicalContent: string;
-    if (state.representation === 'plain_text') {
-      canonicalContent = doc.getText('content').toString();
-    } else {
-      const validation = validateRichMarkdownYDoc(doc);
-      if (!validation.valid || validation.markdown === undefined) {
-        throw new CollaborationCheckpointValidationError(validation.code || 'schema_invalid');
-      }
-      canonicalContent = validation.markdown;
-    }
-    return {
-      canonicalContent: canonicalContent.replace(/\r\n?/gu, '\n'),
-      checkpointSequence: state.checkpointSequence,
-      documentSequence: state.documentSequence,
-      stateVector: encodedVector.toString('base64'),
-    };
-  } finally {
-    doc.destroy();
-  }
-}
+export { authoritativeCollaborationSnapshot, type AuthoritativeCollaborationSnapshot } from './authoritative-snapshot';
 
 async function writeCollaborationCheckpointFile(input: {
   state: PersistedCollaborationState;
