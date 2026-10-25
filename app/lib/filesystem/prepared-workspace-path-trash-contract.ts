@@ -250,7 +250,9 @@ export function decodePreparedWorkspacePathTrashOriginal(input: unknown): Prepar
     if ((observed.mode & 0o170000) !== 0o040000 || (observed.mode & 0o022)) pathTrashFailure('invalid-input');
   }
   const sourceParents = parents(filesystem.sourceParents, canonicalPath), trashParents = parents(filesystem.trashParents, trashPath);
-  if (trashParents.missingPrefix || trashParents.directories.some(item => (item.identity.mode & 0o077) !== 0)) pathTrashFailure('invalid-input');
+  if (trashParents.missingPrefix || !trashParents.directories.length
+    || trashParents.directories.some((item, index) => (item.identity.mode
+      & (index === trashParents.directories.length - 1 ? 0o077 : 0o022)) !== 0)) pathTrashFailure('invalid-input');
   const limits = budget(data.budget), capturedSource = source(data.source, limits, canonicalPath, trashPath);
   if (capturedSource.kind !== 'projection_absent' && sourceParents.missingPrefix) pathTrashFailure('invalid-input');
   const rootFingerprint = capturedSource.kind === 'projection_absent' ? null

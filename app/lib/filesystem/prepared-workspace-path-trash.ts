@@ -142,7 +142,8 @@ function verifyAnchors(stage: Stage): void {
       if (!configured.isDirectory() || configured.isSymbolicLink() || fs.realpathSync(root.configured) !== root.resolved
         || !sameNode(identity(configured), root.pin.identity)) throw failure(stage, 'scope-changed');
       for (const pin of root.anchors.values()) {
-        ownDirectory(stage, stat(pin.fd), root === stage.dataRoot && pin !== root.pin);
+        ownDirectory(stage, stat(pin.fd), root === stage.dataRoot
+          && pin.relativePath === parentPath(stage.request.trashRelativePath));
         if (!sameNode(identity(stat(pin.fd)), pin.identity)) throw failure(stage, 'scope-changed');
         if (!pin.parent) continue;
         if (!stage.io.hasExactNameAt(pin.parent.fd, pin.name!)) throw failure(stage, 'scope-changed');
@@ -187,7 +188,8 @@ function parents(stage: Stage, root: Root, pathname: string): PreparedPathTrashP
     const exact = stage.io.hasExactNameAt(parent.fd, name), entry = openEntry(stage, parent, name);
     if (!entry) return freezePathTrashData({ directories, missingPrefix: relativePath });
     if (!exact || entry.kind !== 'directory' || entry.fd === undefined) { disposeEntry(stage, entry); throw failure(stage, 'unsafe-path'); }
-    ownDirectory(stage, stat(entry.fd), root === stage.dataRoot);
+    ownDirectory(stage, stat(entry.fd), root === stage.dataRoot
+      && relativePath === parentPath(stage.request.trashRelativePath));
     const pin: Pin = { fd: entry.fd, relativePath, parent, name, identity: entry.identity! };
     root.anchors.set(relativePath, pin); parent = pin; directories.push({ relativePath, identity: pin.identity });
   }
@@ -348,7 +350,10 @@ async function reserveTrashParents(stage: Stage): Promise<PreparedPathTrashParen
     if (!stage.io.hasExactNameAt(parent.fd, name)) throw failure(stage, 'unsafe-path');
     const entry = openEntry(stage, parent, name);
     if (!entry || entry.kind !== 'directory' || entry.fd === undefined) { disposeEntry(stage, entry); throw failure(stage, 'unsafe-path'); }
-    ownDirectory(stage, stat(entry.fd), true);
+    // Shared namespace parents also serve the existing single-file trash and
+    // may be owned 0755 directories. Only this exclusive entry must be 0700;
+    // every parent still rejects foreign ownership, symlinks and write access.
+    ownDirectory(stage, stat(entry.fd), last);
     const relativePath = components.slice(0, index + 1).join('/');
     const pin: Pin = { fd: entry.fd, relativePath, parent, name, identity: entry.identity! };
     root.anchors.set(relativePath, pin);

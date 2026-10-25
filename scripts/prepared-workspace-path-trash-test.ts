@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { trashRootForWorkspace } from '../app/lib/filesystem/workspace-trash-layout';
 import { withPreparedWorkspacePathTrashes as prepare, withRecoveredWorkspacePathTrashes as recover,
   readPreparedWorkspacePathTrash as read, readPreparedWorkspacePathTrashDisposition as disposition,
   readPreparedWorkspacePathTrashReceipt as receipt, trashPreparedWorkspacePath as trash,
@@ -77,6 +78,50 @@ test('real regular file moves once into private DATA trash, preserving inode and
     const entry = await fs.lstat(path.dirname(destination(value, original))); assert.equal(entry.mode & 0o777, 0o700);
     await assert.rejects(fs.lstat(path.join(value.workspace.rootPath, 'note.md')), { code: 'ENOENT' });
   });
+}));
+
+test('legacy owned 0755 namespace parents retain their identities while each new entry stays private', () => fixture(async value => {
+  await file(value, 'folder/note.md', 'Preserved original');
+  const shared = trashRootForWorkspace(value.workspace, value.dataRoot);
+  await fs.mkdir(shared, { recursive: true, mode: 0o755 });
+  const parents: Array<{ name: string; ino: number; mode: number }> = [];
+  for (let name = shared; name !== value.dataRoot; name = path.dirname(name)) {
+    await fs.chmod(name, 0o755); const info = await fs.lstat(name);
+    parents.push({ name, ino: info.ino, mode: info.mode });
+  }
+  let original!: Original;
+  await prepare({ workspace: value.workspace, dataRoot: value.dataRoot, selections: [selected('folder', 'directory')] }, async caps => {
+    original = read(caps[0].cap); await current(caps[0].cap);
+    const moved = await trash(caps[0].cap); await strict(caps[0].cap, moved); await current(caps[0].cap);
+    assert.equal((await fs.lstat(path.dirname(destination(value, original)))).mode & 0o777, 0o700);
+  });
+  await recover({ workspace: value.workspace, dataRoot: value.dataRoot, originals: [{ stepKey: 'folder', original }] }, async caps => {
+    assert.equal(disposition(caps[0].cap), 'already_moved'); await current(caps[0].cap);
+    assert.equal((await receipt(caps[0].cap)).observation.kind, 'moved');
+  });
+  assert.equal(await fs.readFile(path.join(destination(value, original), 'note.md'), 'utf8'), 'Preserved original');
+  for (const parent of parents) {
+    const info = await fs.lstat(parent.name); assert.equal(info.ino, parent.ino); assert.equal(info.mode, parent.mode);
+  }
+}));
+
+test('a group-writable shared trash namespace still rejects preparation without moving the original', () => fixture(async value => {
+  await file(value, 'folder/note.md', 'Untouched');
+  await fs.mkdir(path.join(value.dataRoot, '.trash'), { mode: 0o700 });
+  await fs.chmod(path.join(value.dataRoot, '.trash'), 0o775);
+  await assert.rejects(prepare({ workspace: value.workspace, dataRoot: value.dataRoot,
+    selections: [selected('folder', 'directory')] }, async () => assert.fail('Unsafe parent reached callback.')), error('unsafe-path'));
+  assert.equal(await fs.readFile(path.join(value.workspace.rootPath, 'folder/note.md'), 'utf8'), 'Untouched');
+}));
+
+test('an entry made traversable by another user is rejected before the physical move', () => fixture(async value => {
+  await file(value, 'folder/note.md', 'Untouched');
+  await assert.rejects(prepare({ workspace: value.workspace, dataRoot: value.dataRoot,
+    selections: [selected('folder', 'directory')] }, async caps => {
+    await fs.chmod(path.dirname(destination(value, read(caps[0].cap))), 0o755);
+    await trash(caps[0].cap);
+  }), error('unsafe-path', 'scope-changed'));
+  assert.equal(await fs.readFile(path.join(value.workspace.rootPath, 'folder/note.md'), 'utf8'), 'Untouched');
 }));
 
 test('folder moves as one unchanged real tree with an exact fingerprint for every original entity', () => fixture(async value => {
