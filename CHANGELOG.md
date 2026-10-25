@@ -11,10 +11,13 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.25.3] - 2026-10-25
+## [2026.10.25.4] - 2026-10-25
 
 ### Fixed
 
+- Preserved existing provider verification when saving unrelated provider settings or the chat default, preventing spurious provider-not-ready session conflicts.
+- Cancelled stalled live browser frame captures during shutdown so closing the browser view cannot hold its runtime open.
+- Stopped development servers when their checkout is removed or replaced, preventing orphaned workers from claiming file jobs against a missing helper.
 - Restored support for safe existing trash namespaces during folder operations while retaining private trash entries and filesystem identity checks.
 - Preserved literal alphabetic and Roman list markers in authored paragraphs during native-document Markdown export.
 - Kept backup, recovery and standalone checkpoint commands independent of authentication and agent-provider startup.
