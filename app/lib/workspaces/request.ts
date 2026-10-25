@@ -241,6 +241,4 @@ export async function requireRequestPersonalWorkspace(
   return { session, workspace, response: null };
 }
 
-export function workspaceFileOptions(workspace: WorkspaceContext) {
-  return { workspace };
-}
+export { workspaceFileOptions } from './file-options';

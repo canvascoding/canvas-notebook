@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import {
   coerceDatabaseUnavailableError,
   databaseUnavailablePublicMessage,
@@ -29,6 +28,7 @@ interface InvalidateWorkspaceFileViewsOptions {
 }
 
 export async function requireApiSession(request: NextRequest): Promise<NextResponse | null> {
+  const { auth } = await import('@/app/lib/auth');
   const session = await auth.api.getSession({ headers: request.headers });
   return session ? null : jsonError('Unauthorized', 401);
 }

@@ -10,8 +10,8 @@ const data = await mkdtemp(path.join(os.tmpdir(), 'canvas-standalone-import-'));
 try {
   for (const entry of ['recovery-evidence', 'recovery-operator', '../excalidraw-collaboration/checkpoint-worker']) {
     const source = `require('./app/lib/collaboration/${entry}.ts');
-      ${entry === 'recovery-evidence' ? `if (Object.keys(require.cache).some(file => file.endsWith('/app/lib/auth.ts'))) throw new Error('Read-only evidence imported authentication runtime');` : ''}
-      console.log('standalone import passed'); ${entry === 'recovery-evidence' ? '' : 'process.exit(0);'}`;
+      if (Object.keys(require.cache).some(file => file.endsWith('/app/lib/auth.ts'))) throw new Error('Standalone collaboration tooling imported authentication runtime');
+      console.log('standalone import passed');`;
     const { stdout } = await execute(process.execPath, ['--conditions', 'react-server', '--import', 'tsx', '-e', source], {
       cwd: process.cwd(), timeout: 30_000, maxBuffer: 2 * 1024 * 1024,
       env: { ...process.env, NODE_OPTIONS: '', CANVAS_MCP_DIRECT_ENABLED: 'false',
@@ -22,5 +22,5 @@ try {
     });
     assert.match(stdout, /standalone import passed/u);
   }
-  console.log('collaboration-standalone-import-test: real recovery and backup modules import without provider loading');
+  console.log('collaboration-standalone-import-test: real recovery and backup modules import without authentication/provider startup and exit naturally');
 } finally { await rm(data, { recursive: true, force: true }); }

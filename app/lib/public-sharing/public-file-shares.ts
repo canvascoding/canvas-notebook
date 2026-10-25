@@ -29,9 +29,6 @@ import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types
 import type { NextRequest } from 'next/server';
 import type { NativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
-import { revokePublicShareForRequest, revokePublicShareForAgent, updatePublicSharePolicyForRequest,
-  createPublicSharesForRequest, createPublicSharesForAgent,
-  PublicShareWriterError } from './writer';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
 export type PublicShareSource = 'ui' | 'agent';
@@ -699,6 +696,7 @@ type SharePolicyUpdate = {
 export async function updatePublicFileShare(params: Omit<SharePolicyUpdate,'userId'> & {
   id: string; request?: NextRequest; workspaceId?: string; userId?: string; baseUrl?: string | null;
 }): Promise<PublicShareDto | null> {
+  const { updatePublicSharePolicyForRequest, PublicShareWriterError } = await import('./writer');
   if (!params.request) throw new PublicShareWriterError('PUBLIC_SHARE_WRITE_INVALID');
   const workspaceId = params.workspaceId ?? params.workspace?.workspaceId;
   const result = await updatePublicSharePolicyForRequest(params.request,{id:params.id,
@@ -718,6 +716,7 @@ export async function createPublicFileShares(params: {
   expiresAt?: Date | null; defaultExpiresAt?: Date | null; reason?: string | null;
   securityMode?: PublicShareSecurityMode; confirmPublicExposure?: boolean; baseUrl?: string | null;
 }): Promise<{ shares: PublicShareDto[]; skipped: Array<{path:string;reason:string}> }> {
+  const { createPublicSharesForRequest, createPublicSharesForAgent, PublicShareWriterError } = await import('./writer');
   const keys = ['paths','request','workspaceId','createdByUserId','workspace','source','createdByAgentId','sourceSessionId',
     'expiresAt','defaultExpiresAt','reason','securityMode','confirmPublicExposure','baseUrl'];
   if (!params || Object.getPrototypeOf(params) !== Object.prototype
@@ -756,6 +755,7 @@ export async function revokePublicFileShare(params: {
   isAdmin?: boolean;
   baseUrl?: string | null;
 }): Promise<PublicShareDto | null> {
+  const { revokePublicShareForRequest, revokePublicShareForAgent } = await import('./writer');
   const workspaceId = params.workspaceId ?? params.workspace?.workspaceId;
   const selected = {id:params.id,...(workspaceId === undefined ? {} : {workspaceId})};
   const result = params.request

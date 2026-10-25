@@ -11,7 +11,7 @@ import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
 import { EXCALIDRAW_FILE_SOURCE } from '@/app/lib/excalidraw-file';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
-import { workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { workspaceFileOptions } from '@/app/lib/workspaces/file-options';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { decodeExcalidrawDataUrl, loadExcalidrawAsset } from './assets';
 import { canonicalSceneHash, sharedExcalidrawAppState, validateExcalidrawElements } from './scene';
