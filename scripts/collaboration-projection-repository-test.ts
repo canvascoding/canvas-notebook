@@ -196,7 +196,24 @@ async function main() {
       assert.equal((await repository.loadCollaborationProjectionStatus(resetGeneration)).projectionFinalized, false);
       await connection.run('ROLLBACK');
     }
-    console.log('Projection backlog survives repository restart; real SQL verifies receipts, atomic rollback, monotonic sequences, generation/deletion fences and workspace organization/status/root boundaries.');
+    const nativeBeforeHealth = await connection.get("SELECT * FROM collaboration_yjs_states WHERE document_id='doc'");
+    const healthBeforeDisabled = await repository.readCollaborationProjectionHealth(connection);
+    await connection.run("UPDATE canvas_workspaces SET status='disabled' WHERE id=$1", [state.workspaceId]);
+    await connection.run("UPDATE collaboration_documents SET status='archived' WHERE id='doc'");
+    const disabledHealth = await repository.readCollaborationProjectionHealth(connection);
+    assert.equal(disabledHealth.active, 0);
+    assert.equal(disabledHealth.identityConflicts, 0, 'an explicitly disabled workspace is not an active identity conflict');
+    assert.equal(disabledHealth.pending, 0);
+    assert.equal(disabledHealth.inactiveWorkspaceStates, 1, 'retained inactive states stay visible in separate diagnostics');
+    assert.deepEqual(await pending(), []);
+    await connection.run("UPDATE canvas_workspaces SET status='active' WHERE id=$1", [state.workspaceId]);
+    assert.equal((await repository.readCollaborationProjectionHealth(connection)).identityConflicts, 1,
+      'an actual identity failure in an active workspace must remain visible');
+    await connection.run("UPDATE collaboration_documents SET status='active' WHERE id='doc'");
+    assert.deepEqual(await repository.readCollaborationProjectionHealth(connection), healthBeforeDisabled);
+    assert.deepEqual(await connection.get("SELECT * FROM collaboration_yjs_states WHERE document_id='doc'"), nativeBeforeHealth,
+      'health diagnostics never mutate native bytes, quarantine or counters');
+    console.log('Projection backlog survives repository restart; real SQL verifies receipts, inactive workspace diagnostics, atomic rollback, monotonic sequences, generation/deletion fences and workspace organization/status/root boundaries.');
   } finally { doc.destroy(); await database.close(); }
 }
 

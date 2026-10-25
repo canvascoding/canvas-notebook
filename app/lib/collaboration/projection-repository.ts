@@ -158,6 +158,9 @@ export async function recordCollaborationProjectionFailure(state: PersistedColla
 /** Aggregate diagnostics only; document failures do not change process liveness. */
 export async function readCollaborationProjectionHealth(database: Pick<SqlConnection, 'get'>) {
   const row = await database.get(`SELECT count(*) AS active,
+    (SELECT count(*) FROM collaboration_yjs_states inactive
+      JOIN canvas_workspaces owner ON owner.id=inactive.workspace_id AND owner.status='disabled'
+      WHERE inactive.status='active') AS inactive_workspace_states,
     count(*) FILTER (WHERE c.id IS NULL OR w.id IS NULL) AS identity_conflicts,
     count(*) FILTER (WHERE (y.degraded = 1 AND y.projection_error_code IS DISTINCT FROM 'COLLABORATION_YJS_PERSISTENCE_FAILED') OR (y.projection_error_permanent = 1
       AND y.projection_error_generation = y.lifecycle_generation)) AS quarantined,
@@ -172,9 +175,14 @@ export async function readCollaborationProjectionHealth(database: Pick<SqlConnec
       AND w.organization_id IS NOT DISTINCT FROM y.organization_id AND w.type = c.workspace_type
     LEFT JOIN collaboration_file_projections p ON p.document_id = y.document_id
       AND p.lifecycle_generation = y.lifecycle_generation
-    WHERE y.status = 'active'`) as { active: number; identity_conflicts: number; quarantined: number; pending: number; binary_persistence_failures: number };
+    WHERE y.status = 'active' AND NOT EXISTS (SELECT 1 FROM canvas_workspaces owner
+      WHERE owner.id=y.workspace_id AND owner.status='disabled')`) as {
+        active: number; identity_conflicts: number; quarantined: number; pending: number; binary_persistence_failures: number;
+        inactive_workspace_states: number;
+      };
   return { active: Number(row.active), identityConflicts: Number(row.identity_conflicts),
-    quarantined: Number(row.quarantined), pending: Number(row.pending), binaryPersistenceFailures: Number(row.binary_persistence_failures) };
+    quarantined: Number(row.quarantined), pending: Number(row.pending), binaryPersistenceFailures: Number(row.binary_persistence_failures),
+    inactiveWorkspaceStates: Number(row.inactive_workspace_states ?? 0) };
 }
 
 /** Internal storage context for projecting ALREADY authorized, persisted Yjs. */
