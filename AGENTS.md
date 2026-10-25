@@ -26,7 +26,7 @@
 - arbeite proaktiv, mach commits zwischendurch und mach noch keine weitere task bevor eine wichtige task fertig ist. 
 - teste auch das UI wenn du etwas integrierst.
 Für das lokale Dev-Setup den Skill `canvas-local-team-seat-dev` verwenden; er definiert den verwalteten Stack und verhindert parallele Testumgebungen.
-- nutz playwright oder so nur wenn ich es explizit sage oder frage danach bevor du es verwendest
+- Für notwendige UI- und End-to-End-Prüfungen Playwright oder Chrome DevTools eigenständig verwenden; keine gesonderte Zustimmung erforderlich.
 
 
 ## Build, Test, and Development Commands
