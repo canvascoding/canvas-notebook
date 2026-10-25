@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.25.1] - 2026-10-25
+
+### Fixed
+
+- Fixed container startup after the Yjs release by running the agent runtime bootstrap with the server module condition required by workspace initialization storage.
+
+### Verification
+
+- Added production-entrypoint bootstrap and restart regression coverage to local release verification and the tag-triggered build safety checks.
+- `npm run test:agent-runtime:startup`
+- `npm run verify:release`
+
 ## [2026.10.24.1] - 2026-10-24
 
 ### Added
