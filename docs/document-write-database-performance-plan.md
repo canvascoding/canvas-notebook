@@ -34,7 +34,7 @@ Die Korrektur ist lokal umgesetzt und mit einem echten PostgreSQL-Vergleich sowi
 der gebauten Desktop-/Mobiloberfläche geprüft: Inaktive Zustände und beschädigte
 native Bytes lassen die übrigen geprüften Dokumente verfügbar. Ein globaler
 Organisationskonflikt verwirft weiterhin den ganzen Index; der Standardleser für
-Mutationseingänge bleibt streng. Der [Prüfbericht](qa/document-link-source-isolation-2026-10-26.md)
+Mutationseingänge bleibt streng. Der [Prüfbericht](architecture/document-link-source-isolation-2026-10-26.md)
 beschreibt die Abnahme einschließlich der feld- und bytegenauen Wiederherstellung.
 
 Die gewünschte öffentliche Wirkung ist einheitlich: Ein erfolgreicher Save bestätigt
