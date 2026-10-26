@@ -43,6 +43,9 @@ Die Messbereiche sind unterschiedlich. Ihre Zahlen dürfen nicht als direkt
 vergleichbare Gesamtkosten oder prozentuale Verbesserung ausgegeben werden.
 Insbesondere sind WebSocket-Zutritts-/Nachrichtenprüfung und asynchrone
 Dateiprojektion nicht in den fünf Anweisungen des nativen Stores enthalten.
+Die gemeinsame Instrumentierung erfasst derzeit Pool-Verbindungen. Die dedizierten
+`pg.Client`-Verbindungen des produktiven Room Owners in `room-owner-options.ts`
+benötigen für die vollständige Editor-Messung zusätzlich eine eigene Erfassung.
 Der Move-Bestandsprofiler zählt auch Callback-Abfragen, kann aber nicht für alle
 deren Abschlusszeit beobachten; diese Lücke steht in `unobserved`. Seine Zahlen
 ersetzen noch keine einheitliche Messung von Pool-Wartezeit und Parallelität.
@@ -96,6 +99,18 @@ Parallelitätsfehler bei der allgemeinen Workspace-Auswahl/-Aufzählung ist beho
 Ein alter Freigabestand darf nicht mit einer neu hinzugekommenen Teammitgliedschaft
 kombiniert werden. Workspace und zugehörige Zugriffsmerkmale stammen jetzt aus
 derselben SQL-Momentaufnahme.
+
+Die Create-Bündelung bindet die konfigurierte Organisation zusätzlich an die
+ursprüngliche Workspace-Organisation. Dafür wird die Organisation der bereits
+frisch gelesenen Seat-Entscheidung verwendet. Ein echter PostgreSQL-Gegenvergleich
+hatte gezeigt, dass die Neuanlage beim eingebauten Agenten einen Wechsel der
+primären Organisation innerhalb derselben Transaktion akzeptierte, während der
+gewöhnliche Agentenpfad ihn ablehnte. Eingebaute Agenten überspringen ihren
+Actor-Kontext im `canUse`-Schnellpfad; dessen Prüfung darf deshalb nicht als Ersatz
+für die Organisationsbindung gelten. Zwölf echte PI-/PostgreSQL-Fälle prüfen
+Standard-, E-Mail- und eingeschränkte Agenten jeweils mit beiden Principal-Arten
+und mit unverändertem beziehungsweise gewechseltem Organisationsstand. Die
+Korrektur erzeugt keine zusätzliche SQL-Abfrage und keinen Berechtigungscache.
 
 ## Diagnosefamilien und Move-Messung
 

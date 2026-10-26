@@ -817,11 +817,13 @@ async function readAgentWorkspace(database: SqlConnection, schemaName: string, o
   if (createPhase) {
     // The genuine Create phase has already acquired schema(), locks() and its
     // receipt-realm pin. Read every seat fact freshly in one actual snapshot.
-    await assertUserSeatAccessInSingleSnapshotOnConnection(database, origin.userId, license); assertAlive();
-    // readStoredAgentWorkspaceOnConnection below performs the complete current
-    // actor-context check through getAgentAccessOnConnection, including legacy
-    // Agent shortcuts. Its required policy tables and rows are already held by
-    // this exact phase. Do not run the same resolver a second time beforehand.
+    const seat = await assertUserSeatAccessInSingleSnapshotOnConnection(database, origin.userId, license); assertAlive();
+    // Built-in Agent.canUse shortcuts skip actor-context resolution. Pin the
+    // configured organization from these freshly read seat facts as well.
+    if (seat.organizationId !== origin.organizationId) fail('PRINCIPAL_SCOPE_CHANGED');
+    // The stored PI/workspace readers enforce the current original scope and
+    // ACL. Restricted agents also run their complete actor-context resolver
+    // through getAgentAccessOnConnection on this phase's held connection.
   } else {
     await assertUserSeatAccess({ userId: origin.userId, database, licenseStatus: license }); assertAlive();
     await resolveVerifiedAgentActorContextOnConnection({ userId: origin.userId, organizationId: origin.organizationId,
