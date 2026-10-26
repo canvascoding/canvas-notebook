@@ -478,14 +478,16 @@ async function lockMemberSession(phase: Phase, request: RequestCapture): Promise
  * not mint a Principal, a member session, admission or a general actor grant. */
 async function currentUserWorkspace(phase: Phase, row: Row): Promise<WorkspaceContext> {
   const request = phase.request;
-  if (request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6) {
+  const singleSnapshot = request.kind === 'member'
+    || request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6;
+  if (singleSnapshot) {
     // This actual B already holds the seat tables in SHARE. Reuse the same
     // decision bodies with one fresh snapshot at every retained Current fence.
     await assertUserSeatAccessInSingleSnapshotOnConnection(phase.database, request.userId, request.license);
   } else await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
   active(phase);
   const actor = resolveWorkspaceActor({ id: request.userId, email: row.email as string | null, role: row.role as string | null });
-  const workspace = request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6
+  const workspace = singleSnapshot
     ? await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(phase.database,actor,request.workspace.workspaceId)
     : await readPostgresWorkspaceForActorOnConnection(phase.database,actor,request.workspace.workspaceId);
   active(phase);
