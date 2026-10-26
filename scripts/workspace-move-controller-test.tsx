@@ -205,6 +205,39 @@ async function main() {
   assert.equal(overwriteCalls, 0, 'a stale conflict callback cannot attach to a newer operation in the same workspace');
   await act(async () => { assert.equal(await currentController().resolveConflict('skip'), 'completed'); });
 
+  // Observed native move events: the old path disappears before its rename
+  // receipt, and a later tree refresh may repeat that disappearance.
+  const completedMoveCalls: string[] = [];
+  useFileStore.setState({ multiSelectPaths: new Set(['one.txt', 'two.txt']), isMultiSelectMode: true,
+    renamePath: async (oldPath, newPath) => {
+      completedMoveCalls.push(oldPath);
+      window.dispatchEvent(new dom.window.CustomEvent('canvas:workspace-paths-deleted', { detail: {
+        workspaceId: 'ws-c', paths: [oldPath],
+      } }));
+      window.dispatchEvent(new dom.window.CustomEvent('canvas:workspace-path-renamed', { detail: {
+        workspaceId: 'ws-c', oldPath, newPath,
+      } }));
+      window.dispatchEvent(new dom.window.CustomEvent('canvas:workspace-paths-deleted', { detail: {
+        workspaceId: 'ws-c', paths: [oldPath],
+      } }));
+    },
+  });
+  await act(async () => { assert.equal(await currentController().startMove(['one.txt', 'two.txt'], 'dest'), 'completed'); });
+  assert.deepEqual(completedMoveCalls, ['one.txt', 'two.txt'], 'own source disappearance cannot cancel the rest of a successful move');
+  assert.equal(currentController().isMoving, false);
+
+  for (const externalPath of ['two.txt', 'dest']) {
+    const externalCalls: string[] = [];
+    useFileStore.setState({ renamePath: async (oldPath) => {
+      externalCalls.push(oldPath);
+      window.dispatchEvent(new dom.window.CustomEvent('canvas:workspace-paths-deleted', { detail: {
+        workspaceId: 'ws-c', paths: ['one.txt', externalPath],
+      } }));
+    } });
+    await act(async () => { assert.equal(await currentController().startMove(['one.txt', 'two.txt'], 'dest'), 'superseded'); });
+    assert.deepEqual(externalCalls, ['one.txt'], 'deleting another selected path or the destination still cancels the remaining queue');
+  }
+
   useFileStore.setState({ multiSelectPaths: new Set(['one.txt', 'two.txt']), isMultiSelectMode: true,
     renamePath: async (oldPath) => {
       if (oldPath === 'one.txt') {
