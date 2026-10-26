@@ -84,7 +84,7 @@ function scopedReadHarness(options: TestOptions = {}) {
       findPostgresUserById: async (connection: unknown, userId: string) => {
         assert.equal(connection, database); events.push('find-user'); assert.equal(userId, 'user-1'); return user;
       },
-      readPostgresWorkspaceForActorOnConnection: async (connection: unknown, actor: unknown, workspaceId: string) => {
+      readPostgresWorkspaceForActorInSingleSnapshotOnConnection: async (connection: unknown, actor: unknown, workspaceId: string) => {
         assert.equal(connection, database); events.push('workspace-read');
         assert.deepEqual(actor, { userId: user?.id, email: user?.email, role: user?.role });
         assert.equal(workspaceId, 'workspace-1'); return workspace;

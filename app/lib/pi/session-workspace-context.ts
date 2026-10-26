@@ -16,7 +16,7 @@ import { assertWorkspacePermission } from '@/app/lib/workspaces/permissions';
 import {
   getPostgresWorkspaceState,
   findPostgresUserById,
-  readPostgresWorkspaceForActorOnConnection,
+  readPostgresWorkspaceForActorInSingleSnapshotOnConnection,
   resolvePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceType } from '@/app/lib/workspaces/types';
@@ -378,7 +378,7 @@ export async function readStoredAgentWorkspaceOnConnection(database: SqlConnecti
   }
   const user = await findPostgresUserById(database, userId);
   if (!user) throw new Error('Workspace not found or inaccessible.');
-  const workspace = await readPostgresWorkspaceForActorOnConnection(database,
+  const workspace = await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(database,
     resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }), workspaceId);
   if (!workspace || workspace.legacy || workspace.workspaceId !== workspaceId) {
     throw new Error('Workspace not found or inaccessible.');
