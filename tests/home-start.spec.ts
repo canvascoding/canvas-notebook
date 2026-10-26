@@ -156,6 +156,7 @@ for (const width of [390, 1440]) {
   test.describe(`workflows ${width}px`, () => {
     test.use({ viewport: { width, height: 900 }, isMobile: width < 1024, hasTouch: width < 1024 });
     test('file views, import, empty search and request recovery', async ({ page }, info) => {
+      test.setTimeout(120_000);
       const workspaceId = await prepare(page);
       const headers = { 'x-canvas-workspace-id': workspaceId };
       const prefix = `home-qa-${randomUUID()}`;
@@ -203,7 +204,24 @@ for (const width of [390, 1440]) {
       await files.getByRole('button', { name: 'Dateien importieren', exact: true }).click();
       const uploadDialog = page.getByRole('dialog', { name: 'Dateien hochladen', exact: true });
       await expect(uploadDialog).toBeVisible();
-      await uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') });
+      const uploadStarted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/uploads'
+        && response.request().method() === 'POST'
+        && response.request().headers()['x-canvas-workspace-id'] === workspaceId
+        && response.request().postDataJSON()?.files?.[0]?.path === importPath, { timeout: 30_000 });
+      const uploadCompleted = page.waitForResponse(response => /^\/api\/files\/uploads\/[^/]+\/complete$/u.test(new URL(response.url()).pathname)
+        && response.request().method() === 'POST'
+        && response.request().headers()['x-canvas-workspace-id'] === workspaceId, { timeout: 30_000 });
+      const [started, completed] = await Promise.all([uploadStarted, uploadCompleted,
+        uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') }),
+      ]);
+      expect(started.status()).toBe(201);
+      const session = (await started.json()).upload;
+      expect(session.files).toHaveLength(1);
+      expect(session.files[0].targetPath).toBe(importPath);
+      expect(new URL(completed.url()).pathname).toBe(`/api/files/uploads/${session.id}/complete`);
+      expect(completed.request().postDataJSON()).toEqual({ fileId: session.files[0].id });
+      expect(completed.status()).toBe(200);
+      expect((await completed.json()).success).toBe(true);
       await expect(uploadDialog).toBeHidden();
       await expect(files.getByRole('button', { name: 'Dateien importieren', exact: true })).toBeEnabled();
       await search.fill(importPath);
