@@ -9,7 +9,7 @@ import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/m
 
 const run = promisify(execFile);
 
-test('real move reviews distinguish old warnings, affected blockers and stale plans, and undo safely', async ({ browser }, testInfo) => {
+test('real move reviews distinguish old warnings, affected blockers and stale plans, and undo safely', { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 960 } });
   const cleanupRequest = await request.newContext({ baseURL: process.env.BASE_URL,

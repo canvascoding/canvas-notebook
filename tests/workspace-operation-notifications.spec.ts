@@ -3,7 +3,7 @@ import type { WorkspaceOperationReviewPublic } from '../app/lib/files/workspace-
 import type { NotificationItem, NotificationSummary } from '../app/components/notifications/notification-summary';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 
-test('file-action notifications retain blocked reviews and open actionable guidance', async ({ browser }, testInfo) => {
+test('file-action notifications retain blocked reviews and open actionable guidance', { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 960 } });
   try {

@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { managedAcceptanceSelection } from '../tests/helpers/managed-acceptance-suites.mjs';
 
 const env = { ...process.env, E2E_EXTERNAL_SERVER: '1', CANVAS_YJS_AUTHORITY_E2E: '',
-  CANVAS_BATCH_E2E_RUN_ID: '', CANVAS_COLLABORATION_QA: '', CANVAS_PI_CHAT_LIVE_E2E: '' };
+  CANVAS_BATCH_E2E_RUN_ID: '', CANVAS_COLLABORATION_QA: '', CANVAS_PI_CHAT_LIVE_E2E: '',
+  CANVAS_DOCUMENT_REVIEW_E2E: '' };
 function list(args = [], overrides = {}) {
   return spawnSync('npx', ['--no-install', 'playwright', 'test', '--list', '--reporter=json', ...args], {
     env: { ...env, ...overrides }, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
@@ -34,7 +35,8 @@ for (const pattern of managedAcceptanceSelection(env).testIgnore) {
     `Owned acceptance ${pattern} leaked into ordinary discovery`);
 }
 // Playwright's JSON reporter omits the leading @ from declared tags.
-assert.ok(ordinaryCases.every(spec => !(spec.tags ?? []).some(tag => ['owned-yjs', 'live-model'].includes(tag))));
+assert.ok(ordinaryCases.every(spec => !(spec.tags ?? []).some(tag =>
+  ['owned-yjs', 'live-model', 'experimental-review'].includes(tag))));
 const cold = ordinaryCases.filter(spec => spec.file.endsWith('notebook-query-loading.spec.ts'));
 assert.equal(cold.length, 1, 'Keep the ordinary cold-document query test in this mixed suite');
 assert.match(cold[0].title, /^cold document entry/u);
@@ -59,6 +61,19 @@ for (const file of ownedCopyFiles) {
 const ownedCopies = cases(report(list(ownedCopyFiles.map(file => `tests/${file}`), { CANVAS_YJS_AUTHORITY_E2E: '1' })));
 assert.equal(ownedCopies.length, 12, 'Keep all twelve owned Copy cases available to their original runner');
 assert.ok(ownedCopies.every(spec => spec.tags.includes('owned-yjs')));
+
+// Review Center is experimental and disabled in the regular deployment. Keep
+// its original acceptance cases available through an explicit test opt-in.
+const reviewFiles = ['workspace-operation-link-assessment.spec.ts', 'workspace-operation-notifications.spec.ts',
+  'workspace-operation-review-toggle.spec.ts'];
+for (const file of reviewFiles) {
+  assert.ok(!ordinaryCases.some(spec => spec.file.endsWith(file)), `${file} requires experimental Review opt-in`);
+}
+const reviews = cases(report(list(reviewFiles.map(file => `tests/${file}`), { CANVAS_DOCUMENT_REVIEW_E2E: '1' })));
+assert.equal(reviews.length, 4, 'Keep all four original experimental Review cases discoverable');
+assert.ok(reviews.every(spec => spec.tags.includes('experimental-review')));
+assert.equal(ordinaryCases.filter(spec => spec.file.endsWith('workspace-operation-notification-dismiss.spec.ts')).length, 2,
+  'Keep ordinary persisted file-error notifications in regular acceptance');
 
 // Explicit configs retain admission guards. The live model runner also refuses
 // remote origins even after opt-in. Enumeration never contacts a provider.
