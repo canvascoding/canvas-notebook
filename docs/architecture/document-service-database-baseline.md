@@ -1,9 +1,16 @@
 # Dokument- und Linkservice: Aufrufer und Messbasis
 
-Stand: 26.10.2026, lokale PostgreSQL-18-Fixtures auf dem Fix-Branch. Dies ist eine
+Stand: 27.10.2026, lokale PostgreSQL-18-Fixtures auf dem Fix-Branch. Dies ist eine
 Arbeitsgrundlage für `document-write-database-performance-plan.md`, keine Abnahme
 des gesamten Umbaus oder Aussage über Produktionslatenzen. Review Center und Undo
 werden für diese Arbeit nicht weiterentwickelt.
+
+Die feste Editor-Peer-Beobachtung benötigt inzwischen 43 statt 79 Anweisungen
+auf ihrer tatsächlich gehaltenen Verbindung. Im vollständigen 6,1-Sekunden-
+Leerlauffenster sinkt die SQL-Anzahl von 2.117 auf 1.524; die hohen Pool-Ausleihen
+bleiben offen. Der [Editor-Prüfbericht](document-service-editor-observation-2026-10-27.md)
+grenzt die Messbereiche ab und dokumentiert Produktionsbuild, echte Desktop-/Mobil-
+Eingaben, Offline-Wiederverbindung und exakte Wiederherstellung der Testdatei.
 
 ## Aufrufkarte
 
