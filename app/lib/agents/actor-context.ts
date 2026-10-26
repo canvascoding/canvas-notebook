@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
 import { authority } from '@/app/lib/capabilities/scope-authority';
-import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
+import { readPostgresWorkspaceForActorInSingleSnapshotOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import { normalizeWorkspaceRole, resolveWorkspacePermissions } from '@/app/lib/workspaces/permissions';
 import type { WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
 import type { AgentAccessContext } from './access';
@@ -108,7 +108,7 @@ export async function resolveVerifiedAgentActorContextOnConnection(
       if (!currentUser) deny();
       workspaceRole = normalizeWorkspaceRole(typeof currentUser.role === 'string' ? currentUser.role : null);
     }
-    const workspace = await readPostgresWorkspaceForActorOnConnection(connection, { userId, role: workspaceRole }, requestedWorkspace);
+    const workspace = await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(connection, { userId, role: workspaceRole }, requestedWorkspace);
     if (!workspace?.permissions.canRead || workspace.organizationId !== organizationId) deny();
     result.context = { organizationId, workspaceId: workspace.workspaceId, projectId: workspace.projectId ?? null };
     result.workspacePermissions = { ...workspace.permissions };
