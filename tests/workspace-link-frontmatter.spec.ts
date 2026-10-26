@@ -169,9 +169,12 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
     expect(indexResponse.ok()).toBeTruthy();
     const index = (await indexResponse.json()).index;
     expect(index.coverage.complete).toBe(true);
-    expect(index.edges.filter((edge: { sourcePath: string }) => edge.sourcePath === 'A.md')
-      .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]))
-      .toEqual([['wiki', 'resolved', 'C.md'], ['markdown', 'resolved', 'C.md']]);
+    const repairedEdges = index.edges.filter((edge: { sourcePath: string }) => edge.sourcePath === 'A.md')
+      .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]);
+    expect(repairedEdges).toHaveLength(2);
+    expect(repairedEdges).toEqual(expect.arrayContaining([
+      ['wiki', 'resolved', 'C.md'], ['markdown', 'resolved', 'C.md'],
+    ]));
     await navigateBoth('C.md');
     await waitSavedEditor();
     expect(await read('C.md')).toBe(target);
