@@ -67,6 +67,9 @@ async function expectImageLoaded(image: Locator) {
 
 for (const profile of profiles) {
   test(`complete file discovery, foreign workspace model import and Resize (${profile.name})`, async ({ browser }, info) => {
+    // Match the dedicated runner's six-minute budget for 610 atomic fixtures
+    // and the picker/import/Resize journey when the regular suite collects it.
+    test.setTimeout(360_000);
     const context = await createAuthenticatedContext(browser, {
       viewport: profile.viewport, isMobile: profile.mobile, hasTouch: profile.mobile,
     });

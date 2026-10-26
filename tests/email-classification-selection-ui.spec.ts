@@ -97,7 +97,7 @@ test.describe('Unread or recent email selection UI', () => {
       await nav.getByRole('button', { name: 'Noch nicht vorbereitet: 2', exact: true }).click();
       await expect(nav.getByTestId('email-focus-row')).toHaveCount(2);
       await expect(nav.getByTestId('email-focus-row').filter({ hasText: 'Alte gelesene Mail' })).toHaveCount(0);
-      await nav.getByRole('button', { name: 'Alle E-Mails: 3', exact: true }).click();
+      await nav.getByRole('button', { name: `${de.emailFocus.views.all}: 3`, exact: true }).click();
       await nav.getByTestId('email-focus-row').filter({ hasText: 'Alte gelesene Mail' }).click();
       const reader = page.getByTestId('email-classification-details');
       await expect(reader).toContainText(de.emailFocus.reasons.not_selected);
