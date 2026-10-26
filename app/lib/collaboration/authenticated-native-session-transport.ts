@@ -41,13 +41,18 @@ type Phase = { record: RecordState; connection: SqlConnection; active: boolean; 
 export type AuthenticatedOwnedNativeSessionAccess = ExistingNativeSessionRequestAccess & Readonly<{
   identity: ExistingNativeSessionIdentity; quarantined: boolean; documentSequence: number;
 }>;
+/** Inert result of a completed fixed observation, never a retained capability. */
+export type AuthenticatedOwnedNativeSessionObservation = Omit<AuthenticatedOwnedNativeSessionAccess, 'assertCurrent'>;
+type OwnedNativeSessionInput = {
+  permission: Permission; identity: ExistingNativeSessionIdentity; ownerFence: CollaborationRoomOwnerFence;
+};
 
 type TransportErrorCode = 'NATIVE_TRANSPORT_INVALID' | 'NATIVE_TRANSPORT_REQUIRED' | 'NATIVE_TRANSPORT_TOO_LARGE'
     | 'NATIVE_TRANSPORT_SCOPE_CHANGED' | 'NATIVE_TRANSPORT_ACCESS_DENIED' | 'NATIVE_TRANSPORT_REENTRANT'
     | 'NATIVE_TRANSPORT_DETACHED' | 'NATIVE_TRANSPORT_DISPOSED' | 'NATIVE_TRANSPORT_QUARANTINED';
 export type AuthenticatedNativeSessionTransportError = Error & { readonly code: TransportErrorCode };
 type NativeRuntime = Readonly<{
-  kind: 'canvas-authenticated-native-session-runtime'; version: 2;
+  kind: 'canvas-authenticated-native-session-runtime'; version: 3;
   Error: new (code: TransportErrorCode) => AuthenticatedNativeSessionTransportError;
   captureAuthenticatedNativeSessionTransportOnConnection: typeof captureAuthenticatedNativeSessionTransportOnConnection;
   withAuthenticatedNativeSessionTransportOnConnection: typeof withAuthenticatedNativeSessionTransportOnConnection;
@@ -597,10 +602,15 @@ function createNativeRuntime(): NativeRuntime {
    * authenticates the immutable original headers and validates the actual owner
    * SQL lock, Registry/Lineage/native identity, original realm and full workspace.
    * The callback facade expires before the outer principal/factory final checks. */
+  function withAuthenticatedOwnedNativeSessionTransportOnConnection(connection: SqlConnection,
+    transport: AuthenticatedNativeSessionTransport, input: OwnedNativeSessionInput): Promise<AuthenticatedOwnedNativeSessionObservation>;
+  function withAuthenticatedOwnedNativeSessionTransportOnConnection<T>(connection: SqlConnection,
+    transport: AuthenticatedNativeSessionTransport, input: OwnedNativeSessionInput,
+    consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T>;
   function withAuthenticatedOwnedNativeSessionTransportOnConnection<T>(connection: SqlConnection,
     transport: AuthenticatedNativeSessionTransport,
-    input: { permission: Permission; identity: ExistingNativeSessionIdentity; ownerFence: CollaborationRoomOwnerFence },
-    consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T> {
+    input: OwnedNativeSessionInput,
+    consume?: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T | AuthenticatedOwnedNativeSessionObservation> {
     const record = transports.get(transport);
     try {
       if (!record) fail('NATIVE_TRANSPORT_REQUIRED');
@@ -617,14 +627,27 @@ function createNativeRuntime(): NativeRuntime {
       if (identityKeys.some(key => key !== 'lineageId' && Reflect.get(input.ownerFence.scope, key) !== identity[key])
         || !validId(input.ownerFence.token) || !Number.isSafeInteger(input.ownerFence.epoch) || input.ownerFence.epoch < 1
         || !Number.isSafeInteger(input.ownerFence.backendPid) || input.ownerFence.backendPid < 1 || !validId(input.ownerFence.backendStart)
-        || typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
+        || consume !== undefined && typeof consume !== 'function') fail('NATIVE_TRANSPORT_INVALID');
       const fence = Object.freeze({ ...input.ownerFence, scope: Object.freeze({ ...input.ownerFence.scope }) });
       if (captured.permission === 'canWrite' && record.maxPermission !== 'canWrite') fail('NATIVE_TRANSPORT_ACCESS_DENIED');
       const phase = reserve(connection, record), original = record.original;
       let entered = false;
+      let observation: AuthenticatedOwnedNativeSessionObservation | undefined;
       return run(phase, () => requestPrincipal(record, original, captured.permission, principal =>
           withWorkspaceRequestPrincipalOnConnection(connection, principal, async actual => {
             entered = true;
+            if (consume === undefined) {
+              // The principal has just performed its fresh initial Current.
+              // This branch exposes no callback, SQL handle or live facade:
+              // only our fixed reads run before the principal's final Current.
+              // Arbitrary borrowed consumers below retain every extra fence.
+              phase.binding = await readBinding(phase, captureScope(actual, record.workspaceId));
+              const state = await observeOwnedNativeSession(phase, identity, fence);
+              if (captured.permission === 'canWrite' && state.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
+              observation = Object.freeze({ workspace: actual.workspace, userId: actual.userId, sessionId: actual.sessionId,
+                identity, ...state });
+              return observation;
+            }
             await verify(phase, actual);
             let observed = await observeOwnedNativeSession(phase, identity, fence);
             if (captured.permission === 'canWrite' && observed.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
@@ -652,7 +675,8 @@ function createNativeRuntime(): NativeRuntime {
           })), () => !entered, async () => {
             const observed = await observeOwnedNativeSession(phase, identity, fence);
             if (captured.permission === 'canWrite' && observed.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
-          });
+            if (observation) observation = Object.freeze({ ...observation, ...observed });
+          }).then(result => observation ?? result);
     } catch (error) {
       if (record) poison(record, error);
       const held = connections.get(connection); if (held) poison(held.record, error);
@@ -789,7 +813,7 @@ function createNativeRuntime(): NativeRuntime {
 
   Object.freeze(AuthenticatedNativeSessionTransportError.prototype);
   Object.freeze(AuthenticatedNativeSessionTransportError);
-  return Object.freeze({ kind: 'canvas-authenticated-native-session-runtime', version: 2,
+  return Object.freeze({ kind: 'canvas-authenticated-native-session-runtime', version: 3,
     Error: AuthenticatedNativeSessionTransportError,
     captureAuthenticatedNativeSessionTransportOnConnection,
     withAuthenticatedNativeSessionTransportOnConnection,
@@ -820,7 +844,7 @@ function nativeRuntime(): NativeRuntime {
         const entry = Object.getOwnPropertyDescriptor(api, key);
         return entry?.enumerable && Object.prototype.hasOwnProperty.call(entry, 'value')
           && !entry.writable && !entry.configurable;
-      }) || api.kind !== 'canvas-authenticated-native-session-runtime' || api.version !== 2
+      }) || api.kind !== 'canvas-authenticated-native-session-runtime' || api.version !== 3
       || typeof api.Error !== 'function' || !runtimeMethods.every(key => typeof api[key] === 'function')) {
       throw Object.assign(new Error('The authenticated native session runtime is incompatible.'), { code: 'NATIVE_RUNTIME_INCOMPATIBLE' });
     }
@@ -866,11 +890,18 @@ export function isAuthenticatedNativeSessionTransportBusy(error: unknown): boole
   return runtime.isAuthenticatedNativeSessionTransportBusy(error);
 }
 
+export function withAuthenticatedOwnedNativeSessionTransportOnConnection(connection: SqlConnection,
+  transport: AuthenticatedNativeSessionTransport, input: OwnedNativeSessionInput): Promise<AuthenticatedOwnedNativeSessionObservation>;
+export function withAuthenticatedOwnedNativeSessionTransportOnConnection<T>(connection: SqlConnection,
+  transport: AuthenticatedNativeSessionTransport, input: OwnedNativeSessionInput,
+  consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T>;
 export function withAuthenticatedOwnedNativeSessionTransportOnConnection<T>(connection: SqlConnection,
   transport: AuthenticatedNativeSessionTransport,
-  input: { permission: Permission; identity: ExistingNativeSessionIdentity; ownerFence: CollaborationRoomOwnerFence },
-  consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T> {
-  return runtime.withAuthenticatedOwnedNativeSessionTransportOnConnection(connection, transport, input, consume);
+  input: OwnedNativeSessionInput,
+  consume?: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>): Promise<T | AuthenticatedOwnedNativeSessionObservation> {
+  return consume === undefined
+    ? runtime.withAuthenticatedOwnedNativeSessionTransportOnConnection(connection, transport, input)
+    : runtime.withAuthenticatedOwnedNativeSessionTransportOnConnection(connection, transport, input, consume);
 }
 
 export function disposeAuthenticatedNativeSessionTransport(transport: AuthenticatedNativeSessionTransport): Promise<void> {

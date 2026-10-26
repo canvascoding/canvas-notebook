@@ -41,14 +41,14 @@ export function createAuthenticatedNativePeer(input: {
     tail = pending.catch(() => undefined);
     return pending;
   };
-  const phase = <T>(permission: 'canRead' | 'canWrite', ownerFence: CollaborationRoomOwnerFence,
-    consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>) => executeLifecycleTransaction({
+  const phase = (permission: 'canRead' | 'canWrite', ownerFence: CollaborationRoomOwnerFence) => executeLifecycleTransaction({
     openConnection: openDb,
-    execute: database => withAuthenticatedOwnedNativeSessionTransportOnConnection(database, transport,
-      { permission, identity, ownerFence }, async access => {
-        assertOpen(); assertAuthenticatedNativePeerClaims(claims, identity, access);
-        return consume(access);
-      }),
+    execute: async database => {
+      const observation = await withAuthenticatedOwnedNativeSessionTransportOnConnection(database, transport,
+        { permission, identity, ownerFence });
+      assertOpen(); assertAuthenticatedNativePeerClaims(claims, identity, observation);
+      return observation;
+    },
     // A lost COMMIT reply destroys B. It proves no fresh permission or accepted
     // publication and cannot replay an already applied Yjs update on a new B.
     recoverCommitted: async () => { throw new Error('Native peer authorization commit could not be confirmed.'); },
@@ -56,11 +56,12 @@ export function createAuthenticatedNativePeer(input: {
   return {
     check(ownerFence: CollaborationRoomOwnerFence): Promise<{ workspace: WorkspaceContext; quarantined: boolean }> {
       return enqueue(async () => {
-        const read = await phase('canRead', ownerFence, async access => ({ workspace: access.workspace, quarantined: access.quarantined }));
+        const read = await phase('canRead', ownerFence);
         if (!read.quarantined && claims.permission === 'write') {
-          return phase('canWrite', ownerFence, async access => ({ workspace: access.workspace, quarantined: access.quarantined }));
+          const write = await phase('canWrite', ownerFence);
+          return { workspace: write.workspace, quarantined: write.quarantined };
         }
-        return read;
+        return { workspace: read.workspace, quarantined: read.quarantined };
       });
     },
     /** Called after the concrete room mutation queue, before any live apply.
@@ -70,7 +71,7 @@ export function createAuthenticatedNativePeer(input: {
     authorizeWrite(ownerFence: CollaborationRoomOwnerFence): Promise<void> {
       if (claims.permission !== 'write') return Promise.reject(new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_ACCESS_DENIED'));
       return enqueue(async () => {
-        await phase('canWrite', ownerFence, async () => undefined);
+        await phase('canWrite', ownerFence);
         assertOpen();
       });
     },

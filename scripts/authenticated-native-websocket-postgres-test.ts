@@ -186,6 +186,7 @@ async function main(): Promise<void> {
     let enrollmentAbort:{entered:ReturnType<typeof gate>;release:ReturnType<typeof gate>}|undefined;
     let queuedFrame:{documentId:string;entered:ReturnType<typeof gate>}|undefined;
     let observedEnrollment:{transport:AuthenticatedNativeSessionTransport;connection:SqlConnection}|undefined;
+    const observedBackends = new Map<number, SqlConnection>();
     const actualTransport=await import('../app/lib/collaboration/authenticated-native-session-transport');
     const actualDb=await import('../app/lib/db');
     let joinModeRace:{path:string;quarantined:boolean;fired:boolean}|undefined;
@@ -197,11 +198,18 @@ async function main(): Promise<void> {
     const peerPhase=new AsyncLocalStorage<{documentId:string;kind:'check'|'write';fence:import('../app/lib/collaboration/room-owner').CollaborationRoomOwnerFence}>();
     const openObservedConnection=async()=>{
       const actual=await actualDb.openDb();let committed=false;
+      const backend = Number((await actual.get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
       const observed:SqlConnection={get:async(sql,values)=>{
         const active=peerPhase.getStore();
         if(peerBusy&&!peerBusy.fired&&socketHook.getStore()===peerBusy.hook&&active?.documentId===peerBusy.documentId&&sql.includes("current_setting('session_replication_role')")){
           const busy=peerBusy;busy.fired=true;const fence=active.fence;
-          busy.holding=transaction(db=>owned(db,busy.cap,{permission:'canWrite',identity:identities.get(busy.documentId)!,ownerFence:fence},async access=>{busy.entered.resolve();await busy.release.promise;await access.assertCurrent();}));
+          busy.holding=transaction(db=>owned(db,busy.cap,{permission:'canWrite',identity:identities.get(busy.documentId)!,ownerFence:fence},async access=>{
+            // Two Current readers use compatible SHARE locks. Hold a genuine
+            // conflicting tuple lock so the other B must fail NOWAIT before
+            // its owner callback; elapsed time alone is never Busy evidence.
+            await db.get("SELECT organization_id FROM canvas_organization_settings WHERE organization_id='principal-org' FOR UPDATE");
+            busy.entered.resolve();await busy.release.promise;await access.assertCurrent();
+          }));
           await bounded(busy.entered.promise);
         }
         return actual.get(sql,values);
@@ -232,9 +240,11 @@ async function main(): Promise<void> {
         return result;
       },close:async error=>{
         await actual.close(error);
+        if (observedBackends.get(backend) === observed) observedBackends.delete(backend);
         if(messageFault?.kind==='close'&&messageFault.connection===observed&&committed&&!messageFault.fired){messageFault.fired=true;throw new Error('Lost actual message authorization close response.');}
         if(enrollmentFault==='close'&&observedEnrollment?.connection===observed&&committed&&!enrollmentFaultFired){enrollmentFaultFired=true;throw new Error('Lost actual enrollment close response after COMMIT.');}
       }};
+      observedBackends.set(backend, observed);
       return observed;
     };
     // Evaluate the exact saved product source with actual SQL. Controlled same-B
@@ -245,10 +255,45 @@ async function main(): Promise<void> {
     const compiledPeer=ts.transpileModule(await readFile(peerFilename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}});
     const productPeer={} as typeof import('../app/lib/collaboration/authenticated-native-peer');
     new Function('require','module','exports',compiledPeer.outputText)((name:string)=>name==='../db'?{...actualDb,openDb:openObservedConnection}:requirePeer(name),{exports:productPeer},productPeer);
+    const admissionOrigins = new WeakMap<import('../app/lib/collaboration/authenticated-native-session-transport').AuthenticatedNativePeerOrigin, AuthenticatedNativeSessionTransport>();
+    const disposedAdmissionTransports = new WeakSet<AuthenticatedNativeSessionTransport>();
+    const observedTransport = { ...actualTransport,
+      adoptAuthenticatedNativePeerOrigin: (...args: Parameters<typeof actualTransport.adoptAuthenticatedNativePeerOrigin>) => {
+        const origin = actualTransport.adoptAuthenticatedNativePeerOrigin(...args); admissionOrigins.set(origin, args[0]); return origin;
+      },
+      disposeAuthenticatedNativePeerOrigin: async (...args: Parameters<typeof actualTransport.disposeAuthenticatedNativePeerOrigin>) => {
+        await actualTransport.disposeAuthenticatedNativePeerOrigin(...args);
+        const cap = admissionOrigins.get(args[0]); if (cap) disposedAdmissionTransports.add(cap);
+      },
+      captureAuthenticatedNativePeerOriginTransportOnConnection: async (...args: Parameters<typeof actualTransport.captureAuthenticatedNativePeerOriginTransportOnConnection>) => {
+        const transport = await actualTransport.captureAuthenticatedNativePeerOriginTransportOnConnection(...args);
+        if ((enrollmentFault || enrollmentAbort) && !observedEnrollment) {
+          const backend = Number((await args[0].get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
+          const connection = observedBackends.get(backend); assert(connection, 'Capture B must be an actually observed backend.');
+          observedEnrollment = { transport, connection };
+        }
+        if (enrollmentAbort) { enrollmentAbort.entered.resolve(); await enrollmentAbort.release.promise; }
+        return transport;
+      },
+    };
+    // Admission now owns Capture/Join B. Observe its exact saved source too,
+    // otherwise completion faults never reach the actual enrollment connection.
+    const admissionFilename = path.resolve('app/lib/collaboration/authenticated-native-peer-admission.ts');
+    const requireAdmission = createRequire(admissionFilename);
+    const compiledAdmission = ts.transpileModule(await readFile(admissionFilename, 'utf8'), { compilerOptions: {
+      target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
+    } });
+    const productAdmission = {} as typeof import('../app/lib/collaboration/authenticated-native-peer-admission');
+    new Function('require', 'module', 'exports', compiledAdmission.outputText)((name: string) => {
+      if (name === '../db') return { ...actualDb, openDb: openObservedConnection };
+      if (name === './authenticated-native-session-transport') return observedTransport;
+      return requireAdmission(name);
+    }, { exports: productAdmission }, productAdmission);
     const compiled=ts.transpileModule(await readFile(serverFilename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}});
     const productServer={} as typeof import('../server/collaboration-server');
     new Function('require','module','exports',compiled.outputText)((name:string)=>{
       if(name==='@/app/lib/db')return{...actualDb,openDb:openObservedConnection};
+      if(name==='@/app/lib/collaboration/authenticated-native-peer-admission')return productAdmission;
       if(name==='@/app/lib/collaboration/authenticated-native-peer')return{...productPeer,createAuthenticatedNativePeer:(input:Parameters<typeof productPeer.createAuthenticatedNativePeer>[0])=>{
         const peer=productPeer.createAuthenticatedNativePeer(input);
         return{...peer,dispose:()=>{const pending=peer.dispose();peerDisposals.set(input.transport,pending);return pending;},check:(...args:Parameters<typeof peer.check>)=>peerPhase.run({documentId:input.identity.documentId,fence:args[0],kind:'check'},async()=>{
@@ -272,9 +317,13 @@ async function main(): Promise<void> {
     const mobile=await import('../app/lib/mobile/collaboration-ticket');
     const {withAuthenticatedTextCollaborationSessionGrant:publishGrant}=await import('../app/lib/collaboration/authenticated-text-session-service');
     const mobileCaps=new Map<string,AuthenticatedNativeSessionTransport>();
-    const mobileTicket=async(identity:ExistingNativeSessionIdentity,userId='owner',permission:'read'|'write'='write')=>retryOriginalRequest(async()=>publishGrant({request:await request(userId),workspaceId,sessionRequest:{path:identity.path,provider:'yjs',representation:'plain_text'},permission},async publication=>{
+    const mobileTicket=async(identity:ExistingNativeSessionIdentity,userId='owner',permission:'read'|'write'='write',incompatibleRepresentation=false)=>retryOriginalRequest(async()=>publishGrant({request:await request(userId),workspaceId,sessionRequest:{path:identity.path,provider:'yjs',representation:'plain_text'},permission},async publication=>{
       let adopted:AuthenticatedNativeSessionTransport|undefined;
-      const ticket=mobile.issueAuthenticatedMobileCollaborationTicket({claims:claimsFor(identity,userId,publication.grant.permission),user:{id:userId,name:userId,email:null,role:null},takeTransport:rollback=>{adopted=publication.takeTransport(rollback);return adopted;}});
+      const claims = claimsFor(identity,userId,publication.grant.permission);
+      // A deliberately incompatible selector never replaces the genuine
+      // captured transport or its native identity. Native admission must
+      // reject it and dispose that exact capability before Connection exists.
+      const ticket=mobile.issueAuthenticatedMobileCollaborationTicket({claims:{...claims,...incompatibleRepresentation?{representation:'tiptap_xml' as const}:{}},user:{id:userId,name:userId,email:null,role:null},takeTransport:rollback=>{adopted=publication.takeTransport(rollback);return adopted;}});
       assert(adopted);mobileCaps.set(ticket.token,adopted);return ticket;
     }));
     const actualRoot=path.join(dataRoot,'organizations/principal-org/shared');await mkdir(actualRoot,{recursive:true});
@@ -400,11 +449,14 @@ async function main(): Promise<void> {
         await assert.rejects(connect(other.identity,'owner',false,{mobile:true,token:ticket.token}));peer.socket.close();peer.doc.destroy();
         await assert.rejects(transaction(db=>phase(db,cap,{permission:'canRead',...input(other.identity)},async()=>assert.fail())),code('NATIVE_TRANSPORT_DISPOSED'));
       });
-      await check('actual consumed native Mobile transport is disposed when the productive native gate rejects the provider before Connection exists',async()=>{
-        const other=await seed('mobile-gate-reject');await writeFile(path.join(actualRoot,other.identity.path),'ABC');const ticket=await mobileTicket(other.identity),cap=mobileCaps.get(ticket.token)!;
-        process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='0';try{await assert.rejects(connect(other.identity,'owner',false,{mobile:true,token:ticket.token}));assert.equal(mobile.consumeMobileCollaborationTicket(ticket.token),null);
-          await assert.rejects(transaction(db=>phase(db,cap,{permission:'canRead',...input(other.identity)},async()=>assert.fail())),code('NATIVE_TRANSPORT_DISPOSED'));
-        }finally{process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='1';}
+      await check('actual consumed native Mobile transport is disposed when an incompatible representation is rejected before Connection exists',async()=>{
+        const other=await seed('mobile-gate-reject');await writeFile(path.join(actualRoot,other.identity.path),'ABC');const ticket=await mobileTicket(other.identity,'owner','write',true),cap=mobileCaps.get(ticket.token)!;
+        try{await assert.rejects(connect(other.identity,'owner',false,{mobile:true,token:ticket.token}));assert.equal(mobile.consumeMobileCollaborationTicket(ticket.token),null);
+          assert(disposedAdmissionTransports.has(cap), 'the actual admission origin disposal must finish for this exact captured transport');
+          // A poisoned capability retains its first scope failure even after
+          // disposal. It must never become usable through the original path.
+          await assert.rejects(transaction(db=>phase(db,cap,{permission:'canRead',...input(other.identity)},async()=>assert.fail())),code('NATIVE_TRANSPORT_SCOPE_CHANGED'));
+        }finally{await dispose(cap);}
       });
       await check('actual Mobile protocol never falls back to a signed Web token without its private store origin',async()=>{
         const other=await seed('mobile-missing');await writeFile(path.join(actualRoot,other.identity.path),'ABC');
@@ -444,6 +496,7 @@ async function main(): Promise<void> {
         try{sendAppend(writer,other.identity,'-BUSY');await bounded(entered.promise);
           await waitUntil(()=>actualDocuments.get(other.identity.documentId)?.getText('content').toString()==='ABC-BUSY','Once-sent local edit was not retried after actual Peer lock release.');
           release.resolve();await peerBusy.holding;
+          assert.equal(peerBusy.attempts,1, 'the actual pre-callback lock rejection must be observed once');
           await waitUntil(()=>observer.doc.getText('content').toString()==='ABC-BUSY','Retried local edit did not broadcast to the actual peer.');
           await flushCollaborationDocuments();
           const current=await loadCollaborationState(other.identity.documentId);assert(current);const durable=new Y.Doc();Y.applyUpdate(durable,current.yjsState);

@@ -175,6 +175,104 @@ async function main(): Promise<void> {
     const bounded=async(promise:Promise<void>)=>{let timer!:ReturnType<typeof setTimeout>;try{
       await Promise.race([promise,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>reject(new Error('Fixture phase did not enter within eight seconds.')),8000);})]);
     }finally{clearTimeout(timer);}};
+    const ownedTransport = await import('../app/lib/collaboration/authenticated-native-session-transport');
+    const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+    const withOwned = async (operation: (held: { cap: AuthenticatedNativeSessionTransport;
+      identity: ExistingNativeSessionIdentity; fence: import('../app/lib/collaboration/room-owner').CollaborationRoomOwnerFence }) => Promise<void>, userId: 'owner' | 'member' = 'owner') => {
+      if (userId === 'member') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=1 WHERE user_id='member'");
+      const target = await seed(`fixed-owned-observation-${crypto.randomUUID()}`), cap = await captured(userId), ownerClient = await ownClient();
+      const owner = await createCollaborationRoomOwnerSession(ownerClient);
+      try {
+        const { lineageId: _lineage, ...ownerScope } = target.identity;
+        const fence = await owner.acquire(ownerScope);
+        await operation({ cap, identity: target.identity, fence });
+      } finally {
+        await dispose(cap); await owner.close(); clients.delete(ownerClient);
+        if (userId === 'member') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+      }
+    };
+    await check('fixed owned read/write observations match borrowed results without retaining a facade and use fewer SQL statements', async () => {
+      await withOwned(async ({ cap, identity, fence }) => {
+        const before = await stored(identity);
+        for (const permission of ['canRead', 'canWrite'] as const) {
+          let fixedCount = 0, borrowedCount = 0;
+          const counted = (db: SqlConnection, tick: () => void): SqlConnection => ({ ...db,
+            get: (sql, args) => { tick(); return db.get(sql, args); },
+            all: (sql, args) => { tick(); return db.all(sql, args); },
+            run: (sql, args) => { tick(); return db.run(sql, args); } });
+          const options = { permission, identity, ownerFence: fence };
+          const fixed = await transaction(db => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection(
+            counted(db, () => fixedCount++), cap, options));
+          const borrowed = await transaction(db => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection(
+            counted(db, () => borrowedCount++), cap, options, async access => ({ workspace: access.workspace,
+              userId: access.userId, sessionId: access.sessionId, identity: access.identity,
+              quarantined: access.quarantined, documentSequence: access.documentSequence })));
+          assert.deepEqual(fixed, borrowed); assert(Object.isFrozen(fixed)); assert(Object.isFrozen(fixed.workspace));
+          assert.equal('assertCurrent' in fixed, false);
+          assert(fixedCount < borrowedCount * 0.7, 'the no-callback observation must remove redundant Current queries');
+          console.log(JSON.stringify({ scope: 'fixed-owned-observation', permission, fixedCount, borrowedCount }));
+        }
+        assert.deepEqual(await stored(identity), before);
+      });
+    });
+    await check('fixed owned final Current rejects actual self-revocation of account session seat and realm', async () => {
+      for (const mutation of [
+        'UPDATE "user" SET banned=1 WHERE id=\'owner\'',
+        'UPDATE session SET expires_at=1 WHERE id=\'session-owner\'',
+        'UPDATE session SET token=\'rotated-fixture-token\' WHERE id=\'session-owner\'',
+        'UPDATE team_memberships SET status=\'suspended\' WHERE user_id=\'member\'',
+        'SET LOCAL search_path=pg_catalog',
+      ]) await withOwned(async ({ cap, identity, fence }) => {
+        stage = `fixed owned self-revocation: ${mutation.startsWith('UPDATE team_') ? 'seat' : mutation.startsWith('SET ') ? 'realm' : mutation.includes('banned=') ? 'account' : mutation.includes('expires_at=') ? 'expiry' : 'token'}`;
+        const before = await stored(identity); let changed = false;
+        await assert.rejects(transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) { changed = true; await client.query(mutation); }
+            return rows;
+          },
+        }, cap, { permission: 'canRead', identity, ownerFence: fence })), error => {
+          const value = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+          return ['PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'PRINCIPAL_SCOPE_CHANGED',
+            'NATIVE_TRANSPORT_SCOPE_CHANGED', 'SEAT_ACCESS_INACTIVE', 'SEAT_MEMBERSHIP_REQUIRED'].includes(value);
+        });
+        assert(changed); assert.deepEqual(await stored(identity), before);
+      }, mutation.includes('team_memberships') ? 'member' : 'owner');
+    });
+    await check('fixed owned member read remains diagnostic after write loss while write final authorization rejects', async () => {
+      for (const permission of ['canRead', 'canWrite'] as const) await withOwned(async ({ cap, identity, fence }) => {
+        let changed = false;
+        const pending = transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) {
+              changed = true; await client.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+            }
+            return rows;
+          },
+        }, cap, { permission, identity, ownerFence: fence }));
+        if (permission === 'canWrite') await assert.rejects(pending, code('PRINCIPAL_ACCESS_DENIED'));
+        else assert.equal((await pending).quarantined, false);
+        assert(changed);
+      }, 'member');
+    });
+    await check('fixed owned final native observation returns current quarantine for readers and rejects writers', async () => {
+      for (const permission of ['canRead', 'canWrite'] as const) await withOwned(async ({ cap, identity, fence }) => {
+        const before = await stored(identity); let changed = false;
+        const pending = transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) {
+              changed = true; await client.query('UPDATE collaboration_yjs_states SET degraded=1 WHERE document_id=$1', [identity.documentId]);
+            }
+            return rows;
+          },
+        }, cap, { permission, identity, ownerFence: fence }));
+        if (permission === 'canWrite') await assert.rejects(pending, code('NATIVE_TRANSPORT_QUARANTINED'));
+        else assert.equal((await pending).quarantined, true);
+        assert(changed); assert.deepEqual(await stored(identity), before);
+      });
+    });
     await check('actual Cookie/Bearer Team enrollment and fresh native sole-B read/write phases',async()=>{
       for(const cookie of [true,false])for(const userId of ['owner','member']){
         assert.equal((await auth.api.getSession({headers:(await request(userId,cookie)).headers}))?.session.id,`session-${userId}`);
