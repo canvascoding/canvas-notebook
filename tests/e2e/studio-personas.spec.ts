@@ -124,8 +124,9 @@ test.describe('Studio Persona Management', () => {
       confirmButton.click(),
     ]);
     expect(deleted.status()).toBe(200);
-    expect((await deleted.json()).success).toBe(true);
 
+    // The UI navigates after deletion; verify durable absence independently
+    // rather than reading a response body from a replaced browser document.
     await expect(page).toHaveURL(/\/studio\/models\/?$/, { timeout: 10000 });
     expect((await page.request.get(`/api/studio/personas/${encodeURIComponent(personaId)}`, { timeout: 15_000 })).status()).toBe(404);
   });

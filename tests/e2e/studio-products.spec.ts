@@ -165,8 +165,9 @@ test.describe('Studio Product Management', () => {
       confirmButton.click(),
     ]);
     expect(deleted.status()).toBe(200);
-    expect((await deleted.json()).success).toBe(true);
 
+    // The redirected page no longer owns the DELETE response's CDP body.
+    // The authenticated API read below verifies that this exact ID is absent.
     await expect(page).toHaveURL(/\/studio\/models\/?$/, { timeout: 10000 });
     expect((await page.request.get(`/api/studio/products/${encodeURIComponent(productId)}`, { timeout: 15_000 })).status()).toBe(404);
   });
