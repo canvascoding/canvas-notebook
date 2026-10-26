@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict';
+import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
+import type { SqlConnection } from '../app/lib/db';
+
+let completed = false;
+process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
+async function main() {
+  await withDocumentReadToolDispatchFixture(async fixture => {
+    const { authority, readActorMembershipAuthorityOnConnection: read } = await import('../app/lib/capabilities/scope-authority');
+    const { openDb } = await import('../app/lib/db');
+    const authRows = `SELECT
+      (SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM "user" u) AS users,
+      (SELECT jsonb_agg(to_jsonb(o) ORDER BY organization_id) FROM canvas_organization_settings o) AS organizations,
+      (SELECT jsonb_agg(to_jsonb(p) ORDER BY organization_id,user_id) FROM organization_user_permissions p) AS permissions`;
+    const baseline = (await fixture.admin.query(authRows)).rows;
+    const variants: Array<{ name: string; userId?: string; changes?: string[]; valid: boolean; organizationId?: string | null }> = [
+      { name: 'active member', valid: true },
+      { name: 'active owner', userId: 'owner', valid: true },
+      { name: 'missing user', userId: 'absent', valid: false },
+      { name: 'banned user', changes: [`UPDATE "user" SET banned=1 WHERE id='reader'`], valid: false },
+      { name: 'missing membership', changes: [`DELETE FROM organization_user_permissions WHERE user_id='reader'`], valid: false },
+      { name: 'disabled membership', changes: [`UPDATE organization_user_permissions SET status='disabled' WHERE user_id='reader'`], valid: false },
+      { name: 'external role remains an active account', changes: [`UPDATE organization_user_permissions SET role='external' WHERE user_id='reader'`], valid: true },
+      { name: 'share permission flag', changes: [`UPDATE organization_user_permissions SET can_share_plugins_and_skills=1 WHERE user_id='reader'`], valid: true },
+      { name: 'stale global admin role cannot replace current membership', changes: [
+        `UPDATE "user" SET role='admin' WHERE id='reader'`, `UPDATE organization_user_permissions SET status='disabled' WHERE user_id='reader'`], valid: false },
+      { name: 'unconfigured legacy account retains missing organization', changes: ['TRUNCATE canvas_organization_settings CASCADE'], valid: true, organizationId: null },
+      { name: 'unconfigured banned account stays denied', changes: ['TRUNCATE canvas_organization_settings CASCADE', `UPDATE "user" SET banned=1 WHERE id='reader'`], valid: false, organizationId: null },
+      { name: 'earliest configured organization remains explicit', changes: [
+        `INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+          VALUES('earlier-org','owner','team',1,1,1)`], valid: true, organizationId: 'earlier-org' },
+      { name: 'another active membership does not invent membership in the configured organization', changes: [
+        `INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+          VALUES('other-org','owner','team',1,200,200)`,
+        `INSERT INTO organization_user_permissions(organization_id,user_id,role,status,created_at,updated_at)
+          VALUES('other-org','reader','member','active',100,100)`,
+        `UPDATE organization_user_permissions SET status='disabled' WHERE organization_id='tool-dispatch-org' AND user_id='reader'`], valid: true },
+    ];
+    for (const variant of variants) {
+      const database = await openDb(), statements: string[] = [];
+      const observed: SqlConnection = {
+        get: (sql, values) => { statements.push(sql); return database.get(sql, values); },
+        all: (sql, values) => { statements.push(sql); return database.all(sql, values); },
+        run: () => assert.fail('The account reader must never write or control a transaction.'),
+        close: () => assert.fail('The account reader does not own the connection.'),
+      };
+      try {
+        await database.run('BEGIN');
+        for (const change of variant.changes ?? []) await database.run(change);
+        const before = await database.get(authRows), userId = variant.userId ?? 'reader';
+        for (const lock of [false, true]) {
+          statements.length = 0;
+          const current = await read(observed, userId, lock);
+          assert.equal(statements.length, lock ? 3 : 1, `${variant.name}: bounded current SQL observations`);
+          assert(statements.every(sql => !/\b(?:canvas_workspaces|canvas_workspace_members|canvas_projects|canvas_project_members)\b/u.test(sql)),
+            'An account-only observation must not enumerate workspaces or projects.');
+          if (lock) {
+            assert(statements.every(sql => sql.includes('FOR SHARE')));
+            assert(statements[0].includes('canvas_organization_settings')); assert(statements[1].includes('FROM "user"'));
+            assert(statements[2].includes('organization_user_permissions'));
+          }
+          const full = await authority(database, { userId }, lock);
+          assert.deepEqual({ userId: current.userId, valid: current.valid, memberships: current.memberships },
+            { userId: full.userId, valid: full.valid, memberships: full.memberships }, variant.name);
+          assert.equal(current.valid, variant.valid, variant.name);
+          assert.equal(current.organizationId, Object.hasOwn(variant, 'organizationId') ? variant.organizationId : 'tool-dispatch-org');
+          assert.equal(Object.hasOwn(current, 'workspaces'), false); assert.equal(Object.hasOwn(current, 'requestedWorkspace'), false);
+          assert.deepEqual(await database.get(authRows), before, 'Both readers are read-only.');
+        }
+      } finally { try { await database.run('ROLLBACK'); } finally { await database.close(); } }
+      assert.deepEqual((await fixture.admin.query(authRows)).rows, baseline, 'Fixture changes must roll back exactly.');
+    }
+    const database = await openDb();
+    try {
+      await database.run('BEGIN');
+      const first = await read(database, 'reader', true); assert.equal(first.valid, true);
+      // Independent real SQL sessions must not revoke a row held by the exact
+      // current transaction. Its own DML remains visible to the next read.
+      for (const change of [
+        `UPDATE canvas_organization_settings SET updated_at=updated_at+1 WHERE organization_id='tool-dispatch-org'`,
+        `UPDATE "user" SET banned=1 WHERE id='reader'`,
+        `UPDATE organization_user_permissions SET status='disabled' WHERE user_id='reader'`,
+      ]) {
+        await fixture.admin.query('BEGIN');
+        try {
+          await fixture.admin.query("SET LOCAL lock_timeout='100ms'");
+          await assert.rejects(fixture.admin.query(change), error => Boolean(error && typeof error === 'object'
+            && Reflect.get(error, 'code') === '55P03'));
+        } finally { await fixture.admin.query('ROLLBACK'); }
+      }
+      first.memberships.clear();
+      assert.equal((await read(database, 'reader')).memberships.get('tool-dispatch-org')?.status, 'active',
+        'Caller mutation cannot poison a subsequent current observation.');
+      await database.run(`UPDATE organization_user_permissions SET status='disabled' WHERE user_id='reader'`);
+      assert.equal((await read(database, 'reader')).valid, false, 'Same-transaction revocation is freshly observed.');
+    } finally { try { await database.run('ROLLBACK'); } finally { await database.close(); } }
+    assert.deepEqual((await fixture.admin.query(authRows)).rows, baseline);
+    console.log(JSON.stringify({ suite: 'actor-membership-authority-postgres', variants: variants.length,
+      fullAuthorityParity: true, unlockedStatements: 1, lockedStatements: 3,
+      actualPeerLocks: 3, selfRevocationObserved: true, fixtureRestored: true }));
+  });
+  completed = true;
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

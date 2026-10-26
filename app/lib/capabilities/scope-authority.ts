@@ -18,19 +18,48 @@ export type Workspace = { id: string; organizationId: string; type: string; owne
 export type Authority = { userId: string; valid: boolean; memberships: Map<string, Membership>; workspaces: Map<string, Workspace>;
   projects: Set<string>; requestedWorkspace: Workspace | null; contextValid: boolean };
 
+export type ActorMembershipAuthority = Pick<Authority, 'userId' | 'valid' | 'memberships'> & { organizationId: string | null };
+
+function membershipAuthority(userId: string, configured: Row | undefined | null, user: Row | undefined | null,
+  memberships: Row[]): ActorMembershipAuthority {
+  return { userId, organizationId: configured ? String(configured.organization_id) : null,
+    valid: Boolean(user && !flag(user.banned)) && (!configured || memberships.some(row => row.status === 'active')),
+    memberships: new Map(memberships.map(row => [String(row.organization_id), {
+      role: String(row.role), status: String(row.status), canShare: flag(row.can_share_plugins_and_skills) }])) };
+}
+
+/** Current account and memberships only, never workspace or execution authority.
+ * Unlocked reads use one real SQL snapshot. Locked reads retain the established
+ * organization -> user -> memberships row-lock order on the caller connection. */
+export async function readActorMembershipAuthorityOnConnection(database: Pick<SqlConnection, 'get' | 'all'>,
+  userId: string, lock = false): Promise<ActorMembershipAuthority> {
+  if (lock) {
+    const configured = await database.get('SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1 FOR SHARE') as Row | undefined;
+    const user = await database.get('SELECT id, banned FROM "user" WHERE id = $1 FOR SHARE', [userId]) as Row | undefined;
+    const memberships = await database.all(`SELECT organization_id, role, status, can_share_plugins_and_skills
+      FROM organization_user_permissions WHERE user_id = $1 ORDER BY organization_id FOR SHARE`, [userId]) as Row[];
+    return membershipAuthority(userId, configured, user, memberships);
+  }
+  const row = await database.get(`SELECT
+    (SELECT to_jsonb(o) FROM (SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1) o) AS configured,
+    (SELECT to_jsonb(u) FROM (SELECT id,banned FROM "user" WHERE id=$1) u) AS account,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(m)), '[]'::jsonb) FROM (
+      SELECT organization_id,role,status,can_share_plugins_and_skills FROM organization_user_permissions WHERE user_id=$1
+    ) m) AS memberships`, [userId]) as { configured: Row | null; account: Row | null; memberships: Row[] } | undefined;
+  if (!row || !Array.isArray(row.memberships)) throw new Error('Current account membership observation is unavailable.');
+  return membershipAuthority(userId, row.configured, row.account, row.memberships);
+}
+
 export async function authority(database: SqlConnection, actor: CapabilityResourceActor, lock = false): Promise<Authority> {
   // Organization permission refreshes write organization settings before users.
   // Take the same order so a fresh-rights transaction cannot deadlock a refresh.
   const configured = await database.get(`SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1${lock ? ' FOR SHARE' : ''}`);
   const user = await database.get(`SELECT id, banned FROM "user" WHERE id = $1${lock ? ' FOR SHARE' : ''}`, [actor.userId]) as Row | undefined;
   const memberships = await database.all(`SELECT organization_id, role, status, can_share_plugins_and_skills FROM organization_user_permissions WHERE user_id = $1${lock ? ' ORDER BY organization_id FOR SHARE' : ''}`, [actor.userId]) as Row[];
-  const result: Authority = { userId: actor.userId, valid: Boolean(user && !flag(user.banned)), memberships: new Map(memberships.map((row) => [String(row.organization_id), {
-    role: String(row.role), status: String(row.status), canShare: flag(row.can_share_plugins_and_skills) }])), workspaces: new Map(), projects: new Set(), requestedWorkspace: null, contextValid: true };
+  const account = membershipAuthority(actor.userId, configured as Row | undefined, user, memberships);
+  const result: Authority = { userId: account.userId, valid: account.valid, memberships: account.memberships,
+    workspaces: new Map(), projects: new Set(), requestedWorkspace: null, contextValid: true };
   if (!result.valid) return result;
-  if (configured && !memberships.some((membership) => membership.status === 'active')) {
-    result.valid = false;
-    return result;
-  }
   const rows = await database.all(`SELECT w.id, w.organization_id, w.type, w.owner_user_id, w.project_id, w.status, p.status AS project_status,
       wm.status AS member_status, wm.role AS member_role, wm.can_read, wm.can_write, wm.can_manage,
       pm.status AS project_member_status, pm.role AS project_member_role, pm.can_read AS project_can_read, pm.can_write AS project_can_write, pm.can_manage AS project_can_manage

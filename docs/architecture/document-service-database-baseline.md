@@ -53,6 +53,32 @@ Authentifizierung oder Serviceergebnissen. Die 9,34 Sekunden dieses gesamten
 mehrphasigen Ablaufs sind kein Produktionsbenchmark. Die bestehenden
 Zeitgrenzen einzelner Phasen bleiben unverändert.
 
+## Erste gebündelte Leser
+
+Die identische verzögerte Agenten-Neuanlage wird nach jedem abgeschlossenen
+Umbau erneut geprüft. Die Werte beziehen sich auf denselben Messbereich:
+
+| Stand | SQL im Create-Engine | SQL in Berechtigungsprüfungen | Größte Transaktion |
+| --- | ---: | ---: | ---: |
+| Ausgangsmessung | 8.480 | 5.954 | 3.089 |
+| Gemeinsamer Ein-Abfrage-Workspace-Leser in PI und Agenten-Kontext | 7.480 | 5.038 | 2.713 |
+| Zusätzliche Konto-/Mitgliedschaftsbeobachtung ohne Workspace-Aufzählung | 6.452 | 4.122 | 2.337 |
+
+Alle 229 aktuellen Berechtigungsprüfungen bleiben erhalten. Der Konto-Baustein
+liest entsperrt eine aktuelle SQL-Momentaufnahme und mit Sperren drei Abfragen in
+der bestehenden Reihenfolge Organisation → Benutzer → Mitgliedschaften. Er erzeugt
+keine Workspace-Berechtigung und hält keine Entscheidung über einen Aufruf hinaus
+vor. Die unveränderte vollständige Ressourcenberechtigung verwendet dieselbe
+ausgelagerte Auswertungslogik und behält ihre benötigte Workspace-Aufzählung.
+
+Nachweise: 19 vorhandene Workspace-Paritätsvarianten, 13 zusätzliche Konto-Varianten
+einschließlich echter Peer-Sperren und Selbstwiderruf, 49 Agenten-Principal-Fälle,
+zwölf Neuanlage-Gruppen und 21 Dokumentleser-Fälle. Die Zielbudgets des Gesamtplans
+sind damit weiterhin nicht erreicht. Eine zeitweise rote Fixture-Abschlussprüfung
+wurde auf die verzögerte Abmeldung eines eigenen PostgreSQL-Backends zurückgeführt;
+die Fixture wartet jetzt begrenzt auf tatsächlich null eigene Backends vor dem
+Löschen ihres Schemas. Die Anforderung null Verbindungen bleibt unverändert.
+
 ## Dokumentweise Leseprojektion
 
 Der Quellenleser hat bereits zwei gebündelte native SQL-Abfragen je Prüfdurchlauf.

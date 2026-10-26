@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
-import { authority } from '@/app/lib/capabilities/scope-authority';
+import { readActorMembershipAuthorityOnConnection } from '@/app/lib/capabilities/scope-authority';
 import { readPostgresWorkspaceForActorInSingleSnapshotOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import { normalizeWorkspaceRole, resolveWorkspacePermissions } from '@/app/lib/workspaces/permissions';
 import type { WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
@@ -58,14 +58,11 @@ export async function resolveVerifiedAgentActorContextOnConnection(
   const requestedProject = suppliedId(input.projectId);
   const lock = options.lock === true;
   const suffix = lock ? ' FOR SHARE' : '';
-  const organization = await database.get(
-    `SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1${suffix}`,
-  ) as Row | undefined;
-  const organizationId = organization ? String(organization.organization_id) : null;
   // Both reused read helpers use only get/all. No connection borrowing or transaction
   // operation is exposed by this service's deliberately narrower interface.
   const connection = database as SqlConnection;
-  const current = await authority(connection, { userId }, lock);
+  const current = await readActorMembershipAuthorityOnConnection(database, userId, lock);
+  const organizationId = current.organizationId;
   if (!current.valid) deny();
   const membership = organizationId ? current.memberships.get(organizationId) : null;
   if (organizationId && membership?.status !== 'active') deny();
