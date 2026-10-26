@@ -79,6 +79,62 @@ wurde auf die verzögerte Abmeldung eines eigenen PostgreSQL-Backends zurückgef
 die Fixture wartet jetzt begrenzt auf tatsächlich null eigene Backends vor dem
 Löschen ihres Schemas. Die Anforderung null Verbindungen bleibt unverändert.
 
+Weitere aktuelle Messungen nach gebündelten Member-/MCP-Workspace-Lesern und
+kohärenter Workspace-Auswahl/-Aufzählung:
+
+| Messbereich | Aktuelle SQL-Anweisungen | Pool-Ausleihen |
+| --- | ---: | ---: |
+| Gemeinsamer HTTP-Dokumentleser, erster erfolgreicher Fall | 104 | 12 |
+| Registrierter Agenten-Dokumentleser | 132 | 3 |
+| Registrierter MCP-Dokumentleser | 72 | 4 |
+| MCP-Markdown-Neuanlage, erster erfolgreicher Fall | 3.224 | 27 |
+| Dokumentindex, 10 und 200 Dokumente, warm | 36 | 7 |
+
+66 echte Member-Principal-Fälle und zwölf MCP-Pfad-Principal-Gruppen bestehen.
+Die bisherigen Rechteentscheidungen bleiben erhalten. Ein zusätzlich nachgewiesener
+Parallelitätsfehler bei der allgemeinen Workspace-Auswahl/-Aufzählung ist behoben:
+Ein alter Freigabestand darf nicht mit einer neu hinzugekommenen Teammitgliedschaft
+kombiniert werden. Workspace und zugehörige Zugriffsmerkmale stammen jetzt aus
+derselben SQL-Momentaufnahme.
+
+## Diagnosefamilien und Move-Messung
+
+Die gemeinsame Messung ergänzt elf feste Abfragefamilien mit Anzahl, Datenbankzeit
+und Fehlerzahl. Jede Anweisung zählt genau einmal; die Summe der Gruppen entspricht
+der Gesamtsumme. Die Einordnung nach fest vorgegebenen SQL-Merkmalen ist heuristisch:
+Bei mehreren Treffern gewinnt die erste Familie, und Schreibweisen in Kommentaren
+oder Literalen können ebenfalls treffen. Unbekannte, übergroße und nur über Getter
+oder Proxy lesbare SQL-Formen zählen als `other`. Diese Einordnung dient der Diagnose;
+konkrete Optimierungen benötigen weiterhin Quellenprüfung und echte Abfragepläne.
+Im Bericht stehen nur feste Gruppennamen und Zahlen. SQL-Texte und Parameter werden
+weder gespeichert noch ausgeliefert.
+
+Der identische verzögerte Agenten-Create besteht mit diesen Gruppen:
+
+| Diagnosefamilie | Anweisungen |
+| --- | ---: |
+| Katalog-/Verbindungskontext | 1.826 |
+| Konto-/Organisationsdaten | 1.070 |
+| Workspace-/Projektdaten | 1.020 |
+| Agenten-/Grantdaten | 953 |
+| Übrige Familien zusammen | 1.583 |
+| Gesamt | 6.452 |
+
+Die 4.122 Anweisungen innerhalb von Berechtigungsprüfungen sind ein überlappender
+Phasenmesswert und dürfen nicht zur Gruppensumme addiert werden. Die 229 Prüfaufrufe,
+51 Pool-Ausleihen und vier maximal gleichzeitig gehaltenen Pool-Verbindungen bleiben
+offene Optimierungsziele. Alle Abfragen und Pool-Ausleihen sind vor Messende beendet.
+
+Der echte Original-Move-Owner-Test benutzt zusätzlich dieselbe gemeinsame Messung.
+Seine 22 bestehenden Fälle behalten ihre Daten-, Konflikt-, Wiederholungs- und
+Cleanup-Prüfungen. Das erste native Move-Szenario benötigt 2.342 Anweisungen und
+29 Pool-Ausleihen, das PDF-Szenario 2.431 und 31; beide halten maximal zwei
+Pool-Verbindungen gleichzeitig. Beide Messungen umfassen den gesamten jeweiligen
+Owner-Testfall mit Vorbereitung und Ausführung. Sie ersetzen weiterhin keine
+vollständige Browseraktion. Der unabhängige Bestandsprofiler bleibt als Vergleich
+erhalten; die gemeinsame Messung beobachtet zusätzlich echte Callback-Abschlüsse,
+Pool-Wartezeit und Verbindungen.
+
 ## Dokumentweise Leseprojektion
 
 Der Quellenleser hat bereits zwei gebündelte native SQL-Abfragen je Prüfdurchlauf.

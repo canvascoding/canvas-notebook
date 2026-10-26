@@ -44,6 +44,8 @@ async function main() {
       assert.equal(measured.unsupportedQueryForms, 0); assert.equal(measured.outcome, 'succeeded');
       assert.equal(measured.phases.find(phase => phase.phase === 'snapshot')?.statements, 1);
       assert.equal(measured.phases.find(phase => phase.phase === 'operation')?.statements, 4);
+      assert.deepEqual(measured.queryGroups.map(({ group, statements, failedStatements }) =>
+        ({ group, statements, failedStatements })), [{ group: 'other', statements: 4, failedStatements: 1 }]);
       assert(!JSON.stringify(measured).includes(privateValue));
       assert(!JSON.stringify(measured).includes('SELECT')); assert(!JSON.stringify(measured).includes(url.href));
 
@@ -112,6 +114,48 @@ async function main() {
         } finally { client.release(); }
       });
       assert.equal(observations.at(-1)?.unsupportedQueryForms, 1, 'unsupported timing coverage stays explicit');
+
+      await measureDocumentOperation('links', 'system', async () => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query('SELECT current_schema()');
+          // Diagnostic classification only: these CTEs are not authorization
+          // fixtures and cannot establish any product permission.
+          for (const table of ['team_memberships', 'agents', 'pi_sessions', 'canvas_workspaces', 'user',
+            'collaboration_yjs_states', 'collaboration_file_projections', 'collaboration_documents']) {
+            assert.equal((await client.query(`WITH "${table}"(n) AS (VALUES (1)) SELECT n FROM "${table}"`)).rows[0].n, 1);
+          }
+          await client.query(`SELECT 1 /* ${privateValue.repeat(1000)} */`);
+          await client.query('COMMIT');
+        } finally { client.release(); }
+      });
+      assert.deepEqual(Object.fromEntries(observations.at(-1)!.queryGroups.map(value => [value.group, value.statements])),
+        { transaction: 2, catalogue: 1, seat: 1, agent: 1, session: 1, workspace: 1, account: 1,
+          'document-state': 1, 'document-projection': 1, 'document-registry': 1, other: 1 });
+
+      const queryWithAccessor = async (measured: boolean, proxied: boolean) => {
+        let gets = 0, traps = 0;
+        const config = Object.defineProperty({}, 'text', { get() { gets++; return 'SELECT current_schema()'; } });
+        const input = proxied ? new Proxy(config, { get(target, key, receiver) { traps++; return Reflect.get(target, key, receiver); },
+          getOwnPropertyDescriptor(target, key) { traps++; return Reflect.getOwnPropertyDescriptor(target, key); } }) : config;
+        const execute = async () => { await pool.query(input as { text: string }); };
+        if (measured) await measureDocumentOperation('read', 'system', execute); else await execute();
+        return { gets, traps };
+      };
+      for (const proxied of [false, true]) {
+        const original = await queryWithAccessor(false, proxied);
+        assert.deepEqual(await queryWithAccessor(true, proxied), original,
+          'diagnostic grouping must add no getter reads or proxy traps to the real driver');
+        assert.equal(observations.at(-1)?.queryGroups[0].group, 'other', 'uninspected query forms stay explicit');
+      }
+      for (const value of [...observations, ...delivered]) {
+        assert.equal(value.queryGroups.reduce((sum, group) => sum + group.statements, 0), value.statements);
+        assert.equal(value.queryGroups.reduce((sum, group) => sum + group.failedStatements, 0), value.failedStatements);
+        assert(Object.isFrozen(value.queryGroups) && value.queryGroups.every(Object.isFrozen));
+        const serialized = JSON.stringify(value);
+        assert(!serialized.includes(privateValue) && !serialized.includes('SELECT') && !serialized.includes(url.href));
+      }
     });
     assert.equal(await withDocumentOperationMetricObserver(() => { throw new Error('Sink failure'); },
       () => measureDocumentOperation('read', 'system', async () => { await pool.query('SELECT 1'); return 'unchanged'; })), 'unchanged');
@@ -129,7 +173,7 @@ async function main() {
       await measureDocumentOperation('read', 'system', async () => { assert.equal((await pool.query('SELECT 3 AS n')).rows[0].n, 3); });
       assert.equal(lateCalls, 1, 'late prototype observers and fault probes must still observe the real SQL');
     } finally { Client.prototype.query = originalQuery; }
-    console.log('Document operation metrics: real pg promises/callbacks/Drizzle/custom Query, unchanged error identity, nested/concurrent scopes, pool wait, privacy and failing-sink isolation passed.');
+    console.log('Document operation metrics: real pg promises/callbacks/Drizzle/custom Query, unchanged errors/getters/proxy traps, nested/concurrent scopes, pool wait, fixed query groups, privacy and failing-sink isolation passed.');
   } finally { await pool.end(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

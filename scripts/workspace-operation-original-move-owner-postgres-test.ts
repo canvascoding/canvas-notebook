@@ -12,6 +12,8 @@ import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness';
+import { measureDocumentOperation, withDocumentOperationMetricObserver,
+  type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
 
 // Real PG18, current signed Team license, actual actor policy and genuine Store
 // claim. Every schema, connection and physical path belongs to this fixture.
@@ -358,7 +360,17 @@ async function main(): Promise<void> {
     };
     const check=async(label:string,operation:()=>Promise<void>)=>{
       stage=label;queryProfile!.beginCase(label);let failed=true;
-      try{await own();await operation();await own();passed++;failed=false;console.log('Original Move owner case passed:',label);}
+      const measurements:DocumentOperationMeasurement[]=[];
+      try{
+        await withDocumentOperationMetricObserver(value=>{measurements.push(value);},
+          ()=>measureDocumentOperation('move','request',async()=>{await own();await operation();await own();}));
+        assert.equal(measurements.length,1);const measurement=measurements[0];assert.equal(measurement.outcome,'succeeded');
+        assert.equal(measurement.unsupportedQueryForms,0);assert.equal(measurement.openQueriesAtCompletion,0);
+        assert.equal(measurement.openConnectionsAtCompletion,0);
+        assert.equal(measurement.queryGroups.reduce((sum,group)=>sum+group.statements,0),measurement.statements);
+        console.log('Original Move common operation measurement:',JSON.stringify({label,measurement}));
+        passed++;failed=false;console.log('Original Move owner case passed:',label);
+      }
       finally{queryProfile!.endCase(failed);}
     };
     await check('native-only target, incoming native link and native metadata commit on real B',async()=>{
