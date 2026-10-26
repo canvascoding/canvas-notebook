@@ -1,4 +1,5 @@
 import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES as CODES } from './checkpoint-errors';
+import { measureDocumentPhase } from '../observability/document-operation-metrics';
 
 export type CollaborationProjectionPhase = 'snapshot_validate' | 'receipt_begin' | 'file_write'
   | 'checkpoint_confirm' | 'projection_finalize' | 'receipt_finalize'
@@ -21,7 +22,7 @@ const nativeCodes = new Set(['ENOENT', 'EACCES', 'ENOSPC', 'EIO', 'EROFS', 'EMFI
   'MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED', 'MARKDOWN_CREATE_BIRTH_SOURCE_EXPIRED', 'MARKDOWN_CREATE_BIRTH_TARGET_CHANGED', 'MARKDOWN_CREATE_BIRTH_UNAWAITED_IO']);
 
 export async function inCollaborationProjectionPhase<T>(phase: CollaborationProjectionPhase, operation: () => Promise<T>): Promise<T> {
-  try { return await operation(); }
+  try { return await measureDocumentPhase(phase, operation); }
   catch (error) {
     if (error instanceof Error && Object.isExtensible(error)) {
       if (!('collaborationPhase' in error)) Object.defineProperty(error, 'collaborationPhase', { value: phase });

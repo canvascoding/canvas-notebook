@@ -14,7 +14,7 @@ import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './hel
 let phase = 'fixture', groups = 0, complete = false;
 process.once('beforeExit', () => { if (!complete) process.exitCode = 1; });
 
-export async function piMarkdownCreatePostgresTest(): Promise<void> {
+export async function piMarkdownCreatePostgresTest(options: { firstCreateLatencyOnly?: true } = {}): Promise<void> {
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';
   try {
     await withNativeCopyMetadataOwnerFixture(async h => {
@@ -57,8 +57,9 @@ export async function piMarkdownCreatePostgresTest(): Promise<void> {
           { toolName: 'write', toolCallId }, operation));
       };
 
-      const filePath = `pi-created-${crypto.randomUUID()}.md`;
-      const content = 'Native PI document creation preserves this text, including äöü and 😀.\n';
+      const filePath = `${options.firstCreateLatencyOnly ? 'campaign/linkedin/posts/' : ''}pi-created-${crypto.randomUUID()}.md`;
+      const content = options.firstCreateLatencyOnly ? '# Post fixture\n\n' + 'Literal Markdown with äöü and 😀. '.repeat(60) + '\n'
+        : 'Native PI document creation preserves this text, including äöü and 😀.\n';
       const source = Buffer.from(content), sourceHash = crypto.createHash('sha256').update(source).digest('hex');
       await assert.rejects(fs.lstat(path.join(h.source.rootPath, filePath)), { code: 'ENOENT' });
       assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
@@ -124,17 +125,36 @@ export async function piMarkdownCreatePostgresTest(): Promise<void> {
       };
 
       phase = 'genuine stored PI invocation creates new Markdown';
-      const result = await piMarkdownCreateInvocation(() => writeAgentTextFile({ path: filePath, content,
+      const create = () => piMarkdownCreateInvocation(() => writeAgentTextFile({ path: filePath, content,
         operation: 'write', idempotencyKey: toolCallId }));
+      let result: AgentFileChangeResult;
+      if (options.firstCreateLatencyOnly) {
+        const transactions = new Map<object, number>(), statements: number[] = [];
+        let queryCount = 0;
+        result = await h.withProbe(async event => {
+          if (/^BEGIN\b/u.test(event.text)) transactions.set(event.client, 0);
+          if (transactions.has(event.client)) transactions.set(event.client, transactions.get(event.client)! + 1);
+          if (/^(COMMIT|ROLLBACK)$/u.test(event.text) && transactions.has(event.client)) {
+            statements.push(transactions.get(event.client)!); transactions.delete(event.client);
+          }
+          // Delay real acknowledgements, never substitute SQL results or auth.
+          // The unchanged genuine Principal and PostgreSQL five-second budgets
+          // must still permit the complete first projection.
+          if (++queryCount % 4 === 0) await new Promise(resolve => setTimeout(resolve, 1));
+        }, create);
+        assert(statements.length > 5);
+        assert(Math.max(...statements) < 5000, 'first projection must not regress to thousands of duplicate authorization reads');
+        console.log('PI_CREATE_LATENCY_BUDGET', JSON.stringify({ queryCount, largestTransactionStatements: Math.max(...statements) }));
+      } else result = await create();
       assert.equal(result.path, filePath); assert.equal(result.changed, true); assert.equal(result.beforeSha256, null);
       assert.equal(result.afterSha256, sourceHash); assert.equal(result.size, source.length);
       assert.equal(result.review, undefined); assert.equal(result.proposal, undefined);
       assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, filePath)), source);
       await piMarkdownCreateNativeBirthAssertions();
       groups++; console.log('PASS PI Markdown create: genuine authority -> native birth -> projection -> authenticated ID read');
+      if (options.firstCreateLatencyOnly) return;
 
-      // The complete first-family block above remains byte-for-byte the
-      // executed baseline. Additional families share its one owned fixture.
+      // Additional families share the same genuine baseline and owned fixture.
       const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
       const { piTools } = await import('../app/lib/pi/core-tools');
       await readPiRuntimeConfig();

@@ -7,6 +7,7 @@ import { resolveExactWorkspaceLink, type WorkspaceExactResolution } from './work
 import type { OriginalPhysicalLink, WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
 import { stageWorkspaceLinkSourceAuthorityObservation } from './workspace-source-authority-stage';
 import type { WorkspaceDocumentLinkDocument, WorkspaceDocumentLinkIndex, WorkspaceLinkReadEdge } from './workspace-document-link-index-contract';
+import { measureDocumentOperation, measureDocumentPhase } from '../observability/document-operation-metrics';
 
 export type WorkspaceDocumentLinkIndexDependencies = {
   observe?: typeof stageWorkspaceLinkSourceAuthorityObservation;
@@ -184,11 +185,14 @@ export async function readWorkspaceDocumentLinkIndex(
   workspace: WorkspaceContext,
   dependencies: WorkspaceDocumentLinkIndexDependencies = {},
 ): Promise<WorkspaceDocumentLinkIndex> {
-  if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
-    throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
-  }
-  const observation = await (dependencies.observe ?? stageWorkspaceLinkSourceAuthorityObservation)(workspace, { sourceScope: 'document-index' });
-  if (observation.stage.workspaceId !== workspace.workspaceId
-    || observation.stage.organizationId !== (workspace.organizationId ?? null)) throw new Error('Document link index scope changed.');
-  return buildWorkspaceDocumentLinkIndexFromStage(observation.stage, dependencies.now?.() ?? new Date());
+  return measureDocumentOperation('links', 'system', async () => {
+    if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
+      throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
+    }
+    const observation = await measureDocumentPhase('snapshot', () =>
+      (dependencies.observe ?? stageWorkspaceLinkSourceAuthorityObservation)(workspace, { sourceScope: 'document-index' }));
+    if (observation.stage.workspaceId !== workspace.workspaceId
+      || observation.stage.organizationId !== (workspace.organizationId ?? null)) throw new Error('Document link index scope changed.');
+    return measureDocumentPhase('resolve', async () => buildWorkspaceDocumentLinkIndexFromStage(observation.stage, dependencies.now?.() ?? new Date()));
+  });
 }

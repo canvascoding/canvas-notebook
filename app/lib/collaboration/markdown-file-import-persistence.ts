@@ -61,6 +61,7 @@ import { assertNativeDocumentSchema } from './native-document-schema';
 import { authenticatedNativeTextSessionEnabled } from './native-text-session-activation';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
 import { inCollaborationProjectionPhase } from './projection-errors';
+import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { assertCollaborationAdmissionOpen } from './room-admission';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
 import { lockIdentity } from './room-owner';
@@ -2000,6 +2001,8 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
 async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMcpCreateInvocation | AgentCreateInvocation, intent: CreateIntent,
   expectedScope: PristineOriginalRequestScopeExpectation | WorkspaceAgentToolHistoricalOrigin, providedSource: AuthenticatedCreateSource | null,
   dependencies: { openConnection: () => Promise<SqlConnection> }, project: boolean): Promise<MarkdownFileImportResult | AuthenticatedMarkdownFirstProjectionResult> {
+  return measureDocumentOperation('create', original instanceof NextRequest ? 'request'
+    : agentCreateInvocations.has(original as AgentCreateInvocation) ? 'agent' : 'mcp', async () => {
   const agent = !(original instanceof NextRequest) && agentCreateInvocations.has(original as AgentCreateInvocation) ? original as AgentCreateInvocation : null;
   const mcp = original instanceof NextRequest || agent ? null : original as DirectMcpCreateInvocation;
   if (agent ? !agent.active || !providedSource || !createSources.has(providedSource)
@@ -2201,6 +2204,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
       }
       if (hasFailure) throw failure; return value!;
     })();
+  });
 }
 
 async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
@@ -2262,7 +2266,10 @@ async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<
 async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
   if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const { database, frame, access, source, claim, input, result } = phase;
-  await access.assertCurrent(); await assertAuthenticatedCreateOriginCurrent(database, frame, access);
+  // The Agent tool policy performs genuine Current checks both before and
+  // after its config/profile read. An adjacent third read adds no boundary.
+  if (frame.kind !== 'agent-tool') await access.assertCurrent();
+  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
   await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
   if (checkSource) await source.assertCurrent();
   await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
@@ -2350,13 +2357,24 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         await assertNoPendingOriginalFileOperationProjection(database, state.workspaceId, frame.realm.schema);
         await assertBootstrapOwner(frame);
       };
+      const afterStorageBoundary = async (stage?: string) => {
+        if (frame.kind !== 'agent-tool') return beforeBoundary(stage);
+        // MarkdownCreateBirthClaim invokes its fixed Agent storage guard
+        // immediately before this callback. That guard already performs the
+        // full Current/native/source/claim checks in this exact private phase,
+        // including the synchronous before-link turn guard. Keep the extra
+        // pending-operation and A-owner checks here; never cache authority or
+        // enter another Principal during a protected filesystem action.
+        await assertNoPendingOriginalFileOperationProjection(database, state.workspaceId, frame.realm.schema);
+        await assertBootstrapOwner(frame);
+      };
       await beforeBoundary();
       const binding = await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
       if (binding.finalized === 1) {
         const receipt = await loadCollaborationProjectionReceipt(state), file = await claim.verify();
         if (!receipt?.finalized || receipt.revisionId !== binding.revision_id || file.serializedHash !== binding.serialized_hash
           || state.serializedHash !== binding.serialized_hash) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-        await claim.complete(state.serializedHash!, receipt.revisionId, beforeBoundary);
+        await claim.complete(state.serializedHash!, receipt.revisionId, afterStorageBoundary);
         return { revisionId: receipt.revisionId, serializedHash: state.serializedHash! };
       }
       const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<{ revisionId: string }>({ documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
@@ -2367,7 +2385,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
           const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(current));
           const serialized = serializeCanonicalText(snapshot.canonicalContent, current);
           await beforeBoundary(); await inCollaborationProjectionPhase('receipt_begin', () => beginCollaborationProjectionAttempt(current));
-          await claim.publish(serialized, beforeBoundary, () => {
+          await claim.publish(serialized, afterStorageBoundary, () => {
             if (!scope.active || firstProjectionPhases.getStore() !== scope || performance.now() >= scope.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
           });
           const revision = await ensureFileRevisionForCurrentContent({ workspace: scope.access.workspace, path: state.path,
@@ -2397,7 +2415,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       await beforeBoundary();
       await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({ state: fenced.state, workspace: scope.access.workspace, revisionId: fenced.result.revisionId }));
       await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
-      await currentAuthenticatedMarkdownBirth(scope); await claim.complete(fenced.state.serializedHash, fenced.result.revisionId, beforeBoundary);
+      await currentAuthenticatedMarkdownBirth(scope); await claim.complete(fenced.state.serializedHash, fenced.result.revisionId, afterStorageBoundary);
       const changed = await inCollaborationProjectionPhase('birth_finalize', async () => database.get(`UPDATE collaboration_markdown_create_births SET finalized=1,revision_id=$1,serialized_hash=$2
         WHERE workspace_id=$3 AND operation_id=$4 AND claim_id=$5 AND claim_fingerprint=$6 AND request_fingerprint=$7 AND finalized=0 RETURNING document_id`,
       [fenced.result.revisionId, fenced.state.serializedHash, state.workspaceId, input.operationId, claim.id, claim.fingerprint, input.fingerprint]));

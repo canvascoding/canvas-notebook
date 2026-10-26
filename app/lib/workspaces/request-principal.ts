@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { NextRequest } from 'next/server';
+import { measureDocumentPhase } from '../observability/document-operation-metrics';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import { normalizeDatabaseTimestamp } from '../db/timestamps';
 import { getLicenseStatus } from '../license';
@@ -587,14 +588,14 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
       if (request.kind === 'member') await observeOriginalOrigin(phase);
       await schema(phase); await locks(phase);
       if (request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request)) await pinAgentCreateReceiptRealm(phase);
-      const workspace = await readCurrent(phase);
+      const workspace = await measureDocumentPhase('authorization', () => readCurrent(phase));
       const assertCurrent = (): Promise<void> => {
         if (phase.checking) {
           phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'); request.failure ??= phase.failure;
           return Promise.reject(phase.failure);
         }
         phase.checking = true;
-        const checked = readCurrent(phase).then(() => undefined).catch(error => { phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure; })
+        const checked = measureDocumentPhase('authorization', () => readCurrent(phase)).then(() => undefined).catch(error => { phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure; })
           .finally(() => { phase.checking = false; });
         phase.pending.add(checked);
         void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
@@ -606,7 +607,7 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
         phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
         await Promise.allSettled([...phase.pending]); throw phase.failure;
       }
-      await readCurrent(phase); return result;
+      await measureDocumentPhase('authorization', () => readCurrent(phase)); return result;
     } catch (error) {
       if ((error as { code?: string })?.code === '55P03') error = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
       return poison(request,error);
@@ -798,14 +799,32 @@ function matchesAgentWorkspace(origin: AgentWorkspaceOrigin, workspace: Workspac
  * account/seat/workspace check required for built-in Agent.canUse shortcuts. */
 async function readAgentWorkspace(database: SqlConnection, schemaName: string, origin: AgentWorkspaceOrigin,
   agentId: string, permission: AuthorizationCapture['permission'], license: LicenseStatus,
-  assertAlive: () => unknown, lock: boolean): Promise<WorkspaceContext> {
+  assertAlive: () => unknown, lock: boolean, createPhase?: Phase): Promise<WorkspaceContext> {
   assertAlive();
+  if (createPhase) {
+    active(createPhase);
+    const request = createPhase.request;
+    if (createPhase.database !== database || request.kind !== 'agent_tool'
+      || !agentMarkdownCreateCaptures.has(request) || !createPhase.agentCreateRealm
+      || request.origin !== origin || request.agentId !== agentId || request.permission !== permission
+      || request.license !== license || request.schema !== schemaName || !lock) fail('PRINCIPAL_REQUIRED');
+  }
   const user = await database.get(`SELECT id,banned FROM ${quote(schemaName)}."user" WHERE id=$1`, [origin.userId]) as Row | undefined;
   assertAlive();
   if (!user || user.id !== origin.userId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
-  await assertUserSeatAccess({ userId: origin.userId, database, licenseStatus: license }); assertAlive();
-  await resolveVerifiedAgentActorContextOnConnection({ userId: origin.userId, organizationId: origin.organizationId,
-    workspaceId: origin.workspaceId, projectId: origin.projectId }, database, { lock }); assertAlive();
+  if (createPhase) {
+    // The genuine Create phase has already acquired schema(), locks() and its
+    // receipt-realm pin. Read every seat fact freshly in one actual snapshot.
+    await assertUserSeatAccessInSingleSnapshotOnConnection(database, origin.userId, license); assertAlive();
+    // readStoredAgentWorkspaceOnConnection below performs the complete current
+    // actor-context check through getAgentAccessOnConnection, including legacy
+    // Agent shortcuts. Its required policy tables and rows are already held by
+    // this exact phase. Do not run the same resolver a second time beforehand.
+  } else {
+    await assertUserSeatAccess({ userId: origin.userId, database, licenseStatus: license }); assertAlive();
+    await resolveVerifiedAgentActorContextOnConnection({ userId: origin.userId, organizationId: origin.organizationId,
+      workspaceId: origin.workspaceId, projectId: origin.projectId }, database, { lock }); assertAlive();
+  }
   const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: origin.userId, sessionId: origin.sessionId,
     agentId, workspaceId: origin.workspaceId, permissions: ['canRead','canRunAgent',permission] });
   assertAlive();
@@ -841,7 +860,7 @@ async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   active(phase);
   if (!sameAgentProfile(request.profile,profile)) fail('PRINCIPAL_SCOPE_CHANGED');
   const workspace = await readAgentWorkspace(phase.database, phase.identity!.schema, request.origin, request.agentId,
-    request.permission, request.license, () => active(phase), true);
+    request.permission, request.license, () => active(phase), true, agentMarkdownCreateCaptures.has(request) ? phase : undefined);
   if (!scope(workspace,request.workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
   await checkIdentity(phase);
   return workspace;

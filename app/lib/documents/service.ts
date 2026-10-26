@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { openDb, type SqlConnection } from '../db';
+import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { readNativeDocumentByIdOnConnection, type NativeDocumentReadObservation } from '../collaboration/native-document-read';
 import { getFileDisplayName } from '../files/display-name';
 import { SeatLimitGuardError } from '../license/seat-limit';
@@ -266,40 +267,46 @@ async function finish(held: { phase: ReadPhase; page: DocumentReadPageV1 }): Pro
 
 /** Genuine Better Auth request; selectors and continuation evidence grant no rights. */
 export async function readDocumentForRequest(request: Request, input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input);
-  // Compiled route/core bundles can carry distinct NextRequest constructors.
-  // Require a genuine Web Request and normalize to this module's local class.
-  if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
-  const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
-  const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-  try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'request', async () => {
+    const selection = decodeDocumentReadRequestV1(input);
+    // Compiled route/core bundles can carry distinct NextRequest constructors.
+    // Require a genuine Web Request and normalize to this module's local class.
+    if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
+    const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+    const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
+    try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 /** Actual current PI invocation; never constructs a member request or accepts an actor DTO. */
 export async function readDocumentForAgentTool(input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input), historical: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
-  try { return await withWorkspaceAgentToolPrincipalOriginalOrigin({ workspaceId: selection.workspaceId, permission: 'canRead' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['agent_tool', value.userId, value.agentId, value.piSessionId, value.toolName]), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'agent', async () => {
+    const selection = decodeDocumentReadRequestV1(input), historical: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
+    try { return await withWorkspaceAgentToolPrincipalOriginalOrigin({ workspaceId: selection.workspaceId, permission: 'canRead' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['agent_tool', value.userId, value.agentId, value.piSessionId, value.toolName]), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 /** Actual Direct MCP token, /mcp audience and knowledge:read purpose. Search does not grant read. */
 export async function readDocumentForDirectMcp(authInfo: AuthInfo, input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input), historical: { value?: DirectMcpDocumentReadHistoricalOrigin } = {};
-  try { return await withDirectMcpDocumentReadPrincipal(authInfo, { workspaceId: selection.workspaceId, purpose: 'read' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withDirectMcpDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'mcp', async () => {
+    const selection = decodeDocumentReadRequestV1(input), historical: { value?: DirectMcpDocumentReadHistoricalOrigin } = {};
+    try { return await withDirectMcpDocumentReadPrincipal(authInfo, { workspaceId: selection.workspaceId, purpose: 'read' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withDirectMcpDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 type HeldSearch = Readonly<{ phase: ReadPhase;

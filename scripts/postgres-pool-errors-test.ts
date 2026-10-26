@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Pool, type PoolConfig } from 'pg';
 import { postgresFailureCode } from '../app/lib/db/postgres-diagnostics';
 import { resolvePostgresRuntimeOptions } from '../app/lib/db/postgres-runtime-options';
+import { installDocumentDatabaseMetrics } from '../app/lib/observability/document-operation-metrics';
 import { evaluateIsolatedModule, sourceFunction } from './helpers/isolated-source-module';
 
 // Exercise pg-pool's actual idle/error/remove/query behavior with only its
@@ -41,7 +42,7 @@ async function main() {
     constructor(options: PoolConfig) { super({ ...options, Client: ReadyClient } as unknown as PoolConfig); }
   }
   const { createPostgresPool } = evaluateIsolatedModule<{ createPostgresPool: () => Pool }>(sourceFunction('app/lib/db/postgres.ts', 'createPostgresPool'), {}, {
-    Pool: FixturePool, randomUUID, postgresFailureCode,
+    Pool: FixturePool, randomUUID, postgresFailureCode, installDocumentDatabaseMetrics,
     configurePgTypeParsers: () => {}, resolvePostgresRuntimeOptions: () => resolvePostgresRuntimeOptions({}),
     process: { env: { DATABASE_URL: 'postgresql://fixture:private@127.0.0.1/fixture' }, pid: process.pid },
     console: { error: (...args: unknown[]) => { if (failLogging) throw new Error('logger failed'); logs.push(args); } },
