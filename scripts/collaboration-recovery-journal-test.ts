@@ -12,7 +12,16 @@ async function main() {
   const selected = source.statements.filter(statement => ts.isFunctionDeclaration(statement)
     && ['durablePrivateWrite', 'canonical'].includes(statement.name?.text ?? ''));
   assert.equal(selected.length, 2);
-  const javascript = ts.transpileModule(selected.map(statement => statement.getText(source)).join('\n'), {
+  // Execute declarations in the crash harness; module export wiring is outside
+  // the filesystem publication behavior this child process exercises.
+  const printer = ts.createPrinter();
+  const declarations = selected.map(statement => {
+    assert(ts.isFunctionDeclaration(statement));
+    return printer.printNode(ts.EmitHint.Unspecified, ts.factory.updateFunctionDeclaration(statement,
+      statement.modifiers?.filter(modifier => modifier.kind !== ts.SyntaxKind.ExportKeyword),
+      statement.asteriskToken, statement.name, statement.typeParameters, statement.parameters, statement.type, statement.body), source);
+  });
+  const javascript = ts.transpileModule(declarations.join('\n'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-recovery-journal-'));
