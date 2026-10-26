@@ -33,9 +33,16 @@ async function installStatus(context: BrowserContext, initial: Partial<Status> =
 }
 
 async function openSettings(page: Page, locale = 'en') {
-  await page.goto(`/${locale}/settings?tab=system-email`, { waitUntil: 'domcontentloaded' });
+  // The server-rendered card may paint before its disclosure is hydrated.
+  // Its real browser status request starts after the component mounts; an
+  // intentional failed response must remain available to the error-state test.
+  const statusLoaded = page.waitForResponse(response => response.request().method() === 'GET'
+    && new URL(response.url()).pathname === '/api/admin/system-email', { timeout: 30_000 });
+  await Promise.all([statusLoaded, page.goto(`/${locale}/settings?tab=system-email`, { waitUntil: 'domcontentloaded' })]);
   const card = page.getByTestId('system-email-settings');
   await expect(card).toBeVisible();
+  const messages = locale === 'de' ? de : en;
+  await expect(card.getByText(messages.common.loading, { exact: true })).toHaveCount(0, { timeout: 30_000 });
   return card;
 }
 
