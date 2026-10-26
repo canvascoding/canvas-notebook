@@ -28,9 +28,9 @@ test('removing the middle item and its empty paragraph keeps a valid server chec
     <h1>List deletion regression copy</h1><div class="grid"><div id="author"></div><div id="peer"></div></div><pre id="update" hidden></pre>`);
   await page.addScriptTag({ content: bundle });
   const author = page.locator('#author .tiptap');
-  await author.locator('li p').filter({ hasText: /^Middle item$/ }).click();
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home');
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End');
+  // Select the actual text block through the editor's native triple-click,
+  // rather than assuming platform-specific line-selection shortcuts took effect.
+  await author.locator('li p').filter({ hasText: /^Middle item$/ }).click({ clickCount: 3 });
   await expect.poll(() => page.evaluate(() => String(getSelection()))).toBe('Middle item');
   await page.keyboard.press('Backspace');
   await page.keyboard.press('Backspace');

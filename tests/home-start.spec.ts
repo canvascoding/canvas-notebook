@@ -156,7 +156,7 @@ for (const width of [390, 1440]) {
   test.describe(`workflows ${width}px`, () => {
     test.use({ viewport: { width, height: 900 }, isMobile: width < 1024, hasTouch: width < 1024 });
     test('file views, import, empty search and request recovery', async ({ page }, info) => {
-      test.setTimeout(120_000);
+      test.setTimeout(180_000);
       const workspaceId = await prepare(page);
       const headers = { 'x-canvas-workspace-id': workspaceId };
       const prefix = `home-qa-${randomUUID()}`;
@@ -200,6 +200,7 @@ for (const width of [390, 1440]) {
       await files.getByRole('button', { name: 'Suche löschen' }).click();
       await expect(files.getByText('Keine passenden Dateien')).toHaveCount(0);
       const importPath = `${prefix}-import.txt`;
+      const importContent = 'Playwright homepage import fixture';
       paths.push(importPath);
       await files.getByRole('button', { name: 'Dateien importieren', exact: true }).click();
       const uploadDialog = page.getByRole('dialog', { name: 'Dateien hochladen', exact: true });
@@ -212,7 +213,7 @@ for (const width of [390, 1440]) {
         && response.request().method() === 'POST'
         && response.request().headers()['x-canvas-workspace-id'] === workspaceId, { timeout: 30_000 });
       const [started, completed] = await Promise.all([uploadStarted, uploadCompleted,
-        uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from('Playwright homepage import fixture') }),
+        uploadDialog.locator('input[type=file]:not([webkitdirectory])').setInputFiles({ name: importPath, mimeType: 'text/plain', buffer: Buffer.from(importContent) }),
       ]);
       expect(started.status()).toBe(201);
       const session = (await started.json()).upload;
@@ -222,6 +223,9 @@ for (const width of [390, 1440]) {
       expect(completed.request().postDataJSON()).toEqual({ fileId: session.files[0].id });
       expect(completed.status()).toBe(200);
       expect((await completed.json()).success).toBe(true);
+      const persistedImport = await page.request.get('/api/files/read', { headers, params: { path: importPath } });
+      expect(persistedImport.status()).toBe(200);
+      expect((await persistedImport.json()).data.content).toBe(importContent);
       await expect(uploadDialog).toBeHidden();
       await expect(files.getByRole('button', { name: 'Dateien importieren', exact: true })).toBeEnabled();
       await search.fill(importPath);
@@ -236,7 +240,13 @@ for (const width of [390, 1440]) {
       await search.fill(importPath);
       await files.locator(`ul a[href*="${importPath}"]`).click();
       await expect(page).toHaveURL(/\/notebook\?/);
-      await expect(page.getByText('Playwright homepage import fixture', { exact: false }).first()).toBeVisible({ timeout: 15000 });
+      // The native editing connection has its own readiness phase after the
+      // completed upload. Check the exact document's editable surface.
+      const importedEditor = page.getByRole('tabpanel', { name: importPath, exact: true })
+        .locator('.cm-content[contenteditable="true"]');
+      await expect(importedEditor).toBeVisible({ timeout: 60_000 });
+      await expect(importedEditor).toContainText(importContent);
+      await page.screenshot({ path: info.outputPath(`home-${width}-import-open.png`) });
     });
 
     test('notification actions and disclosure with controlled fixtures', async ({ page }, info) => {

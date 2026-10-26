@@ -7,6 +7,7 @@ import {
   enterMarkdownEditMode,
   uploadWorkspaceTextFile,
 } from './helpers/managed-test-context';
+import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
 const FIXTURE = fs.readFileSync(
@@ -14,21 +15,15 @@ const FIXTURE = fs.readFileSync(
   'utf8',
 );
 
-type WorkspacePayload = {
-  workspaces?: Array<{
-    id: string;
-    permissions: { canWrite: boolean };
-  }>;
-  error?: string;
-};
-
 async function writableWorkspace(request: APIRequestContext) {
-  const response = await request.get('/api/workspaces');
-  const payload = await response.json() as WorkspacePayload;
-  expect(response.ok(), payload.error || 'Could not load workspaces').toBeTruthy();
-  const workspace = payload.workspaces?.find((candidate) => candidate.permissions.canWrite);
-  expect(workspace, 'A writable workspace is required').toBeTruthy();
-  return workspace!.id;
+  // This roundtrip owns its data; cleanup must not leave a file-action
+  // reservation in the personal workspace used by unrelated acceptance cases.
+  const name = `E2E Markdown email roundtrip ${Date.now()}`;
+  const response = await request.post('/api/workspaces', { data: { type: 'personal', name } });
+  expect(response.status()).toBe(201);
+  const { workspace } = await response.json();
+  expect(workspace).toMatchObject({ name, type: 'personal', permissions: { canWrite: true, canManageWorkspace: true } });
+  return workspace.id as string;
 }
 
 async function useWorkspace(context: BrowserContext, workspaceId: string) {
@@ -58,7 +53,7 @@ test.describe('Markdown email round trips', () => {
 
     page.on('pageerror', (error) => browserErrors.push(error.message));
 
-    try {
+    await withOwnedTestCleanup(async () => {
       workspaceId = await writableWorkspace(page.request);
       await useWorkspace(context, workspaceId);
 
@@ -69,7 +64,7 @@ test.describe('Markdown email round trips', () => {
         content: FIXTURE,
       });
 
-      await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await enterMarkdownEditMode(page);
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       const normalizeButton = page.getByRole('button', {
@@ -133,15 +128,14 @@ test.describe('Markdown email round trips', () => {
       expect(editorBounds.left).toBeGreaterThanOrEqual(0);
       expect(editorBounds.right).toBeLessThanOrEqual(editorBounds.viewportWidth);
       expect(browserErrors, 'Rich Markdown email flow must not emit browser errors.').toEqual([]);
-    } finally {
-      await page.close().catch(() => undefined);
-      if (workspaceId) {
-        await context.request.delete('/api/files/delete', {
-          headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-          data: { path: filePath },
-        }).catch(() => undefined);
-      }
-      await context.close();
-    }
+    }, [
+      { label: 'document page', run: () => page.close() },
+      { label: 'owned roundtrip workspace', run: async () => {
+        if (!workspaceId) return;
+        const removed = await context.request.delete(`/api/workspaces/${workspaceId}`);
+        expect(removed.status(), 'Deactivate only this test-owned workspace without queuing document deletion').toBe(200);
+      } },
+      { label: 'browser context', run: () => context.close() },
+    ]);
   });
 });

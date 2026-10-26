@@ -339,9 +339,12 @@ export async function uploadWorkspaceTextFile(input: {
       },
     },
   });
-  if (!response.ok()) {
-    throw new Error(`Atomic workspace fixture upload failed (${response.status()}): ${await response.text()}`);
-  }
+  const payload = await response.json() as { success?: boolean; count?: number; files?: string[]; code?: string };
+  const code = typeof payload.code === 'string' && /^[A-Z][A-Z0-9_]{0,95}$/u.test(payload.code) ? payload.code : 'unconfirmed';
+  assert.equal(response.status(), 200, `Atomic workspace fixture requires a completed upload (${code}).`);
+  assert.equal(payload.success, true, 'The server must confirm the upload succeeded.');
+  assert.equal(payload.count, 1, 'Exactly one owned fixture file must be committed.');
+  assert.deepEqual(payload.files, [path.posix.basename(input.filePath)], 'The committed fixture filename must match.');
 }
 
 /** A successful transport is insufficient: only this exact native birth opens. */
