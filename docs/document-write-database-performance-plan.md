@@ -25,13 +25,17 @@ vorhandenen Teiloptimierungen gelten nicht als Abnahme eines ganzen Pakets.
 | 4. Schreibwege vereinheitlichen | Bestehende Speicherung, Versionsprüfung und dauerhafte Belege hinter kleinen gemeinsamen Operationen verwenden; Aufrufer einzeln umstellen. | Editor, Agent und MCP liefern gleiche Speicher- und Linkergebnisse. Gleichzeitige Änderungen, Wiederholungen und Abbruch verlieren keine Daten. |
 | 5. Einführung absichern | Endgültige Leistungsbudgets, reguläre Gesamtsuite, Desktop/Mobil, PR/CI/Reviews, Backup-/Restore-Nachweis und kontrolliertes Release. | Alle tatsächlich umgestellten Abläufe sind nachgewiesen; nach Deployment funktionieren Filetree, Öffnen, Speichern und Linkpflege in allen fünf Workspaces. |
 
-Paket 0 ist ein konkreter offener Fehler: Im isolierten UI-/API-Test führte ein
+Paket 0 adressiert einen konkret reproduzierten Fehler: Im isolierten UI-/API-Test führte ein
 gezielt erzeugter Katalog-/Native-Zustandskonflikt bei `unavailable.md` zu null
 Indexdokumenten und einer globalen Diagnose, obwohl andere Quellen lesbar waren.
 Die originale Testquelle wurde feld- und bytegenau wiederhergestellt; der reale
 Index lieferte danach wieder sechs Dokumente und drei Backlinks zum Testziel.
-Die Korrektur muss erst beweisen, welche Quellen unabhängig gültig bleiben. Eine
-beliebige Ausnahme abzufangen und einen Dokumentpfad zu vermuten reicht nicht.
+Die Korrektur ist lokal umgesetzt und mit einem echten PostgreSQL-Vergleich sowie
+der gebauten Desktop-/Mobiloberfläche geprüft: Inaktive Zustände und beschädigte
+native Bytes lassen die übrigen geprüften Dokumente verfügbar. Ein globaler
+Organisationskonflikt verwirft weiterhin den ganzen Index; der Standardleser für
+Mutationseingänge bleibt streng. Der [Prüfbericht](qa/document-link-source-isolation-2026-10-26.md)
+beschreibt die Abnahme einschließlich der feld- und bytegenauen Wiederherstellung.
 
 Die gewünschte öffentliche Wirkung ist einheitlich: Ein erfolgreicher Save bestätigt
 den gespeicherten nativen Stand; der abgeleitete Linkstand darf diesen nicht
@@ -237,7 +241,8 @@ committed und gepusht; PR #188 ist ein Entwurf. Am Stand `7edf640893` bestand di
 reguläre Gesamtsuite mit 329 erfolgreichen Fällen, 268 bestehenden bedingten
 Überspringungen und null Fehlern. Diese Überspringungen sind nicht ausschließlich
 Review-Center-Tests. Die danach gefundene Layoutkorrektur für lange Diagnosepfade
-hat einen eigenen erfolgreichen Produktionsbuild und tatsächliche Desktop-/Mobil-
-Prüfungen, ist aber noch nicht committed. Der oben beschriebene native Quellenfehler
-ist offen. Der gesamte Serviceumbau ist daher nicht abgenommen; weder Merge auf
+und die Behandlung einzelner nativer Quellenfehler haben einen eigenen erfolgreichen
+Produktionsbuild und tatsächliche Desktop-/Mobilprüfungen. Die reguläre Gesamtsuite
+am endgültigen Stand bleibt ein Freigabekriterium. Der gesamte Serviceumbau ist
+weiterhin nicht abgenommen; weder Merge auf
 `main` noch ein neues Release oder Produktionsdeployment sind damit nachgewiesen.

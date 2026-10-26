@@ -16,6 +16,8 @@ async function main() {
       await import('../app/lib/markdown/document-link-read-projection');
     const { createPlainTextYDoc } = await import('../app/lib/collaboration/markdown-state');
     const { Y } = await import('../app/lib/collaboration/server-runtime');
+    const { requireRequestWorkspace } = await import('../app/lib/workspaces/request');
+    const { stageWorkspaceLinkSourceAuthorityObservation } = await import('../app/lib/markdown/workspace-source-authority-stage');
     const credential = (await fixture.admin.query('SELECT token FROM "session" WHERE id=$1 AND user_id=$2',
       ['reader-session', 'reader'])).rows[0]?.token;
     assert.equal(typeof credential, 'string');
@@ -23,7 +25,7 @@ async function main() {
     const request = () => new NextRequest('http://localhost/api/markdown/link-index', {
       headers: { cookie, 'x-canvas-workspace-id': fixture.workspaceId },
     });
-    const read = async (phase: string, documents: number, fresh = false) => {
+    const read = async (phase: string, documents: number, fresh = false, sourcesComplete = true) => {
       let observed: DocumentOperationMeasurement | undefined;
       const execute = () => withDocumentOperationMetricObserver(value => { assert.equal(observed, undefined); observed = value; },
         () => measureDocumentOperation('links', 'request', () => GET(request())));
@@ -32,7 +34,7 @@ async function main() {
       const body = await response.json(); assert(body.index);
       const { generatedAt, ...semantic } = body.index;
       assert.equal(typeof generatedAt, 'string'); assert.equal(semantic.documents.length, documents);
-      assert.equal(semantic.diagnostics.sourcesComplete, true);
+      assert.equal(semantic.diagnostics.sourcesComplete, sourcesComplete);
       assert(observed); assert.equal(observed.unsupportedQueryForms, 0);
       assert.equal(observed.openQueriesAtCompletion, 0); assert.equal(observed.openConnectionsAtCompletion, 0);
       samples.push({ phase, documents, measurement: observed });
@@ -70,6 +72,57 @@ async function main() {
     const withPhysical = await read('external-physical-change', 202);
     assert(withPhysical.documents.some((document: { path: string }) => document.path === 'external.md'));
     assert.deepEqual(await read('physical-full-rebuild', 202, true), withPhysical);
+    const workspaceResult = await requireRequestWorkspace(request(), { permissions: 'canRead' });
+    assert(!workspaceResult.response); const workspace = workspaceResult.workspace;
+    const originalState = (await fixture.admin.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1', [first.documentId])).rows[0];
+    const assertRestored = async () => assert.deepEqual((await fixture.admin.query(
+      'SELECT * FROM collaboration_yjs_states WHERE document_id=$1', [first.documentId])).rows[0], originalState);
+    // Physical edge IDs include the full source-stage proof, which changes
+    // when a native catalogue row changes. Preserve every semantic field and
+    // require unchanged native IDs while comparing the independently read file.
+    const comparableEdges = (edges: typeof withPhysical.edges) => edges.map((edge: typeof withPhysical.edges[number]) =>
+      edge.sourcePreview?.kind === 'physical-markdown' ? { ...edge, id: '<physical-stage-id>' } : edge);
+    for (const mode of ['inactive', 'invalid-binary'] as const) {
+      await fixture.admin.query('UPDATE collaboration_yjs_states SET status=$2,yjs_state=$3 WHERE document_id=$1',
+        [first.documentId, mode === 'inactive' ? 'archived' : originalState.status,
+          mode === 'invalid-binary' ? Buffer.concat([originalState.yjs_state, Buffer.from([255])]) : originalState.yjs_state]);
+      try {
+        const damagedSnapshot = await fixture.snapshot();
+        const partial = await read(`${mode}-source`, 201, false, false);
+        assert(!partial.documents.some((document: { path: string }) => document.path === first!.filePath));
+        assert.deepEqual(partial.documents, withPhysical.documents.filter((document: { path: string }) => document.path !== first!.filePath));
+        assert.deepEqual(comparableEdges(partial.edges), comparableEdges(withPhysical.edges.filter(
+          (edge: { sourcePath: string }) => edge.sourcePath !== first!.filePath)));
+        assert(partial.diagnostics.sourceGaps.length > 0);
+        assert(partial.diagnostics.sourceGaps.every((gap: { path: string }) => gap.path === first!.filePath));
+        assert(partial.diagnostics.sourceGaps.some((gap: { code: string }) => gap.code ===
+          (mode === 'inactive' ? 'inactive-native-state' : 'unreadable-native-source')));
+        assert.deepEqual(partial.omittedDocuments, [{ path: first.filePath, reason: 'unreadable' }]);
+        assert.deepEqual(await read(`${mode}-warm`, 201, false, false), partial);
+        assert.deepEqual(await read(`${mode}-full-rebuild`, 201, true, false), partial);
+        const strict = await stageWorkspaceLinkSourceAuthorityObservation(workspace);
+        assert.equal(strict.stage.sources.length, 0); assert.equal(strict.stage.coverage.complete, false);
+        assert.equal(strict.stage.executionReady, false);
+        assert.deepEqual(await fixture.snapshot(), damagedSnapshot, 'Partial reads and strict rejection never repair or mutate source data.');
+      } finally {
+        await fixture.admin.query('UPDATE collaboration_yjs_states SET status=$2,yjs_state=$3 WHERE document_id=$1',
+          [first.documentId, originalState.status, originalState.yjs_state]);
+        await assertRestored();
+      }
+      assert.deepEqual(await read(`${mode}-restored`, 202), withPhysical, 'Restoring the exact original source clears its warning.');
+    }
+    // A scope mismatch is not an independently unreadable document. Preserve
+    // the global fail-closed rule even when every other projection is warm.
+    await fixture.admin.query('UPDATE collaboration_yjs_states SET organization_id=NULL WHERE document_id=$1', [first.documentId]);
+    try {
+      const global = await read('global-realm-mismatch', 0, false, false);
+      assert.equal(global.edges.length, 0);
+      assert(global.diagnostics.sourceGaps.some((gap: { path: string }) => gap.path === ''));
+    } finally {
+      await fixture.admin.query('UPDATE collaboration_yjs_states SET organization_id=$2 WHERE document_id=$1',
+        [first.documentId, originalState.organization_id]);
+      await assertRestored();
+    }
     await fixture.admin.query(`UPDATE organization_user_permissions SET status='disabled'
       WHERE organization_id='tool-dispatch-org' AND user_id='reader'`);
     // The actual auth hook invalidates this disabled member's session; the
@@ -78,7 +131,9 @@ async function main() {
     const deniedBody = await denied.json(); assert.equal(Object.hasOwn(deniedBody, 'index'), false);
     console.log(JSON.stringify({ suite: 'document-link-index-route-postgres',
       actualCookieRoute: true, sizes: [10, 200], singleDirtyInspection: 1,
-      freshRebuildParity: true, newTargetResolved: true, physicalChangesObserved: true, revokedAccessDenied: true }));
+      freshRebuildParity: true, newTargetResolved: true, physicalChangesObserved: true,
+      isolatedNativeFailures: ['inactive', 'invalid-binary'], exactRestoration: true,
+      mutationScopeRemainsStrict: true, globalRealmMismatchBlocked: true, revokedAccessDenied: true }));
   });
   const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
   assert(output && path.isAbsolute(output));

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
-import { mapValidatedNativeStateRow, validateRawState } from '../collaboration/native-session-state-reader';
+import { mapValidatedNativeStateRow, NativeSessionStateReaderError, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
 import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
@@ -150,7 +150,14 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     } }, document.id, true);
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
-  const inventory = documentIndexRead ? await readNativeDocumentLinkProjection(state!) : inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
+  let inventory: NativeDocumentLinkInventory;
+  if (documentIndexRead) {
+    // Global schema readiness is checked by the batch reader before entering
+    // this data-only, exactly scoped document inspection. SQL and identity
+    // failures must never be mistaken for a local parsing failure.
+    try { inventory = await readNativeDocumentLinkProjection(state!); }
+    catch { throw new PhysicalStageConflict('unreadable-native-source', document.path); }
+  } else inventory = inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
     assertNativeDocumentSchema(doc, state!.representation, getNativeInspectionSchema());
     return inspectNativeDocumentLinks(doc, snapshot);
   });
@@ -175,8 +182,10 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead[]> {
-  if (!documents.length) return [];
+  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{ sources: NativeSourceRead[]; gaps: PhysicalSourceGap[] }> {
+  const gaps: PhysicalSourceGap[] = [];
+  if (!documents.length) return { sources: [], gaps };
+  if (documentIndexRead) getNativeInspectionSchema();
   if (documents.length > limits.maxPaths || new Set(documents.map(document => document.id)).size !== documents.length
     || documents.some(document => !validId(document.id) || !validId(document.lineage_id))) fail('native-identity-conflict', '');
   const ids = documents.map(document => document.id), lineages = documents.map(document => document.lineage_id), selectedIds = new Set(ids);
@@ -194,7 +203,24 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
   const byId = new Map(headers.map(row => [row.requested_document_id, row]));
   if (headers.length !== documents.length || byId.size !== documents.length
     || headers.some(row => !selectedIds.has(row.requested_document_id as string))) fail('native-source-changed', '');
-  const metadata = documents.map(document => nativeSourceHeader(workspace, document, byId.get(document.id), limits));
+  const selected: WorkspaceDocumentCatalogueEntry[] = [], metadata: Row[] = [];
+  const diagnose = (error: unknown, document: WorkspaceDocumentCatalogueEntry): boolean => {
+    if (!documentIndexRead) return false;
+    if (error instanceof NativeSessionStateReaderError && error.code === 'NATIVE_SESSION_STATE_INVALID') {
+      gaps.push({ code: 'invalid-native-state', path: document.path }); return true;
+    }
+    if (error instanceof PhysicalStageConflict && error.filePath === document.path
+      && ['source-byte-limit', 'native-source-changed', 'unreadable-native-source'].includes(error.code)) {
+      gaps.push({ code: error.code, path: document.path }); return true;
+    }
+    return false;
+  };
+  for (const document of documents) {
+    try { metadata.push(nativeSourceHeader(workspace, document, byId.get(document.id), limits)); selected.push(document); }
+    catch (error) { if (!diagnose(error, document)) throw error; }
+  }
+  if (!selected.length) return { sources: [], gaps };
+  const selectedStateIds = selected.map(document => document.id), selectedStateIdSet = new Set(selectedStateIds);
   const stateLengths = metadata.map(row => Number(row.state_bytes)), vectorLengths = metadata.map(row => Number(row.vector_bytes));
   if (metadata.reduce((sum, row) => sum + Number(row.state_bytes) + Number(row.vector_bytes), 0) > remainingBytes) fail('source-byte-limit', '');
   // Count ALL rows for each selected ID before exposing any binary payload,
@@ -211,14 +237,17 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
     INNER JOIN collaboration_yjs_states s ON s.document_id=expected.document_id
     WHERE octet_length(s.yjs_state)=expected.state_bytes AND octet_length(s.state_vector)=expected.vector_bytes
       AND octet_length(s.yjs_state) BETWEEN 1 AND $4 AND octet_length(s.state_vector) BETWEEN 1 AND $5
-    ORDER BY expected.ordinal`, [ids, stateLengths, vectorLengths, limits.maxSourceBytes, MAX_VECTOR_BYTES]) as Row[];
+    ORDER BY expected.ordinal`, [selectedStateIds, stateLengths, vectorLengths, limits.maxSourceBytes, MAX_VECTOR_BYTES]) as Row[];
   const rawById = new Map(raws.map(row => [row.document_id, row]));
-  if (raws.length !== documents.length || rawById.size !== documents.length
-    || raws.some(row => !selectedIds.has(row.document_id as string))) fail('native-source-changed', '');
+  if ((!documentIndexRead && raws.length !== selected.length) || rawById.size !== raws.length
+    || raws.some(row => !selectedStateIdSet.has(row.document_id as string))) fail('native-source-changed', '');
   const result: NativeSourceRead[] = [];
-  for (let index = 0; index < documents.length; index++) result.push(await readNativeSource(workspace, documents[index],
-    byId.get(documents[index].id)!, metadata[index], rawById.get(documents[index].id), loadState, documentIndexRead));
-  return result;
+  for (const [index, document] of selected.entries()) {
+    try { result.push(await readNativeSource(workspace, document,
+      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead)); }
+    catch (error) { if (!diagnose(error, document)) throw error; }
+  }
+  return { sources: result, gaps };
 }
 
 /** Fixed observation only. Caller owns the actual connection, read transaction,
@@ -251,7 +280,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
   try {
-    const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
+    const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
     privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
@@ -346,11 +376,15 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       namespace.set(document.path, { workspaceId: workspace.workspaceId, path: document.path, kind: 'file',
         identity: `registry:${document.id}:${document.lifecycle_generation ?? document.yjs_state_lifecycle}`,
         documentId: document.id, lifecycleGeneration: document.lifecycle_generation, filesystemIdentity: projection?.filesystemIdentity ?? null });
-      if (document.authority === 'missing-state') { gap('missing-native-state', document.path); continue; }
+      if (document.authority === 'missing-state') {
+        gap(document.has_persisted_state && document.state_status !== 'active' ? 'inactive-native-state' : 'missing-native-state', document.path); continue;
+      }
     }
     // Extension/capability never authorize projection bytes for this branch.
-    for (const native of await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
-      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead)) {
+    const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
+      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
+    gaps.push(...nativeRead.gaps);
+    for (const native of nativeRead.sources) {
       totalBytes += native.byteLength; totalLinks += native.inventory.links.length;
       if (totalLinks > limits.maxLinks) fail('source-link-limit', native.state.path);
       nativeBindings.push(native.binding); privateNativeStates.push(native.state);
@@ -412,15 +446,19 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
-    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
     }
     const physicalBytes = totalBytes - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
-    try { currentSources = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-      limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState, documentIndexRead); }
+    try {
+      const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
+        limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState, documentIndexRead);
+      if (current.gaps.length) fail('native-source-changed', '');
+      currentSources = current.sources;
+    }
     catch { fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {
@@ -429,7 +467,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     await assertWorkspaceOriginalPathsCurrent({ configuredRootPath: workspace.rootPath, root, observed });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
-    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(finalCatalogue) !== catalogueProof) {
       if (finalCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');

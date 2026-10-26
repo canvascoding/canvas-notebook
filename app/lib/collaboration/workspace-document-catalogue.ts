@@ -43,12 +43,16 @@ function catalogueInteger(value: unknown, minimum: number): number | null {
 export async function readWorkspaceDocumentCatalogue(
   connection: SqlConnection,
   workspace: WorkspaceContext,
-  options: { paths?: readonly string[]; maxEntries?: number; maxTextBytes?: number } = {},
+  options: { paths?: readonly string[]; maxEntries?: number; maxTextBytes?: number;
+    /** Non-executable index reads may diagnose an inactive, otherwise exactly
+     * scoped state. Default catalogue consumers retain strict rejection. */
+    sourceScope?: 'document-index' } = {},
 ): Promise<WorkspaceDocumentCatalogueEntry[]> {
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
     throw Object.assign(new Error('The workspace document catalogue is unavailable.'), { status: 403 });
   }
   const pathsInScope = options.paths?.map((scope) => scope === '.' ? '' : scope) ?? [''];
+  if (options.sourceScope !== undefined && options.sourceScope !== 'document-index') throw new Error('Invalid document catalogue read scope.');
   if (options.maxEntries !== undefined && (!Number.isSafeInteger(options.maxEntries)
     || options.maxEntries < 1 || options.maxEntries > 10_000)) throw new Error('Invalid document catalogue limit.');
   if (options.maxTextBytes !== undefined && (!Number.isSafeInteger(options.maxTextBytes)
@@ -108,19 +112,21 @@ export async function readWorkspaceDocumentCatalogue(
     if (textBudget !== undefined) delete document.catalogue_text_budget_exceeded;
     const stateVersion = catalogueInteger(document.state_version, 0);
     const generation = document.lifecycle_generation === null ? null : catalogueInteger(document.lifecycle_generation, 1);
+    const inactiveStateForIndex = options.sourceScope === 'document-index'
+      && document.has_persisted_state && document.state_status !== 'active';
     if (!document.id || !document.path || document.path.startsWith('/') || document.path.includes('\\') || document.path.includes('\0')
       || document.path.split('/').some((part) => !part || part === '.' || part === '..')
       || document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)
       || document.status !== 'active' || paths.has(document.path) || ids.has(document.id) || stateVersion === null
       || document.lifecycle_generation !== null && generation === null
-      || document.has_persisted_state && (document.state_status !== 'active' || document.state_path !== document.path
+      || document.has_persisted_state && (document.state_status !== 'active' && !inactiveStateForIndex || document.state_path !== document.path
         || document.state_workspace_id !== workspace.workspaceId || document.state_organization_id !== (workspace.organizationId ?? null)
         || generation === null)) {
       throw new WorkspaceDocumentCatalogueError('identity-conflict', document.id, document.path);
     }
     document.state_version = stateVersion;
     document.lifecycle_generation = generation;
-    document.authority = document.has_persisted_state ? 'initialized'
+    document.authority = document.has_persisted_state ? inactiveStateForIndex ? 'missing-state' : 'initialized'
       : document.yjs_state_lifecycle === 'never_initialized' && document.state_version === 0 && !document.has_state_history
         ? 'pristine' : 'missing-state';
     paths.add(document.path); ids.add(document.id);
