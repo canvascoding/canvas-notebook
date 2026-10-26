@@ -782,7 +782,7 @@ export async function updateManagedAgentFile(input: {
   }
   const scope = storageScope(existing, input.actor);
   const previous = await readManagedAgentFile(input.fileName, existing.agentId, scope);
-  await writeManagedAgentFile(input.fileName, input.content, existing.agentId, scope);
+  const storedContent = await writeManagedAgentFile(input.fileName, input.content, existing.agentId, scope);
   try {
     const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
     await auditAgentAction({
@@ -794,7 +794,7 @@ export async function updateManagedAgentFile(input: {
       input: { fileName: input.fileName, contentHash: hashAuditValue(input.content) },
       output: { revision: agent.revision },
     });
-    return { agent, fileName: input.fileName, content: input.content };
+    return { agent, fileName: input.fileName, content: storedContent };
   } catch (error) {
     await writeManagedAgentFile(input.fileName, previous, existing.agentId, scope);
     throw error;
