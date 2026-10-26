@@ -9,7 +9,7 @@ import { getLicenseStatus } from '@/app/lib/license';
 import type { LicenseStatus } from '@/app/lib/license/types';
 import { assertUserSeatAccessInSingleSnapshotOnConnection } from '@/app/lib/license/seat-limit';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
+import { readPostgresWorkspaceForActorInSingleSnapshotOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertGrantStateActive, DirectMcpAuthorizationError, loadDirectMcpGrantStateOnConnection,
   verifyDirectMcpJwtClaims, type DirectMcpJwtClaims } from './access-token-verifier';
@@ -365,7 +365,7 @@ async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<Workspace
     || organizations.some(row => !row || typeof row !== 'object' || !flag(row.team_features_enabled))
     || permissions.some(row => !row || typeof row !== 'object' || Object.values(row).some(value => !flag(value)))) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
   await assertUserSeatAccessInSingleSnapshotOnConnection(connection, capture.claims.subject, capture.license); alive(phase);
-  const workspace = await readPostgresWorkspaceForActorOnConnection(connection,
+  const workspace = await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(connection,
     resolveWorkspaceActor({ id: capture.claims.subject, email: raw.email, role: raw.role as string | null }), slot.workspaceId);
   const requiresWrite = slots.kind === 'single' ? capture.policy.kind !== 'read' : slot === slots.destination;
   alive(phase); if (!workspace || workspace.permissions.canRead !== true
