@@ -3,6 +3,7 @@ name: Dev Runtime Safety
 on:
   pull_request:
     paths:
+      - tests/destination-folder-creation.spec.ts
       - scripts/run-dev.mjs
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
@@ -23,6 +24,24 @@ on:
       - tests/pi-chat.spec.ts
       - tests/notebook-query-loading.spec.ts
       - tests/playwright/playwright.pi-chat-live.config.ts
+      - tests/helpers/chat-composer.ts
+      - tests/workspace-link-lifecycle.spec.ts
+      - tests/workspace-link-frontmatter.spec.ts
+      - tests/workspace-file-discovery.spec.ts
+      - tests/task50-agent-provisioning.spec.ts
+      - tests/skills-modal.spec.ts
+      - tests/email-mailbox-setup.spec.ts
+      - tests/email-classification-selection-ui.spec.ts
+      - tests/e2e/studio-products.spec.ts
+      - tests/e2e/studio-personas.spec.ts
+      - tests/home-workspace-widgets.spec.ts
+      - tests/home-navigation.spec.ts
+      - tests/chat-legacy-redirect.spec.ts
+      - tests/chat-file-reference-picker.spec.ts
+      - tests/home-chat-prompt.spec.ts
+      - tests/home-start.spec.ts
+      - tests/managed-catalog-recovery.spec.ts
+      - tests/multiple-file-upload.spec.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
@@ -31,6 +50,7 @@ on:
   push:
     branches: [main]
     paths:
+      - tests/destination-folder-creation.spec.ts
       - scripts/run-dev.mjs
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
@@ -51,6 +71,24 @@ on:
       - tests/pi-chat.spec.ts
       - tests/notebook-query-loading.spec.ts
       - tests/playwright/playwright.pi-chat-live.config.ts
+      - tests/helpers/chat-composer.ts
+      - tests/workspace-link-lifecycle.spec.ts
+      - tests/workspace-link-frontmatter.spec.ts
+      - tests/workspace-file-discovery.spec.ts
+      - tests/task50-agent-provisioning.spec.ts
+      - tests/skills-modal.spec.ts
+      - tests/email-mailbox-setup.spec.ts
+      - tests/email-classification-selection-ui.spec.ts
+      - tests/e2e/studio-products.spec.ts
+      - tests/e2e/studio-personas.spec.ts
+      - tests/home-workspace-widgets.spec.ts
+      - tests/home-navigation.spec.ts
+      - tests/chat-legacy-redirect.spec.ts
+      - tests/chat-file-reference-picker.spec.ts
+      - tests/home-chat-prompt.spec.ts
+      - tests/home-start.spec.ts
+      - tests/managed-catalog-recovery.spec.ts
+      - tests/multiple-file-upload.spec.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
       - playwright.config.ts
       - package.json
@@ -95,4 +133,20 @@ jobs:
           tests/ollama-integration.spec.ts app/components/settings/AiProvidersModelsPanel.tsx
           tests/pi-chat.spec.ts tests/notebook-query-loading.spec.ts
           tests/playwright/playwright.pi-chat-live.config.ts
+          tests/helpers/chat-composer.ts tests/home-chat-prompt.spec.ts tests/home-start.spec.ts
+          tests/managed-catalog-recovery.spec.ts tests/multiple-file-upload.spec.ts
           playwright.config.ts
+          tests/destination-folder-creation.spec.ts
+          tests/chat-file-reference-picker.spec.ts
+          tests/chat-legacy-redirect.spec.ts
+          tests/home-navigation.spec.ts
+          tests/home-workspace-widgets.spec.ts
+          tests/e2e/studio-personas.spec.ts
+          tests/e2e/studio-products.spec.ts
+          tests/email-classification-selection-ui.spec.ts
+          tests/email-mailbox-setup.spec.ts
+          tests/skills-modal.spec.ts
+          tests/task50-agent-provisioning.spec.ts
+          tests/workspace-file-discovery.spec.ts
+          tests/workspace-link-frontmatter.spec.ts
+          tests/workspace-link-lifecycle.spec.ts
