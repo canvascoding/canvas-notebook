@@ -121,7 +121,7 @@ async function copyOriginInUi(page: Page, sourceId: string, destinationId: strin
   return body.operation as Operation;
 }
 
-test.describe('owned copy origin UI and fresh member-session status', () => {
+test.describe('owned copy origin UI and fresh member-session status', { tag: '@owned-yjs' }, () => {
   test.setTimeout(240_000);
   for (const profile of profiles) test(`${profile.name}: TXT and link-free Markdown copies retain public results across a fresh login`, async ({ browser }, info) => {
     const owned = await requireOwnedYjsQaTarget(); expect(owned.activeSpec).toBe(spec);

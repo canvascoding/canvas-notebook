@@ -51,6 +51,14 @@ for (const file of batchFiles) assert.ok(cases(batch).some(spec => spec.file.end
 const ownedQueries = cases(report(list(['tests/notebook-query-loading.spec.ts'], { CANVAS_YJS_AUTHORITY_E2E: '1' })));
 assert.equal(ownedQueries.length, 4);
 assert.equal(ownedQueries.filter(spec => spec.tags.includes('owned-yjs')).length, 3);
+const ownedCopyFiles = ['workspace-operation-copy-origin.spec.ts', 'workspace-operation-managed-scene-copy.spec.ts',
+  'workspace-operation-native-copy.spec.ts'];
+for (const file of ownedCopyFiles) {
+  assert.ok(!ordinaryCases.some(spec => spec.file.endsWith(file)), `${file} requires the owned supervisor`);
+}
+const ownedCopies = cases(report(list(ownedCopyFiles.map(file => `tests/${file}`), { CANVAS_YJS_AUTHORITY_E2E: '1' })));
+assert.equal(ownedCopies.length, 12, 'Keep all twelve owned Copy cases available to their original runner');
+assert.ok(ownedCopies.every(spec => spec.tags.includes('owned-yjs')));
 
 // Explicit configs retain admission guards. The live model runner also refuses
 // remote origins even after opt-in. Enumeration never contacts a provider.

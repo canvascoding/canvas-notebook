@@ -298,7 +298,7 @@ async function destinationScene(page: Page, workspace: Workspace, file: string, 
   await page.screenshot({ path: info.outputPath('managed-scene-copy-reloaded.png'), animations: 'disabled' });
 }
 
-test.describe('owned managed Scene Copy with Review disabled', () => {
+test.describe('owned managed Scene Copy with Review disabled', { tag: '@owned-yjs' }, () => {
   test.describe.configure({ retries: 0 }); test.setTimeout(300_000);
   for (const profile of profiles) {
     test(`${profile.name}: copies an updated initialized Scene whose own projection is missing`, async ({ browser }, info) => {
