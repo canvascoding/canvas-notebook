@@ -39,7 +39,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
   const environment = { ...process.env }, originalFetch = globalThis.fetch;
   const control = new Client({ connectionString, application_name: `${applicationName}-admin`, connectionTimeoutMillis: 5000 });
   let admin: Client | undefined, pool: Pool | undefined, created = false, schemaOid = '', probe: MetadataSqlProbe | undefined;
-  let fetches = 0, activeProbe = false, result!: T, failed = false, primary: unknown;
+  let fetches = 0, activeProbe = false, result!: T, failed = false, primary: unknown, backendDrainChecks = 0;
   const observed = new Map<PoolClient, PropertyDescriptor | undefined>(), restorers: Array<() => void> = [];
   try {
     await control.connect(); assert.equal(Math.floor(Number((await control.query("SHOW server_version_num")).rows[0].server_version_num) / 10000), 18);
@@ -255,7 +255,18 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
     try { await admin?.end(); } catch (error) { errors.push(error); }
     try {
       if (created) {
-        assert.equal((await control.query('SELECT count(*)::integer AS n FROM pg_stat_activity WHERE application_name=ANY($1::text[])', [[applicationName, `${applicationName}-fixture`]])).rows[0].n, 0);
+        // Socket/pool close can finish before PostgreSQL removes its backend
+        // from pg_stat_activity. Observe only this fixture's two exact random
+        // application names; never drop its schema while a backend remains.
+        const deadline = performance.now() + 2000;
+        let remaining: number;
+        do {
+          remaining = Number((await control.query('SELECT count(*)::integer AS n FROM pg_stat_activity WHERE application_name=ANY($1::text[])',
+            [[applicationName, `${applicationName}-fixture`]])).rows[0].n); backendDrainChecks++;
+          if (remaining === 0 || performance.now() >= deadline) break;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        } while (true);
+        assert.equal(remaining, 0, 'Owned PostgreSQL backends did not exit after pool/client close.');
         const current = (await control.query("SELECT oid::text AS oid,pg_get_userbyid(nspowner)=current_user AS owned,obj_description(oid,'pg_namespace') AS marker FROM pg_namespace WHERE nspname=$1", [schema])).rows[0];
         assert.equal(current?.oid, schemaOid); assert.equal(current?.owned, true); assert.equal(current?.marker, applicationName);
         await control.query(`DROP SCHEMA "${schema}" CASCADE`);
@@ -267,7 +278,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
       await rm(dataRoot, { recursive: true }); await assert.rejects(lstat(dataRoot), { code: 'ENOENT' }); } catch (error) { errors.push(error); }
     for (const key of Object.keys(process.env)) if (!(key in environment)) delete process.env[key]; Object.assign(process.env, environment);
     if (errors.length) throw new AggregateError(failed ? [primary, ...errors] : errors, 'Private metadata fixture closure failed.');
-    console.log(JSON.stringify({ closure: 'native-copy-metadata-owner', schema, schemaOid, applicationName, schemaRemoved: true, poolClosed: true, clientsClosed: true, dataRemoved: true, fetches }));
+    console.log(JSON.stringify({ closure: 'native-copy-metadata-owner', schema, schemaOid, applicationName, schemaRemoved: true, poolClosed: true, clientsClosed: true, dataRemoved: true, fetches, backendDrainChecks }));
     if (failed) throw primary;
   }
   return result;
