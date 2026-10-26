@@ -1,4 +1,12 @@
 {
+  "documentLinkIndex": {
+    "incomplete": "Einige Dokumentquellen konnten nicht vollständig gelesen werden. Dokumente oder Verbindungen können fehlen.",
+    "workspaceSource": "Die Quellen des Workspace konnten nicht vollständig geprüft werden.",
+    "metadata": "Prüfe die Metadaten von {count, plural, one {# Dokument} other {# Dokumenten}}.",
+    "html": "HTML-Verknüpfungen in {count, plural, one {# Datei wurden} other {# Dateien wurden}} nicht ausgewertet.",
+    "targets": "{count, plural, one {# Verknüpfung hat} other {# Verknüpfungen haben}} kein eindeutiges Ziel in diesem Workspace.",
+    "more": "{count} weitere Einträge."
+  },
   "notFound": {
     "eyebrow": "Seite nicht gefunden · 404",
     "title": "Diese Seite ist gerade nicht zu finden.",

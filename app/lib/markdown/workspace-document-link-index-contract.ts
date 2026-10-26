@@ -22,6 +22,13 @@ export type WorkspaceLinkReadIndex = {
   coverage: WorkspaceLinkCoverageV1;
   omittedDocuments: Array<{ path: string; reason: 'too-large' | 'unreadable' }>;
   unevaluatedLinks?: Array<Pick<WorkspaceLinkUnevaluated, 'sourcePath' | 'reason'>>;
+  /** Source inspection is independent of metadata, unsupported HTML and missing targets. */
+  diagnostics?: {
+    sourcesComplete: boolean;
+    sourceGaps: Array<{ code: string; path: string }>;
+    metadataErrors: string[];
+    htmlSources: string[];
+  };
 };
 
 export type WorkspaceDocumentLinkDocument = WorkspaceLinkDocument & {

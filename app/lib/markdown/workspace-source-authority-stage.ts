@@ -26,7 +26,7 @@ import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-c
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
-import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, inspectOriginalPhysicalDocumentLinksForRead, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
   type WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
 
 type Limits = { maxPaths: number; maxDepth: number; maxSourceBytes: number; maxTotalSourceBytes: number; maxLinks: number };
@@ -401,7 +401,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         // passed the reader above. It never changes the observed/rechecked path.
         const physicalSource = originalMove?.physicalSource(item.relativePath, item.identity, bytes)
           ?? { path: item.relativePath, filesystemIdentity: item.identity };
-        const inventory = (physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
+        const inventory = (documentIndexRead ? inspectOriginalPhysicalDocumentLinksForRead
+          : physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
           path: physicalSource.path, authority, bytes, filesystemIdentity: physicalSource.filesystemIdentity, maxLinks: limits.maxLinks - totalLinks });
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);

@@ -5,6 +5,8 @@ import { AlertTriangle, ChevronDown, ChevronRight, FileText, Link2, Loader2 } fr
 import { useTranslations } from 'next-intl';
 
 import { WorkspaceDocumentPreviewDialog } from '@/app/components/shared/WorkspaceDocumentPreviewDialog';
+import { WorkspaceLinkIndexStatus } from '@/app/components/shared/WorkspaceLinkIndexStatus';
+import { workspaceLinkIndexDiagnostics } from '@/app/lib/markdown/workspace-link-index-diagnostics';
 import {
   loadWorkspaceLinkIndex,
   subscribeWorkspaceLinkIndexInvalidation,
@@ -200,7 +202,7 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
           <span className="block text-sm font-semibold">{t('markdownEditorBacklinks')}</span>
           <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
             {currentIndex
-              ? !currentIndex.coverage.complete ? t('markdownEditorBacklinksPartial') : t('markdownEditorBacklinksSummary', {
+              ? !workspaceLinkIndexDiagnostics(currentIndex).sourcesComplete ? t('markdownEditorBacklinksPartial') : t('markdownEditorBacklinksSummary', {
                   documents: incomingGroups.length,
                   references: backlinks.length,
                 })
@@ -226,12 +228,7 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
 
         {currentIndex ? (
           <section className="grid gap-3">
-            {!currentIndex.coverage.complete ? (
-              <p role="status" className="flex items-start gap-2 border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {t('markdownEditorBacklinksPartial')}
-              </p>
-            ) : null}
+            <WorkspaceLinkIndexStatus index={currentIndex} />
             <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border/55 bg-muted/35 p-1" role="tablist" aria-label={t('markdownEditorBacklinks')}>
               {([
                 ['incoming', t('markdownEditorBacklinksIncoming', { count: incomingGroups.length })],

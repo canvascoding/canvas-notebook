@@ -13,7 +13,7 @@ import type { WorkspaceDocumentLinkIndex, WorkspaceLinkReadIndex } from '../app/
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from '../app/lib/markdown/workspace-link-contract-v2';
 import { inspectPersistedDocumentLinks } from '../app/lib/markdown/workspace-native-link-inventory';
-import { inspectOriginalPhysicalLinks, workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../app/lib/markdown/workspace-physical-link-inventory';
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalDocumentLinksForRead, workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../app/lib/markdown/workspace-physical-link-inventory';
 
 const workspace: WorkspaceContext = {
   workspaceId: 'document-link-index', organizationId: null, workspaceType: 'personal',
@@ -59,7 +59,7 @@ function stageFor(native: NativeDocumentLinkInventory[], physical: Array<{ path:
     sources.push({ kind: 'native', inventory: entry });
   }
   for (const entry of physical) {
-    const inspected = inspectOriginalPhysicalLinks({ workspaceId: workspace.workspaceId, organizationId: null, path: entry.path,
+    const inspected = inspectOriginalPhysicalDocumentLinksForRead({ workspaceId: workspace.workspaceId, organizationId: null, path: entry.path,
       bytes: Buffer.from(entry.text), filesystemIdentity: 'private-physical-inode',
       authority: { kind: 'unregistered', catalogueProof: 'private-catalogue-proof' } });
     add({ workspaceId: workspace.workspaceId, path: entry.path, kind: 'file', identity: 'private-physical-identity',
@@ -138,6 +138,8 @@ test('exact Markdown never acquires Wiki basename or alias fallback; genuine amb
   assert.deepEqual(index.edges.find(link => link.kind === 'wiki')?.candidates, ['a/same.md', 'b/same.md']);
   assert.equal(edge(index, 'source.md', 'same.md').status, 'missing');
   assert.equal(index.coverage.complete, false); assert.equal(index.brokenLinks.length, 3);
+  assert.equal(index.diagnostics?.sourcesComplete, true, 'missing targets do not mean missing source documents');
+  assert.deepEqual(index.omittedDocuments, []);
 });
 
 test('rich native external and same-document anchor links preserve their classification', () => {
@@ -185,6 +187,57 @@ test('duplicate sources, namespace identity collisions and physical attempts to 
   physical.namespace = original.namespace;
   const stale = buildWorkspaceDocumentLinkIndexFromStage(physical, now);
   assert(stale.gaps.some(gap => gap.code === 'physical-source-is-native')); assert.deepEqual(stale.documents, []);
+});
+
+test('legacy unknown documents remain explicit omissions while healthy document links stay available', () => {
+  const stage = stageFor([inventory('[Target](target.md)', 'source.md'), inventory('# Target', 'target.md')]);
+  stage.namespace.push({ workspaceId: workspace.workspaceId, path: 'legacy.md', kind: 'file', identity: 'registry:legacy',
+    documentId: 'legacy', lifecycleGeneration: null, filesystemIdentity: 'existing-legacy-file' });
+  stage.coverage = { complete: false, gaps: [{ code: 'missing-native-state', path: 'legacy.md' }] };
+  const index = buildWorkspaceDocumentLinkIndexFromStage(stage, now);
+  assert.equal(index.coverage.complete, false);
+  assert.deepEqual(index.documents.map(document => document.path), ['source.md', 'target.md']);
+  assert.equal(edge(index, 'source.md', 'target.md').status, 'resolved');
+  assert.deepEqual(index.omittedDocuments, [{ path: 'legacy.md', reason: 'unreadable' }]);
+  assert.equal(index.documents.some(document => document.path === 'legacy.md'), false);
+});
+
+test('metadata, HTML and unresolved targets are distinguishable without discarding readable Markdown bodies', () => {
+  const stage = stageFor([], [
+    { path: 'source.md', text: '---\naliases: [\n---\n\n[Target](target.md) [Missing](missing.md)' },
+    { path: 'target.md', text: '# Target' },
+  ], ['page.html']);
+  stage.coverage.gaps.push({ code: 'uninspected-html', path: 'page.html' });
+  stage.coverage.complete = false;
+  const index = buildWorkspaceDocumentLinkIndexFromStage(stage, now);
+  assert(index.gaps.some(gap => gap.code === 'invalid-frontmatter' && gap.path === 'source.md'));
+  assert(index.gaps.some(gap => gap.code === 'uninspected-html' && gap.path === 'page.html'));
+  assert.equal(edge(index, 'source.md', 'target.md').status, 'resolved');
+  assert.equal(edge(index, 'source.md', 'missing.md').status, 'missing');
+  assert.equal(index.documents.some(document => document.path === 'source.md'), true);
+  assert.equal(index.diagnostics?.sourcesComplete, true);
+  assert.deepEqual(index.diagnostics?.metadataErrors, ['source.md']);
+  assert.deepEqual(index.diagnostics?.htmlSources, ['page.html']);
+  assert.deepEqual(index.omittedDocuments, [], 'readable documents with bad metadata are not unreadable omissions');
+});
+
+test('metadata read profile preserves exact body offsets while the mutation inventory remains blocked', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const text = '\ufeff' + ['---', 'aliases: [', '---', '', '# Body', '[Target](target.md)', '^block'].join(eol);
+    const input = { workspaceId: workspace.workspaceId, organizationId: null, path: 'source.md', bytes: Buffer.from(text),
+      filesystemIdentity: 'fixture-inode', authority: { kind: 'unregistered' as const, catalogueProof: 'fixture-proof' } };
+    const strict = inspectOriginalPhysicalLinks(input), read = inspectOriginalPhysicalDocumentLinksForRead(input);
+    assert.equal(strict.links.length, 0); assert.equal(strict.coverage.complete, false);
+    assert.equal(read.coverage.complete, false); assert.equal(read.links.length, 1);
+    const link = read.links[0];
+    assert.equal(text.slice(link.targetRange.startUtf16, link.targetRange.endUtf16), 'target.md');
+    assert.equal(Buffer.from(text).subarray(link.targetRange.startUtf8Byte, link.targetRange.endUtf8Byte).toString(), 'target.md');
+    assert.deepEqual(read.metadata.headings, [{ depth: 1, text: 'Body' }]);
+    assert.deepEqual(read.metadata.blockIds, ['block']);
+  }
+  const unclosed = stageFor([], [{ path: 'unclosed.md', text: '---\naliases: [\n[Target](target.md)' }]);
+  const index = buildWorkspaceDocumentLinkIndexFromStage(unclosed, now);
+  assert.equal(index.diagnostics?.sourcesComplete, false, 'an unknown metadata boundary remains a genuine inspection gap');
 });
 
 test('DTO contains semantic fields only and does not read private native references or physical source bytes', () => {

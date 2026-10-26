@@ -154,6 +154,21 @@ test('document index reports an unrelated symlink while retaining independently 
   assert.equal(stage.sources.some(source => source.kind === 'physical' && source.inventory.path === 'alias.md'), false);
 }));
 
+test('document-index metadata read profile retains body links without certifying a mutation stage', async () => fixture(async (root, workspace) => {
+  await fs.writeFile(path.join(root, 'source.md'), '---\naliases: [\n---\n\n[Target](target.md)');
+  await fs.writeFile(path.join(root, 'target.md'), '# Target');
+  for (const readOnly of [false, true]) {
+    const db = database([]), stage = await stageWorkspaceLinkSourceAuthority(workspace,
+      { ...(readOnly ? { sourceScope: 'document-index' as const } : {}), openConnection: async () => db.connection });
+    const source = stage.sources.find(source => source.kind === 'physical' && source.inventory.path === 'source.md')!;
+    assert.equal(source.inventory.links.length, readOnly ? 1 : 0);
+    assert.equal(stage.coverage.complete, false);
+    assert(stage.coverage.gaps.some(gap => gap.code === 'invalid-frontmatter'));
+    const preview = previewStagedWorkspaceLinkEffects(stage, { kind: 'rename', sourcePath: 'target.md', destinationPath: 'new.md' });
+    assert.equal(preview.readiness, 'blocked'); assert.equal(preview.executionReady, false);
+  }
+}));
+
 test('unregistered and explicitly never-initialized Markdown gain byte-proven preview coverage without native identities', async () => fixture(async (root, workspace) => {
   await fs.writeFile(path.join(root, 'note.md'), '[Target](target.md) and [[Shared|Visible]]');
   await fs.writeFile(path.join(root, 'target.md'), '---\naliases: [Shared]\n---\n\n# Target');

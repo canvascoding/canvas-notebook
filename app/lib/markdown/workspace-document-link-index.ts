@@ -153,8 +153,11 @@ export function buildWorkspaceDocumentLinkIndexFromStage(
   for (const edge of edges) if (edge.targetPath) backlinks[edge.targetPath]?.push(edge);
   const unresolved = edges.filter(edge => !['resolved', 'external', 'anchor-only'].includes(edge.status));
   const publicGaps = [...gaps.values()].sort((a, b) => a.path.localeCompare(b.path) || a.code.localeCompare(b.code));
+  const sourceGaps = publicGaps.filter(failure => !['invalid-frontmatter', 'uninspected-html'].includes(failure.code));
+  const pathsFor = (code: string) => [...new Set(publicGaps.filter(failure => failure.code === code).map(failure => failure.path))];
   const omissions = new Map<string, 'too-large' | 'unreadable'>();
-  for (const failure of publicGaps) if (failure.path && namespace.get(failure.path)?.kind === 'file'
+  for (const failure of sourceGaps) if (failure.path && namespace.get(failure.path)?.kind === 'file'
+    && (!sources.has(failure.path) || /limit|too-large/iu.test(failure.code))
     && (markdownPath(failure.path) || namespace.get(failure.path)?.documentId !== null)) {
     const reason = /limit|too-large/iu.test(failure.code) ? 'too-large' : 'unreadable';
     if (reason === 'too-large' || !omissions.has(failure.path)) omissions.set(failure.path, reason);
@@ -163,6 +166,8 @@ export function buildWorkspaceDocumentLinkIndexFromStage(
   return {
     indexVersion: 2, workspaceId: stage.workspaceId, documents, edges, backlinks, brokenLinks: unresolved,
     targetPaths, generatedAt: now.toISOString(), gaps: publicGaps, omittedDocuments,
+    diagnostics: { sourcesComplete: sourceGaps.length === 0, sourceGaps,
+      metadataErrors: pathsFor('invalid-frontmatter'), htmlSources: pathsFor('uninspected-html') },
     coverage: {
       complete: stage.coverage.complete && publicGaps.length === 0 && unresolved.length === 0,
       omittedSources: omittedDocuments.map(({ path, reason }) => ({ path,
