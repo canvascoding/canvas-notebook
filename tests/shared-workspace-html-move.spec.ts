@@ -288,7 +288,7 @@ async function assertSameOpenDocuments(fixture: SharedFixture, filePath: string,
   origins: number[], unchangedSequence = true, peerPermission: 'read' | 'write' = 'write') {
   const sessions = [];
   for (const [index, context] of [fixture.admin, fixture.peer].entries()) {
-    const current = await documentEvidence(fixture, context, filePath);
+    let current = await documentEvidence(fixture, context, filePath);
     expect(documentIdentity(current)).toEqual(documentIdentity(before));
     expect(current.permission).toBe(index === 0 ? 'write' : peerPermission);
     expect(current.degraded).not.toBe(true);
@@ -297,6 +297,17 @@ async function assertSameOpenDocuments(fixture: SharedFixture, filePath: string,
     // A collapsed destination tree is independent of the open document's resolved location.
     await expect.poll(() => sessionPaths.get(page)?.at(-1), { timeout: 45_000 }).toBe(filePath);
     const state = await assertHealthyClient(page, current, index === 0 ? 'write' : peerPermission);
+    // A user's edit can become durable while the healthy-client check waits.
+    // Compare that acknowledgement with a fresh server read, not the earlier
+    // session response. Moves still must preserve the original sequence.
+    await expect.poll(async () => {
+      current = await documentEvidence(fixture, context, filePath);
+      return current.documentSequence;
+    }, { timeout: 45_000 }).toBe(state.documentSequence);
+    expect(documentIdentity(current)).toEqual(documentIdentity(before));
+    expect(current.permission).toBe(index === 0 ? 'write' : peerPermission);
+    expect(current.degraded).not.toBe(true);
+    if (unchangedSequence) expect(current.documentSequence).toBe(before.documentSequence);
     expect(state.documentSequence).toBe(current.documentSequence);
     await expect(page.getByTestId('unavailable-document-recovery'),
       'The same healthy open document has no unavailable recovery banner after the move settles').toBeHidden();
