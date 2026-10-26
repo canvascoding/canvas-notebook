@@ -11,11 +11,12 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.26.1] - 2026-10-26
+## [2026.10.26.2] - 2026-10-26
 
 ### Fixed
 
-- Loaded the resolved production build configuration in the custom server so multipart uploads retain their configured buffer and return the existing per-file size error.
+- Shared the resolved build configuration with both production Next.js loaders, so uploads retain their configured buffer and settings links preserve their target.
+- Kept long agent pickers within the available viewport and scrollable on desktop and mobile.
 - Returned actual persisted managed-agent file contents in save receipts, including canonical final newlines, so saving and reloading agree.
 - Kept bulk moves running through their own source-row removal events while retaining cancellation for unrelated deletions and workspace changes.
 - Preserved existing provider verification when saving unrelated provider settings or the chat default, preventing spurious provider-not-ready session conflicts.
