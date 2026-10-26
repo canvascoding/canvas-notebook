@@ -12,6 +12,10 @@ function loadProductionNextConfig(dev, directory = process.cwd()) {
     || typeof config.distDir !== 'string' || !config.distDir) {
     throw new Error('The production Next.js build configuration is missing or invalid.');
   }
+  // NextCustomServer.prepare creates a separate router without forwarding
+  // options.conf. Use Next's standalone-config channel so both loaders read
+  // this build's configuration when next.config.ts is absent in the image.
+  process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(config);
   return config;
 }
 
