@@ -2,13 +2,18 @@ import { expect, test, type Browser, type Locator, type Page } from '@playwright
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { chatComposerInput } from './helpers/chat-composer';
+import { EXTENSION_SELECTION_LIMITS } from '../app/lib/capabilities/extensions/contracts';
+import { chatExtensionOptionsRequestSchema, type ChatExtensionOptionsResponse } from '../app/lib/chat/extension-options-contracts';
+import type { AgentExtensionSearchItem, AgentExtensionPackageVersion } from '../app/lib/agents/extension-options-contracts';
 
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: process.env.CANVAS_ENV_FILE || path.join(process.cwd(), '.env.local'), quiet: true });
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 const AUTH_STATE_PATH = 'test-results/chat-file-reference-auth.json';
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
+const ownedWorkspaces = new Map<Page, Array<{ id: string; name: string }>>();
 
 async function login(page: Page) {
   await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
@@ -19,7 +24,7 @@ async function login(page: Page) {
 async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
   await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(chatComposerInput(page)).toBeVisible();
 }
 
 async function getActiveWorkspaceId(page: Page): Promise<string> {
@@ -31,7 +36,11 @@ async function getActiveWorkspaceId(page: Page): Promise<string> {
 
 async function createWorkspace(page: Page, name: string): Promise<string> {
   const response = await page.request.post('/api/workspaces', { data: { name, type: 'personal' } });
-  const payload = await response.json() as { workspace?: { id?: string }; error?: string };
+  const payload = await response.json() as { workspace?: { id: string; name: string; type: string; permissions: { canManageWorkspace: boolean } }; error?: string };
+  if (response.ok() && payload.workspace?.name === name && payload.workspace.type === 'personal'
+    && payload.workspace.permissions.canManageWorkspace) {
+    ownedWorkspaces.set(page, [...(ownedWorkspaces.get(page) ?? []), { id: payload.workspace.id, name }]);
+  }
   expect(response.ok(), payload.error || 'Failed to create test workspace').toBeTruthy();
   expect(payload.workspace?.id).toBeTruthy();
   return payload.workspace!.id!;
@@ -59,28 +68,53 @@ async function writeWorkspaceFile(page: Page, workspaceId: string, filePath: str
   expect(response.ok(), await response.text()).toBeTruthy();
 }
 
-async function deleteWorkspacePath(page: Page, workspaceId: string, targetPath: string) {
-  await page.request.delete('/api/files/delete', {
-    headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-    data: { path: targetPath },
-  });
-}
-
-async function mockSkills(page: Page, enabled: boolean) {
-  await page.route('**/api/skills', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        skills: enabled ? [{
-          name: 'pdf',
-          title: 'PDF',
-          description: 'Read and create PDF files.',
-          enabled: true,
-          core: false,
-        }] : [],
-      }),
-    });
+async function mockSkills(page: Page, enabled: boolean, includePlugin = false) {
+  // Metadata-only UI fixture. Real session, workspace files and all send-time
+  // authority checks stay on the managed server; this fixture never sends.
+  const rows: AgentExtensionSearchItem[] = [];
+  const packages = new Map<string, AgentExtensionPackageVersion>();
+  for (const kind of ['skill', 'plugin'] as const) {
+    if (!enabled || kind === 'plugin' && !includePlugin) continue;
+    const name = kind === 'skill' ? 'pdf' : 'reference-test-plugin';
+    const suffix = kind === 'skill' ? '1' : '2';
+    const pin = { resourceRef: `canvas-resource:10000000-0000-4000-8000-00000000000${suffix}`,
+      publishedRevisionRef: `canvas-package-revision:20000000-0000-4000-8000-00000000000${suffix}`, checksum: 'a'.repeat(64) };
+    packages.set(pin.resourceRef, { pin, kind, name, displayName: name, version: '1.0.0', description: 'Reference picker metadata fixture',
+      children: kind === 'skill' ? [{ name, description: 'PDF fixture', relativeRoot: '', origin: 'standalone', required: true }] : [], declarations: [] });
+    rows.push({ item: { id: `metadata-fixture:${name}`, kind, name, displayName: name,
+      description: 'Reference picker metadata fixture', source: 'local', stock: 'installed',
+      access: { canRead: true, canUse: true, canManage: false } }, eligibility: { action: 'select' }, chatAvailability: 'ready',
+      selection: kind === 'skill' ? { kind: 'skill', package: pin, origin: 'standalone', relativeRoot: '' }
+        : { kind: 'plugin', package: pin, skillSelection: { kind: 'all' } } });
+  }
+  await page.route('**/api/chat/extension-options', async route => {
+    const request = chatExtensionOptionsRequestSchema.parse(route.request().postDataJSON());
+    const header = { schemaVersion: 1 as const, target: request.target, contextKey: JSON.stringify(request.target),
+      coverage: [], limits: EXTENSION_SELECTION_LIMITS, agentRevision: 1, workflowRevision: 0,
+      preferenceRevision: 0, finalSendValidationRequired: true as const };
+    let data: ChatExtensionOptionsResponse;
+    if (request.operation === 'search') {
+      const items = request.phase === 'remote' ? [] : rows.filter(row => request.types.includes(row.item.kind)
+        && row.item.name.includes(request.q.toLowerCase()));
+      data = { ...header, operation: 'search', query: request, items, selectedItem: null,
+        scopes: { choices: ['all'], teams: [] }, recents: [],
+        pagination: { nextCursor: null, hasNextPage: false, loadedItems: items.length } };
+    } else if (request.operation === 'package_version') {
+      const metadata = packages.get(request.resourceRef);
+      expect(metadata?.pin.publishedRevisionRef).toBe(request.publishedRevisionRef);
+      expect(metadata?.pin.checksum).toBe(request.checksum);
+      if (!metadata) throw new Error('Unknown reference metadata fixture.');
+      data = { ...header, operation: 'package_version', package: metadata };
+    } else if (request.operation === 'preview') {
+      data = { ...header, operation: 'preview', preview: { configurationReadiness: 'unknown', contextValidation: 'unknown',
+        personalSetupRequired: false, runtimeReadiness: 'not_checked', providerHealth: 'unknown',
+        finalSendValidationRequired: true, budget: null, issues: [], requirements: [], effectiveToolCaps: [], toolConflicts: [] } };
+    } else if (request.operation === 'presentation') {
+      data = { ...header, operation: 'presentation', entries: request.selections.map(selection => ({ selection })) };
+    } else {
+      throw new Error(`Unexpected metadata-only reference request: ${request.operation}`);
+    }
+    await route.fulfill({ json: { success: true, data } });
   });
 }
 
@@ -108,6 +142,32 @@ test.describe('Chat File Reference Picker', () => {
     await context.close();
   });
 
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/notebook?chat=open');
+    const workspaceId = await createWorkspace(page, `Reference picker ${crypto.randomUUID()}`);
+    await switchWorkspace(page, workspaceId);
+  });
+
+  test.afterEach(async ({ page }) => {
+    const request = page.request;
+    await page.close();
+    const errors: unknown[] = [];
+    for (const owned of ownedWorkspaces.get(page) ?? []) {
+      try {
+        const response = await request.get('/api/workspaces', { timeout: 15_000 });
+        expect(response.status()).toBe(200);
+        const payload = await response.json();
+        expect(payload.workspaces.find((workspace: { id: string }) => workspace.id === owned.id)).toMatchObject({
+          id: owned.id, name: owned.name, type: 'personal', permissions: { canManageWorkspace: true },
+        });
+        const deleted = await request.delete(`/api/workspaces/${encodeURIComponent(owned.id)}`, { timeout: 15_000 });
+        expect(deleted.status(), 'Remove only the exact test-owned workspace after closing its page.').toBe(200);
+      } catch (error) { errors.push(error); }
+    }
+    ownedWorkspaces.delete(page);
+    if (errors.length) throw new AggregateError(errors, 'Owned reference-picker workspace cleanup failed.');
+  });
+
   test('searches the selected workspace and prefers direct filename matches', async ({ page }) => {
     await page.goto('/notebook?chat=open');
     const fixtureId = `playwright-file-picker-${Date.now()}`;
@@ -124,7 +184,7 @@ test.describe('Chat File Reference Picker', () => {
     try {
       await startFreshChat(page);
 
-      const input = page.getByTestId('chat-input');
+      const input = chatComposerInput(page);
       const searchRequest = page.waitForRequest((request) => request.url().includes('/api/files/list'));
       await input.fill(`@${query}`);
       const request = await searchRequest;
@@ -135,28 +195,12 @@ test.describe('Chat File Reference Picker', () => {
       await expect(picker.getByTestId('chat-reference-item').first()).toContainText(`${fixtureId}/Elsewhere/${query}`, { timeout: 15000 });
       await expect(picker.getByTestId('chat-reference-item').first()).not.toContainText(`/${query}/unrelated-notes.md`);
     } finally {
-      await deleteWorkspacePath(page, workspaceId, fixtureId);
-      await page.request.delete(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
+      // The verified workspace creation receipts are cleaned up in afterEach.
     }
   });
 
-  test('plus picker combines current workspace files, plugins, and skills', async ({ page }) => {
-    await mockSkills(page, true);
-    await page.route('**/api/plugins', async (route) => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          plugins: [{
-            name: 'reference-test-plugin',
-            version: '1.0.0',
-            description: 'Reference picker test plugin',
-            enabled: true,
-            skills: [],
-          }],
-        }),
-      });
-    });
+  test('reference button combines current workspace files, plugins, and skills', async ({ page }) => {
+    await mockSkills(page, true, true);
     await page.goto('/notebook?chat=open');
     const workspaceId = await getActiveWorkspaceId(page);
     const fixtureId = `000-plus-reference-${Date.now()}`;
@@ -165,60 +209,61 @@ test.describe('Chat File Reference Picker', () => {
 
     try {
       await startFreshChat(page);
-      const input = page.getByTestId('chat-input');
-      await input.fill('+');
+      const input = chatComposerInput(page);
+      await page.getByRole('button', { name: /Insert plugins, skills and connections|Plugins, Skills und Verbindungen einfügen/i }).click();
       const picker = page.getByTestId('chat-reference-picker');
       await expect(picker.locator('[data-reference-kind="file"]')).not.toHaveCount(0, { timeout: 15000 });
       await expect(picker.locator('[data-reference-kind="plugin"]')).toHaveCount(1);
       await expect(picker.locator('[data-reference-kind="skill"]')).not.toHaveCount(0);
 
       await picker.locator('[data-reference-kind="plugin"]').click();
-      await expect(input).toHaveValue('/reference-test-plugin ');
+      const inserted = input.locator('[data-type="extension-reference"]');
+      await expect(inserted).toHaveCount(1);
+      await expect(inserted.getByText('reference-test-plugin', { exact: true })).toBeVisible();
     } finally {
-      await deleteWorkspacePath(page, workspaceId, fixtureId);
-      await page.unroute('**/api/plugins');
-      await page.unroute('**/api/skills');
+      // afterEach closes this page and its metadata routes before owned cleanup.
     }
   });
 
-  test('shows active slash skill references and inserts the selected skill', async ({ page }) => {
+  test('shows active skill references and inserts the selected skill', async ({ page }) => {
     await mockSkills(page, true);
     await page.goto('/notebook?chat=open');
 
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
-    await input.fill('/pdf');
+    const input = chatComposerInput(page);
+    await input.fill('@pdf');
 
     const picker = page.getByTestId('chat-reference-picker');
     await expect(picker).toBeVisible({ timeout: 15000 });
     await expect(picker).toContainText(/pdf/i);
-    await expect(picker).toContainText('/pdf');
+    await expect(picker.locator('[data-reference-kind="skill"]')).toContainText('pdf');
     await expect(picker.locator('[data-reference-kind="skill"] [data-testid="chat-reference-icon"]').first()).toBeVisible();
 
     await input.press('Enter');
-    await expect(input).toHaveValue('/pdf ');
+    const inserted = input.locator('[data-type="extension-reference"]');
+    await expect(inserted).toHaveCount(1);
+    await expect(inserted.getByText('pdf', { exact: true })).toBeVisible();
     await expect(picker).toBeHidden();
-    await page.unroute('**/api/skills');
   });
 
-  test('does not show disabled skills in the slash picker', async ({ page }) => {
+  test('does not show disabled skills in the reference picker', async ({ page }) => {
     await mockSkills(page, false);
     await page.goto('/notebook?chat=open');
 
     try {
       await startFreshChat(page);
 
-      const input = page.getByTestId('chat-input');
-      await input.fill('/pdf');
+      const input = chatComposerInput(page);
+      await input.fill('@pdf');
 
       const picker = page.getByTestId('chat-reference-picker');
       await expect(picker).toBeVisible({ timeout: 15000 });
       await expect(picker.locator('[data-reference-kind="skill"]')).toHaveCount(0);
-      await expect(picker).toContainText(/No plugins or skills found matching|Keine Plugins oder Skills gefunden/);
+      await expect(picker).toContainText(/No files, plugins, or skills found matching|Keine Dateien, Plugins oder Skills gefunden/);
       await expect(picker).not.toContainText('/pdf');
     } finally {
-      await page.unroute('**/api/skills');
+      // afterEach closes this page and its metadata routes before owned cleanup.
     }
   });
 
@@ -226,7 +271,7 @@ test.describe('Chat File Reference Picker', () => {
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const picker = page.getByTestId('chat-reference-picker');
 
     await input.fill('foo/bar');
@@ -250,7 +295,7 @@ test.describe('Chat File Reference Picker', () => {
     try {
       await startFreshChat(page);
 
-      const input = page.getByTestId('chat-input');
+      const input = chatComposerInput(page);
       await input.fill(`@${query}`);
 
       const picker = page.getByTestId('chat-reference-picker');
@@ -270,7 +315,7 @@ test.describe('Chat File Reference Picker', () => {
 
       await expect.poll(() => selectedReferenceIsInsidePicker(picker)).toBe(true);
     } finally {
-      await deleteWorkspacePath(page, workspaceId, fixtureId);
+      // The verified workspace creation receipt is cleaned up in afterEach.
     }
   });
 });

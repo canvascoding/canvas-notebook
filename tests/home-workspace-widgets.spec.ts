@@ -119,9 +119,11 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   await expect(emailCard.getByRole('link', { name: /Launch-Freigabe/ })).toHaveAttribute('href', /accountId=sales.*messageId=mail-sales/);
 
   const todoCard = page.getByTestId('workspace-widget-todos');
-  await todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true }).focus();
+  const todoLinks = todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true });
+  await expect(todoLinks).toHaveCount(2);
+  await todoLinks.last().focus();
   await expect(todoCard.getByRole('link', { name: /Launch prüfen/ })).toHaveAttribute('href', '/de?todo=todo-critical');
-  await expect(todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true })).toHaveAttribute('href', `/de/todos?workspaceId=${workspace.id}`);
+  for (const link of await todoLinks.all()) await expect(link).toHaveAttribute('href', `/de/todos?workspaceId=${workspace.id}`);
 
   const automationCard = page.getByTestId('workspace-widget-automation');
   await expect(automationCard.getByRole('link', { name: /Kampagnen-Report/ })).toHaveAttribute('href', '/de/automations/job-latest');
