@@ -87,7 +87,12 @@ export function useWorkspaceMove(): WorkspaceMoveController {
     const deleted = (event: Event) => {
       const detail = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
       const operation = operationActiveRef.current;
-      if (operation && detail.workspaceId === operation.workspaceId && affected(operation, detail.paths)) finishMove(operation);
+      if (!operation || detail.workspaceId !== operation.workspaceId) return;
+      // A native rename can remove its old tree row before its authenticated
+      // receipt returns. Let that in-flight rename settle; another pending path
+      // or a removed destination/ancestor must still cancel the remaining queue.
+      const externalPaths = detail.paths.filter(path => path !== operation.expectedRename?.oldPath);
+      if (affected(operation, externalPaths)) finishMove(operation);
     };
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);

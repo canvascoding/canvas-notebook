@@ -96,6 +96,7 @@ const http = require('http');
 const { guardHttpRequestLifecycle } = require('./server/http-request-lifecycle');
 const fs = require('fs');
 const next = require('next');
+const { loadProductionNextConfig } = require('./server/production-next-config');
 const { runWithRequestIdentity } = require('./app/lib/security/request-identity');
 const { handleHtmlPreviewBoundary } = require('./server/html-preview-boundary');
 const { isHtmlPreviewHost } = require('./app/lib/html-preview-origin');
@@ -118,6 +119,7 @@ const app = next({
   dev,
   hostname,
   port,
+  conf: loadProductionNextConfig(dev),
   ...(useWebpackDev ? { webpack: true, turbopack: false } : {}),
 });
 const handle = app.getRequestHandler();

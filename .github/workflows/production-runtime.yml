@@ -1,0 +1,57 @@
+name: Production Runtime Contracts
+
+on:
+  pull_request:
+    paths:
+      - server.js
+      - server/production-next-config.js
+      - scripts/production-next-config-test.cjs
+      - scripts/agent-managed-file-receipt-test.ts
+      - app/lib/agents/management-actions.ts
+      - app/lib/agents/storage.ts
+      - app/components/file-browser/useWorkspaceMove.ts
+      - scripts/workspace-move-controller-test.tsx
+      - .github/workflows/production-runtime.yml
+  push:
+    branches: [main]
+    paths:
+      - server.js
+      - server/production-next-config.js
+      - scripts/production-next-config-test.cjs
+      - scripts/agent-managed-file-receipt-test.ts
+      - app/lib/agents/management-actions.ts
+      - app/lib/agents/storage.ts
+      - app/components/file-browser/useWorkspaceMove.ts
+      - scripts/workspace-move-controller-test.tsx
+      - .github/workflows/production-runtime.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: node scripts/production-next-config-test.cjs
+      - run: npx --no-install tsx scripts/workspace-move-controller-test.tsx
+      - run: npx --no-install tsx --conditions react-server scripts/agent-managed-file-receipt-test.ts
+        env:
+          NODE_ENV: test
+          BASE_URL: http://localhost:3000
+          CANVAS_MCP_DIRECT_ENABLED: 'false'
+      - run: npx --no-install eslint scripts/production-next-config-test.cjs scripts/agent-managed-file-receipt-test.ts scripts/workspace-move-controller-test.tsx app/components/file-browser/useWorkspaceMove.ts
