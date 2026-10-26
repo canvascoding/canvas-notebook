@@ -50,6 +50,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     const doc = new Y.Doc();
     try { Y.applyUpdate(doc, new Uint8Array(row.yjs_state)); return { path: String(row.path), lineageId: String(row.lineage_id),
       lifecycleGeneration: Number(row.lifecycle_generation), sequence: Number(row.document_sequence),
+      checkpointSequence: Number(row.checkpoint_sequence), checkpointed: row.checkpointed_at !== null,
       status: row.status, registryStatus: row.registry_status,
       text: row.representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc) }; }
     finally { doc.destroy(); }
@@ -108,6 +109,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
           let converged = true;
           for (const id of [target.documentId, incoming.documentId]) {
             const state = await readNative(id);
+            if (!state.checkpointed || state.sequence !== state.checkpointSequence) converged = false;
             try { if (await fs.readFile(path.join(h.source.rootPath, state.path), 'utf8') !== state.text) converged = false; }
             catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') converged = false; else throw error; }
           }

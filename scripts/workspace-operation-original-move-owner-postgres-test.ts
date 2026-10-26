@@ -358,7 +358,7 @@ async function main(): Promise<void> {
       await store.enqueue({batchId:job.claimed.batchId,planId:job.claimed.planId,userId:'member',displayName:'Actual original actor',action:'resume'});
       const claimed=await store.claim(crypto.randomUUID());assert(claimed);assert.equal(claimed.batchId,job.claimed.batchId);return {...job,claimed};
     };
-    const check=async(label:string,operation:()=>Promise<void>)=>{
+    const check=async(label:string,operation:()=>Promise<void>,sqlBudget?:number)=>{
       stage=label;queryProfile!.beginCase(label);let failed=true;
       const measurements:DocumentOperationMeasurement[]=[];
       try{
@@ -368,6 +368,8 @@ async function main(): Promise<void> {
         assert.equal(measurement.unsupportedQueryForms,0);assert.equal(measurement.openQueriesAtCompletion,0);
         assert.equal(measurement.openConnectionsAtCompletion,0);
         assert.equal(measurement.queryGroups.reduce((sum,group)=>sum+group.statements,0),measurement.statements);
+        if(sqlBudget!==undefined)assert(measurement.statements<=sqlBudget,
+          `Ordinary Move SQL budget exceeded: ${measurement.statements} > ${sqlBudget}`);
         console.log('Original Move common operation measurement:',JSON.stringify({label,measurement}));
         passed++;failed=false;console.log('Original Move owner case passed:',label);
       }
@@ -381,7 +383,7 @@ async function main(): Promise<void> {
       assert.equal(await nativePath(target.documentId),destination);assert((await nativeContent(peer.documentId)).includes(destination));
       assert.deepEqual(await metadata(name),[]);assert.deepEqual(await metadata(destination),[{path:destination,title:'Preserved title'}]);
       assert.equal(await absent(path.join(workspace.rootPath,name)),true);assert.equal(await absent(path.join(workspace.rootPath,destination)),true);
-    });
+    },2100);
     await check('PDF physical move, native link-only bundle and namespace metadata',async()=>{
       const name=`paper-${crypto.randomUUID()}.pdf`,destination=`papers/${name}`,bytes=Buffer.from('%PDF-1.7\nowned fixture bytes\n');
       await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});
@@ -390,7 +392,7 @@ async function main(): Promise<void> {
       assert(receipt.native);assert.equal(receipt.native.sideEffectReceiptDigest,null);assert(receipt.namespaceEffects);
       assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);assert.equal(await absent(path.join(workspace.rootPath,name)),true);
       assert((await nativeContent(peer.documentId)).includes(destination));assert.deepEqual(await metadata(name),[]);assert.equal((await metadata(destination)).length,1);
-    });
+    },2200);
     await check('filled folder preserves every owned file and updates native incoming links',async()=>{
       const name=`folder-${crypto.randomUUID()}`,destination=`moved/${name}`;
       await mkdir(path.join(workspace.rootPath,name));await writeFile(path.join(workspace.rootPath,name,'one.pdf'),'owned-one',{mode:0o600});

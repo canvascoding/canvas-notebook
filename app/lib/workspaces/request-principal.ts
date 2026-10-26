@@ -479,10 +479,13 @@ async function lockMemberSession(phase: Phase, request: RequestCapture): Promise
 async function currentUserWorkspace(phase: Phase, row: Row): Promise<WorkspaceContext> {
   const request = phase.request;
   const singleSnapshot = request.kind === 'member'
-    || request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6;
+    || request.kind === 'job_user' && request.binding.actionMode === 'apply'
+      && (request.binding.plan.version === 3 || request.binding.plan.version === 6);
   if (singleSnapshot) {
     // This actual B already holds the seat tables in SHARE. Reuse the same
     // decision bodies with one fresh snapshot at every retained Current fence.
+    // Ordinary native Move/Rename jobs use the same direct-user capture as
+    // Delete. No decision survives this check or is reused by another phase.
     await assertUserSeatAccessInSingleSnapshotOnConnection(phase.database, request.userId, request.license);
   } else await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
   active(phase);

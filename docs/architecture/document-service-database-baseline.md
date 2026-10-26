@@ -232,11 +232,26 @@ Phasenmesswert und dürfen nicht zur Gruppensumme addiert werden. Die 229 Prüfa
 51 Pool-Ausleihen und vier maximal gleichzeitig gehaltenen Pool-Verbindungen bleiben
 offene Optimierungsziele. Alle Abfragen und Pool-Ausleihen sind vor Messende beendet.
 
+Normale native Move-/Rename-Aufträge (direkter Benutzerauftrag, Apply, Plan V3)
+verwenden jetzt ebenfalls den vorhandenen Konto-/Workspace-Leser mit einer frischen
+SQL-Momentaufnahme je erforderlicher Current-Prüfung. Der bereits verwendete
+V6-Delete-Pfad und normale Member-Principals bleiben erhalten. Andere Agenten-,
+Gast-, historische und Undo-Pfade werden mit dieser Änderung nicht umgestellt.
+Die tatsächliche Phase hält weiterhin ihre bisherigen Tabellen-/Zeilensperren;
+Claim, Realm, Scope und aktuelle Rechte werden unverändert erneut geprüft.
+
+Im identischen Original-Owner-Messbereich sinkt der erste native Move-Fall von
+2.342 auf 2.027 Anweisungen und der PDF-Fall mit nativem eingehendem Link von 2.431
+auf 2.101. Die 29 beziehungsweise 31 Pool-Ausleihen bleiben unverändert. Es ist
+eine Reduktion um rund 13 Prozent für diese beiden Messbereiche; die Leerlauflast
+des Editors wird damit noch nicht als behoben ausgegeben. Regressionsbudgets von
+2.100 beziehungsweise 2.200 Anweisungen sichern diese festen Fixtures ab.
+
 Der echte Original-Move-Owner-Test benutzt zusätzlich dieselbe gemeinsame Messung.
 Seine 22 bestehenden Fälle behalten ihre Daten-, Konflikt-, Wiederholungs- und
-Cleanup-Prüfungen. Das erste native Move-Szenario benötigt 2.342 Anweisungen und
-29 Pool-Ausleihen, das PDF-Szenario 2.431 und 31; beide halten maximal zwei
-Pool-Verbindungen gleichzeitig. Beide Messungen umfassen den gesamten jeweiligen
+Cleanup-Prüfungen. In der Ausgangsmessung benötigte das erste native Move-Szenario
+2.342 Anweisungen und 29 Pool-Ausleihen, das PDF-Szenario 2.431 und 31; beide hielten
+maximal zwei Pool-Verbindungen gleichzeitig. Beide Messungen umfassen den gesamten jeweiligen
 Owner-Testfall mit Vorbereitung und Ausführung. Sie ersetzen weiterhin keine
 vollständige Browseraktion. Der unabhängige Bestandsprofiler bleibt als Vergleich
 erhalten; die gemeinsame Messung beobachtet zusätzlich echte Callback-Abschlüsse,
