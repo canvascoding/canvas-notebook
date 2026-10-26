@@ -23,11 +23,20 @@ Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
   des Principals nach fünf Sekunden. In Produktion wurde auch ein PostgreSQL-
   Transaktions-Timeout protokolliert. Diese Messung gilt für die Agenten-Neuanlage;
   andere Abläufe brauchen eigene Messungen.
-- Der lokale Performanceprototyp reduzierte die größte Transaktion im verschachtelten
-  Test auf 3.089 Anweisungen. Inhalt, native Identität, Revision und Dateiprojektion
-  wurden bestätigt. Die Suite ist noch nicht grün: Die Umgebung meldet beim Abschluss
-  einen unerwarteten Netzwerkaufruf. Der Prototyp ist kein veröffentlichtes Release
-  und keine Abnahme der nachstehenden Architektur.
+- Die erste lokale Optimierung reduzierte die größte Transaktion im verschachtelten
+  Test auf 3.089 Anweisungen. Die instrumentierte Serviceoperation benötigt weiterhin
+  8.480 Anweisungen, davon 5.954 in 229 Berechtigungsprüfungen. Die Messbereiche sind
+  unterschiedlich; daraus wird keine prozentuale Gesamtverbesserung abgeleitet.
+  Die zwölf tatsächlichen PostgreSQL-Testgruppen für Agenten-Neuanlagen und die
+  21 Fälle des gemeinsamen Dokumentlesers sind inzwischen erfolgreich. Ein zuvor
+  beobachteter unerwarteter Netzwerkaufruf trat in den abschließenden Läufen nicht
+  auf; die strenge Prüfung bleibt bestehen. Diese Teilergebnisse ersetzen weder
+  die reguläre Gesamtsuite noch die Abnahme der nachstehenden Architektur.
+- Der gemeinsame Dokumentleser besteht bereits in `app/lib/documents/service.ts`.
+  Der Quellenleser lädt native Zustände bereits gebündelt mit zwei SQL-Abfragen
+  je Prüfdurchlauf. Daher vorhandene Schnittstellen weiterentwickeln und die
+  verbleibenden Wiederholungen messen, statt einen zusätzlichen Service daneben
+  aufzubauen. Der normale Editor-Speicherpfad muss gesondert erfasst werden.
 
 ## Zielaufbau
 
@@ -45,6 +54,9 @@ konkreten Schnittstellen werden bei Umsetzung festgelegt. Kein neuer großer
 Controller und keine zweite Dokument-Wahrheit.
 
 ## Reihenfolge und abgeschlossene Arbeitspakete
+
+Die folgenden Pakete werden nacheinander abgenommen. Ein Paket gilt erst mit seinem
+Nachweis als abgeschlossen; erste Optimierungen sind noch keine fertige Einführung.
 
 ### 1. Aufrufer und Messbasis erfassen
 
@@ -84,6 +96,9 @@ Die Datenbankphase besitzt ihre Verbindung und Transaktion. Untergeordnete Diens
 Resolver unmittelbar hintereinander. Erforderliche Sperren, aktuelle Rechte,
 Schema-/Relationsprüfung und bestehende Fristen bleiben erhalten. Der bestehende
 allgemeine Rechteresolver wird nur schrittweise und nach Äquivalenztests umgestellt.
+Vor der Umstellung wird explizit festgelegt, welche Änderungen innerhalb einer Phase
+möglich sind und an welchen Grenzen eine neue Beobachtung zwingend erforderlich ist.
+Eine gehaltene Verbindung allein ist kein Beleg für unveränderte Berechtigungen.
 
 **Fertig:** Entzogene Rechte, gesperrte Accounts, fehlende Seats, archivierte
 Sitzungen und geänderte Agenten-/Toolprofile werden auch unter Last abgewiesen.
@@ -154,6 +169,13 @@ Linkindex → gemeinsame Änderungspfade → kontrollierte Umschaltung und Berei
 Neue Leseergebnisse zunächst mit dem bisherigen, vollständigen Neuaufbau vergleichen.
 Die Umschaltung erfolgt pro Ablauf und mit Rückfall auf den vorherigen Codepfad.
 Bei Datenänderungen bedeutet Rückfall nicht das Überschreiben neuerer Inhalte.
+
+Die PR-Reihenfolge folgt den Abhängigkeiten: zuerst Messung und Verträge, danach
+gebündelte Berechtigungs-/Dokumentleser, anschließend inkrementelle Linkprojektion,
+danach die gemeinsamen Änderungspfade und abschließend Einführung/Bereinigung.
+Jeder PR benennt seine tatsächlich umgestellten Aufrufer, Vorher-/Nachher-Messungen
+und die noch offenen Abläufe. Der erste Leseumbau wird an einem einzigen Adapter
+geprüft, bevor die übrigen Adapter folgen.
 
 **Fertig:** Erforderliche CI-Prüfungen und umsetzbare Reviews abgeschlossen,
 reguläre Gesamtsuite und UI grün, überprüfte Sicherung/Wiederherstellung vor
