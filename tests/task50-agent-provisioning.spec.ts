@@ -333,9 +333,10 @@ test.describe('Task 50 agent provisioning and management', () => {
 
     await openCreateAgentDialog(page);
     await createDialog.getByLabel('Name').fill(personalName);
-    await createDialog.getByRole('button', { name: /Only me/ }).click({ force: true });
+    await createDialog.getByRole('button', { name: /Only me/ }).click();
+    await expect(createDialog.getByRole('button', { name: 'Create agent', exact: true })).toBeEnabled({ timeout: 30_000 });
     const personalCreation = waitForOwnedAgentCreation(page, personalName, 'user');
-    await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click({ force: true });
+    await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
     await personalCreation;
     await expect(createDialog.getByTestId('personal-agent-created')).toBeVisible({ timeout: 30_000 });
     await createDialog.getByRole('button', { name: 'Done' }).click();
@@ -348,10 +349,11 @@ test.describe('Task 50 agent provisioning and management', () => {
     await openCreateAgentDialog(page);
     await createDialog.getByLabel('Name').fill(organizationName);
     const organizationScope = createDialog.getByRole('button', { name: /Organization/ });
-    await organizationScope.click({ force: true });
+    await organizationScope.click();
     await expect(organizationScope).toHaveAttribute('aria-pressed', 'true');
+    await expect(createDialog.getByRole('button', { name: 'Create agent', exact: true })).toBeEnabled({ timeout: 30_000 });
     const organizationCreation = waitForOwnedAgentCreation(page, organizationName, 'organization');
-    await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click({ force: true });
+    await createDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
     await organizationCreation;
 
     await expect(page.getByText(organizationName, { exact: true })).toBeVisible({ timeout: 30_000 });
