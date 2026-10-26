@@ -182,9 +182,11 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{ sources: NativeSourceRead[]; gaps: PhysicalSourceGap[] }> {
+  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{
+    sources: NativeSourceRead[]; gaps: PhysicalSourceGap[]; reservedBytes: number;
+  }> {
   const gaps: PhysicalSourceGap[] = [];
-  if (!documents.length) return { sources: [], gaps };
+  if (!documents.length) return { sources: [], gaps, reservedBytes: 0 };
   if (documentIndexRead) getNativeInspectionSchema();
   if (documents.length > limits.maxPaths || new Set(documents.map(document => document.id)).size !== documents.length
     || documents.some(document => !validId(document.id) || !validId(document.lineage_id))) fail('native-identity-conflict', '');
@@ -219,10 +221,14 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
     try { metadata.push(nativeSourceHeader(workspace, document, byId.get(document.id), limits)); selected.push(document); }
     catch (error) { if (!diagnose(error, document)) throw error; }
   }
-  if (!selected.length) return { sources: [], gaps };
+  if (!selected.length) return { sources: [], gaps, reservedBytes: 0 };
   const selectedStateIds = selected.map(document => document.id), selectedStateIdSet = new Set(selectedStateIds);
   const stateLengths = metadata.map(row => Number(row.state_bytes)), vectorLengths = metadata.map(row => Number(row.vector_bytes));
-  if (metadata.reduce((sum, row) => sum + Number(row.state_bytes) + Number(row.vector_bytes), 0) > remainingBytes) fail('source-byte-limit', '');
+  // Keep the full binary allocation reservation even when inspection later
+  // discards a document. Missing rows may overreserve, never free bytes that
+  // were already transferred for a malformed native source.
+  const reservedBytes = metadata.reduce((sum, row) => sum + Number(row.state_bytes) + Number(row.vector_bytes), 0);
+  if (reservedBytes > remainingBytes) fail('source-byte-limit', '');
   // Count ALL rows for each selected ID before exposing any binary payload,
   // including duplicates with different lengths. This statement's snapshot
   // keeps the precomputed total bound valid even without a state-table PK.
@@ -247,7 +253,7 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
       byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead)); }
     catch (error) { if (!diagnose(error, document)) throw error; }
   }
-  return { sources: result, gaps };
+  return { sources: result, gaps, reservedBytes };
 }
 
 /** Fixed observation only. Caller owns the actual connection, read transaction,
@@ -383,9 +389,10 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     // Extension/capability never authorize projection bytes for this branch.
     const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
       limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
+    totalBytes += nativeRead.reservedBytes;
     gaps.push(...nativeRead.gaps);
     for (const native of nativeRead.sources) {
-      totalBytes += native.byteLength; totalLinks += native.inventory.links.length;
+      totalLinks += native.inventory.links.length;
       if (totalLinks > limits.maxLinks) fail('source-link-limit', native.state.path);
       nativeBindings.push(native.binding); privateNativeStates.push(native.state);
       sources.push({ kind: 'native', inventory: native.inventory });
@@ -451,11 +458,13 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
     }
-    const physicalBytes = totalBytes - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
+    const physicalBytes = totalBytes - nativeRead.reservedBytes;
+    const unavailableNativeBytes = nativeRead.reservedBytes
+      - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
     try {
       const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-        limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState, documentIndexRead);
+        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead);
       if (current.gaps.length) fail('native-source-changed', '');
       currentSources = current.sources;
     }

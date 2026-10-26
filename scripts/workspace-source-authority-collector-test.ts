@@ -129,6 +129,23 @@ test('strict source authority collector with caller-owned embedded SQL and genui
         assert.equal(binding.expected.path, target.filePath);
       }
     });
+    await fixture('document-index charges discarded native payloads before admitting physical bytes', async () => {
+      const target = await seed('unreadable.md', 'plain_text');
+      const invalid = Buffer.concat([Buffer.from(target.binary), Buffer.from([255])]);
+      await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2', [invalid, target.documentId]);
+      const physical = '# Physical source\n\n[Target](target.md)\n';
+      await fs.writeFile(path.join(root, 'budget.md'), physical);
+      const nativeBytes = invalid.byteLength + target.vector.byteLength;
+      const observed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace,
+        { sourceScope: 'document-index', limits: { maxTotalSourceBytes: nativeBytes + Buffer.byteLength(physical) - 1 } }));
+      assert.equal(observed.stage.coverage.complete, false);
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'unreadable-native-source' && gap.path === target.filePath));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).reduce((sum, entry) => sum + entry.binaryBytes, 0), nativeBytes);
+      assert.equal(observed.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === 'budget.md'), false,
+        'Previously fetched invalid native bytes still consume the shared read budget.');
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'source-too-large' && gap.path === 'budget.md'));
+      assert.equal(observed.stage.executionReady, false);
+    });
     await fixture('document-index reuses only unchanged parsed inventories while retaining every SQL observation', async () => {
       const targets = [];
       for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {

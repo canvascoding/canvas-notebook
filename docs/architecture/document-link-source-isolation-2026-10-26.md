@@ -35,9 +35,14 @@ und der nicht ausführbare Status der Leseprojektion bleiben erhalten.
 - Lesen verändert keine Registry-, Lineage-, Zustands-, Metadaten-, Revisions-
   oder Projektionszeilen. Nach Rücksetzen der gezielt veränderten Felder stimmt
   der vollständige Originaldatensatz wieder überein.
-- 59 vorhandene Quellen-/Index-/Projektionsprüfungen und 52 Prüfungen des strengen
+- 59 vorhandene Quellen-/Index-/Projektionsprüfungen und 53 Prüfungen des strengen
   SQL-Quellenlesers bestehen. Darunter sind Duplikate, Bytegrenzen und Veränderungen
   zwischen Metadaten-, Binär- und Abschlussprüfung.
+- Eine zusätzliche Grenzprüfung weist nach, dass bereits geladene, danach wegen
+  ungültiger nativer Bytes verworfene Quellen weiterhin das gemeinsame Bytebudget
+  belegen. Eine physische Datei, die das verbleibende Budget um ein Byte überschreitet,
+  wird vor dem Lesen abgewiesen. Auch die zweite native Prüfung berücksichtigt diese
+  Reservierung. Der Test reproduzierte die Lücke zunächst und besteht nach der Korrektur.
 - Release-Typprüfung, ESLint und vollständiges `npm run build` bestehen. Der Build
   prüft zusätzlich die tatsächlichen Produktionsmodule für Kollaboration.
 - Der gesunde warme HTTP-Index benötigt bei 10 und 200 nativen Dokumenten weiterhin
