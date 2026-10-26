@@ -43,6 +43,7 @@ on:
       - tests/managed-catalog-recovery.spec.ts
       - tests/multiple-file-upload.spec.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
+      - app/components/canvas-agent-chat/ChatAgentSelector.tsx
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -90,6 +91,7 @@ on:
       - tests/managed-catalog-recovery.spec.ts
       - tests/multiple-file-upload.spec.ts
       - app/components/settings/AiProvidersModelsPanel.tsx
+      - app/components/canvas-agent-chat/ChatAgentSelector.tsx
       - playwright.config.ts
       - package.json
       - package-lock.json
@@ -132,6 +134,7 @@ jobs:
           tests/helpers/notebook-session-readiness.ts tests/code-block-copy.spec.ts
           tests/ollama-integration.spec.ts app/components/settings/AiProvidersModelsPanel.tsx
           tests/pi-chat.spec.ts tests/notebook-query-loading.spec.ts
+          app/components/canvas-agent-chat/ChatAgentSelector.tsx
           tests/playwright/playwright.pi-chat-live.config.ts
           tests/helpers/chat-composer.ts tests/home-chat-prompt.spec.ts tests/home-start.spec.ts
           tests/managed-catalog-recovery.spec.ts tests/multiple-file-upload.spec.ts
