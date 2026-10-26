@@ -11,10 +11,13 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.25.4] - 2026-10-25
+## [2026.10.26.1] - 2026-10-26
 
 ### Fixed
 
+- Loaded the resolved production build configuration in the custom server so multipart uploads retain their configured buffer and return the existing per-file size error.
+- Returned actual persisted managed-agent file contents in save receipts, including canonical final newlines, so saving and reloading agree.
+- Kept bulk moves running through their own source-row removal events while retaining cancellation for unrelated deletions and workspace changes.
 - Preserved existing provider verification when saving unrelated provider settings or the chat default, preventing spurious provider-not-ready session conflicts.
 - Cancelled stalled live browser frame captures during shutdown so closing the browser view cannot hold its runtime open.
 - Stopped development servers when their checkout is removed or replaced, preventing orphaned workers from claiming file jobs against a missing helper.
@@ -32,6 +35,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Verification
 
 - `npm run verify:release`
+- Production startup configuration, managed-file save/read receipts and bulk-move cancellation regressions on Node 24 and 26 in CI.
 - Recovery planner, identity import, legacy evidence, journal replay and schema migration regression tests.
 - Native paragraph projection and deletion regression tests, including exact content and block-identity preservation.
 - Isolated PostgreSQL restore and document-recovery rehearsal with original native binaries and revision history retained.
