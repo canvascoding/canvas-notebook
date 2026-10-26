@@ -246,6 +246,10 @@ auf 2.101. Die 29 beziehungsweise 31 Pool-Ausleihen bleiben unverändert. Es ist
 eine Reduktion um rund 13 Prozent für diese beiden Messbereiche; die Leerlauflast
 des Editors wird damit noch nicht als behoben ausgegeben. Regressionsbudgets von
 2.100 beziehungsweise 2.200 Anweisungen sichern diese festen Fixtures ab.
+Der [Build- und UI-Abnahmebericht](document-service-native-move-2026-10-26.md)
+belegt den tatsächlichen Desktop-/Mobilablauf mit zwei aktiven Ansichten,
+unveränderten Dokument-IDs und ursprünglichen Lineages, vollständigen Inhalten
+und übereinstimmenden nativen/physischen Checkpoints.
 
 Der echte Original-Move-Owner-Test benutzt zusätzlich dieselbe gemeinsame Messung.
 Seine 22 bestehenden Fälle behalten ihre Daten-, Konflikt-, Wiederholungs- und
