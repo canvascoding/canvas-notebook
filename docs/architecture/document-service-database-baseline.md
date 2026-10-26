@@ -71,6 +71,46 @@ unveränderte Getter-/Proxy-Zugriffe, überlappende Fenster, abgeschlossene Fens
 und die Isolation fehlerhafter Diagnosesenken. SQL-Texte, Parameter, Dokumentinhalte,
 Zugangsdaten und Berechtigungskontexte werden nicht als Metrik gespeichert.
 
+### Öffentlicher Session-/Socket-Ablauf mit regulären Prüfintervallen
+
+`scripts/document-editor-runtime-baseline-postgres-entry.ts` ergänzt einen eigenen
+Lauf über den echten Cookie-HTTP-Sessionhandler und den vorhandenen
+Hocuspocus-Provider. Der Room Owner verwendet die unveränderten regulären
+Optionen: 5.000 ms Heartbeat und 250 ms Admission-Polling. Das isolierte SQL-QA-
+Schema enthält zwei native Dokumente; es wird keine Produktionsidentität oder
+Control-Plane-Freigabe daraus abgeleitet. Die Markdown-Bearbeitung verwendet den
+bestehenden verlustfreien Y.Doc-Adapter. Browser-Rendering und Next-Middleware
+sind nicht Teil dieses Messbereichs.
+
+| Prozessfenster | SQL-Anweisungen | Pool-Ausleihen | Lokale Dauer |
+| --- | ---: | ---: | ---: |
+| Erste Session, tatsächlicher Socket und initiale Projektion | 1.219 | 112 | 1,13 s |
+| Gehaltener Editor ohne Bearbeitung, 6,1 Sekunden | 2.117 | 233 | 6,10 s |
+| Erste Änderung bis nativer und physischer Checkpoint übereinstimmen | 1.244 | 136 | 2,92 s |
+| Zweite Änderung bis nativer und physischer Checkpoint übereinstimmen | 1.167 | 134 | 2,87 s |
+| Weitere Session und zweiter tatsächlicher Peer im vorhandenen Raum | 1.319 | 119 | 0,88 s |
+
+Alle Fenster enthalten gleichzeitig laufende Hintergrundarbeit. Sie sind keine
+isolierten Transaktionskosten und keine Produktionslatenz-Benchmarks. Einzelne
+Abfragen können eine Fenstergrenze überschreiten; offene Abfragen und Leases am
+Fensterende bleiben im Bericht sichtbar. Der vollständige Lauf entfernt sein
+Schema, seine Daten und sämtliche eigenen HTTP-/Socket-/PostgreSQL-Ressourcen.
+
+Ein separat beobachteter Admission-Poll benötigt sieben SQL-Anweisungen bei einem
+gehaltenen Owner. Die 24 im Leerlauffenster gestarteten Polls benötigen zusammen
+168 Anweisungen. Damit erklärt dieses Polling allein die beobachtete Gesamtlast
+nicht. Im selben Fenster dominieren Katalog-/Kontextprüfungen mit 648 Anweisungen;
+Konto-, Sitzungs- und Seat-Familien ergeben zusammen 637, die Workspace-Familie
+316. Die genaue Zuordnung der übrigen Prüfketten bleibt vor ihrer Bündelung nötig.
+
+Eine administrative `pg_stat_activity`-Stichprobe alle 100 ms beobachtet zusätzlich
+die tatsächlichen Laufzeit-Backends einschließlich dedizierter Owner-Verbindungen.
+Administrative Fixture-Verbindungen sind ausgeschlossen. Im Leerlauf werden bis
+zu acht Laufzeit-Backends beobachtet, darunter ein dedizierter Owner. Stichproben
+liefern eine untere Grenze der tatsächlichen maximalen Gleichzeitigkeit; sie
+ersetzen keinen lückenlosen Verbindungszähler. Die Messabfragen selbst werden
+nicht zur SQL-Anzahl der Produktlaufzeit addiert.
+
 Für die Agenten-Neuanlage wurde zusätzlich jede vierte echte SQL-Antwort um eine
 Millisekunde verzögert. Das simuliert Antwortlatenz ohne Ersetzung von SQL,
 Authentifizierung oder Serviceergebnissen. Die 9,34 Sekunden dieses gesamten
