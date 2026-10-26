@@ -141,15 +141,14 @@ async function worker(order: 'A' | 'B'): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      // Only the historical public-scanning block is scoped to this UUID fixture.
-      let ownSql = sql;
+      // The migration itself now binds catalogue scans to current_schema().
+      // Run its saved SQL unchanged; no public-schema rewrite is necessary.
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
         assert(sql.trim().endsWith('$main_agent_id_migration$;'));
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        ownSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(ownSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      const result = await admin.query(ownSql,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -198,7 +197,7 @@ async function worker(order: 'A' | 'B'): Promise<void> {
     const { collaborationStateProof } = await import('../app/lib/collaboration/state-proof');
     const { collaborationAdmissionLockKey } = await import('../app/lib/collaboration/room-admission-contract');
     const { NATIVE_PEER_ADMISSION_BUSY_REASON } = await import('../app/lib/collaboration/failure');
-    assert.equal(Reflect.get(Object.getOwnPropertyDescriptor(globalThis, runtimeKey)!.value, 'version'), 2);
+    assert.equal(Reflect.get(Object.getOwnPropertyDescriptor(globalThis, runtimeKey)!.value, 'version'), 3);
     const request = async (cookie = true, copy: 'A' | 'B' = 'A') => {
       const headers = new Headers({ 'x-canvas-workspace-id': workspaceId });
       if (cookie) headers.set('cookie', (await serializeSignedCookie('better-auth.session_token', tokens.owner,
@@ -243,7 +242,7 @@ async function worker(order: 'A' | 'B'): Promise<void> {
     const ignored = new Set<Client>([admin, control]);
     const hold = async (kind: 'principal' | 'reader' | 'final') => {
       const holder = await ownClient(); ignored.add(holder); await holder.query('BEGIN');
-      if (kind === 'principal') await holder.query('LOCK TABLE canvas_project_members IN SHARE MODE');
+      if (kind === 'principal') await holder.query('LOCK TABLE canvas_project_members IN ROW EXCLUSIVE MODE');
       else if (kind === 'reader') await holder.query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
       else await holder.query('LOCK TABLE fixture_final_gate IN SHARE MODE');
       let released = false;
@@ -505,6 +504,9 @@ async function worker(order: 'A' | 'B'): Promise<void> {
         const { trace } = await observed({ rollback: async (_client, trace) => { if (!persistent && trace.rollbacks === 1) await holder.release(); } }, async trace => {
           if (persistent) await assert.rejects(admissionFor(target), error => busyReason(error) === NATIVE_PEER_ADMISSION_BUSY_REASON);
           else enrolled = await admissionFor(target);
+          console.log(JSON.stringify({ scope: 'actual-admission-phase-counts', order, kind, persistent,
+            begins: trace.begins, rollbacks: trace.rollbacks, closeAcks: trace.closeAcks,
+            nativeDml: trace.nativeDml, captureBindings: trace.captureBindings, postgresBusy: trace.postgresBusy }));
           assert.equal(trace.rollbacks, persistent ? 3 : 1);
           assert.equal(trace.begins, kind === 'principal' ? persistent ? 3 : 3 : persistent ? 6 : 4);
           assert.equal(trace.closeAcks, trace.begins); assert.equal(trace.nativeDml, 0);
