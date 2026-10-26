@@ -24,6 +24,7 @@ import type { WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-sc
 import type { WorkspaceSceneSnapshotRecord } from '../excalidraw-collaboration/workspace-scene-snapshot';
 import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-copy-source-observation';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { readNativeDocumentLinkProjection } from './document-link-read-projection';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
 import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, inspectOriginalPhysicalDocumentLinksForRead, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
@@ -128,7 +129,7 @@ function nativeSourceHeader(workspace: WorkspaceContext, document: WorkspaceDocu
 }
 
 async function readNativeSource(workspace: WorkspaceContext, document: WorkspaceDocumentCatalogueEntry,
-  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState']): Promise<NativeSourceRead> {
+  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead> {
   const organizationId = workspace.organizationId ?? null;
   if (!raw || !(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
     || raw.yjs_state.byteLength !== Number(metadata!.state_bytes) || raw.state_vector.byteLength !== Number(metadata!.vector_bytes)
@@ -149,7 +150,7 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     } }, document.id, true);
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
-  const inventory = inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
+  const inventory = documentIndexRead ? await readNativeDocumentLinkProjection(state!) : inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
     assertNativeDocumentSchema(doc, state!.representation, getNativeInspectionSchema());
     return inspectNativeDocumentLinks(doc, snapshot);
   });
@@ -174,7 +175,7 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState']): Promise<NativeSourceRead[]> {
+  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead[]> {
   if (!documents.length) return [];
   if (documents.length > limits.maxPaths || new Set(documents.map(document => document.id)).size !== documents.length
     || documents.some(document => !validId(document.id) || !validId(document.lineage_id))) fail('native-identity-conflict', '');
@@ -216,7 +217,7 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
     || raws.some(row => !selectedIds.has(row.document_id as string))) fail('native-source-changed', '');
   const result: NativeSourceRead[] = [];
   for (let index = 0; index < documents.length; index++) result.push(await readNativeSource(workspace, documents[index],
-    byId.get(documents[index].id)!, metadata[index], rawById.get(documents[index].id), loadState));
+    byId.get(documents[index].id)!, metadata[index], rawById.get(documents[index].id), loadState, documentIndexRead));
   return result;
 }
 
@@ -349,7 +350,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // Extension/capability never authorize projection bytes for this branch.
     for (const native of await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
-      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState)) {
+      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead)) {
       totalBytes += native.byteLength; totalLinks += native.inventory.links.length;
       if (totalLinks > limits.maxLinks) fail('source-link-limit', native.state.path);
       nativeBindings.push(native.binding); privateNativeStates.push(native.state);
@@ -419,7 +420,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     const physicalBytes = totalBytes - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
     try { currentSources = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-      limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState); }
+      limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState, documentIndexRead); }
     catch { fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {

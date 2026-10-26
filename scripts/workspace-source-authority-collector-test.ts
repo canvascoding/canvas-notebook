@@ -18,6 +18,7 @@ import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../app/lib/markdown/workspace-source-authority-stage';
+import { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } from '../app/lib/markdown/document-link-read-projection';
 
 // Actual embedded PostgreSQL queries and real FS/Yjs. Minimal owned tables model
 // the read contract only: no production DDL/ACL/backend/lock/concurrency proof.
@@ -128,6 +129,89 @@ test('strict source authority collector with caller-owned embedded SQL and genui
         assert.equal(binding.expected.path, target.filePath);
       }
     });
+    await fixture('document-index reuses only unchanged parsed inventories while retaining every SQL observation', async () => {
+      const targets = [];
+      for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+        targets.push(await seed(`projection-${representation}.md`, representation));
+      }
+      const indexRead = () => withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace,
+        { sourceScope: 'document-index' }));
+      const before = documentLinkReadProjectionStatistics();
+      const cold = await indexRead(), afterCold = documentLinkReadProjectionStatistics();
+      assert.equal(cold.stage.coverage.complete, true, JSON.stringify(cold.stage.coverage.gaps));
+      assert.equal(cold.stage.readiness, 'blocked'); assert.equal(cold.stage.executionReady, false);
+      assert.equal(afterCold.inspections - before.inspections, 3);
+      assert.equal(afterCold.hits - before.hits, 3, 'The second independent SQL pass can reuse its identical inspection.');
+      const warm = await indexRead(), afterWarm = documentLinkReadProjectionStatistics();
+      assert.deepEqual(warm, cold);
+      assert.equal(afterWarm.inspections, afterCold.inspections);
+      assert.equal(afterWarm.hits - afterCold.hits, 6);
+      assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 6);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 4);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 4);
+      assert.deepEqual(await withFreshDocumentLinkReadProjection(indexRead), warm);
+      assert.equal(documentLinkReadProjectionStatistics().inspections - afterWarm.inspections, 6);
+
+      const changed = createPlainTextYDoc('[Changed](new-target.md)');
+      try {
+        await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2 WHERE document_id=$3',
+          [Y.encodeStateAsUpdate(changed), Y.encodeStateVector(changed), targets[0].documentId]);
+      } finally { changed.destroy(); }
+      const beforeDirty = documentLinkReadProjectionStatistics(), dirty = await indexRead(), afterDirty = documentLinkReadProjectionStatistics();
+      assert.equal(dirty.stage.coverage.complete, true, JSON.stringify(dirty.stage.coverage.gaps));
+      assert.equal(afterDirty.inspections - beforeDirty.inspections, 1, 'Only the changed document is decoded again.');
+      assert.equal(afterDirty.hits - beforeDirty.hits, 5);
+      assert.notDeepEqual(dirty.stage.sources, warm.stage.sources);
+      assert.deepEqual(await withFreshDocumentLinkReadProjection(indexRead), dirty);
+
+      const beforeStrict = documentLinkReadProjectionStatistics(), strict = await withNativeInspectionSchema(read);
+      assert.equal(strict.stage.readiness, 'native-coordinator-required');
+      assert.deepEqual(documentLinkReadProjectionStatistics(), beforeStrict, 'The mutation source profile never uses the read projection.');
+    });
+    await fixture('warm document-index projections retain fresh physical file and namespace observations', async () => {
+      await seed('native.md', 'plain_text');
+      await fs.writeFile(path.join(root, 'physical.md'), '[Old](old.md)');
+      const indexRead = () => withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace,
+        { sourceScope: 'document-index' }));
+      const first = await indexRead(), before = documentLinkReadProjectionStatistics();
+      assert.equal(first.stage.coverage.complete, true);
+      await fs.writeFile(path.join(root, 'physical.md'), '[New](added.md)');
+      await fs.writeFile(path.join(root, 'added.md'), '# Added\n');
+      const changed = await indexRead();
+      assert.equal(changed.stage.coverage.complete, true);
+      assert.notDeepEqual(changed.stage.sources, first.stage.sources);
+      assert(changed.stage.namespace.some(entry => entry.path === 'added.md'));
+      assert.equal(documentLinkReadProjectionStatistics().inspections, before.inspections);
+      assert.deepEqual(await withFreshDocumentLinkReadProjection(indexRead), changed);
+    });
+    for (const drift of ['delete-only', 'quarantine', 'membership'] as const) await fixture(
+      `warm document-index projection cannot conceal ${drift} drift during the physical observation`, async () => {
+        const target = await seed('native.md', 'plain_text', { text: '[Target](target.md)' });
+        await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native.md)');
+        const observed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace,
+          { sourceScope: 'document-index' }));
+        assert.equal(observed.stage.coverage.complete, true);
+        let changes = 0;
+        const changed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace,
+          { sourceScope: 'document-index', afterSourceFingerprint: async () => {
+            if (changes++) return;
+            if (drift === 'quarantine') await sql.query('UPDATE collaboration_yjs_states SET degraded=1 WHERE document_id=$1', [target.documentId]);
+            else if (drift === 'membership') await seed('new-member.md');
+            else {
+              const doc = new Y.Doc();
+              try {
+                Y.applyUpdate(doc, target.binary); doc.getText('content').delete(0, 1);
+                assert.deepEqual(Y.encodeStateVector(doc), target.vector);
+                await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2',
+                  [Y.encodeStateAsUpdate(doc), target.documentId]);
+              } finally { doc.destroy(); }
+            }
+          } }));
+        assert(changes > 0); assert.equal(changed.stage.coverage.complete, false);
+        assert.equal(changed.stage.sources.length, 0); assert.equal(changed.nativeBindings.length, 0);
+        assert.equal(changed.privateNativeStates.length, 0); assert.equal(changed.privateCatalogue, undefined);
+        assert(changed.stage.coverage.gaps.some(gap => gap.code === (drift === 'membership' ? 'source-authority-changed' : 'native-source-changed')));
+      });
     await fixture('unchanged native bytes still perform both fresh SQL passes and legacy hooks; evaluation results do not cross observations', async () => {
       const targets: Awaited<ReturnType<typeof seed>>[] = [];
       for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
