@@ -9,8 +9,10 @@ import { chmod, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
 import { requireLivePiChatTarget } from './helpers/managed-acceptance-suites.mjs';
+import { chatComposerInput, composerCaretAtEnd, placeComposerCaret } from './helpers/chat-composer';
+import { waitForNotebookSession } from './helpers/notebook-session-readiness';
 
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: process.env.CANVAS_ENV_FILE || path.join(process.cwd(), '.env.local'), quiet: true });
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -146,7 +148,7 @@ async function login(page: Page) {
 async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
   await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
-  await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(chatComposerInput(page)).toBeVisible();
   await expect(page.getByTestId('chat-provider-selector')).toBeEnabled({ timeout: 15_000 });
 }
 
@@ -200,6 +202,15 @@ async function mockEmptyChatBootstrap(page: Page, options: {
   let mockSession: AISession | null = options.persisted ? { ...initialSession } : null;
   const history = () => ({ success: true, engine: 'pi', messages: options.messages || [], hasMoreBefore: false });
   await mockEmptyDelegations(page, mockSessionId);
+  // These UI-only sessions have no persisted queue. Mirror its read contract
+  // only for this declared session and workspace; queue mutations stay real.
+  await page.route(url => url.pathname === '/api/chat/queue' && url.searchParams.get('sessionId') === mockSessionId, async route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const workspaceId = mockSession?.workspace?.workspaceId;
+    expect(workspaceId, 'Bind the controlled queue to the session workspace.').toBeTruthy();
+    expect(route.request().headers()['x-canvas-workspace-id']).toBe(workspaceId);
+    await route.fulfill({ json: { success: true, queue: { sessionId: mockSessionId, items: [], blocked: [] } } });
+  });
 
   await page.route('**/api/sessions**', async (route) => {
     const request = route.request();
@@ -326,14 +337,14 @@ async function mockEmptyChatBootstrap(page: Page, options: {
 }
 
 async function getChatInputMetrics(page: Page) {
-  return page.getByTestId('chat-input').evaluate((element) => {
-    const textarea = element as HTMLTextAreaElement;
-    const style = window.getComputedStyle(textarea);
+  return page.getByTestId('chat-inline-editor').evaluate((element) => {
+    const editor = element as HTMLElement;
+    const style = window.getComputedStyle(editor);
     return {
-      height: textarea.getBoundingClientRect().height,
-      clientHeight: textarea.clientHeight,
-      scrollHeight: textarea.scrollHeight,
-      styleHeight: Number.parseFloat(textarea.style.height || '0'),
+      height: editor.getBoundingClientRect().height,
+      clientHeight: editor.clientHeight,
+      scrollHeight: editor.scrollHeight,
+      styleHeight: Number.parseFloat(style.height),
       overflowY: style.overflowY,
     };
   });
@@ -669,7 +680,7 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
 
     await input.fill(prompt);
     await input.press('Enter');
@@ -711,7 +722,7 @@ contentKind: document
     test.setTimeout(180_000);
     await startLiveMainAgentChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const assistantMessages = page.getByTestId('chat-message-assistant');
     const marker = `RESUME_MARKER_${randomUUID().replaceAll('-', '')}`;
 
@@ -760,7 +771,7 @@ contentKind: document
 
     await startLiveMainAgentChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Antworte kurz, damit ich den WebSocket-Versand prüfen kann.');
     await input.press('Enter');
 
@@ -778,63 +789,75 @@ contentKind: document
 
   test('should navigate previous chat inputs with arrow keys', async ({ page }) => {
     const sessionId = 'sess-input-history';
+    const submitted: string[] = [];
+    let revision = 0;
 
     await setupMockWebSocket(page, {
       sessionId,
       sendEventsAfterSendMessage: false,
       runtimeStatus: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
+      onSendResultStatus: () => createMockRuntimeStatus(sessionId, { revision: ++revision }),
+      onGetStatus: () => createMockRuntimeStatus(sessionId, { revision }),
+      onSendMessage: message => {
+        const content = message.content;
+        submitted.push(typeof content === 'string' ? content : Array.isArray(content)
+          ? content.filter(part => part.type === 'text').map(part => part.text).join('\n') : '');
+      },
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('First history message');
+    await expect(page.getByTestId('chat-send')).toBeEnabled();
     await input.press('Enter');
     await expect(page.getByTestId('chat-message-user')).toHaveCount(1);
+    await expect.poll(() => submitted).toEqual(['First history message']);
+    await waitForNotebookSession(page, sessionId);
+    await expect(input).toHaveText('', { useInnerText: true });
+    await expect(input).toBeEditable();
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
 
     await input.fill('Second history message');
+    await expect(page.getByTestId('chat-send')).toBeEnabled();
     await input.press('Enter');
+    await expect.poll(() => submitted).toEqual(['First history message', 'Second history message']);
     await expect(page.getByTestId('chat-message-user')).toHaveCount(2);
 
     await input.fill('Draft before history navigation');
     await input.press('ArrowUp');
-    await expect(input).toHaveValue('Second history message');
+    await expect(input).toHaveText('Second history message', { useInnerText: true });
 
     await input.press('ArrowUp');
-    await expect(input).toHaveValue('First history message');
+    await expect(input).toHaveText('First history message', { useInnerText: true });
 
     await input.press('ArrowDown');
-    await expect(input).toHaveValue('Second history message');
+    await expect(input).toHaveText('Second history message', { useInnerText: true });
 
     await input.press('ArrowDown');
-    await expect(input).toHaveValue('Draft before history navigation');
+    await expect(input).toHaveText('Draft before history navigation', { useInnerText: true });
 
     const multilineDraft = 'Draft line one\nDraft line two\nDraft line three';
     await input.fill(multilineDraft);
-    await input.evaluate((element) => {
-      const textarea = element as HTMLTextAreaElement;
-      textarea.focus();
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    });
+    await placeComposerCaret(input, 'end');
+    await expect.poll(() => composerCaretAtEnd(input)).toBe(true);
 
     await input.press('ArrowUp');
-    await expect(input).toHaveValue(multilineDraft);
+    await expect(input).toHaveText(multilineDraft, { useInnerText: true });
     await expect
-      .poll(async () => input.evaluate((element) => (element as HTMLTextAreaElement).selectionStart))
-      .toBeLessThan(multilineDraft.length);
+      .poll(() => composerCaretAtEnd(input))
+      .toBe(false);
 
-    await input.evaluate((element) => {
-      const textarea = element as HTMLTextAreaElement;
-      textarea.focus();
-      textarea.setSelectionRange(0, 0);
-    });
+    await placeComposerCaret(input, 'start');
     await input.press('ArrowUp');
-    await expect(input).toHaveValue('Second history message');
+    await expect(input).toHaveText('Second history message', { useInnerText: true });
 
     await input.press('ArrowDown');
-    await expect(input).toHaveValue(multilineDraft);
+    await expect(input).toHaveText(multilineDraft, { useInnerText: true });
+    await input.press('Enter');
+    await expect.poll(() => submitted).toEqual(['First history message', 'Second history message', multilineDraft]);
   });
 
   test('should start a new chat with send_message before runtime status exists', async ({ page }) => {
@@ -893,7 +916,7 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    await page.getByTestId('chat-input').fill('hi');
+    await chatComposerInput(page).fill('hi');
     await page.getByTestId('chat-send').click();
 
     await expect.poll(() => sendCount, { timeout: 15000 }).toBe(1);
@@ -963,7 +986,7 @@ contentKind: document
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Render markdown and tools.');
     await input.press('Enter');
 
@@ -1065,7 +1088,7 @@ contentKind: document
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Create a markdown plan.');
     await input.press('Enter');
 
@@ -1170,7 +1193,7 @@ contentKind: document
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Use the Studio media tools with workspace assets.');
     await page.getByTestId('chat-send').click();
 
@@ -1293,7 +1316,7 @@ contentKind: document
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    await page.getByTestId('chat-input').fill('Read both screenshots.');
+    await chatComposerInput(page).fill('Read both screenshots.');
     await page.getByTestId('chat-send').click();
 
     const runDisclosure = page.getByTestId('chat-run-disclosure').first();
@@ -1339,7 +1362,7 @@ contentKind: document
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    await page.getByTestId('chat-input').fill('Show streaming state.');
+    await chatComposerInput(page).fill('Show streaming state.');
     await page.getByTestId('chat-send').click();
     await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
     const assistantMessages = page.getByTestId('chat-message-assistant');
@@ -1393,7 +1416,7 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const sendButton = page.getByTestId('chat-send');
     await expect(sendButton).toHaveAttribute('data-action', 'send');
 
@@ -1438,7 +1461,7 @@ contentKind: document
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const scrollRegion = page.getByTestId('chat-scroll-region');
     const assistantMessages = page.getByTestId('chat-message-assistant');
     for (let index = 0; index < 5; index += 1) {
@@ -1563,7 +1586,7 @@ contentKind: document
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Render usage footer.');
     await input.press('Enter');
 
@@ -1652,7 +1675,7 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Nutze ein Tool und zeige nur den kumulierten Footer.');
     await input.press('Enter');
 
@@ -1844,7 +1867,7 @@ contentKind: document
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
-    await page.getByTestId('chat-input').fill('Take over immediately');
+    await chatComposerInput(page).fill('Take over immediately');
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
     await page.getByTestId('chat-send').click();
 
@@ -1868,11 +1891,11 @@ contentKind: document
     await expect(page.getByTestId('chat-queue-panel')).not.toContainText('Take over immediately');
     await expect(page.getByTestId('chat-queue-item')).toHaveCount(2);
 
-    const busyInput = page.getByTestId('chat-input');
+    const busyInput = chatComposerInput(page);
     await busyInput.fill('Draft while the agent is still working');
     await busyInput.press('Escape');
     await expect.poll(() => controlActions.filter((action) => action === 'abort').length).toBe(1);
-    await expect(busyInput).toHaveValue('Draft while the agent is still working');
+    await expect(busyInput).toHaveText('Draft while the agent is still working', { useInnerText: true });
     currentStatus = {
       ...currentStatus, revision: currentStatus.revision + 1, phase: 'idle',
       activeTool: null, pendingToolCalls: 0, canAbort: false,
@@ -2028,7 +2051,7 @@ contentKind: document
       .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
       .toBeTruthy();
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     await input.fill('Ich möchte eine Kampagne für mein neues Produkt planen.\n\nBitte gib mir eine klare Struktur.');
     await expect(page.getByTestId('chat-prompt-suggestion')).toHaveCount(0);
     await expect
@@ -2123,7 +2146,7 @@ contentKind: document
     await mockEmptyChatBootstrap(page);
     await page.goto('/notebook?chat=open');
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const longPrompt = Array.from({ length: 20 }, (_, index) => `Zeile ${index + 1} für den Composer-Wachstumstest.`).join('\n');
 
     await expect
@@ -2149,13 +2172,13 @@ contentKind: document
       .toBeTruthy();
 
     await page.getByRole('button', { name: /new chat/i }).click();
-    await expect(input).toHaveValue('');
+    await expect(input).toHaveText('', { useInnerText: true });
     await expect
       .poll(async () => (await getChatInputMetrics(page)).styleHeight, { timeout: 15000 })
       .toBe(56);
     await expect
-      .poll(async () => (await getChatInputMetrics(page)).overflowY, { timeout: 15000 })
-      .toBe('hidden');
+      .poll(async () => { const metrics = await getChatInputMetrics(page); return metrics.scrollHeight <= metrics.clientHeight; }, { timeout: 15000 })
+      .toBe(true);
   });
 
   test('should load the selected agent model before the first chat session starts', async ({ page }) => {
@@ -2366,13 +2389,13 @@ contentKind: document
       await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /gpt-4o/i);
       expect(preferencesReleasedAfterNewChat).toBe(true);
 
-      await page.getByTestId('chat-input').fill(prompt);
+      await chatComposerInput(page).fill(prompt);
       await expect(page.getByTestId('chat-send')).toBeEnabled();
       const creationResponse = page.waitForResponse((response) => response.request().method() === 'POST'
         && new URL(response.url()).pathname === '/api/sessions', { timeout: 15_000 });
       void creationResponse.catch(() => undefined);
       // The late preference must be enough: no selector click or second New Chat.
-      await page.getByTestId('chat-input').press('Enter');
+      await chatComposerInput(page).press('Enter');
       const response = await creationResponse;
       expect(response.request().postDataJSON()?.agentId).toBe(agentId);
       expect(response.ok()).toBe(true);
@@ -2898,11 +2921,13 @@ contentKind: document
         return payload?.agentId === requestedAgentId && payload?.fileName === 'AGENTS.md';
       }, { timeout: 15_000 }).then(async (response) => {
         const submitted = response.request().postDataJSON() as { agentId: string; fileName: string; expectedRevision: number; content: string };
+        const persistedContent = submitted.content.endsWith('\n') || submitted.content.length === 0
+          ? submitted.content : `${submitted.content}\n`;
         const receipt = await response.json() as { success?: boolean; data?: { content?: string; agent?: AgentProfile } };
         if (response.ok() && receipt.success && receipt.data?.agent?.agentId === requestedAgentId
           && receipt.data.agent.name === agentName && receipt.data.agent.createdByUserId === ownerUserId
           && receipt.data.agent.ownerUserId === ownerUserId && receipt.data.agent.revision === saveRevision + 1
-          && receipt.data.content === submitted.content) {
+          && receipt.data.content === persistedContent) {
           ownedAgent = receipt.data.agent;
           expectedContent = receipt.data.content;
         }
@@ -2910,7 +2935,7 @@ contentKind: document
         expect(receipt.success).toBe(true);
         expect(submitted.expectedRevision).toBe(saveRevision);
         expect(submitted.content).toContain(marker);
-        expect(receipt.data?.content).toBe(submitted.content);
+        expect(receipt.data?.content).toBe(persistedContent);
         expect(receipt.data?.agent?.revision).toBe(saveRevision + 1);
       });
       // Keep the receipt observed even if the UI action fails after the server saved it.
@@ -2965,18 +2990,32 @@ contentKind: document
       await mockEmptyChatBootstrap(page, { sessionId, agentId: requestedAgentId });
       await page.goto('/notebook?chat=open');
       await expect(page.getByTestId('chat-agent-id')).toContainText(agentName);
-      await page.getByTestId('chat-agent-id').click();
-      await page.getByTestId('chat-agent-selector-popover').getByRole('button')
-        .filter({ has: page.getByText(requestedAgentId, { exact: true }) }).click();
+      const agentPicker = page.getByTestId('chat-agent-selector-popover');
+      const ownedAgentOption = agentPicker.getByRole('button')
+        .filter({ has: page.getByText(requestedAgentId, { exact: true }) });
+      for (const viewport of [{ name: 'desktop', width: 1280, height: 720 }, { name: 'mobile', width: 390, height: 844 }]) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.getByTestId('chat-agent-id').click();
+        await expect.poll(async () => {
+          const box = await agentPicker.boundingBox();
+          return Boolean(box && box.y >= 0 && box.y + box.height <= viewport.height + 1);
+        }, { message: 'The agent picker must fit the viewport even with a long real agent list.' }).toBe(true);
+        await ownedAgentOption.scrollIntoViewIfNeeded();
+        await expect(ownedAgentOption).toBeInViewport({ ratio: 1 });
+        await page.screenshot({ path: testInfo.outputPath(`managed-agent-picker-${viewport.name}.png`), animations: 'disabled' });
+        if (viewport.name === 'desktop') await page.keyboard.press('Escape');
+        else await ownedAgentOption.click();
+      }
+      await page.setViewportSize({ width: 1280, height: 720 });
       await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', `Select agent: ${agentName}`);
       await startFreshChat(page);
       await expect(page.getByTestId('chat-agent-id')).toContainText(agentName);
-      await page.getByTestId('chat-input').fill('Antworte nur mit READY.');
+      await chatComposerInput(page).fill('Antworte nur mit READY.');
       const chatCreationResponse = page.waitForResponse((response) => response.request().method() === 'POST'
         && new URL(response.url()).pathname === '/api/sessions'
         && response.request().postDataJSON()?.agentId === requestedAgentId, { timeout: 15_000 });
       void chatCreationResponse.catch(() => undefined);
-      await page.getByTestId('chat-input').press('Enter');
+      await chatComposerInput(page).press('Enter');
       const createdResponse = await chatCreationResponse;
       expect(createdResponse.ok()).toBe(true);
       const created = await createdResponse.json() as { success?: boolean; session?: AISession };
@@ -3140,7 +3179,7 @@ contentKind: document
       });
       await page.goto('/notebook?chat=open');
       await startFreshChat(page);
-      await page.getByTestId('chat-input').fill('Erstelle die Dokumente aus meinen Briefings.');
+      await chatComposerInput(page).fill('Erstelle die Dokumente aus meinen Briefings.');
       const creationResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/sessions' && response.request().method() === 'POST');
       await page.getByTestId('chat-send').click();
       createdSession = (await (await creationResponse).json()).session;
@@ -3171,7 +3210,7 @@ contentKind: document
       // The chat's scrollport extends behind its absolute composer. Browser
       // scrollIntoViewIfNeeded checks that larger box, not the unoccluded area.
       // Scroll as a user would, outside the results' nested scrolling list.
-      const composer = page.getByTestId('chat-input').locator('xpath=ancestor::div[contains(@class, "bottom-0")][1]');
+      const composer = chatComposerInput(page).locator('xpath=ancestor::div[contains(@class, "bottom-0")][1]');
       const scrollRegionBounds = await page.getByTestId('chat-scroll-region').boundingBox();
       const composerBounds = await composer.boundingBox();
       const lastReadBounds = await items.last().boundingBox();
@@ -3211,13 +3250,16 @@ contentKind: document
       await expect(items).toHaveCount(5);
 
       const readsBeforeReload = historyReads;
-      await page.goto(`/notebook?chat=open&session=${sessionId}`);
+      await page.goto(`/notebook?chat=open&session=${sessionId}&workspaceId=${encodeURIComponent(references[0].workspaceId)}`);
+      await waitForNotebookSession(page, sessionId);
       await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeReload);
       await expect(panel).toHaveCount(1, { timeout: 15000 });
       await expect(items).toHaveCount(5);
+      await expect(items.first()).toBeEnabled();
       await panel.getByTestId('chat-file-references-expand').click();
       await expect(items).toHaveCount(14);
       await panel.getByTestId('chat-read-references-toggle').click();
+      await expect(panel.getByTestId('chat-file-references-expand'), 'Opening read references must preserve expanded output references.').toHaveAttribute('aria-expanded', 'true');
       await expect(items).toHaveCount(17);
       await expect(panel.locator('[data-path="reports/example-only.odt"]')).toHaveCount(0);
     });
