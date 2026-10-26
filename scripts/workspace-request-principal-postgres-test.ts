@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   assert.equal(url.port,'55433'); assert.equal(url.pathname,'/canvas_notebook'); assert.equal(url.search,'');
   const schema = `request_principal_${crypto.randomUUID().replaceAll('-','')}`;
   assert.match(schema,/^request_principal_[a-f0-9]{32}$/u);
-  const dataRoot = await mkdtemp(path.join(tmpdir(),'canvas-request-principal-'));
+  const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(),'canvas-request-principal-')));
   const environment = { ...process.env }; const originalFetch = globalThis.fetch;
   const control = new Client({ connectionString, options:'-c statement_timeout=15000', connectionTimeoutMillis:5000 });
   const clients = new Set<Client>(); let created = false; let pool: { end:()=>Promise<void> } | undefined;
@@ -438,10 +438,12 @@ async function main(): Promise<void> {
             const values=Array.isArray(args[1])?args[1]:[];
             if(readerPid&&/^UPDATE canvas_organization_settings SET deployment_mode =/u.test(sql))writerPid=Number(Reflect.get(this,'processID'));
             const original=Reflect.apply(originalQuery,this,args);
-            if(!sql.startsWith('SELECT role, status, can_write_team_workspace, can_create_public_links,')
-              || values[0]!=='principal-org'||values[1]!=='member'||++permissionReads!==(mode==='selected'?1:2))return original;
+            if(!sql.includes('AS permission_can_create_public_links')
+              || values[0]!== (mode==='selected'?team.workspaceId:'principal-org') || values[1]!=='member'||++permissionReads!==1)return original;
             return Promise.resolve(original).then(async result=>{
-              assert.equal(result.rows[0]?.can_create_public_links,1);
+              const teamRow=result.rows.find((row:{id:string})=>row.id===team.workspaceId);assert(teamRow);
+              assert.equal(teamRow.permission_can_create_public_links,1);
+              assert.equal(teamRow.team_present,null,'The same SQL snapshot must still observe the absent team membership.');
               readerPid=Number(Reflect.get(this,'processID'));assert(Number.isSafeInteger(readerPid));
               await releaseRead.promise;return result;
             });

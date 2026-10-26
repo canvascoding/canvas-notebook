@@ -77,7 +77,27 @@ test('agent access on an existing connection preserves policy and observes revoc
   let organizationPermission = { role: 'member', status: 'active' };
   let grants = [{ target_type: 'role', target_id: 'member', can_use: 1, can_edit: 0, can_manage: 0 }];
   const database = {
-    async get(sql: string) {
+    async get(sql: string, values: unknown[] = []) {
+      // This isolated lease/policy unit fixture supplies the same current
+      // account and workspace rows through the new packed read shapes.
+      // Real SQL, locks and authority parity are covered by the PG fixtures.
+      if (sql.includes('AS configured') && sql.includes('AS memberships')) return {
+        configured: { organization_id: 'organization-1' }, account: { id: values[0], banned: 0 },
+        memberships: [{ organization_id: 'organization-1', ...organizationPermission, can_share_plugins_and_skills: 0 }],
+      };
+      if (sql.includes('AS permission_present')) return {
+        id: 'workspace-1', organization_id: 'organization-1', type: 'project', owner_user_id: null,
+        customer_id: null, project_id: 'project-1', root_relative_path: 'workspaces/project-1/files',
+        display_name: 'Project', description: '', workspace_icon: 'folder', workspace_color: null,
+        status: 'active', is_default: 0, created_at: 1, updated_at: 1,
+        permission_present: true, permission_role: organizationPermission.role, permission_status: organizationPermission.status,
+        project_present: true, project_role: 'member', project_status: 'active', project_can_read: 1, project_can_write: 1, project_can_manage: 0,
+        team_present: null,
+      };
+      if (sql.includes('FROM canvas_workspaces')) return {
+        id: 'workspace-1', organization_id: 'organization-1', type: 'project', project_id: 'project-1',
+      };
+      if (sql.includes('FROM canvas_projects')) return { id: 'project-1' };
       if (sql.includes('FROM agents a')) {
         if (failAgentRead) throw new Error('injected agent query failure');
         return agentRow ? { ...agentRow } : undefined;
