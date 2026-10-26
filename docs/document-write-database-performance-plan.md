@@ -5,6 +5,40 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+## Priorität und Umsetzungspakete
+
+Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
+hier gemeinsame Verträge und wiederverwendete Mechanik für alle Aufrufer; er
+erfordert zunächst keinen weiteren laufenden Dienst. Der bestehende Dokumentleser,
+die Quellenbeobachtung und die native Persistenz sind die Ausgangspunkte.
+
+Die nächste Umsetzung folgt dieser Reihenfolge. Jedes Paket wird mit seinem
+Abnahmekriterium abgeschlossen, bevor das abhängige Paket beginnt. Die bereits
+vorhandenen Teiloptimierungen gelten nicht als Abnahme eines ganzen Pakets.
+
+| Paket | Konkrete Änderung | Abnahme |
+| --- | --- | --- |
+| 0. Quellenfehler zuverlässig behandeln | Dokumentbezogene Ausfälle im lesenden Index eingrenzen; globale Autoritätsfehler weiterhin als solche behandeln. | Eine nachweislich einzelne fehlerhafte Quelle entfernt keine anderen geprüften Dokumente. Diagnose nennt die Quelle; nach Wiederherstellung verschwindet sie. Schreibprüfungen bleiben streng. |
+| 1. Messung und Verträge vervollständigen | Editor einschließlich Zutritt und Projektion, Agent, MCP sowie öffentliche Rename-/Move-Abläufe mit derselben Instrumentierung messen. | Vergleichbare Berichte für kalt/warm und kleine/größere Workspaces; direkte Owner-Verbindungen sind enthalten; dominante Abfragegruppen stehen fest. |
+| 2. Datenbankzugriffe bündeln | Aktuelle Berechtigungs-, Registry- und Zustandsdaten pro notwendiger Phase gemeinsam lesen und dieselbe Verbindung verwenden. | Weniger Abfragen und Pool-Ausleihen; echte Widerrufs-, Seat-, Realm- und Parallelitätstests bestehen unverändert. |
+| 3. Linkprojektion inkrementell machen | Versionierte Extraktion je Dokument und gezielte Neuauflösung abhängiger Ziele; vollständigen Neuaufbau erhalten. | Ein Save inspiziert nur die geänderte Quelle. Rename, Move, Titel, Aliase und neue Ziele korrigieren alle betroffenen Links. Ergebnisse entsprechen dem Neuaufbau. |
+| 4. Schreibwege vereinheitlichen | Bestehende Speicherung, Versionsprüfung und dauerhafte Belege hinter kleinen gemeinsamen Operationen verwenden; Aufrufer einzeln umstellen. | Editor, Agent und MCP liefern gleiche Speicher- und Linkergebnisse. Gleichzeitige Änderungen, Wiederholungen und Abbruch verlieren keine Daten. |
+| 5. Einführung absichern | Endgültige Leistungsbudgets, reguläre Gesamtsuite, Desktop/Mobil, PR/CI/Reviews, Backup-/Restore-Nachweis und kontrolliertes Release. | Alle tatsächlich umgestellten Abläufe sind nachgewiesen; nach Deployment funktionieren Filetree, Öffnen, Speichern und Linkpflege in allen fünf Workspaces. |
+
+Paket 0 ist ein konkreter offener Fehler: Im isolierten UI-/API-Test führte ein
+gezielt erzeugter Katalog-/Native-Zustandskonflikt bei `unavailable.md` zu null
+Indexdokumenten und einer globalen Diagnose, obwohl andere Quellen lesbar waren.
+Die originale Testquelle wurde feld- und bytegenau wiederhergestellt; der reale
+Index lieferte danach wieder sechs Dokumente und drei Backlinks zum Testziel.
+Die Korrektur muss erst beweisen, welche Quellen unabhängig gültig bleiben. Eine
+beliebige Ausnahme abzufangen und einen Dokumentpfad zu vermuten reicht nicht.
+
+Die gewünschte öffentliche Wirkung ist einheitlich: Ein erfolgreicher Save bestätigt
+den gespeicherten nativen Stand; der abgeleitete Linkstand darf diesen nicht
+überschreiben. Ein echter Versionskonflikt bleibt ein nachvollziehbarer Konflikt.
+Wiederholungen dürfen anhand desselben dauerhaften Operationsbelegs fortsetzen,
+statt eine Dokumentanlage oder Inhaltsänderung doppelt auszuführen.
+
 ## Befund und Ausgangszustand
 
 - Der aktuelle Leser ist `app/lib/markdown/workspace-document-link-index.ts`.
@@ -24,9 +58,12 @@ Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
   Transaktions-Timeout protokolliert. Diese Messung gilt für die Agenten-Neuanlage;
   andere Abläufe brauchen eigene Messungen.
 - Die erste lokale Optimierung reduzierte die größte Transaktion im verschachtelten
-  Test auf 3.089 Anweisungen. Die instrumentierte Serviceoperation benötigt weiterhin
-  8.480 Anweisungen, davon 5.954 in 229 Berechtigungsprüfungen. Die Messbereiche sind
-  unterschiedlich; daraus wird keine prozentuale Gesamtverbesserung abgeleitet.
+  Test auf 3.089 Anweisungen. Im danach vergleichbar gemessenen Create-Engine sank
+  die SQL-Anzahl durch gebündelte Leser von 8.480 auf aktuell 6.452; davon liegen
+  4.122 weiterhin in 229 Berechtigungsprüfungen. Die größte Transaktion dieses
+  Messbereichs benötigt 2.337 Anweisungen. Das ursprüngliche vollständige Szenario
+  mit 15.445 Anweisungen hat eine andere Messgrenze und ist damit nicht direkt
+  vergleichbar. Die Zielbudgets sind weiterhin nicht erreicht.
   Die zwölf tatsächlichen PostgreSQL-Testgruppen für Agenten-Neuanlagen und die
   21 Fälle des gemeinsamen Dokumentlesers sind inzwischen erfolgreich. Ein zuvor
   beobachteter unerwarteter Netzwerkaufruf trat in den abschließenden Läufen nicht
@@ -53,7 +90,7 @@ Links extrahieren und auflösen, eine Änderung vorbereiten, eine autorisierte
 konkreten Schnittstellen werden bei Umsetzung festgelegt. Kein neuer großer
 Controller und keine zweite Dokument-Wahrheit.
 
-## Reihenfolge und abgeschlossene Arbeitspakete
+## Detaillierte Anforderungen und Abnahmekriterien
 
 Die folgenden Pakete werden nacheinander abgenommen. Ein Paket gilt erst mit seinem
 Nachweis als abgeschlossen; erste Optimierungen sind noch keine fertige Einführung.
@@ -190,5 +227,17 @@ Die Änderungen für Python-Umgebungen, erhaltene lesbare Quellen und getrennte
 Indexdiagnosen sind bereits auf dem Fix-Branch committed. Die explizite, geprüfte
 Wiederherstellung der sieben Altregistrierungen ist implementiert und lokal getestet;
 die Produktionsreparatur benötigt noch die frische Backup-/Restore-Prüfung und das
-Deployment. Die zusätzlichen Performanceänderungen sind lokal und noch nicht
-abschließend validiert. Diese Ausgangslage bleibt bei Umsetzung des Plans erhalten.
+Deployment. Ebenso muss die ursprüngliche unvollständige LinkedIn-Dokumentanlage
+mit ihren vorhandenen Identitäts-, Inhalts- und Operationsbelegen verlustfrei
+abgeschlossen werden; eine zweite Initialisierung ersetzt diese Wiederherstellung
+nicht.
+
+Die bisherigen Performanceänderungen sind auf `codex/fix-document-link-index`
+committed und gepusht; PR #188 ist ein Entwurf. Am Stand `7edf640893` bestand die
+reguläre Gesamtsuite mit 329 erfolgreichen Fällen, 268 bestehenden bedingten
+Überspringungen und null Fehlern. Diese Überspringungen sind nicht ausschließlich
+Review-Center-Tests. Die danach gefundene Layoutkorrektur für lange Diagnosepfade
+hat einen eigenen erfolgreichen Produktionsbuild und tatsächliche Desktop-/Mobil-
+Prüfungen, ist aber noch nicht committed. Der oben beschriebene native Quellenfehler
+ist offen. Der gesamte Serviceumbau ist daher nicht abgenommen; weder Merge auf
+`main` noch ein neues Release oder Produktionsdeployment sind damit nachgewiesen.
