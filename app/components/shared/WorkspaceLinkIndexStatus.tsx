@@ -28,8 +28,8 @@ export function WorkspaceLinkIndexStatus({ index, className }: { index: Workspac
         {group.warning ? <AlertTriangle className="mr-1.5 inline h-3.5 w-3.5 align-text-bottom" aria-hidden="true" /> : null}
         {group.label}
       </summary>
-      <ul className="mt-2 grid list-disc gap-1 pl-5">
-        {group.details.slice(0, MAX_DETAILS).map((detail, index) => <li key={index} className="break-words [overflow-wrap:anywhere]">{detail}</li>)}
+      <ul className="mt-2 grid min-w-0 grid-cols-1 list-disc gap-1 pl-5">
+        {group.details.slice(0, MAX_DETAILS).map((detail, index) => <li key={index} className="min-w-0 break-words">{detail}</li>)}
       </ul>
       {group.details.length > MAX_DETAILS ? <p className="mt-1">{t('more', { count: group.details.length - MAX_DETAILS })}</p> : null}
     </details>)}
