@@ -12,6 +12,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/document-link-index-route-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'app/api/markdown/link-index/route.ts', 'app/lib/workspaces/request.ts',
+    'app/lib/markdown/workspace-document-link-index.ts',
+    'app/lib/markdown/workspace-source-authority-stage.ts',
+    'app/lib/markdown/document-link-read-projection.ts',
+    'app/lib/observability/document-operation-metrics.ts', 'app/lib/db/index.ts'],
+  'scripts/document-operation-dispatch-baseline-postgres-entry.ts': [entryPoint,
+    'scripts/native-document-search-room-postgres-test.ts', 'server/collaboration-server.ts',
+    'scripts/document-read-tool-dispatch-postgres-test.ts',
+    'scripts/direct-mcp-native-markdown-create-postgres-test.ts',
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/observability/document-operation-metrics.ts',
+    'app/lib/documents/service.ts', 'app/lib/workspaces/request-principal.ts',
+    'app/lib/collaboration/markdown-file-import-persistence.ts'],
   'scripts/document-operation-read-baseline-postgres-entry.ts': [entryPoint,
     'scripts/document-read-service-postgres-test.ts', 'app/lib/documents/service.ts',
     'app/lib/workspaces/request-principal.ts', 'app/lib/observability/document-operation-metrics.ts'],

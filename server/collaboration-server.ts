@@ -15,6 +15,7 @@ import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
 import { openDb } from '@/app/lib/db';
+import { captureDocumentOperationMetricObserver, measureDocumentOperation } from '@/app/lib/observability/document-operation-metrics';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { withExistingNativeCollaborationSessionOnConnection } from '@/app/lib/collaboration/native-session-state-reader';
 import { captureNativeDocumentEditVersion } from '@/app/lib/collaboration/native-document-edit-version';
@@ -792,6 +793,7 @@ export function createCollaborationServer(server: http.Server, options: {
     disposeMobileCollaborationTickets();
   };
   server.once('close', () => { void shutdownNativePeers().catch(() => { console.error('[Collaboration] Peer shutdown cleanup failed.'); }); });
+  const observeStoreMetrics = captureDocumentOperationMetricObserver();
   const hocuspocus = new Hocuspocus<CollaborationContext>({
     debounce: 350,
     maxDebounce: 2_000,
@@ -1283,109 +1285,111 @@ export function createCollaborationServer(server: http.Server, options: {
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
     },
     async onStoreDocument({ document, documentName, lastContext }) {
-      if (!matchesRoomIdentity(document, lastContext.claims)) {
-        logCollaborationDiagnostic('info', { event: 'room_generation_rejected', documentId: documentName,
-          workspaceId: lastContext.claims.workspaceId, generation: roomIdentities.get(document)?.lifecycleGeneration,
-          code: COLLABORATION_FAILURE_CODES.generationChanged });
-        if (roomOwners) {
-          void roomOwners.dispose().catch(() => undefined);
-          throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
-        }
-        hocuspocus.closeConnections(documentName);
-        return;
-      }
-      const startedAt = performance.now();
-      let state: Awaited<ReturnType<typeof persistCollaborationYDoc>>;
-      try {
-        state = await persistCollaborationYDoc(
-          documentName,
-          lastContext.claims.lifecycleGeneration,
-          document,
-          lastContext.claims,
-          roomOwners?.fence(document),
-        );
-        const exactOperationHistoryOwned = lastContext.exactOperationHistoryOwned
-          || (!state.incomingNeedsReconcile && state.persistenceDisposition !== 'unchanged'
-            && await lastContext.operationHistoryOwnership === true);
-        if (state.persistenceDisposition !== 'unchanged'
-          && !(!state.incomingNeedsReconcile
-            && (exactOperationHistoryOwned || lastContext.actorType === 'agent' && lastContext.agentTurnId))) try {
-          await fileVersionHistoryService.capturePersistedCollaboration({
-            workspace: lastContext.workspace,
-            state,
-            // A reconciled union is not wholly authored by this last writer.
-            // No-op/ancestor saves do not claim history for somebody else's
-            // earlier commit. Agent completion owns its strict capture retry.
-            source: state.incomingNeedsReconcile ? 'automatic_checkpoint' : lastContext.versionSource,
-            actorUserId: state.incomingNeedsReconcile ? null : lastContext.initiatedByUserId ?? lastContext.user.id,
-            actorType: state.incomingNeedsReconcile ? 'system' : lastContext.actorType,
-            sourceSessionId: state.incomingNeedsReconcile ? null : lastContext.versionSourceSessionId ?? lastContext.claims.sessionId,
-            baseRevisionId: state.incomingNeedsReconcile ? null : lastContext.versionBaseRevisionId,
-          });
-        } catch {
-          // FVRC shadow/history failures never invalidate the already durable
-          // Yjs state. Agent completion performs its own strict capture fence.
-          console.warn('[Collaboration] File version capture failed.', {
-            documentId: state.documentId,
-            workspaceId: state.workspaceId,
-            operationId: lastContext.operationId,
-          });
-        }
-      } catch (error) {
-        if (roomOwners) {
-          // The owner runtime closes peers and keeps the old room quarantined.
-          // Never mark the replacement owner's shared state degraded or send
-          // a successful durability acknowledgement for this failed store.
-          // Quarantine ordinary SQL/scope failures too: DirectConnection would
-          // otherwise unload after Hocuspocus swallows the failed final store.
-          logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
-            workspaceId: lastContext.claims.workspaceId, code: error instanceof CollaborationRoomOwnerError
-              ? error.code : COLLABORATION_FAILURE_CODES.persistenceFailed });
-          void roomOwners.dispose().catch(() => undefined);
-          throw error;
-        }
-        // Delete/archive increments the lifecycle generation and invalidates
-        // the room. A previously scheduled debounce may still run once; it
-        // must not resurrect the file or report a false durability incident.
-        if (error instanceof CollaborationStateInactiveError) return;
-        if (error instanceof CollaborationStateStaleError) {
-          document.broadcastStateless(JSON.stringify({
-            type: 'degraded',
-            code: COLLABORATION_FAILURE_CODES.generationChanged,
-            message: 'The collaboration document generation changed. Reload to use the current document state.',
-          }));
+      return observeStoreMetrics(() => measureDocumentOperation('save', lastContext.actorType === 'agent' ? 'agent' : 'request', async () => {
+        if (!matchesRoomIdentity(document, lastContext.claims)) {
+          logCollaborationDiagnostic('info', { event: 'room_generation_rejected', documentId: documentName,
+            workspaceId: lastContext.claims.workspaceId, generation: roomIdentities.get(document)?.lifecycleGeneration,
+            code: COLLABORATION_FAILURE_CODES.generationChanged });
+          if (roomOwners) {
+            void roomOwners.dispose().catch(() => undefined);
+            throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+          }
           hocuspocus.closeConnections(documentName);
           return;
         }
-        await markCollaborationDegraded(
-          documentName,
-          lastContext.claims.lifecycleGeneration,
-          COLLABORATION_FAILURE_CODES.persistenceFailed,
-        ).catch(() => undefined);
-        logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
-          workspaceId: lastContext.workspace.workspaceId, generation: lastContext.claims.lifecycleGeneration,
-          durationMs: Math.round(performance.now() - startedAt), code: COLLABORATION_FAILURE_CODES.persistenceFailed });
-        document.broadcastStateless(JSON.stringify({
-          type: 'degraded',
-          code: COLLABORATION_FAILURE_CODES.persistenceFailed,
-          message: 'Yjs persistence failed. Local changes are preserved until a confirmed storage retry.',
-        }));
-        throw error;
-      }
-      // The DB write may have committed just before loss. It remains durable,
-      // but an invalidated room must not broadcast/projection-ack newer state.
-      roomOwners?.fence(document);
-      if (state.incomingNeedsReconcile) queuePersistedRoomReconciliation(document, lastContext);
-      else document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
-      logCollaborationDiagnostic('debug', { event: 'yjs_persisted', documentId: state.documentId,
-        workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
-        documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
-        durationMs: Math.round(performance.now() - startedAt) });
-      // A retry of the same binary state can still have an unfinished projection.
-      // The projection runtime deduplicates by persisted sequence.
-      if (state.persistenceDisposition !== 'unchanged' || state.checkpointSequence < state.documentSequence) {
-        projections.enqueue(state);
-      }
+        const startedAt = performance.now();
+        let state: Awaited<ReturnType<typeof persistCollaborationYDoc>>;
+        try {
+          state = await persistCollaborationYDoc(
+            documentName,
+            lastContext.claims.lifecycleGeneration,
+            document,
+            lastContext.claims,
+            roomOwners?.fence(document),
+          );
+          const exactOperationHistoryOwned = lastContext.exactOperationHistoryOwned
+            || (!state.incomingNeedsReconcile && state.persistenceDisposition !== 'unchanged'
+              && await lastContext.operationHistoryOwnership === true);
+          if (state.persistenceDisposition !== 'unchanged'
+            && !(!state.incomingNeedsReconcile
+              && (exactOperationHistoryOwned || lastContext.actorType === 'agent' && lastContext.agentTurnId))) try {
+            await fileVersionHistoryService.capturePersistedCollaboration({
+              workspace: lastContext.workspace,
+              state,
+              // A reconciled union is not wholly authored by this last writer.
+              // No-op/ancestor saves do not claim history for somebody else's
+              // earlier commit. Agent completion owns its strict capture retry.
+              source: state.incomingNeedsReconcile ? 'automatic_checkpoint' : lastContext.versionSource,
+              actorUserId: state.incomingNeedsReconcile ? null : lastContext.initiatedByUserId ?? lastContext.user.id,
+              actorType: state.incomingNeedsReconcile ? 'system' : lastContext.actorType,
+              sourceSessionId: state.incomingNeedsReconcile ? null : lastContext.versionSourceSessionId ?? lastContext.claims.sessionId,
+              baseRevisionId: state.incomingNeedsReconcile ? null : lastContext.versionBaseRevisionId,
+            });
+          } catch {
+            // FVRC shadow/history failures never invalidate the already durable
+            // Yjs state. Agent completion performs its own strict capture fence.
+            console.warn('[Collaboration] File version capture failed.', {
+              documentId: state.documentId,
+              workspaceId: state.workspaceId,
+              operationId: lastContext.operationId,
+            });
+          }
+        } catch (error) {
+          if (roomOwners) {
+            // The owner runtime closes peers and keeps the old room quarantined.
+            // Never mark the replacement owner's shared state degraded or send
+            // a successful durability acknowledgement for this failed store.
+            // Quarantine ordinary SQL/scope failures too: DirectConnection would
+            // otherwise unload after Hocuspocus swallows the failed final store.
+            logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
+              workspaceId: lastContext.claims.workspaceId, code: error instanceof CollaborationRoomOwnerError
+                ? error.code : COLLABORATION_FAILURE_CODES.persistenceFailed });
+            void roomOwners.dispose().catch(() => undefined);
+            throw error;
+          }
+          // Delete/archive increments the lifecycle generation and invalidates
+          // the room. A previously scheduled debounce may still run once; it
+          // must not resurrect the file or report a false durability incident.
+          if (error instanceof CollaborationStateInactiveError) return;
+          if (error instanceof CollaborationStateStaleError) {
+            document.broadcastStateless(JSON.stringify({
+              type: 'degraded',
+              code: COLLABORATION_FAILURE_CODES.generationChanged,
+              message: 'The collaboration document generation changed. Reload to use the current document state.',
+            }));
+            hocuspocus.closeConnections(documentName);
+            return;
+          }
+          await markCollaborationDegraded(
+            documentName,
+            lastContext.claims.lifecycleGeneration,
+            COLLABORATION_FAILURE_CODES.persistenceFailed,
+          ).catch(() => undefined);
+          logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
+            workspaceId: lastContext.workspace.workspaceId, generation: lastContext.claims.lifecycleGeneration,
+            durationMs: Math.round(performance.now() - startedAt), code: COLLABORATION_FAILURE_CODES.persistenceFailed });
+          document.broadcastStateless(JSON.stringify({
+            type: 'degraded',
+            code: COLLABORATION_FAILURE_CODES.persistenceFailed,
+            message: 'Yjs persistence failed. Local changes are preserved until a confirmed storage retry.',
+          }));
+          throw error;
+        }
+        // The DB write may have committed just before loss. It remains durable,
+        // but an invalidated room must not broadcast/projection-ack newer state.
+        roomOwners?.fence(document);
+        if (state.incomingNeedsReconcile) queuePersistedRoomReconciliation(document, lastContext);
+        else document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
+        logCollaborationDiagnostic('debug', { event: 'yjs_persisted', documentId: state.documentId,
+          workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
+          documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
+          durationMs: Math.round(performance.now() - startedAt) });
+        // A retry of the same binary state can still have an unfinished projection.
+        // The projection runtime deduplicates by persisted sequence.
+        if (state.persistenceDisposition !== 'unchanged' || state.checkpointSequence < state.documentSequence) {
+          projections.enqueue(state);
+        }
+      }));
     },
   });
   if (roomOwners) {

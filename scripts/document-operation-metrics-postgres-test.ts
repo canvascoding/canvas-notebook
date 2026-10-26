@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Client, Pool, Query } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
-import { installDocumentDatabaseMetrics, measureDocumentOperation, measureDocumentPhase,
+import { captureDocumentOperationMetricObserver, installDocumentDatabaseMetrics, measureDocumentOperation, measureDocumentPhase,
   withDocumentOperationMetricObserver, type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
 
 async function main() {
@@ -63,6 +64,31 @@ async function main() {
       }));
       assert.equal(observations.length, before + 1, 'nested shared services join the original action');
       assert.equal(observations.at(-1)?.operation, 'create'); assert.equal(observations.at(-1)?.actor, 'mcp');
+
+      let release!: () => void, later!: Promise<void>;
+      const released = new Promise<void>(done => { release = done; }), beforeDetached = observations.length;
+      await measureDocumentOperation('create', 'agent', async () => {
+        await pool.query('SELECT 1');
+        later = (async () => {
+          await released;
+          await measureDocumentOperation('save', 'request', async () => { await pool.query('SELECT 2'); });
+        })();
+      });
+      release(); await later;
+      assert.equal(observations.length, beforeDetached + 2, 'An ended action cannot absorb a later operation inherited by an asynchronous child.');
+      assert.deepEqual(observations.slice(-2).map(value => [value.operation, value.statements]), [['create', 1], ['save', 1]]);
+
+      const unrelated = new AsyncLocalStorage<string>(), delivered: DocumentOperationMeasurement[] = [];
+      let socketObserver!: ReturnType<typeof captureDocumentOperationMetricObserver>;
+      await withDocumentOperationMetricObserver(value => delivered.push(value), async () => {
+        unrelated.run('previous authority lifetime', () => { socketObserver = captureDocumentOperationMetricObserver(); });
+      });
+      await unrelated.run('current authority lifetime', () => socketObserver(() => measureDocumentOperation('save', 'request', async () => {
+        assert.equal(unrelated.getStore(), 'current authority lifetime');
+        await pool.query('SELECT 3');
+      })));
+      assert.equal(delivered.length, 1); assert.equal(delivered[0].statements, 1);
+      assert.equal(observations.length, beforeDetached + 2, 'A runtime retains its own diagnostic sink, never another sink or old authority context.');
 
       await Promise.all([
         measureDocumentOperation('read', 'request', async () => { await pool.query('SELECT pg_sleep(0.03)'); }),

@@ -57,6 +57,8 @@ Controller und keine zweite Dokument-Wahrheit.
 
 Die folgenden Pakete werden nacheinander abgenommen. Ein Paket gilt erst mit seinem
 Nachweis als abgeschlossen; erste Optimierungen sind noch keine fertige Einführung.
+Die aktuelle Aufrufkarte, abgegrenzte Messbereiche und offene Nachweise stehen in
+[Aufrufer und Messbasis](architecture/document-service-database-baseline.md).
 
 ### 1. Aufrufer und Messbasis erfassen
 

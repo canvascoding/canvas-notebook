@@ -43,10 +43,16 @@ const phaseCounts = (state: State, phase: DocumentOperationPhase) => {
 export function withDocumentOperationMetricObserver<T>(observe: MetricObserver, operation: () => Promise<T>): Promise<T> {
   return observers.run(observe, operation);
 }
+/** Retain only the diagnostic sink for callbacks entered by a socket/runtime.
+ * Other AsyncLocalStorage contexts, including real authority, are not captured. */
+export function captureDocumentOperationMetricObserver() {
+  const observe = observers.getStore();
+  return <T>(operation: () => Promise<T>): Promise<T> => observers.run(observe, operation);
+}
 export async function measureDocumentOperation<T>(operation: DocumentOperation, actor: DocumentOperationActor,
   execute: () => Promise<T>): Promise<T> {
   // A shared service joins its caller's measurement; it cannot mint authority.
-  if (context.getStore() || !operationNames.has(operation) || !actorNames.has(actor)) return execute();
+  if (context.getStore()?.state.closed === false || !operationNames.has(operation) || !actorNames.has(actor)) return execute();
   const state: State = { operationId: randomUUID(), operation, actor, started: performance.now(), closed: false,
     statements: 0, databaseMs: 0, failedStatements: 0, poolWaitMs: 0, checkouts: 0, connections: 0,
     peakConnections: 0, queries: 0, unsupportedQueryForms: 0, phases: new Map() };
