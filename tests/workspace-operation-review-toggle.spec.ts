@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 for (const [label, viewport] of [['desktop', { width: 1440, height: 960 }], ['mobile', { width: 390, height: 844 }]] as const) {
-  test(`administrator Review Center toggle preserves automatic links and original requests on ${label}`, async ({ browser }, testInfo) => {
+  test(`administrator Review Center toggle preserves automatic links and original requests on ${label}`, { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
     test.setTimeout(180_000);
     const context = await createAuthenticatedContext(browser, { viewport });
     let workspaceId: string | undefined;

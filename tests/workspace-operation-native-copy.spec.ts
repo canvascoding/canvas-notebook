@@ -284,7 +284,7 @@ async function withNativeCopyBrowserFixture(browser: Browser, profile: Profile, 
   if (failed) throw primary;
 }
 
-test.describe('owned native Copy through V4 preview, rich editor and original completed receipts', () => {
+test.describe('owned native Copy through V4 preview, rich editor and original completed receipts', { tag: '@owned-yjs' }, () => {
   test.describe.configure({ retries: 0 }); test.setTimeout(300_000);
   for (const profile of profiles) {
     test(`${profile.name}: rich manual note copy rewrites relative Keep link and isolates later clone edits`, async ({ browser }, info) => {

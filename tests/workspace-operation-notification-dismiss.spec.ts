@@ -18,16 +18,30 @@ for (const mobile of [false, true]) {
       for (const filePath of ['before.md', 'occupied.md']) {
         await uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content: `# ${filePath}\n` });
       }
-      const failedRename = await context.request.post('/api/files/rename', { headers, data: { oldPath: 'before.md', newPath: 'occupied.md' } });
-      expect(failedRename.status()).toBe(409);
-      const operation = (await failedRename.json()).operation as { batchId: string; status: string };
-      expect(operation.status).toBe('blocked');
-      const itemId = `file-path-operation:${operation.batchId}`;
+      // A rejected native preview creates no executable batch. Exercise the
+      // real persisted request diagnostic, which remains available independently.
+      const raiseRequestProblem = async () => {
+        const response = await context.request.post('/api/files/rename', {
+          headers, data: { oldPath: 'before.md', newPath: 'occupied.md', overwrite: 'invalid' },
+        });
+        expect(response.status()).toBe(422);
+        expect((await response.json()).code).toBe('BATCH_INVALID_REQUEST');
+      };
+      await raiseRequestProblem();
+      type Item = { id: string; workspaceId: string; notificationRevision: string;
+        target: { kind: string; problemId?: string; status?: string } };
       const notifications = async () => {
         const response = await context.request.get('/api/notifications/summary?todoMode=lifecycle');
         expect(response.ok()).toBeTruthy();
-        return (await response.json()).data.sections.notifications as Array<{ id: string; notificationRevision: string }>;
+        return (await response.json()).data.sections.notifications as Item[];
       };
+      const isOwnedProblem = (item: Item) => item.workspaceId === workspaceId
+        && item.target.kind === 'file_path_operation' && typeof item.target.problemId === 'string';
+      await expect.poll(async () => (await notifications()).some(isOwnedProblem)).toBe(true);
+      const originalProblem = (await notifications()).find(isOwnedProblem)!;
+      const itemId = originalProblem.id;
+      expect(itemId).toBe(`file-path-problem:${originalProblem.target.problemId}`);
+      expect(originalProblem.target.status).toBe('failed');
       await expect.poll(async () => (await notifications()).some((item) => item.id === itemId)).toBe(true);
       await context.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspaceId);
       const page = await context.newPage();
@@ -42,8 +56,9 @@ for (const mobile of [false, true]) {
       await expect(homeRow.getByRole('button', { name: 'Remove from notifications' })).toBeVisible();
       await page.screenshot({ path: info.outputPath('home-dismissible-error.png'), animations: 'disabled' });
       // A failed save leaves the row and provides retry without opening the action details.
-      await page.route('**/api/notifications/summary?*', async (route) => {
-        if (route.request().method() !== 'PATCH') return route.continue();
+      await page.route('**/api/notifications/summary*', async (route) => {
+        if (new URL(route.request().url()).pathname !== '/api/notifications/summary'
+          || route.request().method() !== 'PATCH') return route.continue();
         return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'Synthetic unavailable storage' }) });
       });
       await homeRow.getByRole('button', { name: 'Remove from notifications' }).click();
@@ -51,7 +66,7 @@ for (const mobile of [false, true]) {
       await expect(errorContainer.getByRole('alert')).toContainText('The change could not be saved');
       await expect(homeRow).toBeVisible();
       await expect(page.getByTestId('workspace-path-operation-status')).toHaveCount(0);
-      await page.unroute('**/api/notifications/summary?*');
+      await page.unroute('**/api/notifications/summary*');
       await errorContainer.getByRole('button', { name: 'Try again', exact: true }).click();
       await expect(homeRow).toHaveCount(0);
       await expect.poll(async () => (await notifications()).some((item) => item.id === itemId)).toBe(false);
@@ -60,17 +75,20 @@ for (const mobile of [false, true]) {
       await expect(page.locator('#home-attention-items')).toHaveAttribute('aria-busy', 'false');
       await expect(homeContainer.locator(`[data-notification-id="${itemId}"]`)).toHaveCount(0);
       if (mobile) await page.keyboard.press('Escape');
-      // The dismissed operation is still inspectable and still blocked.
-      await page.goto(`/en/notebook?workspaceId=${workspaceId}&workspacePathBatch=${operation.batchId}`);
+      // Dismissing a notification preserves its actual stored diagnostic.
+      await page.goto(`/en/notebook?workspaceId=${workspaceId}&workspacePathProblem=${originalProblem.target.problemId}`);
       await expect(page.getByTestId('workspace-path-operation-status')).toBeVisible({ timeout: 60_000 });
       await expect(page.getByTestId('workspace-path-operation-status')).toContainText('before.md');
+      await expect(page.getByTestId('workspace-path-operation-status')).toContainText('BATCH_INVALID_REQUEST');
       await page.keyboard.press('Escape');
-      // Another failed attempt produces a new visible notification, dismissible from the bell on touch too.
-      const another = await context.request.post('/api/files/rename', { headers, data: { oldPath: 'before.md', newPath: 'occupied.md' } });
-      expect(another.status()).toBe(409);
-      const nextOperation = (await another.json()).operation as { batchId: string };
-      const nextId = `file-path-operation:${nextOperation.batchId}`;
-      expect(nextId).not.toBe(itemId);
+      // A repeated problem retains its identity and advances the revision,
+      // so an earlier dismissal cannot hide this new failure occurrence.
+      await raiseRequestProblem();
+      await expect.poll(async () => (await notifications()).some(item => item.id === itemId)).toBe(true);
+      const nextProblem = (await notifications()).find(item => item.id === itemId)!;
+      expect(nextProblem.notificationRevision).not.toBe(originalProblem.notificationRevision);
+      const nextId = nextProblem.id;
+      expect(nextId).toBe(itemId);
       await page.reload();
       await page.getByTestId('notification-bell').click({ timeout: 60_000 });
       const bellRow = page.locator(`[data-notification-id="${nextId}"]`).locator('..');

@@ -32,6 +32,7 @@ export function managedAcceptanceSelection(environment = process.env) {
   const excludedTags = [
     ...(!yjs ? ['@owned-yjs'] : []),
     ...(environment.CANVAS_PI_CHAT_LIVE_E2E !== '1' ? ['@live-model'] : []),
+    ...(environment.CANVAS_DOCUMENT_REVIEW_E2E !== '1' ? ['@experimental-review'] : []),
   ];
   return {
     testIgnore: [
