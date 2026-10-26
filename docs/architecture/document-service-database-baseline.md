@@ -43,12 +43,33 @@ Die Messbereiche sind unterschiedlich. Ihre Zahlen dürfen nicht als direkt
 vergleichbare Gesamtkosten oder prozentuale Verbesserung ausgegeben werden.
 Insbesondere sind WebSocket-Zutritts-/Nachrichtenprüfung und asynchrone
 Dateiprojektion nicht in den fünf Anweisungen des nativen Stores enthalten.
-Die gemeinsame Instrumentierung erfasst derzeit Pool-Verbindungen. Die dedizierten
-`pg.Client`-Verbindungen des produktiven Room Owners in `room-owner-options.ts`
-benötigen für die vollständige Editor-Messung zusätzlich eine eigene Erfassung.
+Die gemeinsame Instrumentierung erfasst jetzt auch die tatsächlichen Abfragen
+dedizierter `pg.Client`-Verbindungen des Room Owners in `room-owner-options.ts`.
+Pool-Ausleihen und deren Parallelität beschreiben weiterhin ausschließlich
+Pool-Verbindungen; die Lebensdauer dedizierter Verbindungen wird damit noch nicht
+als vollständig gemessen ausgegeben.
 Der Move-Bestandsprofiler zählt auch Callback-Abfragen, kann aber nicht für alle
 deren Abschlusszeit beobachten; diese Lücke steht in `unobserved`. Seine Zahlen
 ersetzen noch keine einheitliche Messung von Pool-Wartezeit und Parallelität.
+
+Ein ausdrücklich gestartetes, prozessweites Diagnosefenster erfasst zusätzlich
+Laufzeitabfragen aus bereits bestehenden asynchronen Callbacks. Es hält keine
+Berechtigung fest und erzeugt keine zusätzliche Datenbankabfrage. Die tatsächliche
+Socket-/Such-/Owner-Fixture wird bis zum Abschluss ihrer Ressourcenbereinigung
+abgewartet. Im aktuellen Lauf sind es 5.227 Anweisungen über die gesamte Fixture,
+einschließlich Vorbereitung und Abbau. Das ist ausdrücklich kein Preis eines
+einzelnen Editor-Saves; asynchrone Projektionsläufe können die Summe zwischen Läufen
+verändern. Getrennte Messungen von Zutritt, Save, Projektion und Leerlauf fehlen
+weiterhin. Überlappende Diagnosefenster und einzelne Operationsmessungen dürfen
+nicht addiert werden.
+
+Separat gebaute Server-/Anwendungsmodule teilen die reine Diagnoseverwaltung und
+Wrapper-Identität. Ein echter PostgreSQL-Regressionstest mit einer unabhängig
+kompilierten Modulkopie reproduziert sonst verlorene Messungen auf demselben Pool.
+Geprüft sind außerdem originale Promise-/Callback-/Drizzle-Ergebnisse und Fehler,
+unveränderte Getter-/Proxy-Zugriffe, überlappende Fenster, abgeschlossene Fenster
+und die Isolation fehlerhafter Diagnosesenken. SQL-Texte, Parameter, Dokumentinhalte,
+Zugangsdaten und Berechtigungskontexte werden nicht als Metrik gespeichert.
 
 Für die Agenten-Neuanlage wurde zusätzlich jede vierte echte SQL-Antwort um eine
 Millisekunde verzögert. Das simuliert Antwortlatenz ohne Ersetzung von SQL,
