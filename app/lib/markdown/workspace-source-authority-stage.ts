@@ -78,7 +78,11 @@ export function requiresWorkspaceLinkSourceAuthorityRevalidation(observation: Wo
   return confirmedSourceReadChanges.has(observation);
 }
 /** A data-reader choice only. It never changes the caller's fences or rights. */
-export type WorkspacePhysicalSourceReadOptions = Readonly<{ physicalParserVersion?: 2 | 3 }>;
+export type WorkspacePhysicalSourceReadOptions = Readonly<{
+  physicalParserVersion?: 2 | 3;
+  /** Explicitly non-executable scope used only by the document/link reader. */
+  sourceScope?: 'document-index';
+}>;
 type CollectorDependencies = Omit<Dependencies, 'openConnection'> & WorkspacePhysicalSourceReadOptions;
 type Row = Record<string, unknown>;
 const MAX_VECTOR_BYTES = 1024 * 1024;
@@ -228,6 +232,10 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   if (parserDescriptor && (!parserDescriptor.enumerable || !Object.hasOwn(parserDescriptor, 'value'))) throw new Error('Invalid physical source parser version.');
   const physicalParserVersion = parserDescriptor?.value === undefined ? 2 : parserDescriptor.value;
   if (physicalParserVersion !== 2 && physicalParserVersion !== 3) throw new Error('Invalid physical source parser version.');
+  const scopeDescriptor = Object.getOwnPropertyDescriptor(dependencies, 'sourceScope');
+  if (scopeDescriptor && (!scopeDescriptor.enumerable || !Object.hasOwn(scopeDescriptor, 'value'))
+    || scopeDescriptor?.value !== undefined && scopeDescriptor.value !== 'document-index') throw new Error('Invalid source read scope.');
+  const documentIndexRead = scopeDescriptor?.value === 'document-index';
   workspace = structuredClone(workspace);
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   const originalMove = readOriginalMoveCollectorOverlay(connection, workspace);
@@ -257,16 +265,49 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     if (!rootStat.isDirectory()) fail('invalid-workspace-root', '');
     const entries = new Map<string, WorkspaceOriginalPathObservation>();
     const root: WorkspaceOriginalRootObservation = { resolvedRootPath: realRoot, identity: filesystemFileVersion(rootStat), entries };
+    const isPythonEnvironment = async (relativePath: string): Promise<boolean> => {
+      if (!['venv', '.venv'].includes(path.posix.basename(relativePath))) return false;
+      const markerPath = `${relativePath}/pyvenv.cfg`;
+      const registeredMarker = registered.get(markerPath);
+      if (registeredMarker && registeredMarker.authority !== 'pristine') return false;
+      let markerStat: Awaited<ReturnType<typeof fs.lstat>>;
+      try { markerStat = await fs.lstat(path.join(realRoot, markerPath)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+      if (!markerStat.isFile() || markerStat.isSymbolicLink() || markerStat.nlink !== 1 || markerStat.size > 16 * 1024) return false;
+      const marker = { relativePath: markerPath, stat: markerStat, identity: filesystemFileVersion(markerStat) };
+      const markerEntries = new Map(entries); markerEntries.set(markerPath, marker);
+      const bytes = await readWorkspaceOriginalFileSource({ configuredRootPath: workspace.rootPath,
+        root: { ...root, entries: markerEntries }, observed: marker,
+        maxBytes: Math.min(16 * 1024, limits.maxSourceBytes, limits.maxTotalSourceBytes - totalBytes),
+        verifyCurrentSource: () => verifyPhysicalAuthority(markerPath) });
+      totalBytes += bytes.length;
+      const configuration = Buffer.from(bytes).toString('utf8');
+      if (!/^home\s*=\s*\S.*$/mu.test(configuration)
+        || !/^include-system-site-packages\s*=\s*(?:true|false)\s*$/mu.test(configuration)) return false;
+      if (observed.length >= limits.maxPaths) fail('path-count-limit', markerPath);
+      observed.push(marker); entries.set(markerPath, marker);
+      return true;
+    };
     const pending = [{ relativePath: '', depth: 0 }];
     while (pending.length) {
       const directory = pending.pop()!;
-      const children = (await fs.readdir(path.join(realRoot, directory.relativePath), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+      let children: import('node:fs').Dirent[];
+      try { children = await fs.readdir(path.join(realRoot, directory.relativePath), { withFileTypes: true }); }
+      catch (error) {
+        if (!documentIndexRead || !directory.relativePath || !['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+        gap('unreadable-source-directory', directory.relativePath); continue;
+      }
+      children.sort((a, b) => a.name.localeCompare(b.name));
       for (const child of children) {
         const relativePath = directory.relativePath ? `${directory.relativePath}/${child.name}` : child.name;
         if (!isCanonicalAdmissionPath(relativePath)) { gap('invalid-source-path', relativePath); continue; }
         if (child.isDirectory() && (EXCLUDED_DIRECTORIES.has(child.name) || directory.depth === 0 && child.name === '.canvas-skill-drafts')
           || EXCLUDED_FILES.has(child.name) || isInternalWorkspaceStagingPath(child.name)) { excludedPaths.push(relativePath); continue; }
         if (observed.length >= limits.maxPaths) fail('path-count-limit', relativePath);
+        if (documentIndexRead && child.isSymbolicLink()) { gap('unsafe-physical-source', relativePath); continue; }
         // File names came from this actual parent listing. Keep the original
         // directory/unsafe-Dirent guard before traversal; the final batch below
         // freshly verifies exact membership and all physical ancestry for files.
@@ -274,6 +315,9 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         const stat = await fs.lstat(path.join(realRoot, relativePath));
         if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) { gap('unsafe-physical-source', relativePath); continue; }
         const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); entries.set(relativePath, item);
+        if (documentIndexRead && stat.isDirectory() && await isPythonEnvironment(relativePath)) {
+          excludedPaths.push(relativePath); continue;
+        }
         const physicalEntry: NativeNamespaceEntry = { workspaceId: workspace.workspaceId, path: relativePath, kind: stat.isDirectory() ? 'directory' : 'file',
           identity: item.identity, filesystemIdentity: item.identity, documentId: null, lifecycleGeneration: null };
         // Only the fixed owner can install this private active read frame. All
@@ -399,8 +443,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
     organizationId: workspace.organizationId ?? null, catalogueProof,
     namespace: [...namespace.values()].sort((a, b) => a.path.localeCompare(b.path)), sources,
-    scope: { kind: 'visible-workspace', excludedPaths: excludedPaths.sort() },
-    coverage: { complete: !gaps.length, gaps }, readiness: gaps.length ? 'blocked'
+    scope: { kind: documentIndexRead ? 'document-index' : 'visible-workspace', excludedPaths: excludedPaths.sort() },
+    coverage: { complete: !gaps.length, gaps }, readiness: documentIndexRead || gaps.length ? 'blocked'
       : sources.some((source) => source.kind === 'physical') ? 'requires-import-and-rebinding' : 'native-coordinator-required', executionReady: false };
   const observation = Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
     // Coherent catalogue facts remain private read evidence even when a source
@@ -421,7 +465,8 @@ export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: Wo
   const unavailable = () => {
     const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, catalogueProof: stage?.catalogueProof ?? null,
-      namespace: stage?.namespace ?? [], sources: [], scope: stage?.scope ?? { kind: 'visible-workspace', excludedPaths: [] },
+      namespace: stage?.namespace ?? [], sources: [], scope: stage?.scope ?? {
+        kind: Object.getOwnPropertyDescriptor(dependencies, 'sourceScope')?.value === 'document-index' ? 'document-index' : 'visible-workspace', excludedPaths: [] },
       coverage: { complete: false, gaps: [...(stage?.coverage.gaps ?? []), { code: 'source-authority-unavailable', path: '' }] },
       readiness: 'blocked', executionReady: false };
     stage = { ...body, stageProof: workspaceSourceAuthorityStageProof(body) };

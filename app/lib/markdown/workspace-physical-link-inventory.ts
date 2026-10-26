@@ -68,7 +68,7 @@ export type WorkspaceSourceAuthorityStage = {
   namespace: NativeNamespaceEntry[];
   sources: Array<{ kind: 'physical'; inventory: OriginalPhysicalLinkInventory }
     | { kind: 'native'; inventory: NativeDocumentLinkInventory }>;
-  scope: { kind: 'visible-workspace'; excludedPaths: string[] };
+  scope: { kind: 'visible-workspace' | 'document-index'; excludedPaths: string[] };
   coverage: { complete: boolean; gaps: PhysicalSourceGap[] };
   readiness: 'requires-import-and-rebinding' | 'native-coordinator-required' | 'blocked';
   executionReady: false;
@@ -254,6 +254,11 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
   kind: 'rename' | 'move' | 'delete'; sourcePath: string; destinationPath?: string;
 }): StagedWorkspaceLinkEffectPreview {
   const gaps = structuredClone(stage.coverage.gaps); const effects: StagedWorkspaceLinkEffectPreview['effects'] = [];
+  if (stage.scope.kind !== 'visible-workspace') {
+    gaps.push({ code: 'read-only-source-scope', path: '' });
+    return { previewVersion: 1, stageProof: stage.stageProof, executionReady: false, readiness: 'blocked',
+      coverage: { complete: false, gaps }, effects };
+  }
   for (const source of stage.sources) if (source.kind === 'native' ? source.inventory.parserVersion !== 2
     : source.inventory.parserVersion !== undefined && source.inventory.parserVersion !== 2 && source.inventory.parserVersion !== 3) gaps.push({ code: 'stale-source-parser',
     path: source.kind === 'physical' ? source.inventory.path : source.inventory.document.path });

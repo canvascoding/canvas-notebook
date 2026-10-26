@@ -182,7 +182,7 @@ export async function readWorkspaceDocumentLinkIndex(
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
     throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   }
-  const observation = await (dependencies.observe ?? stageWorkspaceLinkSourceAuthorityObservation)(workspace);
+  const observation = await (dependencies.observe ?? stageWorkspaceLinkSourceAuthorityObservation)(workspace, { sourceScope: 'document-index' });
   if (observation.stage.workspaceId !== workspace.workspaceId
     || observation.stage.organizationId !== (workspace.organizationId ?? null)) throw new Error('Document link index scope changed.');
   return buildWorkspaceDocumentLinkIndexFromStage(observation.stage, dependencies.now?.() ?? new Date());
