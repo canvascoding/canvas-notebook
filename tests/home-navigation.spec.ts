@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { homePromptInput } from './helpers/chat-composer';
 
 async function openHome(page: import('@playwright/test').Page) {
   expect(Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL && process.env.BOOTSTRAP_ADMIN_PASSWORD), 'Bootstrap admin credentials must be configured.').toBe(true);
@@ -20,7 +21,7 @@ async function openHome(page: import('@playwright/test').Page) {
 }
 
 test('two desktop views snap, navigate with keyboard, and allow long content', async ({ page }, info) => {
-  await page.setViewportSize({ width: 1299, height: 847 });
+  await page.setViewportSize({ width: 1299, height: 1100 });
   await openHome(page);
   const nav = page.getByRole('navigation', { name: 'Startseitenansichten' });
   const first = page.locator('#home-continue');
@@ -28,14 +29,16 @@ test('two desktop views snap, navigate with keyboard, and allow long content', a
   const main = page.locator('[data-home-scroll]');
   await expect(nav.getByRole('button', { name: 'Weiterarbeiten' })).toHaveAttribute('aria-current', 'step');
   await expect(second.getByRole('heading', { name: 'Workspace', exact: true })).not.toBeInViewport();
-  await expect(page.locator('[data-prompt-hero-textarea]')).toBeInViewport();
+  await expect(homePromptInput(page)).toBeInViewport();
   await expect.poll(() => main.evaluate(el => getComputedStyle(el).scrollSnapType)).toBe('y mandatory');
   await page.screenshot({ path: info.outputPath('desktop-work.png') });
   await page.mouse.move(700, 500);
   await page.mouse.wheel(0, 650);
   await expect(nav.getByRole('button', { name: 'Workspace', exact: true })).toHaveAttribute('aria-current', 'step');
   await expect.poll(async () => Math.abs((await second.boundingBox())!.y - (await main.boundingBox())!.y)).toBeLessThan(2);
-  await expect(second.getByRole('link', { name: /E-Mail/ })).toBeInViewport();
+  const emailLinks = second.getByRole('link', { name: 'E-Mail öffnen', exact: true });
+  await expect(emailLinks).toHaveCount(2);
+  for (const link of await emailLinks.all()) await expect(link).toBeInViewport();
   await page.screenshot({ path: info.outputPath('desktop-workspace.png') });
   await nav.getByRole('button', { name: 'Weiterarbeiten' }).focus();
   await page.keyboard.press('Enter');
@@ -66,7 +69,9 @@ for (const width of [390, 768]) {
     await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
     await expect(page.locator('#home-workspace')).toBeFocused();
     await expect.poll(async () => Math.abs((await page.locator('#home-workspace').boundingBox())!.y - (await page.locator('[data-home-scroll]').boundingBox())!.y)).toBeLessThan(2);
-    await expect(page.locator('#home-workspace').getByRole('link', { name: /E-Mail/ })).toBeInViewport();
+    const emailLinks = page.locator('#home-workspace').getByRole('link', { name: 'E-Mail öffnen', exact: true });
+    await expect(emailLinks).toHaveCount(2);
+    for (const link of await emailLinks.all()) await expect(link).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`mobile-${width}-workspace.png`) });
     await page.getByRole('button', { name: 'Zurück zum Weiterarbeiten' }).click();
     await expect(page.locator('#home-continue')).toBeFocused();
@@ -83,9 +88,14 @@ test('tools stay in the launcher and its existing pages retain their entries', a
   await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Canvas Chat', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveAttribute('href', '/de/browser/lab');
+  const filesReady = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/tree' && response.ok());
   await menu.getByRole('menuitem', { name: 'Dateien', exact: true }).click();
   await expect(page).toHaveURL(/\/de\/files/, { timeout: 15000 });
+  await filesReady;
+  await expect(page.getByRole('heading', { name: 'Dateien', exact: true })).toBeVisible();
+  await expect(menu).toBeHidden();
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
+  await expect(menu).toBeVisible();
   await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
   await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Canvas Chat', exact: true })).toBeVisible();

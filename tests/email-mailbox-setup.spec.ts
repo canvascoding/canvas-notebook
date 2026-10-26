@@ -180,7 +180,10 @@ test.describe('Central email mailboxes', () => {
           await expect(mail).toBeVisible();
           await expect(page.getByTestId('email-session-error')).toHaveCount(0);
         } else {
-          await expect(page.getByTestId('email-session-error')).toBeVisible();
+          // The shared session boundary hides the private tree before redirecting.
+          // The real server cookie is still valid in this controlled 401 fixture,
+          // so its login route can immediately return to the public home route.
+          await expect(page).toHaveURL(/\/(?:de|en)(?:\/login(?:\?.*)?)?$/);
           await expect(mail).toHaveCount(0);
           await expect(page.getByTestId('email-mailbox-scope')).toHaveCount(0);
         }

@@ -373,9 +373,11 @@ for (const profile of profiles) {
         await createDestinationFolder(fixture, dialog, 'Nested', 'BulkTarget/Nested');
         await expect(dialog).toHaveAccessibleName('Move 2');
         await captureDialog(page, dialog, profile, info, 'bulk-move-nested');
-        const moved = sources.map((source) => waitForRename(fixture, source.path, `BulkTarget/Nested/${source.path}`));
+        const moved = Promise.all(sources.map((source) => waitForRename(fixture, source.path, `BulkTarget/Nested/${source.path}`)
+          .then(response => assertRenameApplied(fixture, response))));
+        void moved.catch(() => undefined);
         await dialog.getByRole('button', { name: 'Move', exact: true }).click();
-        for (const response of moved) await assertRenameApplied(fixture, await response);
+        await moved;
         await expect(dialog).toBeHidden({ timeout: 60_000 });
         for (const source of sources) {
           expect(await fixture.read(`BulkTarget/Nested/${source.path}`)).toBe(source.content);

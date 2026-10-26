@@ -229,7 +229,7 @@ function ChatAgentSelectorSession({
         align="start"
         side="bottom"
         data-testid="chat-agent-selector-popover"
-        className="z-[110] w-64 p-1"
+        className="z-[110] max-h-[min(24rem,var(--radix-popover-content-available-height))] w-64 overflow-y-auto p-1"
       >
         <div className="flex items-center justify-between gap-2 px-2 py-1.5">
           <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">

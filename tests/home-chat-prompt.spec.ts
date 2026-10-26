@@ -1,16 +1,40 @@
 import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
-import { MAIN_AGENT_DISPLAY_NAME } from '../app/lib/agents/main-agent';
+import { MAIN_AGENT_DISPLAY_NAME, MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { chatComposerInput, homePromptInput } from './helpers/chat-composer';
 
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: process.env.CANVAS_ENV_FILE || path.join(process.cwd(), '.env.local'), quiet: true });
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
   await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
+}
+
+async function submitHomePrompt(page: Page) {
+  await homePromptInput(page).locator('xpath=ancestor::form[1]').locator('button[type="submit"]').click();
+}
+
+async function preventHomeModelCalls(page: Page): Promise<string[]> {
+  const prompts: string[] = [];
+  await page.routeWebSocket('**/ws/chat', socket => {
+    // Keep real authentication/status traffic. This navigation test consumes
+    // the initial prompt through the UI but never forwards a provider turn.
+    const server = socket.connectToServer();
+    socket.onMessage(raw => {
+      const packet = JSON.parse(raw.toString()) as { type: string; requestId?: string;
+        message?: { content?: string | Array<{ type: string; text?: string }> } };
+      if (packet.type !== 'send_message') { server.send(raw); return; }
+      const content = packet.message?.content;
+      prompts.push(typeof content === 'string' ? content : (content ?? [])
+        .filter(part => part.type === 'text').map(part => part.text ?? '').join('\n'));
+      socket.send(JSON.stringify({ type: 'send_message_result', requestId: packet.requestId, success: true }));
+    });
+  });
+  return prompts;
 }
 
 async function createFileDataTransfer(page: Page, files: Array<{ name: string; mimeType: string; content: string }>) {
@@ -36,7 +60,7 @@ test.describe('Home chat prompt', () => {
           success: true,
           data: {
             agents: [
-              { agentId: 'canvas-agent', name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false },
+              { agentId: MAIN_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false },
               { agentId: 'linkedin-agent', name: 'LinkedIn Agent', iconId: 'briefcase', type: 'special', removable: true },
             ],
           },
@@ -54,7 +78,7 @@ test.describe('Home chat prompt', () => {
         body: JSON.stringify({
           success: true,
           data: {
-            lastActiveAgentId: savedLastActiveAgentId || 'canvas-agent',
+            lastActiveAgentId: savedLastActiveAgentId || MAIN_AGENT_ID,
           },
         }),
       });
@@ -72,7 +96,7 @@ test.describe('Home chat prompt', () => {
     await agentsLoaded;
 
     await expect(page.getByTestId('home-agent-id')).toBeHidden();
-    await page.locator('[data-prompt-hero-textarea]').focus();
+    await homePromptInput(page).focus();
     await expect(page.getByTestId('home-agent-id')).toContainText(MAIN_AGENT_DISPLAY_NAME);
     await page.getByTestId('home-agent-id').click();
     await page.getByRole('button', { name: /LinkedIn Agent\s+linkedin-agent/i }).click();
@@ -80,10 +104,8 @@ test.describe('Home chat prompt', () => {
     await expect(page.getByTestId('home-agent-id')).toContainText('LinkedIn Agent');
     expect(savedLastActiveAgentId).toBe('linkedin-agent');
 
-    await page.locator('form textarea').first().fill('Bitte mit LinkedIn Agent starten');
-    await page.locator('form').first().evaluate((form) => {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
+    await homePromptInput(page).fill('Bitte mit LinkedIn Agent starten');
+    await submitHomePrompt(page);
 
     await expect(page).toHaveURL(/\/(?:en\/)?notebook(?:\?.*)?$/, { timeout: 15_000 });
     const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
@@ -96,21 +118,21 @@ test.describe('Home chat prompt', () => {
 
   test('redirects into notebook after submitting a prompt on the home page', async ({ page }) => {
     await login(page);
+    const prompts = await preventHomeModelCalls(page);
     const agentsLoaded = page.waitForResponse(response => response.url().includes('/api/agents?') && response.ok());
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await agentsLoaded;
     await page.evaluate(() => window.localStorage.setItem('canvas.chatVisible', 'false'));
 
-    await page.locator('form textarea').first().fill('Bitte leite mich ins Notebook weiter');
-    await page.locator('form').first().evaluate((form) => {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
+    await homePromptInput(page).fill('Bitte leite mich ins Notebook weiter');
+    await submitHomePrompt(page);
 
     await expect(page).toHaveURL(/\/(?:en\/)?notebook(?:\?.*)?$/, { timeout: 15_000 });
-    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15_000 });
+    await expect(chatComposerInput(page)).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.url()).not.toContain('session=');
 
     await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt')), { timeout: 15000 }).toBeNull();
+    await expect.poll(() => prompts).toEqual(['Bitte leite mich ins Notebook weiter']);
   });
 
   test('keeps dropped prompt attachments when opening the notebook from home', async ({ page }) => {
@@ -127,7 +149,7 @@ test.describe('Home chat prompt', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await agentsLoaded;
 
-    const input = page.locator('[data-prompt-hero-textarea]');
+    const input = homePromptInput(page);
     const dataTransfer = await createFileDataTransfer(page, [
       {
         name: 'home-dropped.txt',
@@ -143,9 +165,7 @@ test.describe('Home chat prompt', () => {
     await expect(page.getByTestId('chat-composer-attachment')).toContainText('home-dropped.txt');
 
     await input.fill('Bitte diese Datei auswerten');
-    await page.locator('form').first().evaluate((form) => {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
+    await submitHomePrompt(page);
 
     await expect(page).toHaveURL(/\/(?:en\/)?notebook(?:\?.*)?$/, { timeout: 15_000 });
     const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
@@ -182,7 +202,7 @@ test.describe('Home chat prompt', () => {
 
     await page.goto(`/notebook?session=${encodeURIComponent(sessionId!)}`, { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15_000 });
+    await expect(chatComposerInput(page)).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.url(), { timeout: 15_000 }).not.toContain('session=');
   });
 });

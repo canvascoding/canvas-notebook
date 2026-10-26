@@ -1,25 +1,17 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { chatComposerFileInput, chatComposerInput } from './helpers/chat-composer';
 
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: process.env.CANVAS_ENV_FILE || path.join(process.cwd(), '.env.local'), quiet: true });
 
 const TEST_EMAIL = process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 const AUTH_STATE_PATH = 'test-results/multiple-file-upload-auth.json';
 
 async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: {
-      Origin: process.env.BASE_URL || 'http://localhost:3000',
-    },
-    data: {
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
-
-  expect(response.ok()).toBeTruthy();
+  await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
   await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }
@@ -56,7 +48,7 @@ test.describe('Multiple File Upload', () => {
     await page.getByRole('button', { name: /new chat/i }).click();
     
     // Click paperclip to open file dialog
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = chatComposerFileInput(page);
     
     // Set multiple files at once
     await fileInput.setInputFiles([
@@ -87,7 +79,7 @@ test.describe('Multiple File Upload', () => {
 
     await page.getByRole('button', { name: /new chat/i }).click();
 
-    const input = page.getByTestId('chat-input');
+    const input = chatComposerInput(page);
     const dataTransfer = await createFileDataTransfer(page, [
       {
         name: 'dropped-one.txt',
@@ -119,7 +111,7 @@ test.describe('Multiple File Upload', () => {
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
     
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = chatComposerFileInput(page);
     
     // Upload mixed file types
     await fileInput.setInputFiles([
@@ -152,10 +144,12 @@ test.describe('Multiple File Upload', () => {
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
     
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = chatComposerFileInput(page);
     
     // Create a file larger than 10MB limit
     const largeBuffer = Buffer.alloc(11 * 1024 * 1024); // 11MB
+    const rejected = page.waitForResponse(response => new URL(response.url()).pathname === '/api/upload/attachment'
+      && response.request().method() === 'POST');
     
     await fileInput.setInputFiles([
       {
@@ -164,11 +158,18 @@ test.describe('Multiple File Upload', () => {
         buffer: largeBuffer,
       },
     ]);
+
+    const response = await rejected;
+    expect(response.status()).toBe(400);
+    const rejection = await response.json();
+    expect(rejection.success).toBe(false);
+    expect(rejection.error).toMatch(/too-large\.txt: File too large/i);
     
     // Verify error is shown
     const errorBanner = page.getByText(/too-large\.txt: File too large/i);
     await expect(errorBanner).toBeVisible();
     await expect(errorBanner).toContainText(/File too large/i);
+    await expect(composerAttachments(page)).toHaveCount(0);
   });
 
   test('allows removing individual attachments', async ({ page }) => {
@@ -177,7 +178,7 @@ test.describe('Multiple File Upload', () => {
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
     
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = chatComposerFileInput(page);
     
     // Upload 3 files
     await fileInput.setInputFiles([

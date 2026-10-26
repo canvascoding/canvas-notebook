@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage, createAuthenticatedContext } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createAuthenticatedContext, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
+import { homePromptInput } from './helpers/chat-composer';
 
 const ownedWorkspaces = new WeakMap<Page, { id: string; name: string }>();
 
@@ -58,8 +59,7 @@ for (const width of [390, 768, 1440]) {
       const workspaceId = await prepare(page);
       const path = `home-layout-${randomUUID()}.md`;
       const headers = { 'x-canvas-workspace-id': workspaceId };
-      await waitForFileCreateBudget();
-      expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
+      await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId, filePath: path });
       expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
       await page.goto('/de');
       const files = page.getByTestId('home-files');
@@ -68,14 +68,14 @@ for (const width of [390, 768, 1440]) {
       await expect(newNote).toBeInViewport();
       await expect(files.locator(`a[href*="${path}"]`).first()).toBeInViewport();
       await expect(page.getByTestId('home-agent-id')).toBeHidden();
-      await expect(page.locator('[data-prompt-hero-textarea]')).not.toBeFocused();
+      await expect(homePromptInput(page)).not.toBeFocused();
       await page.screenshot({ path: info.outputPath(`home-${width}-initial.png`) });
       await expect(page.locator('#home-suggestions')).toHaveCount(0);
       await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
       await expect(page.locator('#home-suggestions')).toBeVisible();
       await page.getByRole('button', { name: 'Ideen und Beispiele' }).click();
       await expect(page.locator('#home-suggestions')).toHaveCount(0);
-      await page.locator('[data-prompt-hero-textarea]').focus();
+      await homePromptInput(page).focus();
       await expect(page.getByTestId('home-agent-id')).toBeVisible();
       const modeTabs = page.getByRole('tablist', { name: 'Arbeitsmodus' });
       await modeTabs.getByRole('tab', { name: 'Studio', exact: true }).click();
@@ -162,8 +162,7 @@ for (const width of [390, 1440]) {
       const paths: string[] = [];
       for (let i = 0; i < 7; i++) {
         const path = `${prefix}-${i}.md`;
-        await waitForFileCreateBudget();
-        expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBeTruthy();
+        await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId, filePath: path });
         paths.push(path);
         expect((await page.request.post('/api/files/quick-access', { headers, data: { path } })).ok()).toBeTruthy();
       }

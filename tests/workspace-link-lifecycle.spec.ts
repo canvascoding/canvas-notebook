@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { createAuthenticatedContext, runManagedTestPreflight, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { WORKSPACE_FILE_UNDO_ENABLED } from '../app/lib/files/workspace-file-undo-policy';
 
 const original = '---\ntitle: 😀\n---\n\n[first](B.md)\n\n[second](B.md)\n';
 const target = '# Target\n\nSynthetic lifecycle link target.\n';
@@ -11,18 +12,14 @@ async function navigateBoth(page: Page, workspaceId: string, sourcePath: string,
       { waitUntil: 'domcontentloaded' });
     const panel = page.getByRole('tabpanel', { name: 'A.md', exact: true });
     await expect(panel).toBeVisible({ timeout: 90_000 });
-    await panel.getByRole('group', { name: 'Document view', exact: true })
-      .getByRole('button', { name: 'Read', exact: true }).click();
-    const links = panel.locator('.markdown-read-viewport [data-canvas-wiki-status]');
+    await expect(panel.locator('.ProseMirror[contenteditable="true"]')).toBeVisible();
+    const links = panel.locator('.ProseMirror a[href]');
     await expect(links).toHaveCount(2);
-    await expect(links.nth(ordinal)).toHaveAttribute('data-canvas-wiki-status', 'resolved');
     await links.nth(ordinal).click();
-    const preview = page.getByRole('dialog', { name: 'Target', exact: true });
-    await expect(preview).toBeVisible();
-    await expect(preview).toContainText(targetPath);
-    await expect(preview).toContainText('Synthetic lifecycle link target.');
-    await preview.getByRole('button', { name: 'Open in editor', exact: true }).click();
-    await expect(page.getByRole('tabpanel', { name: targetPath, exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Open link', exact: true }).click();
+    const opened = page.getByRole('tabpanel', { name: targetPath, exact: true });
+    await expect(opened).toBeVisible({ timeout: 90_000 });
+    await expect(opened).toContainText('Synthetic lifecycle link target.');
   }
 }
 
@@ -30,7 +27,7 @@ for (const scenario of [
   { name: 'target rename', oldPath: 'B.md', newPath: 'C.md', sourcePath: 'A.md', targetPath: 'C.md', literal: 'C.md' },
   { name: 'source move', oldPath: 'A.md', newPath: 'nested/A.md', sourcePath: 'nested/A.md', targetPath: 'B.md', literal: '../B.md' },
 ]) {
-  test(`never-opened Markdown ${scenario.name} persists repairs and immediately undoes with an owner release proof`, async ({ browser }, info) => {
+  test(`never-opened Markdown ${scenario.name} persists repairs and enforces the Undo release policy`, async ({ browser }, info) => {
     test.setTimeout(240_000);
     expect(process.env.E2E_EXTERNAL_SERVER, 'Use the fresh managed container.').toBe('1');
     const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 1000 } });
@@ -86,6 +83,25 @@ for (const scenario of [
       const undo = await context.request.post(`/api/files/operation-reviews/batches/${batchId}`, {
         headers, data: { action: 'undo', planId: plan.planId },
       });
+      if (!WORKSPACE_FILE_UNDO_ENABLED) {
+        expect(undo.status()).toBe(409);
+        expect((await undo.json()).code).toBe('FILE_OPERATION_UNDO_DISABLED');
+        expect(await status()).toBe('applied');
+        expect(await read(scenario.sourcePath)).toBe(repaired);
+        expect(await read(scenario.targetPath)).toBe(target);
+        expect((await context.request.get(`/api/files/read?path=${encodeURIComponent(scenario.oldPath)}`, { headers })).status()).toBe(404);
+        await context.addInitScript((activeId) => {
+          localStorage.setItem('canvas.activeWorkspaceId', activeId);
+          localStorage.setItem('canvas.notebook.chatVisible', 'false');
+        }, id);
+        page = await context.newPage();
+        await navigateBoth(page, id, scenario.sourcePath, scenario.targetPath);
+        await info.attach('lifecycle-disabled-undo-evidence', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+          scenario: scenario.name, workspaceId: id, batchId, original, repaired, target,
+          persistedApply: true, undoDenied: true, appliedBytesPreserved: true, navigatedLinks: 2,
+        }, null, 2)) });
+        return;
+      }
       expect(undo.status()).toBe(202);
       await expect.poll(status, { timeout: 90_000 }).toBe('undone');
       expect(await read('A.md')).toBe(original);

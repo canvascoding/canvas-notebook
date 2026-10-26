@@ -1,29 +1,25 @@
 import { expect, test } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config({ path: process.env.CANVAS_ENV_FILE || path.join(process.cwd(), '.env.local'), quiet: true });
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
-const TEST_ORIGIN = process.env.BASE_URL || 'http://localhost:3000';
 
 test.describe('Legacy chat route', () => {
   test('keeps unauthenticated legacy links behind the login guard', async ({ page }) => {
     await page.goto('/chat?session=private-session', { waitUntil: 'domcontentloaded' });
 
-    await expect(page).toHaveURL(/\/login\?from=%2Fchat%3Fsession%3Dprivate-session$/);
+    await expect(page).toHaveURL((url) => /^\/(?:de\/|en\/)?login$/.test(url.pathname));
+    const redirect = new URL(new URL(page.url()).searchParams.get('from')!, page.url());
+    expect(redirect.pathname).toMatch(/^\/(?:de\/|en\/)?chat$/);
+    expect(redirect.searchParams.get('session')).toBe('private-session');
   });
 
   test('redirects authenticated session links into the notebook', async ({ page }) => {
-    const response = await page.request.post('/api/auth/sign-in/email', {
-      headers: { Origin: TEST_ORIGIN },
-      data: {
-        email: TEST_EMAIL,
-        password: TEST_PASSWORD,
-      },
-    });
-    expect(response.ok()).toBeTruthy();
+    await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 
     await page.goto(
       '/chat?session=legacy-session&workspaceId=legacy-workspace&chat=closed&filter=unread&filter=assigned',

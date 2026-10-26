@@ -6,9 +6,10 @@ import {
   uploadWorkspaceTextFile,
 } from './helpers/managed-test-context';
 import type { WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
+import { WORKSPACE_FILE_UNDO_ENABLED } from '../app/lib/files/workspace-file-undo-policy';
 
 const before = '---\ntitle: 😀\n---\n\n[[B]]\n\n[link](B.md)\n';
-const after = '---\ntitle: 😀\n---\n\n[[C]]\n\n[link](C.md)\n';
+const after = '---\ntitle: 😀\n---\n\n[[/C]]\n\n[link](C.md)\n';
 const target = '# Target\n\nSynthetic emoji link regression target.\n';
 
 async function openSource(page: Page, workspaceId: string) {
@@ -16,15 +17,14 @@ async function openSource(page: Page, workspaceId: string) {
     { waitUntil: 'domcontentloaded' });
   const panel = page.getByRole('tabpanel', { name: 'A.md', exact: true });
   await expect(panel).toBeVisible({ timeout: 90_000 });
-  await panel.getByRole('group', { name: 'Document view', exact: true })
-    .getByRole('button', { name: 'Read', exact: true }).click();
-  const links = panel.locator('.markdown-read-viewport [data-canvas-wiki-status]');
+  await expect(panel.locator('.ProseMirror[contenteditable="true"]')).toBeVisible();
+  const links = panel.locator('.ProseMirror [data-canvas-wiki-status], .ProseMirror a[href]');
   await expect(links).toHaveCount(2);
-  for (const link of await links.all()) await expect(link).toHaveAttribute('data-canvas-wiki-status', 'resolved');
+  await expect(panel.locator('.ProseMirror [data-canvas-wiki-status]')).toHaveAttribute('data-canvas-wiki-status', 'resolved');
   return links;
 }
 
-test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename and batch Undo', async ({ browser }, info) => {
+test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename and enforce the Undo release policy', async ({ browser }, info) => {
   test.setTimeout(300_000);
   expect(process.env.E2E_EXTERNAL_SERVER, 'Use the existing managed host server.').toBe('1');
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 1000 } });
@@ -67,20 +67,22 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
     const navigateBoth = async (targetPath: string) => {
       for (let index = 0; index < 2; index++) {
         const links = await openSource(page!, id);
-        await links.nth(index).click();
-        const preview = page!.getByRole('dialog', { name: 'Target', exact: true });
-        await expect(preview).toBeVisible();
-        await expect(preview).toContainText(targetPath);
-        await expect(preview).toContainText('Synthetic emoji link regression target.');
-        await preview.getByRole('button', { name: 'Open in editor', exact: true }).click();
+        const link = links.nth(index);
+        const isWiki = await link.getAttribute('data-canvas-wiki-status') !== null;
+        await link.click({ modifiers: ['ControlOrMeta'] });
+        if (isWiki) {
+          const preview = page!.getByRole('dialog', { name: 'Target', exact: true });
+          await expect(preview).toBeVisible();
+          await expect(preview).toContainText(targetPath);
+          await expect(preview).toContainText('Synthetic emoji link regression target.');
+          await preview.getByRole('button', { name: 'Open in editor', exact: true }).click();
+        }
         const opened = page!.getByRole('tabpanel', { name: targetPath, exact: true });
         await expect(opened).toBeVisible();
         await expect(opened).toContainText('Synthetic emoji link regression target.');
       }
     };
     const waitSavedEditor = async () => {
-      await page!.getByRole('group', { name: 'Document view', exact: true })
-        .getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(page!.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
       await expect.poll(async () => {
         const state = JSON.parse(await page!.getByTestId('markdown-save-state').locator('pre').innerText());
@@ -121,7 +123,7 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
       expect(payload.plan.readiness).toBe('ready');
       expect(payload.plan.coverage.complete).toBe(true);
       expect(payload.plan.linkEdits).toHaveLength(2);
-      expect(payload.plan.linkEdits.map((edit: { nextTargetLiteral: string }) => edit.nextTargetLiteral)).toEqual(['C', 'C.md']);
+      expect(payload.plan.linkEdits.map((edit: { nextTargetLiteral: string }) => edit.nextTargetLiteral)).toEqual(['/C', 'C.md']);
       if (stablePlanId !== payload.plan.planId) {
         stablePlanId = payload.plan.planId;
         stableSince = Date.now();
@@ -167,9 +169,12 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
     expect(indexResponse.ok()).toBeTruthy();
     const index = (await indexResponse.json()).index;
     expect(index.coverage.complete).toBe(true);
-    expect(index.edges.filter((edge: { sourcePath: string }) => edge.sourcePath === 'A.md')
-      .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]))
-      .toEqual([['wiki', 'resolved', 'C.md'], ['markdown', 'resolved', 'C.md']]);
+    const repairedEdges = index.edges.filter((edge: { sourcePath: string }) => edge.sourcePath === 'A.md')
+      .map((edge: { kind: string; status: string; targetPath: string }) => [edge.kind, edge.status, edge.targetPath]);
+    expect(repairedEdges).toHaveLength(2);
+    expect(repairedEdges).toEqual(expect.arrayContaining([
+      ['wiki', 'resolved', 'C.md'], ['markdown', 'resolved', 'C.md'],
+    ]));
     await navigateBoth('C.md');
     await waitSavedEditor();
     expect(await read('C.md')).toBe(target);
@@ -181,6 +186,24 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
     await page.getByTestId('notebook-documents-menu').click();
     await page.getByTestId('notebook-close-all-documents').click();
     await expect(page.getByRole('tabpanel')).toHaveCount(0);
+
+    if (!WORKSPACE_FILE_UNDO_ENABLED) {
+      const refused = await context.request.post(`/api/files/operation-reviews/batches/${batchId}`, {
+        headers, data: { action: 'undo', planId: originalPlanId }, timeout: 15_000,
+      });
+      expect(refused.status()).toBe(409);
+      expect((await refused.json()).code).toBe('FILE_OPERATION_UNDO_DISABLED');
+      expect((await operation()).status).toBe('applied');
+      expect(await read('A.md')).toBe(after);
+      expect(await read('C.md')).toBe(target);
+      expect((await context.request.get('/api/files/read?path=B.md', { headers })).status()).toBe(404);
+      await navigateBoth('C.md');
+      await info.attach('emoji-disabled-undo-evidence', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+        workspaceId: id, batchId, planId: originalPlanId, sourceRepresentation, before, after, target,
+        navigatedBefore: ['wiki', 'markdown'], navigatedAfter: ['wiki', 'markdown'], undoDenied: true, appliedBytesPreserved: true,
+      }, null, 2)) });
+      return;
+    }
 
     // A stable inverse preview synchronizes normal saved-room drain; only the original forward batch is undone.
     let inverseSnapshotId: string | undefined;

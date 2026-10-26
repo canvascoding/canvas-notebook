@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { parse as parseEnv } from 'dotenv';
 import { existsSync, readFileSync } from 'node:fs';
+import { chatComposerInput } from './helpers/chat-composer';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 const envFile = process.env.CANVAS_ENV_FILE || '.env.local';
 const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile)) : {};
@@ -21,11 +23,7 @@ for (const scenario of cases) {
   test(`managed catalog ${scenario.name} shows the appropriate recovery instructions`, async ({ page }) => {
     test.setTimeout(90_000);
     expect(email).toBeTruthy(); expect(password).toBeTruthy();
-    const baseURL = String(test.info().project.use.baseURL || 'http://localhost:3000');
-    const signIn = await page.request.post('/api/auth/sign-in/email', {
-      headers: { Origin: baseURL }, data: { email, password },
-    });
-    expect(signIn.ok()).toBeTruthy();
+    await authenticateManagedTestPage(page, { email, password });
     const created = await page.request.post('/api/sessions', {
       data: { agentId: 'bradley', title: `Managed catalog ${scenario.name} UI fixture` },
     });
@@ -78,23 +76,23 @@ for (const scenario of cases) {
       await page.goto(`/notebook?chat=open&session=${encodeURIComponent(sessionId)}`);
       const error = page.getByTestId('chat-message-assistant').filter({ hasText: scenario.message });
       await expect(error).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByTestId('chat-input')).toBeVisible();
-      await expect(page.getByTestId('chat-input')).toBeEnabled({ timeout: 30_000 });
+      await expect(chatComposerInput(page)).toBeVisible();
+      await expect(chatComposerInput(page)).toBeEditable({ timeout: 30_000 });
       await expect(page.getByTestId('chat-provider-selector')).toBeEnabled({ timeout: 30_000 });
       expect(sends, 'an error must not replay the prompt automatically').toBe(0);
       await page.screenshot({ path: test.info().outputPath(`${scenario.name}-desktop.png`) });
       if (scenario.retry) {
-        await page.getByTestId('chat-input').fill('Continue with the completed result.');
-        await page.getByTestId('chat-input').press('Enter');
+        await chatComposerInput(page).fill('Continue with the completed result.');
+        await chatComposerInput(page).press('Enter');
         await expect(page.getByTestId('chat-message-assistant').filter({
           hasText: 'Connection restored. Continuing with the completed tool result.',
         })).toBeVisible();
         expect(sends, 'one explicit user message produces one request without a catalog sync').toBe(1);
       }
       await page.setViewportSize({ width: 768, height: 850 });
-      await expect(page.getByTestId('chat-input')).toBeVisible();
+      await expect(chatComposerInput(page)).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-      const bounds = await page.getByTestId('chat-input').boundingBox();
+      const bounds = await chatComposerInput(page).boundingBox();
       expect(bounds).toBeTruthy();
       expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(850);
       await page.screenshot({ path: test.info().outputPath(`${scenario.name}-narrow.png`) });
