@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/document-path-operations-baseline-postgres-entry.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/api/files/rename/route.ts',
+    'app/api/mobile/v1/files/move/route.ts', 'app/api/files/operations/implicit-moves/[requestId]/route.ts',
+    'app/api/files/operations/batches/[batchId]/route.ts',
+    'app/lib/files/workspace-implicit-move-operation.ts', 'app/lib/files/workspace-operation-original-move-runner.ts',
+    'app/lib/files/workspace-operation-batch-worker.ts', 'server/collaboration-server.ts',
+    'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',
+    'app/lib/observability/document-operation-metrics.ts'],
   'scripts/document-editor-runtime-baseline-postgres-entry.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/api/files/collaboration/session/route.ts', 'server/collaboration-server.ts',

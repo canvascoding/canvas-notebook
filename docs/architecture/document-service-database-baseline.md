@@ -111,6 +111,37 @@ liefern eine untere Grenze der tatsächlichen maximalen Gleichzeitigkeit; sie
 ersetzen keinen lückenlosen Verbindungszähler. Die Messabfragen selbst werden
 nicht zur SQL-Anzahl der Produktlaufzeit addiert.
 
+### Öffentliche Rename-/Move-Handler mit tatsächlichem Worker und Projektor
+
+`scripts/document-path-operations-baseline-postgres-entry.ts` prüft den normalen
+Cookie-Rename-Handler und den öffentlichen mobilen Move-Handler, der denselben
+Rename-Eingang verwendet. Die Vorschau, ursprüngliche Operations-ID, gespeicherte
+Vorbereitung und terminalen Statusantworten werden über die vorhandenen strengen
+Produktparser geprüft. Der echte Batch-Worker und die reguläre Kollaborations-/
+Projektionslaufzeit sind aktiv. Next-Middleware und Browserdarstellung sind hier
+nicht enthalten; es gelten dieselben isolierten SQL-QA-Fixture-Grenzen wie oben.
+Review Center und Datei-Undo sind nachweislich deaktiviert.
+
+Eine native Datei mit ausgehendem relativen Link wird zuerst umbenannt und danach
+in einen anderen Ordner verschoben. Der eingehende Link aus einer zweiten nativen
+Datei wird ebenfalls geprüft. Dokument-IDs und Lineage bleiben erhalten; native
+Inhalte und tatsächliche physische Dateien entsprechen am Ende den erwarteten
+Linkänderungen. Die ursprünglichen Pfade sind anschließend nicht mehr vorhanden.
+Alle eigenen Worker-Ticks und Server werden vor dem Fixture-Abbau beendet.
+
+Der erste vollständige Lauf umfasst 4.448 SQL-Anweisungen und 410 Pool-Ausleihen
+für Rename sowie 4.649 und 400 für Move. Davon liegen 1.326 beziehungsweise 1.323
+Anweisungen in der jeweiligen ursprünglichen Request-Messung. Der übrige Aufwand
+enthält insbesondere den unabhängig laufenden tatsächlichen Batch-Worker; er
+darf nicht allein dem Leerlauf oder der HTTP-Route zugerechnet werden.
+
+Die physische Projektion des nativen Ergebnisses wird erst beim regulären
+Wiederherstellungsscan beobachtet. Die vollständigen Messfenster dauern deshalb
+32,30 beziehungsweise 30,19 Sekunden. Der native Linkzustand war bereits korrekt;
+eine unmittelbare Prüfung der physischen Datei nach dem SQL-Abschluss wäre zu
+früh gewesen. Das gezielte Aufwecken der dauerhaften Projektion nach bestätigtem
+Commit ist damit ein konkretes Ziel des gemeinsamen Aktualisierungspfads.
+
 Für die Agenten-Neuanlage wurde zusätzlich jede vierte echte SQL-Antwort um eine
 Millisekunde verzögert. Das simuliert Antwortlatenz ohne Ersetzung von SQL,
 Authentifizierung oder Serviceergebnissen. Die 9,34 Sekunden dieses gesamten
