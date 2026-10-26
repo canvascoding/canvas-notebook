@@ -71,6 +71,11 @@ nativen Dokumenten, keine Produktions- oder Groß-Workspace-Abnahme.
   Modul-Ladereihenfolgen mit jeweils 15 Admission-Testgruppen. Der Fixture nutzt
   die aktuelle Runtime-Version 3, unveränderte echte Migrations-SQL und eine
   zur gehaltenen SHARE-Sperre tatsächlich inkompatible ROW-EXCLUSIVE-Sperre.
+- Fünf Bootstrap-Negativfälle prüfen getrennt die alte Runtime-Version 2 sowie
+  unvollständige, veränderliche, als Getter hinterlegte und erweiterte Runtime-
+  Objekte. Sie werden vor einem Aufruf ihrer Methoden abgewiesen; die übrigen
+  Fälle verwenden Version 3, damit jeweils tatsächlich die geprüfte Abweichung
+  zum Ausschluss führt. Diese fünf Fälle führen keine SQL-/Auth-Callbacks aus.
 - Release-TypeScript, die beiden geänderten Testdateien und gezieltes ESLint
   bestehen. Es wurden keine neuen Testfilter oder Überspringungen eingeführt.
 
