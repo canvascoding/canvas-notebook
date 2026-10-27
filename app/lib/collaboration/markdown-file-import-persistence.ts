@@ -43,7 +43,8 @@ import { withDirectMcpDocumentCreatePrincipal, withDirectMcpDocumentCreatePrinci
   type DirectMcpDocumentCreatePrincipal, type DirectMcpDocumentCreateCurrentOrigin,
   type DirectMcpDocumentCreatePrincipalAccess } from '../mcp/server/document-read-principal';
 import { filesystemFileVersion } from '../filesystem/file-version';
-import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard } from '../files/workspace-file-lifecycle-guard';
+import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard, readWorkspaceFileLifecycleOwnerSnapshot,
+  workspaceFileLifecycleOwnerIdentitySql as bootstrapConnectionRealmSql } from '../files/workspace-file-lifecycle-guard';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
 import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleCollaborationWrite } from './file-lifecycle-admission-context';
@@ -63,7 +64,7 @@ import { loadCollaborationStateOnConnection, type PersistedCollaborationState } 
 import { inCollaborationProjectionPhase } from './projection-errors';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { assertCollaborationAdmissionOpen } from './room-admission';
-import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
+import { isCanonicalAdmissionPath } from './room-admission-contract';
 import { lockIdentity } from './room-owner';
 import { getCollaborationRoomConnectionCount } from './runtime-state';
 import { Y } from './server-runtime';
@@ -326,9 +327,6 @@ const bootstrapRelations = ['collaboration_documents', 'collaboration_yjs_states
   'collaboration_admission_scopes', 'collaboration_markdown_file_import_receipts'];
 const quoteBootstrap = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
-const bootstrapConnectionRealmSql = `SELECT current_schema() AS schema,current_setting('search_path') AS "searchPath",
-    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,pg_backend_pid() AS backend,
-    extract(epoch FROM a.backend_start)::text AS start FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
 const bootstrapRelationSql = `SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
     FROM unnest($2::text[]) names(name)`;
 function parseBootstrapConnectionRealm(row: BootstrapOwner | undefined): BootstrapOwner {
@@ -341,15 +339,11 @@ async function bootstrapConnectionRealm(database: SqlConnection): Promise<Bootst
   return parseBootstrapConnectionRealm(await database.get(bootstrapConnectionRealmSql) as BootstrapOwner | undefined);
 }
 async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
-  const current = await bootstrapConnectionRealm(frame.owner);
+  const observed = await readWorkspaceFileLifecycleOwnerSnapshot(frame.owner, frame.selection.workspaceId);
+  if (!observed) return fail('MARKDOWN_IMPORT_BUSY');
+  const current = parseBootstrapConnectionRealm(observed.snapshot as BootstrapOwner | undefined);
   if (Object.keys(frame.identity).some(key => Reflect.get(current, key) !== Reflect.get(frame.identity, key))) return fail('MARKDOWN_IMPORT_BUSY');
-  const lease = getWorkspaceFileLifecycleLeases()?.get(frame.selection.workspaceId);
-  if (!lease?.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_BUSY');
-  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(frame.selection.workspaceId)));
-  const held = await frame.owner.get(`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted
-    AND mode='ExclusiveLock' AND pid=pg_backend_pid() AND database=$1 AND classid::bigint=$2 AND objid::bigint=$3 AND objsubid=1) AS held`,
-  [frame.realm.database, Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff'))]) as { held?: boolean } | undefined;
-  if (held?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
+  if (observed.snapshot?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
 }
 async function assertBootstrapNativeRealm(database: SqlConnection, frame: BootstrapFrame, lock = false): Promise<void> {
   const relations = [...bootstrapRelations,

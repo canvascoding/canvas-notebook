@@ -241,8 +241,23 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
         { code: 'MARKDOWN_IMPORT_TARGET_CHANGED' });
     });
     const retired = await explicitImportRotate(); assert.equal(retired.oldId, originalSession);
+    // Auth legitimately deletes the expired SID during denial. Prove this
+    // exact cleanup separately; healthy receipt retry/status retain zero DML.
+    const revokedDomain = await explicitImportDomain(), revokedFiles = await explicitImportFilesystem();
+    const sessionsBefore = (await h.admin.query('SELECT id,to_jsonb(s) AS body,xmin::text AS xmin FROM "session" s ORDER BY id')).rows;
+    assert.equal(sessionsBefore.find(row => row.id === retired.oldId)?.body.expires_at, 1);
+    let expiredSessionDeletes = 0;
+    await h.withProbe(async event => {
+      assert.doesNotMatch(event.text, /\bpg_notify\s*\(/iu);
+      if (!/\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)) return;
+      assert.match(event.text, /^\s*DELETE\s+FROM\s+"session"\s+WHERE\b/iu);
+      assert.equal(event.result.rowCount, 1); expiredSessionDeletes++;
+    }, () => assert.rejects(apply(retired.oldRequest, profileSelection), { code: 'PRINCIPAL_AUTH_REVOKED' }));
+    assert.equal(expiredSessionDeletes, 1);
+    assert.deepEqual((await h.admin.query('SELECT id,to_jsonb(s) AS body,xmin::text AS xmin FROM "session" s ORDER BY id')).rows,
+      sessionsBefore.filter(row => row.id !== retired.oldId));
+    assert.deepEqual(await explicitImportDomain(), revokedDomain); assert.deepEqual(await explicitImportFilesystem(), revokedFiles);
     await explicitImportNoWrites(async () => {
-      await assert.rejects(apply(retired.oldRequest, profileSelection), { code: 'PRINCIPAL_AUTH_REVOKED' });
       const again = await explicitImportInvoke(profileSelection); assert.equal(again.disposition, 'already-applied');
       assert.deepEqual(again.receipt, imported.receipt);
       assert.deepEqual(await status(await h.request(h.source, 'member', false, sessionToken), {

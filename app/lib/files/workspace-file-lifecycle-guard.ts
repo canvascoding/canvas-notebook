@@ -14,6 +14,7 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 type SourceIdentity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
 type SourceCapture = {
   workspaceId: string; database: SqlConnection; lease: WorkspaceFileLifecycleLease;
+  ownerVerifier: WorkspaceFileLifecycleLease['verify'];
   active: boolean; accepting: boolean; reading: boolean; identity?: SourceIdentity; scope?: string; failure?: Error;
   pending: Set<Promise<unknown>>;
 };
@@ -21,6 +22,10 @@ const sourceOwners = new WeakMap<WorkspaceFileLifecycleLease, SourceCapture>();
 // Multiple ordered workspace guards may coexist during a copy. Public lease
 // ALS alone cannot grant this private, fixed observation capability.
 const sourceContext = new AsyncLocalStorage<ReadonlyMap<WorkspaceFileLifecycleLease, SourceCapture>>();
+
+export const workspaceFileLifecycleOwnerIdentitySql = `SELECT current_schema() AS schema,current_setting('search_path') AS "searchPath",
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
 
 export class WorkspaceFileLifecycleSourceError extends Error {
   readonly status: number;
@@ -48,6 +53,33 @@ function currentSource(captured: SourceCapture): void {
     || getWorkspaceFileLifecycleLeases()?.get(captured.workspaceId) !== captured.lease) {
     throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
   }
+}
+
+/** Fresh facts from the actual dedicated owner only. Public leases and copied
+ * connection facades cannot select an owner. Callers still validate identity
+ * and held status; no principal, writer or reusable authority is returned. */
+export async function readWorkspaceFileLifecycleOwnerSnapshot(database: SqlConnection, workspaceId: string): Promise<
+  Readonly<{ snapshot: Record<string, unknown> | undefined }> | undefined> {
+  const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
+  const captured = lease && sourceOwners.get(lease);
+  if (!captured || captured.workspaceId !== workspaceId || captured.database !== database
+    || lease!.verify !== captured.ownerVerifier) return undefined;
+  currentSource(captured);
+  const work = (async () => {
+    const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(workspaceId)));
+    const snapshot = await database.get(`SELECT realm.*,EXISTS(SELECT 1 FROM pg_catalog.pg_locks
+      WHERE locktype='advisory' AND granted AND mode='ExclusiveLock' AND pid=realm.backend
+        AND database=realm.database::oid AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1) AS held
+      FROM (${workspaceFileLifecycleOwnerIdentitySql}) realm`,
+    [Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff'))]) as Record<string, unknown> | undefined;
+    currentSource(captured);
+    if (lease!.verify !== captured.ownerVerifier) return undefined;
+    if (snapshot?.held === false) captured.lease.active = false;
+    return { snapshot };
+  })();
+  captured.pending.add(work);
+  void work.then(() => captured.pending.delete(work), () => captured.pending.delete(work));
+  return work;
 }
 
 async function sourceIdentity(database: SqlConnection, assign: boolean, readOnly: boolean): Promise<{
@@ -207,7 +239,8 @@ export async function readWorkspaceFileLifecycleSourceAuthority(workspace: Works
 
 async function withLifecycleSourceOwner<T>(workspaceId: string, database: SqlConnection,
   lease: WorkspaceFileLifecycleLease, operation: () => Promise<T>): Promise<T> {
-  const captured: SourceCapture = { workspaceId, database, lease, active: true, accepting: true, reading: false, pending: new Set() };
+  const captured: SourceCapture = { workspaceId, database, lease, ownerVerifier: lease.verify,
+    active: true, accepting: true, reading: false, pending: new Set() };
   sourceOwners.set(lease, captured);
   // A retained async context may legitimately acquire a new guard after its
   // old one closed. Replace only that workspace's stale private association.

@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "sourceBaseCommit": "b9b8d4cea03a5c008c102a5124b190f3f4ee7269",
+  "sourceHashes": {
+    "scripts/explicit-original-markdown-import-postgres-test.ts": "92e4f2b893e49de72b6367253aa4ac8e3e29e59d66b9e2e7922710da69f055ba",
+    "app/lib/files/workspace-file-lifecycle-guard.ts": "54f1bdf28758b36213afe1b4f1133c6de0256a603ca1e6eb26ed3d829edefa4d",
+    "scripts/workspace-file-lifecycle-owner-snapshot-postgres-test.ts": "9e65b5b1a93fc070609f00dddc3cb690c407c41063bbba858221939273de282c",
+    "scripts/workspace-file-lifecycle-source-owner-postgres-test.ts": "3ac0471652db7b75b3cfa2840fa0464023f05ffe7898f049a8f1bdd2342dce0c",
+    "scripts/workspace-principal-maintenance-postgres-test.ts": "fbfcc295c751edf2edcc670eef8fc12af271c2bf772be5a3120e62d4696f157d",
+    "app/lib/files/markdown-create-birth.ts": "53f015f6f4fd8e01d2404d8bbf2873d3dc1ed55d34b2bc26ae8129425d32b2c7",
+    "scripts/agent-markdown-create-storage-phase-postgres-test.ts": "82af08e82dc12d13db9015216579a795d6c567d651f57f23f4b79cf8a19a71ac",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/agent-markdown-create-final-origin-postgres-test.ts": "486aa9fa2bf6201ae2ff1b4e831e7e3a780ace5be932844c60ca3b6382cf6fb4",
+    "scripts/workspace-request-principal-postgres-test.ts": "1260615e80044ab67b46f80caef7cee30b71f9b7aa3112c489601af06786e169",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "4b61903cd8f132d50bfd36e90ffccd6426e058c4d9fb9ebf4ddfe6ff73c0ac28",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "92375b3a218f1427ced22a4019a07a7a01542e234cdc402be72e1f6dcb2271dc",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/agent-markdown-create-principal-scope-postgres-test.ts": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/pi/session-workspace-context.ts": "27b1377874f690a2c71e9a8e60a69d94a01b1fbf6d3ce2e8ca0e6ff7a54cbd7c",
+    "app/lib/workspaces/request-principal.ts": "8f861214d7d4dc59d3c8380652c8dc45f51f7590c0acc19131b605099945545d",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/session-workspace-scoped-read-test.ts": "aa5d37a3efd697a65e3145a310dc628c37e7b4c07253d1372a891c8e64536d8a",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0"
+  },
+  "scope": "fresh combined identity and advisory-lock observation on the actual dedicated lifecycle owner",
+  "identitySqlMovedByteIdentical": true,
+  "bootstrapIdentityParserByteIdentical": true,
+  "existingLifecycleFunctionsByteIdentical": [
+    "currentSource",
+    "sourceIdentity",
+    "sourceFence",
+    "sourceIdle",
+    "collectLifecycleSource",
+    "assertWorkspaceFileLifecycleSourceLeaseCurrent",
+    "readWorkspaceFileLifecycleSourceAuthority",
+    "withWorkspaceFileLifecycleGuard"
+  ],
+  "ownerObservation": {
+    "previousSqlCallsFromFixedSource": 3,
+    "actualCurrentFreshSqlCalls": 1,
+    "exactPrivateLeaseConnectionContextRequired": true,
+    "verifierPointerPinnedForRejectionOnly": true,
+    "lifetimeAndContextCheckedBeforeAndAfterActualQuery": true,
+    "pendingReadTrackedAndDrainedByExistingOwner": true,
+    "noCachedPositiveAuthority": true,
+    "noPrincipalOrWriterCreated": true
+  },
+  "focusedRealOwnerCases": 10,
+  "existingRealSourceOwnerCases": 28,
+  "expiredSessionTestCorrection": {
+    "sameOriginalFailureReproducedOnActualBaseProduct": true,
+    "actualExpiredSessionDeletionWasPreviouslyMisclassified": true,
+    "exactlyOneExpiredSessionDeleteRequired": true,
+    "allOtherSessionRowsAndXminUnchanged": true,
+    "domainRowsXminAndFilesystemUnchanged": true,
+    "healthyRetryStatusNoWriteObserverByteIdentical": true,
+    "explicitOriginalGroupsPassed": 7,
+    "productionAuthCodeChanged": false
+  },
+  "windows": [
+    {
+      "label": "first-adapter-entry-and-create",
+      "documentsBefore": 10,
+      "sqlBefore": 2829,
+      "sqlAfter": 2505,
+      "checkoutsBefore": 80,
+      "checkoutsAfter": 80,
+      "wallMs": 3464.33,
+      "databaseMs": 1960.36,
+      "poolWaitMs": 5.33,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-1",
+      "documentsBefore": 11,
+      "sqlBefore": 2724,
+      "sqlAfter": 2400,
+      "checkoutsBefore": 46,
+      "checkoutsAfter": 46,
+      "wallMs": 2966.17,
+      "databaseMs": 1793.01,
+      "poolWaitMs": 4.81,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-2",
+      "documentsBefore": 12,
+      "sqlBefore": 2724,
+      "sqlAfter": 2400,
+      "checkoutsBefore": 46,
+      "checkoutsAfter": 46,
+      "wallMs": 2953.25,
+      "databaseMs": 1797.26,
+      "poolWaitMs": 4.33,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "same-original-idempotent-retry",
+      "documentsBefore": 13,
+      "sqlBefore": 198,
+      "sqlAfter": 194,
+      "checkoutsBefore": 7,
+      "checkoutsAfter": 7,
+      "wallMs": 204.63,
+      "databaseMs": 152.08,
+      "poolWaitMs": 0.08,
+      "peakConnections": 2,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    }
+  ],
+  "mainEngineBefore": {
+    "sql": 2589,
+    "checkouts": 39,
+    "currentObservations": 212,
+    "authorizationSql": 636
+  },
+  "mainEngineAfter": {
+    "sql": 2265,
+    "checkouts": 39,
+    "currentObservations": 212,
+    "authorizationSql": 636
+  },
+  "currentMcpWindows": [
+    {
+      "label": "first-adapter-entry-and-create",
+      "sql": 2618,
+      "checkouts": 50
+    },
+    {
+      "label": "warm-fresh-create-1",
+      "sql": 2597,
+      "checkouts": 37
+    },
+    {
+      "label": "warm-fresh-create-2",
+      "sql": 2597,
+      "checkouts": 37
+    },
+    {
+      "label": "same-original-idempotent-retry",
+      "sql": 129,
+      "checkouts": 12
+    }
+  ],
+  "currentMcpMatchedBaseComparisonClaimed": false,
+  "regressions": [
+    {
+      "label": "owner-snapshot10",
+      "suite": "scripts/workspace-file-lifecycle-owner-snapshot-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "source-owner",
+      "suite": "scripts/workspace-file-lifecycle-source-owner-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "upload16",
+      "suite": "scripts/authenticated-markdown-upload-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "projection15",
+      "suite": "scripts/authenticated-markdown-first-projection-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "manual15",
+      "suite": "scripts/authenticated-manual-markdown-create-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "native12",
+      "suite": "scripts/pi-markdown-create-postgres-entry.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "storage-phase2",
+      "suite": "scripts/agent-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "storage-commit2",
+      "suite": "scripts/agent-markdown-create-storage-commit-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "final12",
+      "suite": "scripts/agent-markdown-create-final-origin-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "explicit-original",
+      "suite": "scripts/explicit-original-markdown-import-postgres-test.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "agent10",
+      "suite": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+      "exitCode": 0
+    },
+    {
+      "label": "mcp10",
+      "suite": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+      "exitCode": 0
+    }
+  ],
+  "releaseTypeScriptDiagnostics": 0,
+  "scopedTestTypeScript": {
+    "roots": 33,
+    "sourceFiles": 5105,
+    "diagnostics": 0
+  },
+  "eslintPassedWithoutWarnings": true,
+  "warmAgentQueryGroups": [
+    {
+      "group": "other",
+      "statements": 172,
+      "percent": 7.2
+    },
+    {
+      "group": "catalogue",
+      "statements": 1100,
+      "percent": 45.8
+    },
+    {
+      "group": "session",
+      "statements": 36,
+      "percent": 1.5
+    },
+    {
+      "group": "agent",
+      "statements": 232,
+      "percent": 9.7
+    },
+    {
+      "group": "account",
+      "statements": 96,
+      "percent": 4.0
+    },
+    {
+      "group": "seat",
+      "statements": 280,
+      "percent": 11.7
+    },
+    {
+      "group": "workspace",
+      "statements": 66,
+      "percent": 2.8
+    },
+    {
+      "group": "transaction",
+      "statements": 145,
+      "percent": 6.0
+    },
+    {
+      "group": "document-state",
+      "statements": 215,
+      "percent": 9.0
+    },
+    {
+      "group": "document-registry",
+      "statements": 51,
+      "percent": 2.1
+    },
+    {
+      "group": "document-projection",
+      "statements": 7,
+      "percent": 0.3
+    }
+  ],
+  "diagnosticQueryGroupsAreHeuristic": true,
+  "originalIdentityContentNativeRowsMetadataXminFilesAndRetryPreserved": true,
+  "allAcceptedOwnedFixturesClosed": true,
+  "controlledLatencyGainClaimed": false,
+  "nestedScopesNotAdditive": true,
+  "largeCurrentMatrixStillRequired": true,
+  "currentBuildUiRegularSuiteAndNewHeadCiStillRequired": true,
+  "finalBudgetsMet": false,
+  "fullCentralServicePlanComplete": false
+}

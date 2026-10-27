@@ -354,3 +354,48 @@ deshalb keinen Produktbuild oder UI-Lauf.
 Dieser lokale Nachweis ersetzt nicht die Reparatur der ursprünglichen produktiven
 LinkedIn-Anlage. Aktueller großer Vergleich, finale Build-/UI-/Gesamtsuite, ungeklärter
 Member-Sperrfehler und die übrigen Service-/Recovery-/PR-/Release-Gates bleiben offen.
+
+## Identität und exklusive Workspace-Sperre gemeinsam frisch prüfen
+
+Der Importkoordinator prüft die tatsächliche dedizierte Lifecycle-Verbindung und
+ihre exklusive Advisory-Sperre jetzt mit einer frischen SQL-Anweisung statt der
+bisherigen drei Abfragen. Die vorhandene private Zuordnung von Lease, Verbindung
+und laufendem Kontext wird verwendet. Eine ersetzte Verifier-Funktion wird vor
+und nach dem Lesen abgewiesen; sie wird nicht als positiver Nachweis verwendet.
+Der vorhandene Owner-Abschluss registriert, verwirft und drainiert abgetrennte
+Leseaufrufe. Identitäts-SQL, Parser und acht vorhandene Lifecycle-Funktionen sind
+gegen die Grundlage bytegleich. Es entsteht kein Berechtigungs-Cache.
+
+Der [maschinenlesbare Nachweis](document-service-lifecycle-owner-snapshot-2026-10-27.json)
+bindet den Stand an `b9b8d4cea03a5c008c102a5124b190f3f4ee7269` und tatsächliche Quellen. Zehn neue
+PostgreSQL-Owner-Fälle prüfen echte und fremde Verbindungen, fingierte öffentliche
+Leases, ersetzte Verifier, tatsächliche search_path-Änderung, exklusiven
+Sperrverlust, unzureichende Shared-Sperren sowie geschlossene und abgetrennte
+Kontexte. 28 vorhandene Source-Owner-Familien, Upload, erste Projektion,
+Web-/Mobile-Anlage, native PI-Anlage, Storage-Phasen, echte COMMIT-Verluste,
+finale Origin-Prüfungen und sieben explizite Originalimport-Gruppen bestehen.
+Alle eigenen Fixtures schließen vollständig.
+
+| Agent, zehn reguläre Quellen | SQL vorher → aktuell | Ausleihen vorher → aktuell |
+| --- | ---: | ---: |
+| first-adapter-entry-and-create | 2829 → 2505 | 80 → 80 |
+| warm-fresh-create-1 | 2724 → 2400 | 46 → 46 |
+| warm-fresh-create-2 | 2724 → 2400 | 46 → 46 |
+| same-original-idempotent-retry | 198 → 194 | 7 → 7 |
+
+Das Create-Engine-Fenster sinkt von 2589 auf 2265 SQL-Aufrufe.
+Seine 212 aktuellen Berechtigungsbeobachtungen benötigen weiterhin
+636 SQL-Aufrufe. Verschachtelte Fenster werden nicht addiert;
+ein kontrollierter Latenzgewinn wird nicht behauptet. Vollständige Originalinhalte,
+native Identitäten, vorherige Zeilen/Metadaten/xmin/Dateien und die ursprüngliche
+Wiederholung bleiben geprüft. Die aktuelle MCP-Messung ist gesondert aufgezeichnet.
+
+Ein zusätzlich gestarteter Originalimport-Test schlug auch auf dem tatsächlichen
+vorherigen Produktstand fehl: Die Anmeldung löscht die absichtlich abgelaufene
+Sitzung bei ihrer Ablehnung. Der Test verlangt nun gesondert genau diese eine
+Sitzungslöschung sowie unveränderte übrige Sitzungszeilen/xmin, sämtliche
+Dokumentdaten/xmin und das Dateisystem. Die bisherige strikte Null-DML-Prüfung für
+gesunde Receipt-Wiederholung und Status bleibt bytegleich. Auth-Produktcode wird
+nicht geändert. Release-TypeScript, Test-TypeScript (5.105 Quellen, 33 Wurzeln)
+und ESLint ohne Warnungen bestehen. Aktuelle große Matrix, Build/UI,
+reguläres test:all und die übrigen Gesamtplan-/Rollout-Gates bleiben erforderlich.
