@@ -23,6 +23,7 @@ const criticalInputsByEntryPoint = {
     'app/api/files/operations/batches/[batchId]/route.ts',
     'app/lib/files/workspace-implicit-move-operation.ts', 'app/lib/files/workspace-implicit-move-phase.ts',
     'app/lib/collaboration/native-inspection-schema.ts', 'app/lib/files/workspace-operation-original-move-runner.ts',
+    'app/lib/files/workspace-operation-job-lifecycle-owner.ts',
     'app/lib/files/workspace-operation-batch-worker.ts', 'server/collaboration-server.ts',
     'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',
     'app/lib/observability/document-operation-metrics.ts'],

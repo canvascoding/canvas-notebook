@@ -96,6 +96,24 @@ Unverändertheitsprüfungen werden nach dem Fehler nicht mehr erreicht. Worker,
 Server, Pool, Clients, privates Schema und Datenverzeichnis schließen vollständig.
 Die größere Pfadaktion hat damit noch keine Abnahme.
 
+Ein weiterer Lauf mit unverändert regulärer Anlage und einer gemeinsamen
+Prüfgrammatik nur in der impliziten Übergabe kommt über diese erste Fehlerstelle:
+Die Übergabe erreicht `transferred` nach 4,393 Sekunden; Quellenprüfung und
+Planaufbau sind nach 0,456 beziehungsweise 1,167 Sekunden erreicht. Die ganze
+Pfadaktion bleibt dennoch rot. Nach rund 84,9 Sekunden endet ihr Messfenster mit
+40.860 SQL-Aufrufen / 3.747 Ausleihen im Vordergrund und 47.957 / 4.139 im
+Prozessfenster. Beim anschließenden vollständigen Worker-Drain protokolliert dessen
+B2-Abschlusstransaktion `SQLSTATE_25P04` nach 5,006 Sekunden in `receipt-proof`.
+Die zwei nativen Änderungen sind darin ausgeführt, ein COMMIT ist nicht versucht.
+Die abschließenden Erfolgs-/Unverändertheitsprüfungen sind nicht erreicht.
+
+Das Fenster endet vor dem Abschluss einer Worker-Abfrage. Seine Null bei
+`failedStatements` ist deshalb kein Beleg für einen fehlerfreien Worker. Die dort
+noch offene Abfrage/Verbindung und alle übrigen eigenen Ressourcen sind beim
+späteren Fixture-Abschluss vollständig geschlossen. Eine weitere, noch nicht
+abgenommene Korrektur verwendet die vorhandene Grammatik-Lebensdauer auch in den
+nativen Move-Worker-Phasen. Der reguläre 200er-Gegencheck dafür ist noch offen.
+
 Getrennte kalte/wiederholte Pfadaktionen sowie die Größen-/Wiederholungsmatrix
 für Agenten- und MCP-Neuanlagen sind weiterhin erforderlich und offen. Die bisherige vollständige Agenten-/MCP-Create-Regressionsprüfung
 ersetzt diese Messfelder nicht. Auch Verbindungsbündelung, inkrementelle Link-

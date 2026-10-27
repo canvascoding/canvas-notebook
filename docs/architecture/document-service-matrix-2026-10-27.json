@@ -3673,6 +3673,235 @@
         "Successful final document, link and unrelated-row assertions were not reached.",
         "Preparation used the normal upload service and asserted exactly 200 active native documents."
       ]
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "implicit-handoff-grammar-only",
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "action": "rename",
+      "failure": "public-file-action-did-not-finish",
+      "diagnosticCode": "SQLSTATE_25P04",
+      "productBase": "7ba5b704f7c4e9b1e7a6a3ebd45e90731b5fd36b",
+      "productPatch": {
+        "file": "app/lib/files/workspace-implicit-move-phase.ts",
+        "sha256": "ae023cde47398bbc4ac6545f64186ae41c5e7386c0bcfaf5defee3dc72879cfb",
+        "notYetCommitted": true
+      },
+      "operation": {
+        "component": "document_operation",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "failed",
+        "wallMs": 84880.71,
+        "statements": 40860,
+        "databaseMs": 30294.02,
+        "failedStatements": 0,
+        "poolWaitMs": 4253.67,
+        "checkouts": 3747,
+        "peakConnections": 2,
+        "openConnectionsAtCompletion": 0,
+        "openQueriesAtCompletion": 0,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "session",
+            "statements": 4698,
+            "databaseMs": 1966.82,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 4523,
+            "databaseMs": 1905.63,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 6360,
+            "databaseMs": 5357.04,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 3992,
+            "databaseMs": 3248.67,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 4394,
+            "databaseMs": 3701.55,
+            "failedStatements": 0
+          },
+          {
+            "group": "workspace",
+            "statements": 5547,
+            "databaseMs": 3315.45,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 10512,
+            "databaseMs": 10325.81,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 834,
+            "databaseMs": 473.06,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 84880.71,
+            "statements": 40860,
+            "databaseMs": 30294.02,
+            "failedStatements": 0
+          },
+          {
+            "phase": "authorization",
+            "calls": 1943,
+            "wallMs": 10098.61,
+            "statements": 15544,
+            "databaseMs": 9922.11,
+            "failedStatements": 0
+          }
+        ]
+      },
+      "processWindow": {
+        "component": "document_database_activity",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "failed",
+        "wallMs": 84880.99,
+        "statements": 47957,
+        "databaseMs": 49901.27,
+        "failedStatements": 0,
+        "poolWaitMs": 7866.65,
+        "checkouts": 4139,
+        "peakConnections": 6,
+        "openConnectionsAtCompletion": 1,
+        "openQueriesAtCompletion": 1,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "workspace",
+            "statements": 5823,
+            "databaseMs": 4450.24,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 8545,
+            "databaseMs": 12827.98,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 5372,
+            "databaseMs": 4416.67,
+            "failedStatements": 0
+          },
+          {
+            "group": "session",
+            "statements": 4698,
+            "databaseMs": 1966.82,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 4799,
+            "databaseMs": 2223.53,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 4186,
+            "databaseMs": 3562.21,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 13350,
+            "databaseMs": 19694.23,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 1162,
+            "databaseMs": 747.83,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-projection",
+            "statements": 12,
+            "databaseMs": 6.09,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-registry",
+            "statements": 10,
+            "databaseMs": 5.67,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 84880.99,
+            "statements": 47957,
+            "databaseMs": 49901.27,
+            "failedStatements": 0
+          }
+        ],
+        "coverage": "instrumented-runtime-process-window",
+        "scopedStatements": 40860,
+        "unscopedStatements": 7097
+      },
+      "implicitHandoff": {
+        "stage": "transferred",
+        "elapsedMs": 4393,
+        "sourceCollectedMs": 456,
+        "planBuiltMs": 1167,
+        "batchInsertedMs": 1405,
+        "admissionPreparedMs": 4151,
+        "finalReservedMs": 4393
+      },
+      "workerB2": {
+        "phaseIndex": 32,
+        "elapsedMs": 5006,
+        "currentStage": "receipt-proof",
+        "finishedCallback": false,
+        "forwardedQueries": 2113,
+        "mutationsCount": 2,
+        "mutationsCompleted": 2,
+        "originalSourceReadMs": 3731,
+        "mutateEnteredMs": 4138,
+        "mutationsAppliedMs": 4558,
+        "commitAttempted": false
+      },
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "Move and final document/unchanged-source invariants were not reached.",
+        "The failed process window ended before the outstanding worker query completed; SQLSTATE_25P04 was logged during the later worker drain. Zero failedStatements in that closed window does not mean the worker had no SQL failure.",
+        "OpenQueriesAtCompletion and openConnectionsAtCompletion are window-end facts; all owned resources closed afterwards.",
+        "Normal sequential upload setup, no synthetic cloned sources."
+      ]
     }
   ]
 }
