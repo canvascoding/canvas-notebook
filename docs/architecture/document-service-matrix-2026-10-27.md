@@ -219,7 +219,25 @@ nicht durch diese Backend-Abnahme belegt.
 Die Größen-/Wiederholungsmatrix für registrierte Agenten- und MCP-Neuanlagen ist
 inzwischen für beide Adapter mit 10 und 200 regulär angelegten Quellen abgeschlossen;
 der [Create-Vergleich](document-service-create-matrix-2026-10-27.md) enthält die
-16 vollständigen Aufruffenster und Quellenbelege. Getrennte kalte/wiederholte
-Pfadaktionen bleiben offen. Auch Verbindungsbündelung, inkrementelle Link-
-auflösung, gemeinsame Änderungspfade, Original-Recovery, endgültige Gesamtsuite,
-Backup-/Restore-Nachweis und kontrolliertes Release bleiben Teil des Gesamtplans.
+16 vollständigen Aufruffenster und Quellenbelege. Auch die getrennten ersten und
+wiederholten Rename-/Move-Aktionen sind inzwischen für 10 und 200 Quellen geprüft;
+der [Pfadvergleich](document-service-path-cold-warm-2026-10-27.md) enthält alle acht
+Prozessfenster und die darin enthaltenen Vordergrundmessungen. Alle acht Aktionen
+stellen Links und ursprüngliche Pfade korrekt wieder her; acht beziehungsweise
+198 unbeteiligte Quellen einschließlich des Starters bleiben unverändert.
+
+Damit liegen die geforderten Messbereiche vor: 18 HTTP-/Agent-/MCP-Lesefenster,
+zehn Editorfenster einschließlich Zutritt, direkter Owner-Verbindung und Projektion,
+16 Create-Fenster sowie acht getrennte Pfadaktionsfenster. Diese 52 Fenster sind
+keine 52 unabhängigen Tests; verschachtelte Servicewerte dürfen nicht addiert werden.
+Die Editor-Verbindungskonkurrenz ist durch administrative Stichproben belegt und
+ausdrücklich eine Untergrenze. Der tatsächliche direkte Owner-Client installiert
+`installDocumentClientQueryMetrics` vor `connect`; seine Abfragen sind enthalten.
+Die ergänzende echte Index-Route-Prüfung bei 10 und 200 Quellen bestätigt eine
+einzelne schmutzige Quelleninspektion, Neuaufbau-Parität, neue Zielauflösung,
+physische Änderungen und verweigerten Zugriff nach Rechtewiderruf.
+
+Dies schließt die Messbasis ab. Die gemeinsamen Verträge, weitere Datenbank- und
+Verbindungsbündelung, inkrementelle Linkauflösung, gemeinsame Änderungspfade,
+Original-Recovery, endgültige Leistungsbudgets und Gesamtsuite,
+Backup-/Restore-Nachweis sowie kontrolliertes Release bleiben Teil des Gesamtplans.

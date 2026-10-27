@@ -6,7 +6,6 @@
   "scope": "isolated-PG18-fixtures-not-production-latency",
   "warning": "Shared-service operations are subsets of process windows; do not add the two. Checkouts are pool leases, not newly established TCP connections.",
   "pending": [
-    "required-separate-cold-and-warm-public-rename-and-move-matrix",
     "all-remaining-central-service-plan-acceptance"
   ],
   "entries": [
@@ -6228,5 +6227,25 @@
     "datasets": 4,
     "callerWindows": 16,
     "status": "passed"
+  },
+  "currentSeparatePathMatrix": {
+    "report": "document-service-path-cold-warm-2026-10-27.md",
+    "data": "document-service-path-cold-warm-2026-10-27.json",
+    "measurementToolSource": "80e830a7621de7a2addcd6a38a70c61bb3c37fcf",
+    "datasets": 4,
+    "processWindows": 8,
+    "status": "passed",
+    "foregroundWindowsOverlapProcessWindows": true
+  },
+  "measurementInventory": {
+    "readerWindows": 18,
+    "editorWindows": 10,
+    "createWindows": 16,
+    "pathProcessWindows": 8,
+    "totalWindows": 52,
+    "nestedServiceMeasurementsNotAdditive": true,
+    "editorDedicatedOwnerSqlIncluded": true,
+    "editorConnectionConcurrencySamplingLowerBound": true,
+    "finalProductBudgetsPending": true
   }
 }
