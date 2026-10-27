@@ -58,3 +58,10 @@ normale Schreibmechanik, Original-Recovery und endgültige Leistungsbudgets blei
 offen. Der finale Produktstand braucht erneut Build/UI, reguläres `test:all`,
 PR/CI/Reviews, einen tatsächlichen Backup-/Restore-Nachweis und kontrolliertes
 Deployment in allen fünf Workspaces. Review Center und Undo werden nicht weiterentwickelt.
+
+Der saubere Produktcommit `f17b175ef92061cf635ee87d2c33c79202dc982c` besteht
+anschließend den vollständigen Produktionsbuild und 14 aktuelle Desktop-/Mobil-
+Integrationsmerkmale einschließlich zweier Peers, Offline/Reconnect und exakter
+Rückführung der Originalinhalte. Der [aktuelle UI-Nachweis](document-service-native-path-ui-2026-10-27.md#integration-nach-gebündelten-agenten-scope-lesern)
+trennt diese Editor-Integration von den tatsächlichen registrierten Agenten-Aufrufen.
+Die genannten abschließenden Gesamtplan-Gates bleiben offen.
