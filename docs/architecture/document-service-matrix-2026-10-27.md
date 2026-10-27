@@ -1,6 +1,8 @@
 # Dokumentservice: Vergleich kleiner und größerer Workspaces
 
-Stand: 27.10.2026. Produktcode `7ba5b704f`, Messwerkzeuge `b50605faa`.
+Stand: 27.10.2026. Frühere Datensätze: Produktcode `7ba5b704f`, Messwerkzeuge `b50605faa`.
+Die unten ausgewiesenen aktuellen 10er-/200er-Pfadprüfungen umfassen die sechs
+Produktkorrekturen aus `b8dc12cc35` mit einzeln gespeicherten SHA-256-Belegen.
 Dies ist eine Teilabnahme der Messbasis aus dem
 [Gesamtplan](../document-write-database-performance-plan.md), keine Freigabe des
 gesamten Serviceumbaus. Review Center und Undo werden nicht weiterentwickelt.
@@ -94,7 +96,7 @@ Transaktionslimit. Der gemessene Vordergrundvorgang umfasst 39.686 SQL-Aufrufe,
 vollständig gespeichertes Prozessfenster. Move und die abschließenden Inhalts-/
 Unverändertheitsprüfungen werden nach dem Fehler nicht mehr erreicht. Worker,
 Server, Pool, Clients, privates Schema und Datenverzeichnis schließen vollständig.
-Die größere Pfadaktion hat damit noch keine Abnahme.
+Zu diesem Zwischenstand war die größere Pfadaktion noch nicht abgenommen.
 
 Ein weiterer Lauf mit unverändert regulärer Anlage und einer gemeinsamen
 Prüfgrammatik nur in der impliziten Übergabe kommt über diese erste Fehlerstelle:
@@ -112,7 +114,107 @@ Das Fenster endet vor dem Abschluss einer Worker-Abfrage. Seine Null bei
 noch offene Abfrage/Verbindung und alle übrigen eigenen Ressourcen sind beim
 späteren Fixture-Abschluss vollständig geschlossen. Eine weitere, noch nicht
 abgenommene Korrektur verwendet die vorhandene Grammatik-Lebensdauer auch in den
-nativen Move-Worker-Phasen. Der reguläre 200er-Gegencheck dafür ist noch offen.
+nativen Move-Worker-Phasen. Der danach abgeschlossene reguläre 200er-Lauf
+verbessert auch diese Phase: Move-Vorbereitung 2,605 Sekunden und B2-Callback
+4,413 Sekunden einschließlich finaler Quellenprüfung. Die öffentliche Aktion
+bleibt dennoch rot, weil ihre Frist vor dem vollständigen Worker-Abschluss endet
+(84,6 Sekunden, 41.203 SQL-Aufrufe / 3.814 Ausleihen im Vordergrund).
+Ein abgeschlossener Callback beweist keinen COMMIT. Die abschließenden Inhalts-/
+Unverändertheitsprüfungen werden auch in diesem fehlgeschlagenen Lauf nicht erreicht.
+
+Die weitere Korrektur bündelt höchstens acht ursprüngliche Dokumente je echter
+Principal-/Verbindungsphase. Jedes Ziel behält seine Freigabe-/Zustandsprüfung und
+eine frische Rechte-/Realm-Prüfung danach. Vor dem nächsten Ziel wird die originale
+Gesamtfrist geprüft; die Fünf-Sekunden-Grenzen bleiben erhalten. Die 44 Koordinator-
+Tests bestehen. Im zusätzlichen echten PostgreSQL-Gegencheck führt ein innerhalb
+von B nach dem ersten tatsächlichen Freigabe-ACK gesperrter Account zu HTTP 403
+(`SEAT_ACCESS_INACTIVE`): kein zweiter Freigabeschreibvorgang, zurückgerollter erster
+Beleg, unveränderte native Daten/Metadaten/`xmin` sowie physische Bytes und Identitäten.
+Alle eigenen Ressourcen schließen.
+
+Als Zwischenprüfung bestehen Rename und Move bei **20 regulär angelegten
+Dokumenten** einschließlich beider Linkrichtungen, stabiler Dokumentidentitäten,
+aktueller nativer/physischer Checkpoints und 17 unveränderter unbeteiligter Quellen.
+Jeweils 1.785 SQL-Aufrufe / 174 Ausleihen liegen im Vordergrund; die vollständigen
+Prozessfenster umfassen 5.730 / 443 beziehungsweise 5.660 / 405. Die 32,4/30,1 Sekunden
+enthalten weiterhin das Warten auf den regulären Projektionsscan. Diese Zwischen-
+prüfung ersetzt die erforderliche 200er-Abnahme nicht. Der weitere reguläre
+200er-Lauf mit der Bündelung scheitert in der Worker-Vorprüfung nach 5,028 Sekunden
+(`BATCH_EXECUTION_FAILED`, HTTP 409); im Vordergrund liegen 8.125 SQL-Aufrufe /
+340 Ausleihen. Alle eigenen Ressourcen schließen vollständig.
+
+Ein ausdrücklich diagnostischer Aufbau klont nur unbeteiligte Quellen aus einer
+regulär angelegten Vorlage. Die Ziel-/Linkdokumente, öffentlichen Routen und Worker
+bleiben echt. Diese Diagnose ersetzt keine normale Upload-Abnahme. Sie reproduziert
+zunächst denselben Vorprüfungsfehler nach 5,122 Sekunden. Die vorhandene Grammatik-
+Lebensdauer nun auch in Auswahl und tatsächlicher Move-Vorprüfung behebt diese
+Fehlerstelle; der danach weiterhin rote Diagnosefall scheitert in B2 bei der
+Abschlussbestätigung nach 5,013 Sekunden. Ein COMMIT wird nicht versucht.
+
+Die nächste Korrektur liest und sperrt alle abschließenden nativen Zustände in
+einem SQL-Zugriff und bestätigt die exakte Zielmenge mit einem gemeinsamen UPDATE
+und RETURNING. Jeder Zustands-/Versions-/Bytevergleich und die tatsächlichen
+Transaktions-/Berechtigungsgrenzen bleiben erhalten. Die 21 bisherigen echten
+PostgreSQL-Übergabeprüfungen sowie zwei zusätzliche Fälle bestehen: vollständige
+Dreiziel-Bestätigung und atomarer Rollback, wenn ein echter Datenbank-Trigger eine
+Bestätigung unterdrückt. Die Abschlussbündelung allein reicht noch nicht:
+Der danach rote Diagnosefall überschreitet bereits bei der finalen Quellenprüfung
+5,027 Sekunden; die neue Abschlussbestätigung wird nicht erreicht.
+
+Die weitere Korrektur bündelt auch die frischen Freigabenachweis-Lesungen. Header,
+Zielmenge und native Zustände werden in drei Grundabfragen gelesen und gesperrt;
+jeder bisherige Validator läuft weiterhin über die tatsächlichen Zeilen. Zusätzlich
+erforderliche Release-/Historienlesungen bleiben erhalten. Die endgültige lokale
+Typprüfung, ESLint, 44 Koordinator-Tests und 24 + 18 echte PostgreSQL-Prüffälle
+bestehen. Der zusätzliche Fall prüft veränderte gültige Bytes am letzten Ziel bei
+unveränderter Sequenz und weist sie vor jeder fachlichen Änderung ab.
+
+Im danach abgeschlossenen Diagnosefall erreichen Rename und Move jeweils den
+öffentlichen Erfolgszustand und den nativen/physikalischen Link-Checkpoint. Die
+B2-Callbacks benötigen 4,211/4,514 Sekunden und je 610 SQL-Aufrufe. Der gesamte
+Diagnosefall bleibt ausdrücklich **rot**: Der abschließende Vergleich meldet
+veränderte unbeteiligte native Datenbankzeilen beziehungsweise xmin. Die noch
+folgende Prüfung der unbeteiligten physischen Dateien wird deshalb nicht erreicht.
+Der Diagnoseaufbau kopiert nur Registry, Lineage, nativen Zustand und Datei,
+jedoch keine dauerhaften Projektions-/Revisionsbelege. Der tatsächliche
+Projektionsleser klassifiziert solche Einträge ausdrücklich als offen; der
+laufende Projektor bearbeitet sie und kann Fehlerstatus in nativen Zeilen
+speichern. Dieser Aufbau eignet sich damit nicht für die abschließende
+Unverändertheitsabnahme und wurde aus dem Prüflauf entfernt.
+
+Der vollständige **200er-Lauf über reguläre Uploads ist jetzt grün**, einschließlich
+beider öffentlichen Aktionen und vollständiger eigener Ressourcenbereinigung.
+Rename/Move benötigen im Vordergrund 8.511 SQL-Aufrufe / 783 Ausleihen
+beziehungsweise 8.554 / 798. Die vollständigen Prozessfenster umfassen
+22.101 / 1.282 beziehungsweise 22.010 / 1.248. Die B2-Callbacks erreichen
+4,557/4,501 Sekunden bei je 610 SQL-Aufrufen; der öffentliche Erfolgszustand und
+die nachfolgende native/physische Konvergenz bestätigen anschließend den
+vollständigen Ablauf. Beide Linkrichtungen und die Identitäten der betroffenen
+Dokumente stimmen. Alle 197 separat erfassten unbeteiligten Quellen behalten
+native Zeilen, Metadaten, xmin und physische Bytes. Der Fixture-Starter liegt
+außerhalb dieser 197 zusätzlichen Unverändertheitssnapshots.
+
+Die vollständigen 92,8/90,4 Sekunden umfassen weiterhin die Freigabephasen und den
+regulären Projektionsscan. Das sind noch keine endgültigen Leistungsbudgets und
+kein Produktions-Latenzvergleich mit den vorher abgebrochenen Abläufen. Separate
+kalte/warme Aktionen bleiben erforderlich. Die Produktkorrekturen sind als
+`b8dc12cc35` committed. Alle 22 tatsächlichen Original-Move-Fälle, der echte
+Own-B-Rechtewiderruf, alle 43 gemeinsamen Dateiaktionsfälle und alle 26 nativen
+Kopierfälle bestehen mit vollständiger eigener Ressourcenbereinigung. Im Live-
+Room-Test verwenden der rohe initiale Planaufbau und der historische Nur-Lese-
+Vergleich die bereits vorhandene tatsächliche Projektions-/Workspace-Sperrgrenze;
+keine SQL-Schreibbeobachtung oder Datenprüfung wurde ausgefiltert.
+
+Der bereinigte, ausschließlich reguläre 10er-Lauf besteht ebenfalls auf denselben
+sechs Produktdateien: Rename/Move mit 1.385/1.381 SQL-Aufrufen und 152/148 Ausleihen
+im Vordergrund. Die Prozessfenster umfassen 4.668/4.536 Aufrufe und 424/374
+Ausleihen; die vollständigen Dauern liegen bei 32,5/29,9 Sekunden. Alle sieben
+zusätzlich erfassten unbeteiligten Quellen behalten native Zeilen, Metadaten,
+xmin und physische Bytes. Die aktuelle 10er-/200er-Gegenüberstellung ist damit
+belegt. Die Typprüfung aller fünf geänderten Testmodule (5.140 Quelldateien)
+liefert null Diagnosen; ESLint ist grün. Aktueller Produktionsbuild, gerenderte
+Desktop-/Mobilprüfung, reguläres test:all und CI dieses neuen Standes sind noch
+nicht durch diese Backend-Abnahme belegt.
 
 Getrennte kalte/wiederholte Pfadaktionen sowie die Größen-/Wiederholungsmatrix
 für Agenten- und MCP-Neuanlagen sind weiterhin erforderlich und offen. Die bisherige vollständige Agenten-/MCP-Create-Regressionsprüfung

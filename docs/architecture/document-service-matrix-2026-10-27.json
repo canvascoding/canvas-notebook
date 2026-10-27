@@ -6,7 +6,6 @@
   "scope": "isolated-PG18-fixtures-not-production-latency",
   "warning": "Shared-service operations are subsets of process windows; do not add the two. Checkouts are pool leases, not newly established TCP connections.",
   "pending": [
-    "fix-and-rerun-public-path-operations-200-timeout",
     "required-separate-cold-and-warm-public-rename-and-move-matrix",
     "agent-and-MCP-create-cold-warm-size-matrix",
     "all-remaining-central-service-plan-acceptance"
@@ -3395,172 +3394,1131 @@
     {
       "fixture": "public-document-path-operations",
       "adapter": "public-path-operations",
-      "nativeDocuments": 10,
+      "nativeDocuments": 200,
       "scope": "actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware",
+      "passed": true,
+      "seedMode": "normal-upload",
       "proof": {
-        "unrelatedSourcesUnchanged": 7
+        "unrelatedSourcesUnchanged": 197,
+        "nativeRowsMetadataAndXminUnchanged": true,
+        "physicalBytesUnchanged": true,
+        "bidirectionalLinksCorrect": true,
+        "targetAndIncomingDocumentIdsAndLineagesStable": true,
+        "nativeAndPhysicalCheckpointsConverged": true,
+        "allOwnedCleanup": true
       },
       "profiles": [
         {
           "label": "public-web-rename-including-preview-and-completion",
           "measurement": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "rename",
+            "actor": "request",
             "outcome": "succeeded",
-            "wallMs": 32725.83,
-            "statements": 5469,
-            "databaseMs": 6233.79,
+            "wallMs": 92849.78,
+            "statements": 22101,
+            "databaseMs": 49035.35,
             "failedStatements": 0,
-            "poolWaitMs": 1735.64,
-            "checkouts": 501,
-            "peakConnections": 4,
+            "poolWaitMs": 9485.02,
+            "checkouts": 1282,
+            "peakConnections": 6,
             "openConnectionsAtCompletion": 0,
             "openQueriesAtCompletion": 0,
             "unsupportedQueryForms": 0,
-            "scopedStatements": 2087,
-            "unscopedStatements": 3382,
             "queryGroups": [
               {
                 "group": "workspace",
-                "statements": 469,
-                "databaseMs": 343.54,
+                "statements": 1602,
+                "databaseMs": 2171.97,
                 "failedStatements": 0
               },
               {
                 "group": "other",
-                "statements": 1268,
-                "databaseMs": 1329.65,
+                "statements": 5601,
+                "databaseMs": 10634.63,
                 "failedStatements": 0
               },
               {
                 "group": "transaction",
-                "statements": 491,
-                "databaseMs": 468.05,
+                "statements": 2348,
+                "databaseMs": 3436.56,
                 "failedStatements": 0
               },
               {
                 "group": "session",
-                "statements": 215,
-                "databaseMs": 87.26,
+                "statements": 804,
+                "databaseMs": 1024.45,
                 "failedStatements": 0
               },
               {
                 "group": "account",
-                "statements": 380,
-                "databaseMs": 137.94,
+                "statements": 1401,
+                "databaseMs": 1851.67,
                 "failedStatements": 0
               },
               {
                 "group": "seat",
-                "statements": 279,
-                "databaseMs": 194.78,
+                "statements": 1132,
+                "databaseMs": 1650.12,
                 "failedStatements": 0
               },
               {
                 "group": "catalogue",
-                "statements": 2071,
-                "databaseMs": 3210.21,
+                "statements": 8399,
+                "databaseMs": 26993.69,
                 "failedStatements": 0
               },
               {
                 "group": "document-state",
-                "statements": 232,
-                "databaseMs": 428.61,
+                "statements": 750,
+                "databaseMs": 1223.46,
                 "failedStatements": 0
               },
               {
                 "group": "document-projection",
                 "statements": 25,
-                "databaseMs": 15.43,
+                "databaseMs": 25.67,
                 "failedStatements": 0
               },
               {
                 "group": "document-registry",
                 "statements": 39,
-                "databaseMs": 18.33,
+                "databaseMs": 23.12,
                 "failedStatements": 0
               }
-            ]
+            ],
+            "phases": [
+              {
+                "phase": "operation",
+                "calls": 1,
+                "wallMs": 92849.78,
+                "statements": 22101,
+                "databaseMs": 49035.35,
+                "failedStatements": 0
+              }
+            ],
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 8511,
+            "unscopedStatements": 13590
           }
         },
         {
           "label": "public-mobile-move-including-preview-and-completion",
           "measurement": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "move",
+            "actor": "request",
             "outcome": "succeeded",
-            "wallMs": 29623.39,
-            "statements": 5322,
-            "databaseMs": 6607.22,
+            "wallMs": 90389.6,
+            "statements": 22010,
+            "databaseMs": 52727.36,
             "failedStatements": 0,
-            "poolWaitMs": 2166.79,
-            "checkouts": 447,
-            "peakConnections": 3,
+            "poolWaitMs": 9180.79,
+            "checkouts": 1248,
+            "peakConnections": 5,
             "openConnectionsAtCompletion": 0,
             "openQueriesAtCompletion": 0,
             "unsupportedQueryForms": 0,
-            "scopedStatements": 2087,
-            "unscopedStatements": 3235,
             "queryGroups": [
               {
                 "group": "session",
-                "statements": 215,
-                "databaseMs": 92.11,
+                "statements": 806,
+                "databaseMs": 548.41,
                 "failedStatements": 0
               },
               {
                 "group": "account",
-                "statements": 390,
-                "databaseMs": 143.53,
+                "statements": 1425,
+                "databaseMs": 1356.23,
                 "failedStatements": 0
               },
               {
                 "group": "other",
-                "statements": 1160,
-                "databaseMs": 1795.3,
+                "statements": 5504,
+                "databaseMs": 13024.27,
                 "failedStatements": 0
               },
               {
                 "group": "seat",
-                "statements": 285,
-                "databaseMs": 209.57,
+                "statements": 1144,
+                "databaseMs": 2285.53,
                 "failedStatements": 0
               },
               {
                 "group": "transaction",
-                "statements": 464,
-                "databaseMs": 363.55,
+                "statements": 2331,
+                "databaseMs": 4231.4,
                 "failedStatements": 0
               },
               {
                 "group": "workspace",
-                "statements": 442,
-                "databaseMs": 307.86,
+                "statements": 1584,
+                "databaseMs": 2393.56,
                 "failedStatements": 0
               },
               {
                 "group": "catalogue",
-                "statements": 2108,
-                "databaseMs": 3488.74,
+                "statements": 8438,
+                "databaseMs": 27437.74,
                 "failedStatements": 0
               },
               {
                 "group": "document-state",
-                "statements": 214,
-                "databaseMs": 188.76,
+                "statements": 734,
+                "databaseMs": 1426.82,
                 "failedStatements": 0
               },
               {
                 "group": "document-registry",
                 "statements": 30,
-                "databaseMs": 11.79,
+                "databaseMs": 15.98,
                 "failedStatements": 0
               },
               {
                 "group": "document-projection",
                 "statements": 14,
-                "databaseMs": 6.02,
+                "databaseMs": 7.43,
                 "failedStatements": 0
               }
-            ]
+            ],
+            "phases": [
+              {
+                "phase": "operation",
+                "calls": 1,
+                "wallMs": 90389.6,
+                "statements": 22010,
+                "databaseMs": 52727.36,
+                "failedStatements": 0
+              }
+            ],
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 8554,
+            "unscopedStatements": 13456
           }
         }
+      ],
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 92849.41,
+          "statements": 8511,
+          "databaseMs": 9800.38,
+          "failedStatements": 0,
+          "poolWaitMs": 3692.97,
+          "checkouts": 783,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 804,
+              "databaseMs": 1024.45,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 797,
+              "databaseMs": 1114.07,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 2389,
+              "databaseMs": 3161.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 686,
+              "databaseMs": 1070.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 938,
+              "databaseMs": 1003.96,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 1001,
+              "databaseMs": 757.46,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 1640,
+              "databaseMs": 1408.59,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 256,
+              "databaseMs": 259.26,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 92849.41,
+              "statements": 8511,
+              "databaseMs": 9800.38,
+              "failedStatements": 0
+            },
+            {
+              "phase": "authorization",
+              "calls": 339,
+              "wallMs": 2352.91,
+              "statements": 2712,
+              "databaseMs": 2317.31,
+              "failedStatements": 0
+            }
+          ]
+        },
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "move",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 90389.25,
+          "statements": 8554,
+          "databaseMs": 11606.52,
+          "failedStatements": 0,
+          "poolWaitMs": 2691.25,
+          "checkouts": 798,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 806,
+              "databaseMs": 548.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 811,
+              "databaseMs": 889.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 2396,
+              "databaseMs": 4792.15,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 692,
+              "databaseMs": 927.02,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 946,
+              "databaseMs": 1132.86,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 1007,
+              "databaseMs": 1128.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 1640,
+              "databaseMs": 1932.08,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 256,
+              "databaseMs": 255.3,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 90389.25,
+              "statements": 8554,
+              "databaseMs": 11606.52,
+              "failedStatements": 0
+            },
+            {
+              "phase": "authorization",
+              "calls": 339,
+              "wallMs": 2237.98,
+              "statements": 2712,
+              "databaseMs": 2202.74,
+              "failedStatements": 0
+            }
+          ]
+        }
+      ],
+      "workerB2": [
+        {
+          "version": 1,
+          "phaseIndex": 32,
+          "elapsedMs": 4557,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 469,
+          "mutationMaxMs": 310,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 98,
+          "receiptProofMs": 48,
+          "namespaceMs": 46,
+          "finalSourceMs": 848,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 173,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 303,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 630,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 757,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 2070,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 2074,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 2271,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 2413,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 2988,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 4248,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 4556,
+              "forwardedQueries": 609
+            }
+          ]
+        },
+        {
+          "version": 1,
+          "phaseIndex": 33,
+          "elapsedMs": 4501,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 524,
+          "mutationMaxMs": 356,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 90,
+          "receiptProofMs": 48,
+          "namespaceMs": 54,
+          "finalSourceMs": 829,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 203,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 329,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 648,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 734,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 1862,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 1865,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 2113,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 2263,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 2896,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 4327,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 4501,
+              "forwardedQueries": 609
+            }
+          ]
+        }
+      ],
+      "productBase": "0341e31f26ee0efb0c55976ab514dcde1487fa73",
+      "logBasename": "canvas-public-path200-normal-batched-proofs-1793071400.log",
+      "limitations": [
+        "Single fresh process: Rename followed by Move; separate cold/warm path matrix remains open.",
+        "The fixture starter is outside the 197 unrelated row/xmin/physical snapshots.",
+        "Successful full flow still takes about 90 seconds including regular projection convergence; final performance budgets remain unmet."
+      ],
+      "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a",
+      "productFiles": [
+        {
+          "file": "app/lib/collaboration/room-admission-handoff.ts",
+          "sha256": "6f59eb593705c84125dd10f33c7f0a29a473d20142886a688aeb87d6b2768a03"
+        },
+        {
+          "file": "app/lib/collaboration/room-admission-quiescence.ts",
+          "sha256": "e17ba04ff71fef3280dd4fb038b948f56ec4fd512d8e0bcb790760f931a53723"
+        },
+        {
+          "file": "app/lib/files/workspace-implicit-move-operation.ts",
+          "sha256": "bc31776617552cc4cfbe67a1132ce133b5e5d7da84fcc10f8e6738babd4115e2"
+        },
+        {
+          "file": "app/lib/files/workspace-implicit-move-phase.ts",
+          "sha256": "ae023cde47398bbc4ac6545f64186ae41c5e7386c0bcfaf5defee3dc72879cfb"
+        },
+        {
+          "file": "app/lib/files/workspace-operation-job-lifecycle-owner.ts",
+          "sha256": "8f0821a0f153f17e1cb9ab1067279881718c398311e0b73a25a455914dc59b2e"
+        },
+        {
+          "file": "app/lib/markdown/native-file-operation-handoff.ts",
+          "sha256": "1da0477c5b0ad8d7c52e31a5dfb816927e49569328c839c6843808c7f7549dba"
+        }
+      ],
+      "testHarnessNote": "Actual normal-upload branch before retiring the separate diagnostic clone option; six product file hashes match this commit."
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "adapter": "public-path-operations",
+      "nativeDocuments": 10,
+      "scope": "actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware",
+      "passed": true,
+      "seedMode": "normal-upload",
+      "proof": {
+        "unrelatedSourcesUnchanged": 7,
+        "nativeRowsMetadataAndXminUnchanged": true,
+        "physicalBytesUnchanged": true,
+        "bidirectionalLinksCorrect": true,
+        "targetAndIncomingDocumentIdsAndLineagesStable": true,
+        "nativeAndPhysicalCheckpointsConverged": true,
+        "allOwnedCleanup": true
+      },
+      "profiles": [
+        {
+          "label": "public-web-rename-including-preview-and-completion",
+          "measurement": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "rename",
+            "actor": "request",
+            "outcome": "succeeded",
+            "wallMs": 32516.58,
+            "statements": 4668,
+            "databaseMs": 5967.89,
+            "failedStatements": 0,
+            "poolWaitMs": 1777.14,
+            "checkouts": 424,
+            "peakConnections": 5,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "queryGroups": [
+              {
+                "group": "workspace",
+                "statements": 370,
+                "databaseMs": 284.44,
+                "failedStatements": 0
+              },
+              {
+                "group": "other",
+                "statements": 1118,
+                "databaseMs": 1475.2,
+                "failedStatements": 0
+              },
+              {
+                "group": "transaction",
+                "statements": 417,
+                "databaseMs": 482.59,
+                "failedStatements": 0
+              },
+              {
+                "group": "session",
+                "statements": 135,
+                "databaseMs": 71.72,
+                "failedStatements": 0
+              },
+              {
+                "group": "account",
+                "statements": 292,
+                "databaseMs": 117.59,
+                "failedStatements": 0
+              },
+              {
+                "group": "seat",
+                "statements": 207,
+                "databaseMs": 154.14,
+                "failedStatements": 0
+              },
+              {
+                "group": "catalogue",
+                "statements": 1885,
+                "databaseMs": 2947.71,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-state",
+                "statements": 180,
+                "databaseMs": 369.57,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-projection",
+                "statements": 25,
+                "databaseMs": 38.7,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-registry",
+                "statements": 39,
+                "databaseMs": 26.24,
+                "failedStatements": 0
+              }
+            ],
+            "phases": [
+              {
+                "phase": "operation",
+                "calls": 1,
+                "wallMs": 32516.57,
+                "statements": 4668,
+                "databaseMs": 5967.89,
+                "failedStatements": 0
+              }
+            ],
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 1385,
+            "unscopedStatements": 3283
+          }
+        },
+        {
+          "label": "public-mobile-move-including-preview-and-completion",
+          "measurement": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "move",
+            "actor": "request",
+            "outcome": "succeeded",
+            "wallMs": 29893.41,
+            "statements": 4536,
+            "databaseMs": 5386.93,
+            "failedStatements": 0,
+            "poolWaitMs": 1588.69,
+            "checkouts": 374,
+            "peakConnections": 4,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "queryGroups": [
+              {
+                "group": "session",
+                "statements": 135,
+                "databaseMs": 55.99,
+                "failedStatements": 0
+              },
+              {
+                "group": "account",
+                "statements": 302,
+                "databaseMs": 112.8,
+                "failedStatements": 0
+              },
+              {
+                "group": "other",
+                "statements": 1013,
+                "databaseMs": 1084.75,
+                "failedStatements": 0
+              },
+              {
+                "group": "seat",
+                "statements": 213,
+                "databaseMs": 197.02,
+                "failedStatements": 0
+              },
+              {
+                "group": "transaction",
+                "statements": 395,
+                "databaseMs": 375.47,
+                "failedStatements": 0
+              },
+              {
+                "group": "workspace",
+                "statements": 346,
+                "databaseMs": 295.76,
+                "failedStatements": 0
+              },
+              {
+                "group": "catalogue",
+                "statements": 1924,
+                "databaseMs": 3094.7,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-state",
+                "statements": 164,
+                "databaseMs": 152.69,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-registry",
+                "statements": 30,
+                "databaseMs": 11.67,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-projection",
+                "statements": 14,
+                "databaseMs": 6.09,
+                "failedStatements": 0
+              }
+            ],
+            "phases": [
+              {
+                "phase": "operation",
+                "calls": 1,
+                "wallMs": 29893.41,
+                "statements": 4536,
+                "databaseMs": 5386.93,
+                "failedStatements": 0
+              }
+            ],
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 1381,
+            "unscopedStatements": 3155
+          }
+        }
+      ],
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 32516.27,
+          "statements": 1385,
+          "databaseMs": 1107.87,
+          "failedStatements": 0,
+          "poolWaitMs": 156.5,
+          "checkouts": 152,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 135,
+              "databaseMs": 71.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 131,
+              "databaseMs": 52.3,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 307,
+              "databaseMs": 292.52,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 112,
+              "databaseMs": 81.63,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 115,
+              "databaseMs": 100.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 168,
+              "databaseMs": 83.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 351,
+              "databaseMs": 367.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 66,
+              "databaseMs": 57.36,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 32516.25,
+              "statements": 1385,
+              "databaseMs": 1107.87,
+              "failedStatements": 0
+            },
+            {
+              "phase": "authorization",
+              "calls": 57,
+              "wallMs": 301.16,
+              "statements": 456,
+              "databaseMs": 294.06,
+              "failedStatements": 0
+            }
+          ]
+        },
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "move",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 29893.26,
+          "statements": 1381,
+          "databaseMs": 1138.88,
+          "failedStatements": 0,
+          "poolWaitMs": 245.94,
+          "checkouts": 148,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 135,
+              "databaseMs": 55.99,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 131,
+              "databaseMs": 53.33,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 303,
+              "databaseMs": 256.37,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 112,
+              "databaseMs": 122.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 115,
+              "databaseMs": 69.79,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 168,
+              "databaseMs": 146.46,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 351,
+              "databaseMs": 384.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 66,
+              "databaseMs": 49.65,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 29893.26,
+              "statements": 1381,
+              "databaseMs": 1138.88,
+              "failedStatements": 0
+            },
+            {
+              "phase": "authorization",
+              "calls": 57,
+              "wallMs": 400.92,
+              "statements": 456,
+              "databaseMs": 393.9,
+              "failedStatements": 0
+            }
+          ]
+        }
+      ],
+      "workerB2": [
+        {
+          "version": 1,
+          "phaseIndex": 9,
+          "elapsedMs": 1079,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 153,
+          "mutationMaxMs": 81,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 57,
+          "receiptProofMs": 6,
+          "namespaceMs": 10,
+          "finalSourceMs": 100,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 103,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 117,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 167,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 226,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 442,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 443,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 489,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 562,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 766,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 1018,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 1078,
+              "forwardedQueries": 609
+            }
+          ]
+        },
+        {
+          "version": 1,
+          "phaseIndex": 10,
+          "elapsedMs": 983,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 159,
+          "mutationMaxMs": 88,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 38,
+          "receiptProofMs": 7,
+          "namespaceMs": 27,
+          "finalSourceMs": 103,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 107,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 120,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 169,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 225,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 378,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 379,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 432,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 477,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 687,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 943,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 982,
+              "forwardedQueries": 609
+            }
+          ]
+        }
+      ],
+      "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a",
+      "productFiles": [
+        {
+          "file": "app/lib/collaboration/room-admission-handoff.ts",
+          "sha256": "6f59eb593705c84125dd10f33c7f0a29a473d20142886a688aeb87d6b2768a03"
+        },
+        {
+          "file": "app/lib/collaboration/room-admission-quiescence.ts",
+          "sha256": "e17ba04ff71fef3280dd4fb038b948f56ec4fd512d8e0bcb790760f931a53723"
+        },
+        {
+          "file": "app/lib/files/workspace-implicit-move-operation.ts",
+          "sha256": "bc31776617552cc4cfbe67a1132ce133b5e5d7da84fcc10f8e6738babd4115e2"
+        },
+        {
+          "file": "app/lib/files/workspace-implicit-move-phase.ts",
+          "sha256": "ae023cde47398bbc4ac6545f64186ae41c5e7386c0bcfaf5defee3dc72879cfb"
+        },
+        {
+          "file": "app/lib/files/workspace-operation-job-lifecycle-owner.ts",
+          "sha256": "8f0821a0f153f17e1cb9ab1067279881718c398311e0b73a25a455914dc59b2e"
+        },
+        {
+          "file": "app/lib/markdown/native-file-operation-handoff.ts",
+          "sha256": "1da0477c5b0ad8d7c52e31a5dfb816927e49569328c839c6843808c7f7549dba"
+        }
+      ],
+      "testHarnessNote": "Normal-only runner after diagnostic option retirement. Same six product source hashes as size200.",
+      "logBasename": "canvas-public-path10-native-proof-sets-current.log",
+      "limitations": [
+        "Rename followed by Move in one fresh process; separate cold/warm matrix remains open.",
+        "Starter is outside the seven additional unrelated snapshots."
       ]
     }
   ],
@@ -3902,6 +4860,1366 @@
         "OpenQueriesAtCompletion and openConnectionsAtCompletion are window-end facts; all owned resources closed afterwards.",
         "Normal sequential upload setup, no synthetic cloned sources."
       ]
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "both-grammar-scopes-before-implicit-groups",
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failure": "public-file-action-did-not-finish before unchanged status deadline",
+      "productBase": "7ba5b704f7c4e9b1e7a6a3ebd45e90731b5fd36b",
+      "productPatchFiles": [
+        {
+          "file": "app/lib/files/workspace-implicit-move-phase.ts",
+          "sha256": "ae023cde47398bbc4ac6545f64186ae41c5e7386c0bcfaf5defee3dc72879cfb"
+        },
+        {
+          "file": "app/lib/files/workspace-operation-job-lifecycle-owner.ts",
+          "sha256": "27528fb38a71b4f9fff3ed27ed5b612c334d0d37fe47459dbf5aced324d998c0"
+        }
+      ],
+      "operation": {
+        "component": "document_operation",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "failed",
+        "wallMs": 84609.55,
+        "statements": 41203,
+        "databaseMs": 28355.28,
+        "failedStatements": 0,
+        "poolWaitMs": 1849.8,
+        "checkouts": 3814,
+        "peakConnections": 2,
+        "openConnectionsAtCompletion": 0,
+        "openQueriesAtCompletion": 0,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "session",
+            "statements": 4729,
+            "databaseMs": 1868.89,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 4594,
+            "databaseMs": 2231.97,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 6405,
+            "databaseMs": 3443.82,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 4033,
+            "databaseMs": 2939.64,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 4444,
+            "databaseMs": 4009.52,
+            "failedStatements": 0
+          },
+          {
+            "group": "workspace",
+            "statements": 5596,
+            "databaseMs": 2724.75,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 10566,
+            "databaseMs": 10667.93,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 836,
+            "databaseMs": 468.76,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 84609.55,
+            "statements": 41203,
+            "databaseMs": 28355.28,
+            "failedStatements": 0
+          },
+          {
+            "phase": "authorization",
+            "calls": 1953,
+            "wallMs": 10067.58,
+            "statements": 15624,
+            "databaseMs": 9886.01,
+            "failedStatements": 0
+          }
+        ]
+      },
+      "processWindow": {
+        "component": "document_database_activity",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "failed",
+        "wallMs": 84609.78,
+        "statements": 48935,
+        "databaseMs": 50358.93,
+        "failedStatements": 0,
+        "poolWaitMs": 6014.78,
+        "checkouts": 4225,
+        "peakConnections": 6,
+        "openConnectionsAtCompletion": 1,
+        "openQueriesAtCompletion": 1,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "workspace",
+            "statements": 5899,
+            "databaseMs": 3281.84,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 8685,
+            "databaseMs": 11255.63,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 5474,
+            "databaseMs": 4941.63,
+            "failedStatements": 0
+          },
+          {
+            "group": "session",
+            "statements": 4729,
+            "databaseMs": 1868.89,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 4899,
+            "databaseMs": 2366.91,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 4252,
+            "databaseMs": 3175.75,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 13796,
+            "databaseMs": 22519.12,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 1179,
+            "databaseMs": 938.79,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-projection",
+            "statements": 12,
+            "databaseMs": 5.9,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-registry",
+            "statements": 10,
+            "databaseMs": 4.47,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 84609.78,
+            "statements": 48935,
+            "databaseMs": 50358.93,
+            "failedStatements": 0
+          }
+        ],
+        "coverage": "instrumented-runtime-process-window",
+        "scopedStatements": 41203,
+        "unscopedStatements": 7732
+      },
+      "implicitHandoff": {
+        "elapsedMs": 4359,
+        "stage": "transferred"
+      },
+      "moveStage": {
+        "elapsedMs": 2605
+      },
+      "workerB2": {
+        "elapsedMs": 4413,
+        "forwardedQueries": 2787,
+        "currentStage": "callback-return",
+        "finishedCallback": true,
+        "receiptProofMs": 278,
+        "finalSourceMs": 680,
+        "commitOutcomeNotVerified": true
+      },
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "The window ended before the worker drained. No final success/native-unchanged assertions were reached.",
+        "A completed callback is not proof of COMMIT or successful public completion.",
+        "Normal genuine upload setup; no timeout/assertion limit was raised."
+      ]
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "implicit-groups-before-preflight-grammar",
+      "seedMode": "normal-upload",
+      "normalUploadAcceptance": false,
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failureStage": "preflight-final-check",
+      "workerElapsedMs": 5028,
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "failed",
+          "wallMs": 30872.91,
+          "statements": 8125,
+          "databaseMs": 5830.66,
+          "failedStatements": 0,
+          "poolWaitMs": 3933.39,
+          "checkouts": 340,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "processWindows": [
+        {
+          "label": "public-web-rename-including-preview-and-completion",
+          "value": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "rename",
+            "actor": "request",
+            "outcome": "failed",
+            "wallMs": 30873.15,
+            "statements": 10762,
+            "databaseMs": 17406.42,
+            "failedStatements": 0,
+            "poolWaitMs": 6350.99,
+            "checkouts": 480,
+            "peakConnections": 6,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 8125,
+            "unscopedStatements": 2637
+          }
+        }
+      ],
+      "logBasename": "canvas-public-path200-implicit-groups-1793066200.log",
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "Final success/invariant assertions were not reached.",
+        "Diagnostic clones never substitute for normal-upload size-200 acceptance."
+      ]
     }
-  ]
+  ],
+  "intermediateGroupedPreflight": {
+    "passed": true,
+    "nativeDocuments": 20,
+    "scope": "Intermediate boundary regression; does not replace required size-200 acceptance.",
+    "foregroundOperations": [
+      {
+        "component": "document_operation",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "succeeded",
+        "wallMs": 32439.14,
+        "statements": 1785,
+        "databaseMs": 1378.25,
+        "failedStatements": 0,
+        "poolWaitMs": 558.85,
+        "checkouts": 174,
+        "peakConnections": 2,
+        "openConnectionsAtCompletion": 0,
+        "openQueriesAtCompletion": 0,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "session",
+            "statements": 165,
+            "databaseMs": 72.08,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 142,
+            "databaseMs": 55.39,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 475,
+            "databaseMs": 374.37,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 131,
+            "databaseMs": 91.53,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 144,
+            "databaseMs": 83.62,
+            "failedStatements": 0
+          },
+          {
+            "group": "workspace",
+            "statements": 200,
+            "databaseMs": 106.46,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 414,
+            "databaseMs": 512.42,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 114,
+            "databaseMs": 82.37,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 32439.14,
+            "statements": 1785,
+            "databaseMs": 1378.25,
+            "failedStatements": 0
+          },
+          {
+            "phase": "authorization",
+            "calls": 71,
+            "wallMs": 415.79,
+            "statements": 568,
+            "databaseMs": 407.08,
+            "failedStatements": 0
+          }
+        ]
+      },
+      {
+        "component": "document_operation",
+        "version": 1,
+        "operation": "move",
+        "actor": "request",
+        "outcome": "succeeded",
+        "wallMs": 30087.8,
+        "statements": 1785,
+        "databaseMs": 1311.81,
+        "failedStatements": 0,
+        "poolWaitMs": 188.46,
+        "checkouts": 174,
+        "peakConnections": 2,
+        "openConnectionsAtCompletion": 0,
+        "openQueriesAtCompletion": 0,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "session",
+            "statements": 165,
+            "databaseMs": 68.48,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 142,
+            "databaseMs": 52.78,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 475,
+            "databaseMs": 393.97,
+            "failedStatements": 0
+          },
+          {
+            "group": "seat",
+            "statements": 131,
+            "databaseMs": 90.46,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 144,
+            "databaseMs": 95.88,
+            "failedStatements": 0
+          },
+          {
+            "group": "workspace",
+            "statements": 200,
+            "databaseMs": 122.76,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 414,
+            "databaseMs": 409.75,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 114,
+            "databaseMs": 77.73,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 30087.79,
+            "statements": 1785,
+            "databaseMs": 1311.81,
+            "failedStatements": 0
+          },
+          {
+            "phase": "authorization",
+            "calls": 71,
+            "wallMs": 385.37,
+            "statements": 568,
+            "databaseMs": 376.9,
+            "failedStatements": 0
+          }
+        ]
+      }
+    ],
+    "processWindows": [
+      {
+        "label": "public-web-rename-including-preview-and-completion",
+        "value": {
+          "component": "document_database_activity",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 32439.32,
+          "statements": 5730,
+          "databaseMs": 7255.84,
+          "failedStatements": 0,
+          "poolWaitMs": 2235.63,
+          "checkouts": 443,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 1,
+          "openQueriesAtCompletion": 1,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "workspace",
+              "statements": 420,
+              "databaseMs": 300.17,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 1506,
+              "databaseMs": 1753.75,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 492,
+              "databaseMs": 462.64,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 165,
+              "databaseMs": 72.08,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 324,
+              "databaseMs": 132.39,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 243,
+              "databaseMs": 203.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 2198,
+              "databaseMs": 3949.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 319,
+              "databaseMs": 325.6,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 25,
+              "databaseMs": 13.37,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 38,
+              "databaseMs": 42.28,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 32439.32,
+              "statements": 5730,
+              "databaseMs": 7255.84,
+              "failedStatements": 0
+            }
+          ],
+          "coverage": "instrumented-runtime-process-window",
+          "scopedStatements": 1785,
+          "unscopedStatements": 3945
+        }
+      },
+      {
+        "label": "public-mobile-move-including-preview-and-completion",
+        "value": {
+          "component": "document_database_activity",
+          "version": 1,
+          "operation": "move",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 30087.9,
+          "statements": 5660,
+          "databaseMs": 6800.43,
+          "failedStatements": 0,
+          "poolWaitMs": 1638.53,
+          "checkouts": 405,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0,
+          "queryGroups": [
+            {
+              "group": "workspace",
+              "statements": 401,
+              "databaseMs": 252.56,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 165,
+              "databaseMs": 68.48,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 2248,
+              "databaseMs": 3849.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 334,
+              "databaseMs": 147.09,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 1439,
+              "databaseMs": 1459.92,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 249,
+              "databaseMs": 253.3,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 473,
+              "databaseMs": 511.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 31,
+              "databaseMs": 13.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 306,
+              "databaseMs": 238.22,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 14,
+              "databaseMs": 5.84,
+              "failedStatements": 0
+            }
+          ],
+          "phases": [
+            {
+              "phase": "operation",
+              "calls": 1,
+              "wallMs": 30087.9,
+              "statements": 5660,
+              "databaseMs": 6800.43,
+              "failedStatements": 0
+            }
+          ],
+          "coverage": "instrumented-runtime-process-window",
+          "scopedStatements": 1785,
+          "unscopedStatements": 3875
+        }
+      }
+    ],
+    "unrelatedNativeMetadataXminAndPhysicalSourcesUnchanged": 17,
+    "allOwnedCleanup": true
+  },
+  "groupAuthorityRegression": {
+    "passed": true,
+    "nativeDocuments": 3,
+    "denialStatus": 403,
+    "actualPublicCode": "SEAT_ACCESS_INACTIVE",
+    "firstActualProofWrites": 1,
+    "groupProofRolledBack": true,
+    "nativeRowsMetadataAndXminUnchanged": true,
+    "physicalBytesAndIdentityUnchanged": true,
+    "allOwnedCleanup": true,
+    "source": "scripts/workspace-implicit-move-group-authority-postgres-test.ts",
+    "sourceNotYetCommitted": true
+  },
+  "diagnosticDatasets": [
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "fast-preflight-reproduction",
+      "seedMode": "diagnostic-clones",
+      "normalUploadAcceptance": false,
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failureStage": "preflight-final-check",
+      "workerElapsedMs": 5122,
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "failed",
+          "wallMs": 33645.34,
+          "statements": 8129,
+          "databaseMs": 5974.51,
+          "failedStatements": 0,
+          "poolWaitMs": 3171.3,
+          "checkouts": 344,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "processWindows": [
+        {
+          "label": "public-web-rename-including-preview-and-completion",
+          "value": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "rename",
+            "actor": "request",
+            "outcome": "failed",
+            "wallMs": 33645.58,
+            "statements": 11942,
+            "databaseMs": 16976.31,
+            "failedStatements": 0,
+            "poolWaitMs": 8181.72,
+            "checkouts": 862,
+            "peakConnections": 6,
+            "openConnectionsAtCompletion": 1,
+            "openQueriesAtCompletion": 1,
+            "unsupportedQueryForms": 0,
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 8129,
+            "unscopedStatements": 3813
+          }
+        }
+      ],
+      "logBasename": "canvas-path200-fast-preflight-red-1793068100.log",
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "Final success/invariant assertions were not reached.",
+        "Diagnostic clones never substitute for normal-upload size-200 acceptance."
+      ]
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "fast-preflight-grammar",
+      "seedMode": "diagnostic-clones",
+      "normalUploadAcceptance": false,
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failureStage": "b2-handoff-outcome",
+      "workerElapsedMs": 5013,
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "failed",
+          "wallMs": 84129.9,
+          "statements": 9409,
+          "databaseMs": 11244.16,
+          "failedStatements": 0,
+          "poolWaitMs": 2906.32,
+          "checkouts": 784,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "processWindows": [
+        {
+          "label": "public-web-rename-including-preview-and-completion",
+          "value": {
+            "component": "document_database_activity",
+            "version": 1,
+            "operation": "rename",
+            "actor": "request",
+            "outcome": "failed",
+            "wallMs": 84130.19,
+            "statements": 25636,
+            "databaseMs": 53360.31,
+            "failedStatements": 2,
+            "poolWaitMs": 8468.46,
+            "checkouts": 1615,
+            "peakConnections": 4,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "coverage": "instrumented-runtime-process-window",
+            "scopedStatements": 9409,
+            "unscopedStatements": 16227
+          }
+        }
+      ],
+      "logBasename": "canvas-path200-fast-preflight-green-1793068200.log",
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "Final success/invariant assertions were not reached.",
+        "Diagnostic clones never substitute for normal-upload size-200 acceptance."
+      ]
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "batched-outcome-only",
+      "seedMode": "diagnostic-clones",
+      "normalUploadAcceptance": false,
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failure": "B2 final-source transaction timeout; outcome batching not reached.",
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "failed",
+          "wallMs": 83007.63,
+          "statements": 9034,
+          "databaseMs": 9890.11,
+          "failedStatements": 0,
+          "poolWaitMs": 2022.14,
+          "checkouts": 793,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "workerB2": [
+        {
+          "version": 1,
+          "phaseIndex": 32,
+          "elapsedMs": 5027,
+          "forwardedQueries": 2348,
+          "currentStage": "final-source",
+          "finishedCallback": false,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 468,
+          "mutationMaxMs": 312,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 466,
+          "receiptProofMs": 254,
+          "namespaceMs": 47,
+          "finalSourceMs": 803,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 175,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 318,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 661,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 745,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 1977,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 1982,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 2204,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 2552,
+              "forwardedQueries": 875
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 3126,
+              "forwardedQueries": 1005
+            }
+          ]
+        }
+      ],
+      "allOwnedCleanup": true,
+      "logBasename": "canvas-path200-batched-outcomes-1793069900.log"
+    },
+    {
+      "fixture": "public-document-path-operations",
+      "variant": "batched-proof-sets-and-outcome",
+      "seedMode": "diagnostic-clones",
+      "normalUploadAcceptance": false,
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "failure": "Both public actions succeeded; final unrelated native row/xmin preservation assertion failed; unrelated physical checks were not reached.",
+      "foregroundOperations": [
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "rename",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 107644.26,
+          "statements": 8512,
+          "databaseMs": 9971.05,
+          "failedStatements": 0,
+          "poolWaitMs": 2775.08,
+          "checkouts": 784,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "component": "document_operation",
+          "version": 1,
+          "operation": "move",
+          "actor": "request",
+          "outcome": "succeeded",
+          "wallMs": 105311.4,
+          "statements": 8533,
+          "databaseMs": 9205.51,
+          "failedStatements": 0,
+          "poolWaitMs": 4256.4,
+          "checkouts": 791,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "workerB2": [
+        {
+          "version": 1,
+          "phaseIndex": 32,
+          "elapsedMs": 4211,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 458,
+          "mutationMaxMs": 307,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 91,
+          "receiptProofMs": 52,
+          "namespaceMs": 48,
+          "finalSourceMs": 790,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 170,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 299,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 612,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 697,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 1944,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 1949,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 1998,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 2142,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 2708,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 4083,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 4210,
+              "forwardedQueries": 609
+            }
+          ]
+        },
+        {
+          "version": 1,
+          "phaseIndex": 33,
+          "elapsedMs": 4514,
+          "forwardedQueries": 610,
+          "currentStage": "callback-return",
+          "finishedCallback": true,
+          "mutationsCount": 2,
+          "mutationsCompleted": 2,
+          "mutationElapsedMs": 464,
+          "mutationMaxMs": 311,
+          "activeMutationMs": null,
+          "nativeSideEffectsMs": 88,
+          "receiptProofMs": 49,
+          "namespaceMs": 47,
+          "finalSourceMs": 830,
+          "milestones": [
+            {
+              "stage": "b2-enter",
+              "elapsedMs": 339,
+              "forwardedQueries": 73
+            },
+            {
+              "stage": "original-rows-read",
+              "elapsedMs": 466,
+              "forwardedQueries": 80
+            },
+            {
+              "stage": "original-context-ready",
+              "elapsedMs": 651,
+              "forwardedQueries": 111
+            },
+            {
+              "stage": "prepare-enter",
+              "elapsedMs": 953,
+              "forwardedQueries": 144
+            },
+            {
+              "stage": "original-source-read",
+              "elapsedMs": 2124,
+              "forwardedQueries": 197
+            },
+            {
+              "stage": "staged-binding-read",
+              "elapsedMs": 2128,
+              "forwardedQueries": 199
+            },
+            {
+              "stage": "side-effects-captured",
+              "elapsedMs": 2329,
+              "forwardedQueries": 244
+            },
+            {
+              "stage": "mutate-enter",
+              "elapsedMs": 2470,
+              "forwardedQueries": 278
+            },
+            {
+              "stage": "mutations-applied",
+              "elapsedMs": 3037,
+              "forwardedQueries": 408
+            },
+            {
+              "stage": "da04-done",
+              "elapsedMs": 4253,
+              "forwardedQueries": 583
+            },
+            {
+              "stage": "completion-ack",
+              "elapsedMs": 4513,
+              "forwardedQueries": 609
+            }
+          ]
+        }
+      ],
+      "allOwnedCleanup": true,
+      "logBasename": "canvas-path200-batched-proofs-1793070700.log"
+    }
+  ],
+  "outcomeBatchRegression": {
+    "passed": true,
+    "actualPostgresCases": 23,
+    "originalCases": 21,
+    "newCases": [
+      "Exact three-target outcome preserves unmodified native rows and bytes.",
+      "Actual BEFORE trigger suppresses one completion: all target writes and native domain mutation roll back."
+    ],
+    "source": "scripts/collaboration-room-admission-handoff-postgres-test.ts",
+    "sourceNotYetCommitted": true,
+    "logBasename": "canvas-handoff-batched-outcomes-postgres-23.log"
+  },
+  "quiescenceBatchRegression": {
+    "passed": true,
+    "actualPostgresHandoffCases": 24,
+    "actualPostgresQuiescenceBoundaries": 18,
+    "nativeStatesAndProofsRevalidated": true,
+    "sourceNotYetCommitted": false,
+    "logBasenames": [
+      "canvas-native-proof-sets-postgres-final.log"
+    ],
+    "baseSetReadStatements": 3,
+    "releaseReceiptAndHistoricalOutcomeReadsRetained": true,
+    "typecheckPassed": true,
+    "eslintPassed": true,
+    "coordinatorUnitCasesPassed": 44,
+    "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a"
+  },
+  "currentNormalUpload200": {
+    "status": "passed, exit0 and complete owned cleanup",
+    "nativeDocuments": 200,
+    "unrelatedSourcesUnchanged": 197,
+    "resultBasename": "canvas-public-path200-normal-batched-proofs-1793071400.json",
+    "sourceNotYetCommitted": false,
+    "diagnosticCloneModeRemoved": true,
+    "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a"
+  },
+  "currentPathRegressions": {
+    "actualOriginalMoveOwnerCasesPassed": 22,
+    "actualGroupRevocationPassed": true,
+    "denialStatus": 403,
+    "denialCode": "SEAT_ACCESS_INACTIVE",
+    "writesBeforeDenial": 1,
+    "firstProofRolledBack": true,
+    "allNativeRowsMetadataXminAndPhysicalBytesUnchanged": true,
+    "allOwnedCleanup": true,
+    "logBasenames": [
+      "canvas-batched-native-proof-sets-original-move-22.log",
+      "canvas-batched-proof-sets-group-revocation-final.log"
+    ],
+    "sourceNotYetCommitted": false,
+    "fullCommonPathOwnerCasesPassed": 43,
+    "fullCommonPathOwnerFocusedSelector": false,
+    "fullCommonPathOwnerAllOwnedCleanup": true,
+    "fullCommonPathOwnerLogBasename": "canvas-native-proof-sets-path-owner-full43-settled.log",
+    "testOnlyProjectionBoundaryCorrection": "Initial raw live-room plan and historical noMutation snapshots use the existing actual settled-projector/workspace-lock barrier. All data/SQL assertions remain unchanged.",
+    "nativeCopyOwnerCasesPassed": 26,
+    "nativeCopyOwnerAllOwnedCleanup": true,
+    "nativeCopyOwnerLogBasename": "canvas-native-proof-sets-copy-owner26.log",
+    "changedTestRootsTypechecked": 5,
+    "changedTestSourceFiles": 5140,
+    "changedTestTypeDiagnostics": 0,
+    "allChangedCodeAndTestsEslintPassed": true,
+    "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a"
+  },
+  "historicalEntries": [
+    {
+      "fixture": "public-document-path-operations",
+      "adapter": "public-path-operations",
+      "nativeDocuments": 10,
+      "scope": "actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware",
+      "proof": {
+        "unrelatedSourcesUnchanged": 7
+      },
+      "profiles": [
+        {
+          "label": "public-web-rename-including-preview-and-completion",
+          "measurement": {
+            "outcome": "succeeded",
+            "wallMs": 32725.83,
+            "statements": 5469,
+            "databaseMs": 6233.79,
+            "failedStatements": 0,
+            "poolWaitMs": 1735.64,
+            "checkouts": 501,
+            "peakConnections": 4,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "scopedStatements": 2087,
+            "unscopedStatements": 3382,
+            "queryGroups": [
+              {
+                "group": "workspace",
+                "statements": 469,
+                "databaseMs": 343.54,
+                "failedStatements": 0
+              },
+              {
+                "group": "other",
+                "statements": 1268,
+                "databaseMs": 1329.65,
+                "failedStatements": 0
+              },
+              {
+                "group": "transaction",
+                "statements": 491,
+                "databaseMs": 468.05,
+                "failedStatements": 0
+              },
+              {
+                "group": "session",
+                "statements": 215,
+                "databaseMs": 87.26,
+                "failedStatements": 0
+              },
+              {
+                "group": "account",
+                "statements": 380,
+                "databaseMs": 137.94,
+                "failedStatements": 0
+              },
+              {
+                "group": "seat",
+                "statements": 279,
+                "databaseMs": 194.78,
+                "failedStatements": 0
+              },
+              {
+                "group": "catalogue",
+                "statements": 2071,
+                "databaseMs": 3210.21,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-state",
+                "statements": 232,
+                "databaseMs": 428.61,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-projection",
+                "statements": 25,
+                "databaseMs": 15.43,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-registry",
+                "statements": 39,
+                "databaseMs": 18.33,
+                "failedStatements": 0
+              }
+            ]
+          }
+        },
+        {
+          "label": "public-mobile-move-including-preview-and-completion",
+          "measurement": {
+            "outcome": "succeeded",
+            "wallMs": 29623.39,
+            "statements": 5322,
+            "databaseMs": 6607.22,
+            "failedStatements": 0,
+            "poolWaitMs": 2166.79,
+            "checkouts": 447,
+            "peakConnections": 3,
+            "openConnectionsAtCompletion": 0,
+            "openQueriesAtCompletion": 0,
+            "unsupportedQueryForms": 0,
+            "scopedStatements": 2087,
+            "unscopedStatements": 3235,
+            "queryGroups": [
+              {
+                "group": "session",
+                "statements": 215,
+                "databaseMs": 92.11,
+                "failedStatements": 0
+              },
+              {
+                "group": "account",
+                "statements": 390,
+                "databaseMs": 143.53,
+                "failedStatements": 0
+              },
+              {
+                "group": "other",
+                "statements": 1160,
+                "databaseMs": 1795.3,
+                "failedStatements": 0
+              },
+              {
+                "group": "seat",
+                "statements": 285,
+                "databaseMs": 209.57,
+                "failedStatements": 0
+              },
+              {
+                "group": "transaction",
+                "statements": 464,
+                "databaseMs": 363.55,
+                "failedStatements": 0
+              },
+              {
+                "group": "workspace",
+                "statements": 442,
+                "databaseMs": 307.86,
+                "failedStatements": 0
+              },
+              {
+                "group": "catalogue",
+                "statements": 2108,
+                "databaseMs": 3488.74,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-state",
+                "statements": 214,
+                "databaseMs": 188.76,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-registry",
+                "statements": 30,
+                "databaseMs": 11.79,
+                "failedStatements": 0
+              },
+              {
+                "group": "document-projection",
+                "statements": 14,
+                "databaseMs": 6.02,
+                "failedStatements": 0
+              }
+            ]
+          }
+        }
+      ],
+      "productSource": "7ba5b704f7c4e9b1e7a6a3ebd45e90731b5fd36b",
+      "scopeQualification": "Earlier source; current matched-size comparison uses the newly recorded normal-only entry."
+    }
+  ],
+  "pathOperationProductSource": "b8dc12cc356b676adbb69765e4d0c75d9b37665a",
+  "pathOperationProfilerSource": "b8dc12cc356b676adbb69765e4d0c75d9b37665a",
+  "matchedPublicPathSizes": {
+    "passed": true,
+    "nativeDocuments": [
+      10,
+      200
+    ],
+    "productCodeCommit": "b8dc12cc356b676adbb69765e4d0c75d9b37665a",
+    "allOwnedCleanup": true,
+    "normalUploadOnly": true,
+    "separateColdWarmMatrixStillRequired": true
+  }
 }
