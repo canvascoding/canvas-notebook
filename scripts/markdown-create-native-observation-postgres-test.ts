@@ -116,20 +116,20 @@ async function publicationNativeObservationPostgresTest(): Promise<void> {
         const control = await call(actor, currentTarget, randomUUID()); assert.notEqual(control.isError, true);
         assert.deepEqual(await fs.readFile(path.join(h.workspaceRoot, currentTarget)), Buffer.from(content));
         for (const selectedFault of ['sequence', 'degraded', 'permanent'] as const) {
-        fault = selectedFault; currentTarget = `native-observation/${actor}-${fault}.md`; race = true; injected = false; before = undefined;
-        const key = randomUUID(); let failed: unknown, result: Record<string, unknown> | undefined;
-        try { result = await call(actor, currentTarget, key); } catch (error) { failed = error; }
-        await Promise.all(mutations); assert(injected); assert.deepEqual(mutationErrors, []);
-        assert(failed || result?.isError === true, 'A native version race cannot return a successful creation.');
-        await assert.rejects(fs.lstat(path.join(h.workspaceRoot, currentTarget)), { code: 'ENOENT' });
-        assert.deepEqual(await state(currentTarget), before, 'Rollback preserves the committed original native IDs, bytes, vector and clock.');
-        race = false;
-        const resumed = await call(actor, currentTarget, key); assert.notEqual(resumed.isError, true);
-        const after = await state(currentTarget); assert.equal(after.length, 1);
-        assert.equal(after[0].id, (before as typeof after)[0].id); assert.equal(after[0].lineage_id, (before as typeof after)[0].lineage_id);
-        assert.deepEqual(after[0].yjs_state, (before as typeof after)[0].yjs_state);
-        assert.deepEqual(after[0].state_vector, (before as typeof after)[0].state_vector);
-        assert.deepEqual(await fs.readFile(path.join(h.workspaceRoot, currentTarget)), Buffer.from(content));
+          fault = selectedFault; currentTarget = `native-observation/${actor}-${fault}.md`; race = true; injected = false; before = undefined;
+          const key = randomUUID(); let failed: unknown, result: Record<string, unknown> | undefined;
+          try { result = await call(actor, currentTarget, key); } catch (error) { failed = error; }
+          await Promise.all(mutations); assert(injected); assert.deepEqual(mutationErrors, []);
+          assert(failed || result?.isError === true, 'A native version race cannot return a successful creation.');
+          await assert.rejects(fs.lstat(path.join(h.workspaceRoot, currentTarget)), { code: 'ENOENT' });
+          assert.deepEqual(await state(currentTarget), before, 'Rollback preserves the committed original native IDs, bytes, vector and clock.');
+          race = false;
+          const resumed = await call(actor, currentTarget, key); assert.notEqual(resumed.isError, true);
+          const after = await state(currentTarget); assert.equal(after.length, 1);
+          assert.equal(after[0].id, (before as typeof after)[0].id); assert.equal(after[0].lineage_id, (before as typeof after)[0].lineage_id);
+          assert.deepEqual(after[0].yjs_state, (before as typeof after)[0].yjs_state);
+          assert.deepEqual(after[0].state_vector, (before as typeof after)[0].state_vector);
+          assert.deepEqual(await fs.readFile(path.join(h.workspaceRoot, currentTarget)), Buffer.from(content));
         }
       }
       assert.equal(checkedAcks, 8); assert(!live);

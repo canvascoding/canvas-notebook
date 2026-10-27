@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-file-lifecycle-owner-workspace-snapshot-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts',
+    'app/lib/collaboration/file-lifecycle-admission-context.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts'],
+  'scripts/markdown-create-owner-observation-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/files/workspace-file-lifecycle-guard.ts', 'app/lib/collaboration/persistence.ts',
+    'app/lib/files/markdown-create-birth.ts', 'app/lib/mcp/server/document-read-principal.ts',
+    'app/lib/pi/tool-registry.ts', 'app/lib/pi/agent-file-operations.ts', 'app/lib/public-sharing/tool-policy.ts'],
   'scripts/markdown-create-native-observation-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
     'app/lib/collaboration/persistence.ts', 'app/lib/collaboration/workspace-document-catalogue.ts',

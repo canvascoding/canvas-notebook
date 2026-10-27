@@ -139,6 +139,17 @@ Der direkte Zehn-Quellen-Vergleich reduziert warme MCP-Anlage von
 Validatoren bleiben gemeinsam verwendet. Weitere Bündelung und die übrigen
 Abnahmen des Gesamtplans bleiben offen.
 
+Die [gemeinsamen Owner-Fakten](architecture/document-service-owner-facts-2026-10-27.md)
+lesen Verbindung, exklusive Sperre und Workspace-Zuordnung in einer frischen echten
+Beobachtung. Die feste MCP-Quellenprüfung ersetzt nur ihre eigene doppelte
+Owner-Lesung; Agenten behalten ihre separate Prüfung. Zwei reale Owner-Unlocks und
+zwei Owner-Schemawechsel vor Veröffentlichung werden ohne Datenverlust abgewiesen;
+explizite Wiederholungen behalten Original-ID und Inhalt. Der direkte Vergleich mit
+zehn Quellen reduziert warme MCP-Anlage von 1404 / 33 auf
+1312 / 33 und Agentenanlage von 1991 / 46 auf
+1931 / 46. Weitere Bündelung und sämtliche übrigen Abnahmen des
+Gesamtplans bleiben offen.
+
 ## Zielaufbau
 
 Editor / Agent / MCP / Systemauftrag

@@ -60,6 +60,16 @@ function currentSource(captured: SourceCapture): void {
  * and held status; no principal, writer or reusable authority is returned. */
 export async function readWorkspaceFileLifecycleOwnerSnapshot(database: SqlConnection, workspaceId: string): Promise<
   Readonly<{ snapshot: Record<string, unknown> | undefined }> | undefined> {
+  return readCurrentWorkspaceFileLifecycleOwnerSnapshot(database, workspaceId, false);
+}
+/** Same genuine owner capture, with fixed raw workspace/realm facts in that
+ * actual SQL observation. No principal, write authority or reusable permission. */
+export async function readWorkspaceFileLifecycleOwnerWorkspaceSnapshot(database: SqlConnection, workspaceId: string): Promise<
+  Readonly<{ snapshot: Record<string, unknown> | undefined }> | undefined> {
+  return readCurrentWorkspaceFileLifecycleOwnerSnapshot(database, workspaceId, true);
+}
+async function readCurrentWorkspaceFileLifecycleOwnerSnapshot(database: SqlConnection, workspaceId: string, includeWorkspace: boolean): Promise<
+  Readonly<{ snapshot: Record<string, unknown> | undefined }> | undefined> {
   const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
   const captured = lease && sourceOwners.get(lease);
   if (!captured || captured.workspaceId !== workspaceId || captured.database !== database
@@ -69,9 +79,11 @@ export async function readWorkspaceFileLifecycleOwnerSnapshot(database: SqlConne
     const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(workspaceId)));
     const snapshot = await database.get(`SELECT realm.*,EXISTS(SELECT 1 FROM pg_catalog.pg_locks
       WHERE locktype='advisory' AND granted AND mode='ExclusiveLock' AND pid=realm.backend
-        AND database=realm.database::oid AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1) AS held
-      FROM (${workspaceFileLifecycleOwnerIdentitySql}) realm`,
-    [Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff'))]) as Record<string, unknown> | undefined;
+        AND database=realm.database::oid AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1) AS held${includeWorkspace ? `,to_regnamespace(realm.schema)::oid::bigint AS schema_oid,
+        realm.database AS database_oid,realm."searchPath" AS search_path,w.id AS workspace_id,
+        w.type,w.organization_id,w.project_id,w.customer_id,w.owner_user_id,w.root_relative_path,w.status` : ''}
+      FROM (${workspaceFileLifecycleOwnerIdentitySql}) realm${includeWorkspace ? ' LEFT JOIN canvas_workspaces w ON w.id=$3' : ''}`,
+    [Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff')), ...(includeWorkspace ? [captured.workspaceId] : [])]) as Record<string, unknown> | undefined;
     currentSource(captured);
     if (lease!.verify !== captured.ownerVerifier) return undefined;
     if (snapshot?.held === false) captured.lease.active = false;

@@ -44,6 +44,7 @@ import { withDirectMcpDocumentCreatePrincipal, withDirectMcpDocumentCreatePrinci
   type DirectMcpDocumentCreatePrincipalAccess } from '../mcp/server/document-read-principal';
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard, readWorkspaceFileLifecycleOwnerSnapshot,
+  readWorkspaceFileLifecycleOwnerWorkspaceSnapshot,
   workspaceFileLifecycleOwnerIdentitySql as bootstrapConnectionRealmSql } from '../files/workspace-file-lifecycle-guard';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
@@ -353,12 +354,16 @@ function parseBootstrapConnectionRealm(row: BootstrapOwner | undefined): Bootstr
 async function bootstrapConnectionRealm(database: SqlConnection): Promise<BootstrapOwner> {
   return parseBootstrapConnectionRealm(await database.get(bootstrapConnectionRealmSql) as BootstrapOwner | undefined);
 }
-async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
-  const observed = await readWorkspaceFileLifecycleOwnerSnapshot(frame.owner, frame.selection.workspaceId);
+function assertBootstrapOwnerObservation(frame: BootstrapFrame,
+  observed: Awaited<ReturnType<typeof readWorkspaceFileLifecycleOwnerSnapshot>>): Record<string, unknown> {
   if (!observed) return fail('MARKDOWN_IMPORT_BUSY');
-  const current = parseBootstrapConnectionRealm(observed.snapshot as BootstrapOwner | undefined);
+  const row = observed.snapshot, current = parseBootstrapConnectionRealm(row as BootstrapOwner | undefined);
   if (Object.keys(frame.identity).some(key => Reflect.get(current, key) !== Reflect.get(frame.identity, key))) return fail('MARKDOWN_IMPORT_BUSY');
-  if (observed.snapshot?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
+  if (row?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
+  return row;
+}
+async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
+  assertBootstrapOwnerObservation(frame, await readWorkspaceFileLifecycleOwnerSnapshot(frame.owner, frame.selection.workspaceId));
 }
 async function assertBootstrapNativeRealm(database: SqlConnection, frame: BootstrapFrame, lock = false): Promise<void> {
   const relations = [...bootstrapRelations,
@@ -1012,7 +1017,7 @@ export async function assertAuthenticatedManualMarkdownBirthStorageAllowed(input
     if (!isDeepStrictEqual(origin, owner.frame.expectedScope)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   } else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+  await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
   if (stage === 'before_link' || stage === 'parent_link') {
     assertAuthenticatedManualMarkdownBirthWithinTurn(input);
     await currentAuthenticatedMarkdownBirth(firstProjectionPhases.getStore()!);
@@ -1146,7 +1151,7 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
     await assertFirstProjectionOwnerOrigin(owner.frame);
     await currentAuthenticatedMarkdownBirth(projection);
   } else {
-    await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
     if (consumer) {
       await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
       // Preserve the MCP consumer's existing additional A/source fence.
@@ -2192,7 +2197,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         // Storage's read-only inode observations are NOT authority checks.
         // Original source/auth is checked by the native/publication phase;
         // A and the physical/SQL origin remain pinned during every IO/close.
-        await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
+        await assertFirstProjectionOwnerOrigin(frame);
       }, persist, frame.kind === 'agent-tool' ? operation => withAgentMarkdownBirthStoragePhase(frame, operation)
         : frame.kind === 'direct-mcp' ? operation => withAuthenticatedMarkdownBirthStoragePhase(frame, operation) : undefined);
       let projected: AuthenticatedMarkdownFirstProjectionResult;
@@ -2211,7 +2216,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         try { projected = await agentBirthOwners.run(agentOwner,publish) as AuthenticatedMarkdownFirstProjectionResult; }
         finally { agentOwner.accepting = false; agentOwner.active = false; }
       } else projected = await publish() as AuthenticatedMarkdownFirstProjectionResult;
-      await source.assertCurrent(); await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
+      await source.assertCurrent(); await assertFirstProjectionOwnerOrigin(frame);
       if (frame.kind === 'direct-mcp') {
         const freshBirth = await observeOptionalMarkdownCreateBirth({ workspaceRoot: frame.originalOrigin.rootPath,
           workspaceId: intent.workspaceId, operationId: intent.operationId });
@@ -2299,11 +2304,17 @@ function firstProjectionReads(database: SqlConnection): SqlConnection {
 async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<void> {
   const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
   if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const row = await frame.owner.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
-    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,current_setting('search_path') AS search_path,
-    type,organization_id,project_id,customer_id,owner_user_id,root_relative_path,status FROM canvas_workspaces WHERE id=$1`,
-  [expected.workspaceId]) as Record<string, unknown> | undefined;
-  if (!row || row.schema !== expected.schema || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
+  let observed: Awaited<ReturnType<typeof readWorkspaceFileLifecycleOwnerWorkspaceSnapshot>>;
+  try { observed = await readWorkspaceFileLifecycleOwnerWorkspaceSnapshot(frame.owner, frame.selection.workspaceId); }
+  catch (error) {
+    // A joined lookup can fail before yielding its realm. Preserve the former
+    // owner-first failure for schema/lookup errors; this is a fresh read, not a replay.
+    const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+    if (typeof code === 'string' && /^42[A-Z0-9]{3}$/u.test(code)) await assertBootstrapOwner(frame);
+    throw error;
+  }
+  const row = assertBootstrapOwnerObservation(frame, observed);
+  if (row.workspace_id !== expected.workspaceId || row.schema !== expected.schema || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
     || row.search_path !== expected.searchPath || row.type !== expected.workspaceType || row.organization_id !== expected.organizationId
     || row.project_id !== expected.projectId || row.customer_id !== expected.customerId || row.owner_user_id !== expected.ownerUserId
     || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
@@ -2367,7 +2378,10 @@ async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, ch
   // fixed slot; Agent checks before/after config/profile. Requests need theirs.
   if (frame.kind === 'request') await access.assertCurrent();
   await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
+  // The fixed MCP source rechecks the genuine A after the realm read. Agent
+  // sources validate invocation/bytes only; requests and source-free reads keep A.
+  if (frame.kind !== 'direct-mcp' || !checkSource) await assertBootstrapOwner(frame);
+  await assertBootstrapNativeRealm(database, frame);
   if (checkSource) await source.assertCurrent();
   await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
   await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
