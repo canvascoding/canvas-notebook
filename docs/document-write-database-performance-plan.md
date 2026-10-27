@@ -100,9 +100,11 @@ Registry- und Zustandsbündelung sowie abschließende Größen-/Latenzvergleiche
 bleiben offen. Die [MCP-Faktenbündelung](architecture/document-service-mcp-slot-snapshot-2026-10-27.md)
 reduziert inzwischen dessen aktuelle Slot-Prüfung von sechs auf drei Aufrufe;
 mit tatsächlicher SQL-Planwiederverwendung sinkt warme MCP-Neuanlage bei zehn und
-200 Quellen auf 1976 / 37. Vor Merge muss die nachgewiesene NUMERIC-/JSON-
-Abweichung auch in den übrigen gemeinsamen Workspace-Snapshot-Lesern korrigiert
-werden. Die Create-Budgets von wenigen Hundert Aufrufen, gemeinsame
+200 Quellen auf 1976 / 37. Die anschließend nachgewiesene NUMERIC-/JSON-
+Abweichung ist nun mit [gemeinsamer exakter Wertübertragung](architecture/document-service-scalar-snapshots-2026-10-27.md)
+auch in den Benutzer- und Agent-Create-Lesern lokal korrigiert. Agentenprofil- und
+Sitzungsprüffelder verwenden dieselbe Mechanik; bestehende reine
+Berechtigungsentscheidungen bleiben erhalten. Die Create-Budgets von wenigen Hundert Aufrufen, gemeinsame
 Verträge, inkrementelle Links, normale gemeinsame Schreibwege und alle finalen
 Recovery-/Build-/UI-/Suite-/Release-Gates bleiben erforderlich.
 

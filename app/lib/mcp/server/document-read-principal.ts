@@ -6,12 +6,13 @@ import { isDeepStrictEqual, types } from 'node:util';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPostgresRuntimeQueryable, type SqlConnection } from '@/app/lib/db';
 import { normalizeDatabaseTimestamp } from '@/app/lib/db/timestamps';
+import { postgresScalarSnapshotSql } from '@/app/lib/db/postgres-scalar-snapshot';
 import { getLicenseStatus } from '@/app/lib/license';
 import type { LicenseStatus } from '@/app/lib/license/types';
 import { resolveEffectiveSeatPolicy, userSeatAccessSnapshotSql, evaluateUserSeatAccessSnapshot,
   type CurrentSeatSnapshotRow, type EffectiveSeatPolicy } from '@/app/lib/license/seat-limit';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { workspacePermissionSnapshotSql, workspaceContextFromPermissionSnapshot,
+import { workspacePermissionSnapshotSql, workspacePermissionSnapshotScalarColumns, workspaceContextFromPermissionSnapshot,
   type WorkspacePermissionSnapshotRow } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertGrantStateActive, DirectMcpAuthorizationError, directMcpGrantStateSnapshotSql,
@@ -325,23 +326,13 @@ const seatColumns = ['account_present', 'account_id', 'account_banned', 'organiz
   'owner_user_id', 'reconciliation_seat_limit', 'fallback_owner_id', 'team_quantity', 'solo_quantity', 'eligible_user_ids'] as const;
 const snapshotScalarColumns = ['raw_banned', 'raw_disabled', 'user_banned', 'client_disabled', 'seat_account_banned',
   'seat_reconciliation_seat_limit', 'edit_session_expires_at', 'session_expires_at', 'consent_updated_at', 'grant_revoked_at',
-  'is_default', 'permission_can_write_team_workspace', 'permission_can_create_public_links',
-  'permission_can_create_team_automations', 'permission_can_share_plugins_and_skills', 'permission_can_export',
-  'permission_can_delete_team_files', 'permission_can_delete_studio_assets', 'permission_can_manage_backups',
-  'permission_can_manage_organization_memory', 'permission_can_migrate_database', 'permission_can_enable_knowledge',
-  'permission_can_recover_workspaces', 'team_can_read', 'team_can_write', 'team_can_manage',
-  'project_can_read', 'project_can_write', 'project_can_manage'] as const;
+  ...workspacePermissionSnapshotScalarColumns] as const;
 type SlotFacts = { row: Row; seatPolicy: EffectiveSeatPolicy };
 /** One stable wire type lets pg reuse its plan through real column-type changes.
  * Keep NUMERIC strings exact: their JSON numeric form could round into a grant.
  * Other supported scalar types retain the existing driver/policy interpretation. */
 function typedSlotSnapshotSql(sql: string): string {
-  const supportedTypes = '16,20,21,23,25,26,700,701,1042,1043,1114,1184,1700';
-  return `SELECT pg_catalog.to_jsonb(facts)||pg_catalog.jsonb_build_object(
-    'scalar_types_supported',${snapshotScalarColumns.map(name => `pg_catalog.pg_typeof(facts.${name})::oid IN (${supportedTypes})`).join(' AND ')},
-    ${snapshotScalarColumns.map(name => `'${name}',CASE WHEN pg_catalog.pg_typeof(facts.${name})::oid=1700
-      THEN pg_catalog.to_jsonb(facts.${name}::text) ELSE pg_catalog.to_jsonb(facts.${name}) END`).join(',')}
-    ) AS facts FROM (${sql}) facts`;
+  return postgresScalarSnapshotSql(sql, snapshotScalarColumns);
 }
 /** Fresh bounded facts only on the actual B; never a grant or a cached policy.
  * Keep raw user/session values scalar. Numeric aggregate flags travel as exact

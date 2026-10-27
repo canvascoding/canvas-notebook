@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from '
 import path from 'node:path';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { postgresScalarSnapshotSql } from '@/app/lib/db/postgres-scalar-snapshot';
 import {
   areTeamFeaturesEnabled,
   getConfiguredOrganizationId,
@@ -2398,6 +2399,18 @@ const workspacePermissionSnapshotColumns = `id, organization_id, type, owner_use
 export const workspacePermissionSnapshotSql = `${workspacePermissionSnapshotProjection}
     FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
     ${workspacePermissionSnapshotJoins}`;
+
+/** Fields whose scalar driver interpretation is consumed by the existing policy. */
+export const workspacePermissionSnapshotScalarColumns = Object.freeze(['is_default', 'permission_can_write_team_workspace',
+  'permission_can_create_public_links', 'permission_can_create_team_automations', 'permission_can_share_plugins_and_skills',
+  'permission_can_export', 'permission_can_delete_team_files', 'permission_can_delete_studio_assets',
+  'permission_can_manage_backups', 'permission_can_manage_organization_memory', 'permission_can_migrate_database',
+  'permission_can_enable_knowledge', 'permission_can_recover_workspaces', 'team_can_read', 'team_can_write', 'team_can_manage',
+  'project_can_read', 'project_can_write', 'project_can_manage'] as const);
+
+/** Same current facts with exact NUMERIC strings for callers nesting JSON. */
+export const workspacePermissionSnapshotJsonSql = postgresScalarSnapshotSql(workspacePermissionSnapshotSql,
+  workspacePermissionSnapshotScalarColumns);
 
 export function workspaceContextFromPermissionSnapshot(row: WorkspacePermissionSnapshotRow | undefined,
   actor: WorkspaceActor): WorkspaceContext | null {

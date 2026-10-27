@@ -6,6 +6,7 @@ import { NextRequest } from 'next/server';
 import { measureDocumentPhase } from '../observability/document-operation-metrics';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import { normalizeDatabaseTimestamp } from '../db/timestamps';
+import { postgresScalarSnapshotSql } from '../db/postgres-scalar-snapshot';
 import { getLicenseStatus } from '../license';
 import { requireTeamRuntimeLicense } from '../license/entitlements';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
@@ -25,7 +26,7 @@ import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationB
   type WorkspaceOperationBatchClaim, type WorkspaceOperationBatchClaimBinding } from '../files/workspace-operation-batch-store';
 import { workspaceOperationJobScopeMatches } from '../files/workspace-operation-job-scope';
 import { readPostgresWorkspaceForActorOnConnection, readPostgresWorkspaceForActorInSingleSnapshotOnConnection,
-  workspacePermissionSnapshotSql, workspaceContextFromPermissionSnapshot, type WorkspacePermissionSnapshotRow } from './postgres-runtime';
+  workspacePermissionSnapshotJsonSql, workspaceContextFromPermissionSnapshot, type WorkspacePermissionSnapshotRow } from './postgres-runtime';
 import { requireExistingSelectedRequestWorkspace } from './request';
 import type { WorkspaceContext } from './types';
 
@@ -533,8 +534,9 @@ async function readMemberScopeSnapshot(phase: Phase): Promise<MemberScopeSnapsho
   try {
     row = await phase.database.get(`WITH ${relations}
       SELECT header.*,account.*,
-        (SELECT to_jsonb(w) FROM (${workspacePermissionSnapshotSql}) w) AS workspace,
-        (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,4)}) seat) AS seat
+        (SELECT w.facts FROM (${workspacePermissionSnapshotJsonSql}) w) AS workspace,
+        (SELECT seat.facts FROM (${postgresScalarSnapshotSql(userSeatAccessSnapshotSql(2,4),
+          ['account_banned', 'reconciliation_seat_limit'])}) seat) AS seat
       FROM (${principalIdentitySnapshotQuery(5,6)}) header
       LEFT JOIN LATERAL (
         SELECT s.user_id,s.expires_at,s.impersonated_by,
@@ -549,6 +551,9 @@ async function readMemberScopeSnapshot(phase: Phase): Promise<MemberScopeSnapsho
     throw error;
   }
   validatePrincipalIdentitySnapshot(phase,row,requiredTables);
+  if ([row!.workspace, row!.seat].some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) {
+    fail('PRINCIPAL_SCHEMA_INVALID');
+  }
   return { row: row!, seatPolicy };
 }
 /** Reuse the ordinary seat/workspace decisions for each actual fresh reply. */
@@ -943,17 +948,18 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
     || !phase.agentCreateRealm || !phase.identity || phase.identity.schema !== request.schema) fail('PRINCIPAL_REQUIRED');
   const seatPolicy = resolveEffectiveSeatPolicy(request.license);
   const scopeSql = `SELECT
-    (SELECT to_jsonb(w) FROM (${workspacePermissionSnapshotSql}) w) AS workspace,
-    (SELECT COALESCE(jsonb_agg(to_jsonb(s)),'[]'::jsonb) FROM (
+    (SELECT w.facts FROM (${workspacePermissionSnapshotJsonSql}) w) AS workspace,
+    (SELECT COALESCE(jsonb_agg(s.facts),'[]'::jsonb) FROM (${postgresScalarSnapshotSql(`
       SELECT id,session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,customer_id,
         project_id,workspace_root_relative_path,archived_at
-      FROM ${table(phase,'pi_sessions')} WHERE user_id=$2 AND session_id=$3 LIMIT 2) s) AS sessions,
-    (SELECT to_jsonb(a) FROM (
+      FROM ${table(phase,'pi_sessions')} WHERE user_id=$2 AND session_id=$3 LIMIT 2`, ['id', 'archived_at'])}) s) AS sessions,
+    (SELECT a.facts FROM (${postgresScalarSnapshotSql(`
       SELECT id,revision,enabled_tools_json,workflow_version,workflow_revision
-      FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1) a) AS profile,
-    (SELECT to_jsonb(u) FROM (
-      SELECT id,banned,email,role FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1) u) AS account,
-    (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,5)}) seat) AS seat`;
+      FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1`, ['id', 'revision', 'workflow_version', 'workflow_revision'])}) a) AS profile,
+    (SELECT u.facts FROM (${postgresScalarSnapshotSql(`
+      SELECT id,banned,email,role FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1`, ['banned'])}) u) AS account,
+    (SELECT seat.facts FROM (${postgresScalarSnapshotSql(userSeatAccessSnapshotSql(2,5),
+      ['account_banned', 'reconciliation_seat_limit'])}) seat) AS seat`;
   const requiredTables = principalRelations(phase);
   let facts: {
     workspace: WorkspacePermissionSnapshotRow | null; sessions: Row[]; profile: Row | null; account: Row | null;
@@ -962,7 +968,10 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
   try {
     // The initial context check and scope read have no intervening callback or
     // mutation. Read both fresh on this actual held B; the final check remains.
-    facts = await phase.database.get(`SELECT facts.*,to_jsonb(context) AS principal_identity
+    // All result columns are JSONB. Reuse only the plan, with fresh rows on B.
+    const prepared = Object.getOwnPropertyDescriptor(phase.database, 'getPrepared');
+    const read = prepared && typeof prepared.value === 'function' ? prepared.value as SqlConnection['get'] : phase.database.get;
+    facts = await read.call(phase.database, `SELECT facts.*,to_jsonb(context) AS principal_identity
       FROM (${scopeSql}) facts CROSS JOIN (${principalIdentitySnapshotQuery(6, 7)}) context`,
     [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId, seatPolicy.mode,
       quote(request.schema), requiredTables]) as typeof facts;
@@ -977,6 +986,8 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
   validatePrincipalIdentitySnapshot(phase, facts?.principal_identity, requiredTables);
   active(phase);
   if (!facts || !Array.isArray(facts.sessions)) fail('PRINCIPAL_SCOPE_CHANGED');
+  if ([facts.workspace, facts.account, facts.profile, facts.seat, ...facts.sessions]
+    .some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
   return freeze({ workspace: facts.workspace ?? undefined, sessions: facts.sessions,
     profile: facts.profile ?? undefined, account: facts.account ?? undefined, seat: facts.seat ?? undefined, seatPolicy });
 }
