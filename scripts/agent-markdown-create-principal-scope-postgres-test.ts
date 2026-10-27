@@ -34,13 +34,16 @@ await withNativeCopyMetadataOwnerFixture(async h => {
     VALUES('second-fixture-seat','second-fixture-org','owner@principal.test','owner','owner','active',100,100,200,200)`);
   await h.admin.query(`INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('second-fixture-org',200,200)`);
   const drifts = ['control', 'organization', 'session-archive', 'session-scope', 'session-id',
-    'profile-revision', 'workspace-root', 'account-ban'] as const;
+    'profile-revision', 'workspace-root', 'workspace-disabled', 'account-ban', 'seat-suspended'] as const;
   const authorityRows = async () => (await h.admin.query(`
     SELECT 'organization' AS kind,organization_id AS key,to_jsonb(o) AS value,xmin::text AS version FROM canvas_organization_settings o
     UNION ALL SELECT 'session',session_id,to_jsonb(s),xmin::text FROM pi_sessions s
     UNION ALL SELECT 'profile',agent_id,to_jsonb(a),xmin::text FROM agents a
     UNION ALL SELECT 'workspace',id,to_jsonb(w),xmin::text FROM canvas_workspaces w
     UNION ALL SELECT 'account',id,to_jsonb(u),xmin::text FROM "user" u
+    UNION ALL SELECT 'seat',id,to_jsonb(m),xmin::text FROM team_memberships m
+    UNION ALL SELECT 'seat-sync',organization_id,to_jsonb(s),xmin::text FROM team_membership_sync_state s
+    UNION ALL SELECT 'organization-permission',organization_id||':'||user_id,to_jsonb(p),xmin::text FROM organization_user_permissions p
     ORDER BY kind,key`)).rows;
   let groups = 0;
   for (const agentId of agentIds) for (const create of [false, true]) for (const drift of drifts) {
@@ -67,8 +70,12 @@ await withNativeCopyMetadataOwnerFixture(async h => {
               await database.run('UPDATE agents SET revision=revision+1 WHERE agent_id=$1', [agentId]); break;
             case 'workspace-root':
               await database.run("UPDATE canvas_workspaces SET root_relative_path=root_relative_path||'/drift' WHERE id=$1", [h.source.workspaceId]); break;
+            case 'workspace-disabled':
+              await database.run("UPDATE canvas_workspaces SET status='disabled' WHERE id=$1", [h.source.workspaceId]); break;
             case 'account-ban':
               await database.run('UPDATE "user" SET banned=1 WHERE id=$1', ['owner']); break;
+            case 'seat-suspended':
+              await database.run("UPDATE team_memberships SET status='suspended' WHERE id='owner-seat'"); break;
           }
           await access.assertCurrent(); checked = true;
           return 'current-result';
@@ -90,7 +97,7 @@ await withNativeCopyMetadataOwnerFixture(async h => {
     const succeeds = drift === 'control';
     assert.equal(checked, succeeds, `Current must reject ${drift} for every Agent access shortcut.`);
     assert.equal(published, succeeds, 'No precomputed successful result may escape a drifted scope.');
-    if (!succeeds) assert(errorCode && /^(?:PRINCIPAL_|AGENT_ACTOR_CONTEXT_)/u.test(errorCode));
+    if (!succeeds) assert(errorCode && /^(?:PRINCIPAL_|AGENT_ACTOR_CONTEXT_|SEAT_)/u.test(errorCode));
     else assert.equal(errorCode, null);
     assert.deepEqual(await authorityRows(), before, 'Controls and rolled-back denials preserve actual authority rows and xmin.');
     groups++;

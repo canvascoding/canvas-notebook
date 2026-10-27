@@ -93,8 +93,67 @@ benötigen jetzt 1.832 statt 2.061 Abfragen; das Create-Engine-Fenster sinkt von
 vorherige Zeilen/Metadaten/xmin/Dateien und Wiederholung ohne zweite Anlage werden
 weiter im echten Werkzeuglauf geprüft. Alle eigenen Fixture-Ressourcen sind geschlossen.
 
-Diese zusätzliche Messung gilt zunächst nur für zehn Quellen. Der neue 200er-
-Vergleich folgt nach Abschluss dieses Bündelungspakets. Der oben dokumentierte
+Diese Zwischenmessung gilt nur für zehn Quellen. Der nachfolgende gemeinsame
+Snapshot ist zusätzlich mit 200 Quellen geprüft. Der oben dokumentierte
 Build/UI-Nachweis gilt für den vorherigen Produktcommit `f17b175ef`; spätere
-Produktänderungen werden dadurch nicht als UI-geprüft bezeichnet. Abschließende
-Budgets, Build/UI, reguläres `test:all` und alle übrigen Gesamtplan-Pakete bleiben offen.
+Produktänderungen werden dadurch nicht als UI-geprüft bezeichnet.
+
+## Konto, Seat und vollständige Workspace-Richtlinie gemeinsam lesen
+
+Die echte Agenten-Neuanlage liest nun zusätzlich die vollständigen aktuellen
+Seat- und Workspace-Berechtigungsdaten zusammen mit ursprünglicher PI-Sitzung,
+Profil und Konto in derselben SQL-Anweisung. Jede Current-Beobachtung lädt diese
+Daten neu auf der tatsächlich gehaltenen Verbindung. Die bisherigen Seat-
+Entscheidungsfunktionen, der vollständige Workspace-Mapper und der aktuelle
+Agenten-Zugriffsresolver werden weiterverwendet. Der gewöhnliche Seat-Einstieg
+und die gewöhnlichen/Job-Agentenpfade behalten ihre bisherigen Prüfungen.
+
+Der [maschinenlesbare Vergleich](document-service-joint-create-facts-2026-10-27.json)
+bindet die tatsächlichen Quellbytes auf Grundlage `b74a13d06fec4c5ee541c0a45957bfeb76c40d16`.
+Alle ursprünglichen Current-Beobachtungen, Zeitgrenzen, Sperren und
+Realm-/Schema-/Relationsprüfungen bleiben erhalten. Es gibt keinen Cache über
+Beobachtungen und keine neue Autorität aus den gelesenen Werten.
+
+| Anfangsbestand | Erster Adapteraufruf vorher → aktuell | Warme Neuanlage 1 / 2 vorher → aktuell | Ursprüngliche Wiederholung vorher → aktuell | Ausleihen erster / warm / Wiederholung |
+| --- | ---: | ---: | ---: | ---: |
+| 10 | 5308 → 3633 | 5203 → 3528 / 5203 → 3528 | 326 → 226 | 92 / 58 / 7 |
+| 200 | 5308 → 3633 | 5203 → 3528 / 5203 → 3528 | 326 → 226 | 92 / 58 / 7 |
+
+Das vollständige warme Fenster des registrierten Hauptagenten benötigt damit
+rund 32 Prozent weniger SQL-Aufrufe als die ursprüngliche vergleichbare Matrix.
+Das Create-Engine-Fenster sinkt von 4994 auf 3377. Seine unverändert 229 aktuellen
+Berechtigungsbeobachtungen benötigen 1145 statt 2748 Aufrufe, also jeweils fünf
+statt zwölf. Die verschachtelten Fenster werden nicht addiert; Pool-Ausleihen
+bleiben unverändert. Ein kontrollierter Latenzgewinn wird nicht behauptet.
+
+Beide unabhängigen Fixtures verwenden reguläre Uploads und prüfen vollständige
+Original-Birth-/Projektionsbelege, authentifizierte ID-Lesezugriffe, vollständige
+native/physische Inhalte sowie sämtliche vorherigen Zeilen, Metadaten, xmin und
+Dateien. Die ursprüngliche Wiederholung erhält ihre Identität ohne zweite Anlage.
+Alle eigenen PostgreSQL-, Prozess- und Dateisystemressourcen werden geschlossen.
+
+60 echte Scope-Fälle prüfen Haupt-, E-Mail- und eingeschränkte Agenten jeweils
+im gewöhnlichen und Create-Pfad mit Kontrolle sowie Organisations-, Sitzungs-,
+Profil-, Workspace-, Konto- und Seat-Änderungen. Dazu gehören neu ein deaktivierter
+Workspace und ein suspendierter Seat innerhalb der tatsächlich gehaltenen
+Transaktion. Abgewiesene Änderungen erhalten alle beobachteten Autoritätszeilen
+einschließlich Seat-/Sync-/Organisationsberechtigungen und xmin durch Rollback.
+Alle zwölf MCP-Authority-Familien, 21 Workspace-Paritätsvarianten, 49 gewöhnlichen
+Principal-, 26 Original-Origin-Fälle und zwölf nativen PI-Create-Gruppen bestehen.
+Release-TypeScript, Test-TypeScript (5093 Quellen, 25 Wurzeln, null Diagnosen) und
+ESLint sind grün.
+
+Eingeschränkte Agenten verwenden weiterhin ihren vollständigen tatsächlichen
+Zugriffsresolver: In den erfolgreichen nativen Create-Fällen mit 229 Beobachtungen
+sind es 2519 Autorisierungsabfragen, also elf je Beobachtung, und 4835 im Engine.
+Dieses Budget bleibt offen. Im warmen Hauptagentenfenster entfallen weiterhin
+1884 der 3528 Aufrufe auf die heuristische Katalog-/Verbindungskontextgruppe,
+insbesondere PostgreSQL-Schema-/Relationsprüfungen. Die Gesamtbudgets für Create,
+weitere Adapter und Pool-Ausleihen sind damit noch nicht erreicht.
+
+Die vollständige GitNexus-Aktualisierung scheitert an `LOWER: Invalid UTF-8`.
+Gezielte Symbol-Impactprüfungen und die vorgeschriebenen Änderungsanalysen sind
+weiter ausführbar; die tatsächlichen Quelländerungen werden zusätzlich geprüft.
+Der aktuelle Produktstand benötigt abschließend Build/UI und reguläres
+`test:all`; gemeinsame Verträge, inkrementelle Zielauflösung, Schreibmechanik,
+Original-Recovery und sämtliche PR-/Rollout-Gates des Gesamtplans bleiben offen.

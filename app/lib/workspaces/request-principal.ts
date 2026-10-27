@@ -10,18 +10,22 @@ import { getLicenseStatus } from '../license';
 import { requireTeamRuntimeLicense } from '../license/entitlements';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { isFileGuestId } from '../file-guests/types';
-import { assertUserSeatAccess, assertUserSeatAccessInSingleSnapshotOnConnection } from '../license/seat-limit';
+import { assertUserSeatAccess, assertUserSeatAccessInSingleSnapshotOnConnection, resolveEffectiveSeatPolicy,
+  userSeatAccessSnapshotSql, evaluateUserSeatAccessSnapshot, type CurrentSeatSnapshotRow, type EffectiveSeatPolicy } from '../license/seat-limit';
 import type { LicenseStatus } from '../license/types';
 import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, withCapturedAgentToolInvocation,
   type AgentToolInvocation, type AgentToolInvocationOrigin } from '../pi/agent-tool-invocation';
 import { readStoredAgentWorkspaceOnConnection } from '../pi/session-workspace-context';
 import { normalizeManagedAgentId } from '../agents/registry';
+import { getAgentAccessOnConnection } from '../agents/access';
 import { resolveVerifiedAgentActorContextOnConnection } from '../agents/actor-context';
 import { resolveWorkspaceActor } from './context';
+import { assertWorkspacePermission } from './permissions';
 import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationBatchClaimBinding,
   type WorkspaceOperationBatchClaim, type WorkspaceOperationBatchClaimBinding } from '../files/workspace-operation-batch-store';
 import { workspaceOperationJobScopeMatches } from '../files/workspace-operation-job-scope';
-import { readPostgresWorkspaceForActorOnConnection, readPostgresWorkspaceForActorInSingleSnapshotOnConnection } from './postgres-runtime';
+import { readPostgresWorkspaceForActorOnConnection, readPostgresWorkspaceForActorInSingleSnapshotOnConnection,
+  workspacePermissionSnapshotSql, workspaceContextFromPermissionSnapshot, type WorkspacePermissionSnapshotRow } from './postgres-runtime';
 import { requireExistingSelectedRequestWorkspace } from './request';
 import type { WorkspaceContext } from './types';
 
@@ -808,41 +812,56 @@ function matchesAgentWorkspace(origin: AgentWorkspaceOrigin, workspace: Workspac
     && workspace.rootPath === origin.workspaceRoot && workspace.rootRelativePath === origin.workspaceRootRelativePath;
 }
 
-/** Reuses the stored PI and Agent ACL resolvers, including the independent
- * account/seat/workspace check required for built-in Agent.canUse shortcuts. */
+type AgentCreateScopeFacts = Readonly<{
+  workspace?: WorkspacePermissionSnapshotRow; sessions: Row[]; profile?: Row; account?: Row;
+  seat?: CurrentSeatSnapshotRow; seatPolicy: EffectiveSeatPolicy;
+}>;
+
+/** Reuses the ordinary account, seat, Workspace and Agent decisions. Genuine
+ * Create facts are read together for this exact Current invocation, never cached. */
 async function readAgentWorkspace(database: SqlConnection, schemaName: string, origin: AgentWorkspaceOrigin,
   agentId: string, permission: AuthorizationCapture['permission'], license: LicenseStatus,
-  assertAlive: () => unknown, lock: boolean, createPhase?: Phase, createAccount?: Row): Promise<WorkspaceContext> {
+  assertAlive: () => unknown, lock: boolean, createPhase?: Phase, createFacts?: AgentCreateScopeFacts): Promise<WorkspaceContext> {
   assertAlive();
   if (createPhase) {
     active(createPhase);
     const request = createPhase.request;
     if (createPhase.database !== database || request.kind !== 'agent_tool'
-      || !agentMarkdownCreateCaptures.has(request) || !createPhase.agentCreateRealm
+      || !agentMarkdownCreateCaptures.has(request) || !createPhase.agentCreateRealm || !createFacts
       || request.origin !== origin || request.agentId !== agentId || request.permission !== permission
       || request.license !== license || request.schema !== schemaName || !lock) fail('PRINCIPAL_REQUIRED');
-  } else if (createAccount !== undefined) fail('PRINCIPAL_REQUIRED');
-  const user = createPhase ? createAccount
+  } else if (createFacts !== undefined) fail('PRINCIPAL_REQUIRED');
+  const user = createPhase ? createFacts!.account
     : await database.get(`SELECT id,banned FROM ${quote(schemaName)}."user" WHERE id=$1`, [origin.userId]) as Row | undefined;
   assertAlive();
   if (!user || user.id !== origin.userId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
+  let workspace: WorkspaceContext;
   if (createPhase) {
-    // The genuine Create phase has already acquired schema(), locks() and its
-    // receipt-realm pin. Read every seat fact freshly in one actual snapshot.
-    const seat = await assertUserSeatAccessInSingleSnapshotOnConnection(database, origin.userId, license); assertAlive();
-    // Built-in Agent.canUse shortcuts skip actor-context resolution. Pin the
-    // configured organization from these freshly read seat facts as well.
+    // These actual seat, session and Workspace rows belong to the same fresh
+    // statement under schema()/locks()/receipt-realm pin. currentAgent has just
+    // checked the complete original PI/session and profile from that statement.
+    const seat = evaluateUserSeatAccessSnapshot(origin.userId, createFacts!.seatPolicy, createFacts!.seat);
+    assertAlive();
     if (seat.organizationId !== origin.organizationId) fail('PRINCIPAL_SCOPE_CHANGED');
-    // The stored PI/workspace readers enforce the current original scope and
-    // ACL. Restricted agents also run their complete actor-context resolver
-    // through getAgentAccessOnConnection on this phase's held connection.
+    if (user.email !== null && typeof user.email !== 'string'
+      || user.role !== null && typeof user.role !== 'string') fail('PRINCIPAL_SCHEMA_INVALID');
+    const actor = resolveWorkspaceActor({ id: origin.userId, email: user.email as string | null, role: user.role as string | null });
+    const selected = workspaceContextFromPermissionSnapshot(createFacts!.workspace, actor);
+    if (!selected || selected.legacy || selected.workspaceId !== origin.workspaceId) throw new Error('Workspace not found or inaccessible.');
+    for (const requirement of ['canRead', 'canRunAgent', permission] as const) assertWorkspacePermission(selected.permissions, requirement);
+    const access = await getAgentAccessOnConnection(database, origin.userId, agentId, {
+      organizationId: selected.organizationId, workspaceId: selected.workspaceId, projectId: selected.projectId,
+    });
+    assertAlive();
+    if (!access.canUse) throw new Error('Agent access is no longer available in this workspace.');
+    workspace = selected;
   } else {
     await assertUserSeatAccess({ userId: origin.userId, database, licenseStatus: license }); assertAlive();
     await resolveVerifiedAgentActorContextOnConnection({ userId: origin.userId, organizationId: origin.organizationId,
       workspaceId: origin.workspaceId, projectId: origin.projectId }, database, { lock }); assertAlive();
+    workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: origin.userId, sessionId: origin.sessionId,
+      agentId, workspaceId: origin.workspaceId, permissions: ['canRead','canRunAgent',permission] });
   }
-  const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: origin.userId, sessionId: origin.sessionId,
-    agentId, workspaceId: origin.workspaceId, permissions: ['canRead','canRunAgent',permission] });
   assertAlive();
   if (!matchesAgentWorkspace(origin,workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
   return freeze(structuredClone(workspace));
@@ -864,17 +883,14 @@ async function lockAgentOrigin(phase: Phase, request: AgentCapture | JobAgentCap
 
 /** Fresh facts on the genuine Create phase's already locked connection. No
  * caller can supply these rows, and no observation survives this current check. */
-async function readAgentCreateScopeFacts(phase: Phase): Promise<{
-  workspace?: Row; sessions: Row[]; profile?: Row; account?: Row;
-}> {
+async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScopeFacts> {
   active(phase);
   const request = phase.request;
   if (request.kind !== 'agent_tool' || !agentMarkdownCreateCaptures.has(request)
     || !phase.agentCreateRealm || !phase.identity || phase.identity.schema !== request.schema) fail('PRINCIPAL_REQUIRED');
+  const seatPolicy = resolveEffectiveSeatPolicy(request.license);
   const facts = await phase.database.get(`SELECT
-    (SELECT to_jsonb(w) FROM (
-      SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
-      FROM ${table(phase,'canvas_workspaces')} WHERE id=$1 LIMIT 1) w) AS workspace,
+    (SELECT to_jsonb(w) FROM (${workspacePermissionSnapshotSql}) w) AS workspace,
     (SELECT COALESCE(jsonb_agg(to_jsonb(s)),'[]'::jsonb) FROM (
       SELECT id,session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,customer_id,
         project_id,workspace_root_relative_path,archived_at
@@ -883,14 +899,16 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<{
       SELECT id,revision,enabled_tools_json,workflow_version,workflow_revision
       FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1) a) AS profile,
     (SELECT to_jsonb(u) FROM (
-      SELECT id,banned FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1) u) AS account`,
-  [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId]) as {
-    workspace: Row | null; sessions: Row[]; profile: Row | null; account: Row | null;
+      SELECT id,banned,email,role FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1) u) AS account,
+    (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,5)}) seat) AS seat`,
+  [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId, seatPolicy.mode]) as {
+    workspace: WorkspacePermissionSnapshotRow | null; sessions: Row[]; profile: Row | null; account: Row | null;
+    seat: CurrentSeatSnapshotRow | null;
   } | undefined;
   active(phase);
   if (!facts || !Array.isArray(facts.sessions)) fail('PRINCIPAL_SCOPE_CHANGED');
-  return { workspace: facts.workspace ?? undefined, sessions: facts.sessions,
-    profile: facts.profile ?? undefined, account: facts.account ?? undefined };
+  return freeze({ workspace: facts.workspace ?? undefined, sessions: facts.sessions,
+    profile: facts.profile ?? undefined, account: facts.account ?? undefined, seat: facts.seat ?? undefined, seatPolicy });
 }
 
 async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
@@ -912,7 +930,7 @@ async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   active(phase);
   if (!sameAgentProfile(request.profile,profile)) fail('PRINCIPAL_SCOPE_CHANGED');
   const workspace = await readAgentWorkspace(phase.database, phase.identity!.schema, request.origin, request.agentId,
-    request.permission, request.license, () => active(phase), true, create ? phase : undefined, facts?.account);
+    request.permission, request.license, () => active(phase), true, create ? phase : undefined, facts);
   if (!scope(workspace,request.workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
   await checkIdentity(phase);
   return workspace;

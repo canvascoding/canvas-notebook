@@ -2315,7 +2315,7 @@ export async function removePostgresWorkspaceMemberForActor(
   }
 }
 
-type WorkspacePermissionSnapshotRow = WorkspaceRow & {
+export type WorkspacePermissionSnapshotRow = WorkspaceRow & {
     permission_present: boolean | null;
     permission_role: PermissionRow['role'];
     permission_status: PermissionRow['status'];
@@ -2394,7 +2394,12 @@ const workspacePermissionSnapshotJoins = `
 const workspacePermissionSnapshotColumns = `id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
         display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at`;
 
-function workspaceContextFromPermissionSnapshot(row: WorkspacePermissionSnapshotRow | undefined,
+/** Fixed read profile: $1 is workspace ID, $2 is current user ID. No authority. */
+export const workspacePermissionSnapshotSql = `${workspacePermissionSnapshotProjection}
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
+    ${workspacePermissionSnapshotJoins}`;
+
+export function workspaceContextFromPermissionSnapshot(row: WorkspacePermissionSnapshotRow | undefined,
   actor: WorkspaceActor): WorkspaceContext | null {
   if (!row) return null;
   const record = rowToWorkspaceRecord(row);
@@ -2440,9 +2445,7 @@ export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
   actor: WorkspaceActor,
   workspaceId: string,
 ): Promise<WorkspaceContext | null> {
-  const row = await database.get(`${workspacePermissionSnapshotProjection}
-    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
-    ${workspacePermissionSnapshotJoins}`, [workspaceId, actor.userId]) as WorkspacePermissionSnapshotRow | undefined;
+  const row = await database.get(workspacePermissionSnapshotSql, [workspaceId, actor.userId]) as WorkspacePermissionSnapshotRow | undefined;
   return workspaceContextFromPermissionSnapshot(row, actor);
 }
 
