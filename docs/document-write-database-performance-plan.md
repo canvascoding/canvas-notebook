@@ -108,6 +108,15 @@ Berechtigungsentscheidungen bleiben erhalten. Die Create-Budgets von wenigen Hun
 Verträge, inkrementelle Links, normale gemeinsame Schreibwege und alle finalen
 Recovery-/Build-/UI-/Suite-/Release-Gates bleiben erforderlich.
 
+Die [gemeinsame Speicheraufruf-Phase für Agent und MCP](architecture/document-service-mcp-storage-phase-2026-10-27.md)
+verwendet nun auch im MCP die vorhandene Transaktion bis zum Ende eines vollständigen
+Helferaufrufs einschließlich seiner Bestätigungen. Die getrennten Aufrufe bleiben
+frisch autorisiert; bestehende native Publikationsphasen behalten ihre Verbindung.
+Der direkte Zehn-Quellen-Vergleich senkt warme MCP-Neuanlage weiter von 1976 / 37
+auf 1871 / 33. Echte Sperren an ACKs, Rechteverlust vor der nächsten Phase und
+verlustfreie explizite Wiederaufnahme nach zwei tatsächlichen COMMIT-Antwortverlusten
+sind geprüft. Weitere Current-/Resolver- und Registry-/Zustandsbündelung bleibt nötig.
+
 ## Zielaufbau
 
 Editor / Agent / MCP / Systemauftrag

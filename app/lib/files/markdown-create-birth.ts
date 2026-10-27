@@ -603,7 +603,7 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
   withStoragePhase?: MarkdownCreateBirthStoragePhase): Promise<T> {
   const captured = captureBirthInput(input);
   if (withStoragePhase !== undefined && (typeof withStoragePhase !== 'function'
-    || captured.source.kind !== 'agent-markdown-v1')) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+    || !['agent-markdown-v1', 'direct-mcp-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   let fixedSourceGuard: ((stage: string) => Promise<void>) | undefined, fixedSourceWithinTurn: (() => void) | undefined;
   if (Object.hasOwn(captured.source, 'kind')) {
     const context = await import('../collaboration/markdown-file-import-persistence');
