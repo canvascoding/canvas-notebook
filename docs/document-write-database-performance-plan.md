@@ -317,3 +317,13 @@ Produktionsbuild und tatsächliche Desktop-/Mobilprüfungen. Die reguläre Gesam
 am endgültigen Stand bleibt ein Freigabekriterium. Der gesamte Serviceumbau ist
 weiterhin nicht abgenommen; weder Merge auf
 `main` noch ein neues Release oder Produktionsdeployment sind damit nachgewiesen.
+
+Die [gemeinsame frische Bindungsbeobachtung](architecture/document-service-read-binding-2026-10-28.md)
+bündelt Realm, Relationsauflösung und rohe Workspace-Felder an jeder unveränderten
+Prüfstelle. Sechs erfolgreiche Kontrollen und fünfzehn echte Fehlerfälle über HTTP,
+Agent und MCP erhalten Grenzen, Rollback und Originaldaten. Zehn PG-Suiten,
+Release-/erweiterte TypeScript-Prüfung und ESLint bestehen. Zwölf echte getrennte
+Fixtures mit 10/200 Dokumenten sparen in allen 18 Vergleichsfenstern jeweils zwölf
+SQL-Aufrufe bei unveränderten Ausleihen. Normales warmes HTTP-Lesen sinkt von
+88 auf 76 SQL-Aufrufe / 9 Ausleihen. Das finale Budget und alle übrigen Pakete
+bleiben offen; dies ist keine Produktions-/Release-Abnahme.
