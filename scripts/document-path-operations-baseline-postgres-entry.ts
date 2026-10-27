@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -7,9 +7,12 @@ import { NextRequest } from 'next/server';
 import { measureDocumentDatabaseActivity, measureDocumentOperation, withDocumentOperationMetricObserver,
   type DocumentDatabaseActivityMeasurement, type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+import { documentBaselineSize, fillDocumentBaselineFixture } from './helpers/document-baseline-fixture';
 
 assert.equal(process.env.NODE_ENV, 'test');
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT; assert(output && path.isAbsolute(output));
+const desiredSourceCount = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 3);
+let fixtureSourceCount = 0;
 const measurements: Array<{ label: string; value: DocumentDatabaseActivityMeasurement }> = [];
 const operations: DocumentOperationMeasurement[] = [];
 let completed = false;
@@ -38,6 +41,23 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   const incomingText = '# Incoming\n\n[Target](target.md)\n';
   const target = await h.upload('folder/target.md', Buffer.from(targetText));
   const incoming = await h.upload('folder/source.md', Buffer.from(incomingText));
+  const unrelatedFiles: Array<{ path: string; content: string }> = [];
+  fixtureSourceCount = await fillDocumentBaselineFixture({ target: desiredSourceCount,
+    count: async () => Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
+      [h.source.workspaceId])).rows[0].n),
+    seed: async index => {
+      const file = { path: `unrelated/extra-${index}.md`, content: `# Unrelated fixture ${index}\n\nKept content.\n` };
+      await h.upload(file.path, Buffer.from(file.content)); unrelatedFiles.push(file);
+    },
+  });
+  const unrelatedFingerprint = async () => createHash('sha256').update(JSON.stringify((await h.admin.query(`
+    SELECT to_jsonb(d) AS registry,d.xmin::text AS registry_xmin,to_jsonb(l) AS lineage,l.xmin::text AS lineage_xmin,
+      to_jsonb(s) AS native,s.xmin::text AS native_xmin,to_jsonb(m) AS metadata,m.xmin::text AS metadata_xmin
+    FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+      JOIN collaboration_yjs_states s ON s.document_id=d.id
+      LEFT JOIN workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
+    WHERE d.workspace_id=$1 AND d.path LIKE 'unrelated/%' ORDER BY d.id`, [h.source.workspaceId])).rows)).digest('hex');
+  const originalUnrelatedFingerprint = await unrelatedFingerprint();
   const authenticated = await h.request(h.source, 'owner', true);
   const request = (url: string, method: 'GET' | 'POST', body?: object) => new NextRequest(`http://localhost${url}`, {
     method, headers: new Headers({ ...Object.fromEntries(authenticated.headers), 'content-type': 'application/json' }),
@@ -150,7 +170,14 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/target.md')), { code: 'ENOENT' });
     await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/renamed.md')), { code: 'ENOENT' });
     assert.notEqual(renamed.operationId, moved.operationId);
+    assert.equal(await unrelatedFingerprint(), originalUnrelatedFingerprint,
+      'Rename/Move must preserve all unrelated native rows, identities, metadata and xmin.');
+    for (const file of unrelatedFiles) assert.equal(createHash('sha256').update(await fs.readFile(path.join(h.source.rootPath, file.path))).digest('hex'),
+      createHash('sha256').update(file.content).digest('hex'), 'An unrelated physical source must remain byte-identical.');
+    assert.equal(Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
+      [h.source.workspaceId])).rows[0].n), fixtureSourceCount);
     console.log(JSON.stringify({ publicPathBaseline: true, reviewCenter: false, fileUndo: false,
+      nativeDocuments: fixtureSourceCount, unrelatedSourcesUnchanged: unrelatedFiles.length,
       verified: 'actual-cookie-public-handlers-native-owner-and-bidirectional-links',
       measurements: measurements.map(row => ({ label: row.label, statements: row.value.statements, checkouts: row.value.checkouts })) }));
   } finally {
@@ -162,7 +189,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     console.log(JSON.stringify({ closure: 'document-public-path-runtime', workerDrained: true, serversClosed: true }));
   }
 }));
-await fs.writeFile(output, JSON.stringify({ version: 1, fixture: 'public-document-path-operations',
+await fs.writeFile(output, JSON.stringify({ version: 2, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
   scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations }, null, 2) + '\n',
 { mode: 0o600, flag: 'wx' });
 completed = true;

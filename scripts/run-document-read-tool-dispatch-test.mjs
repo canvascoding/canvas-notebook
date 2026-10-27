@@ -12,7 +12,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/document-adapter-matrix-baseline-postgres-entry.ts': [entryPoint,
+    'scripts/helpers/document-baseline-fixture.ts', 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'app/api/documents/read/route.ts', 'app/lib/pi/tool-registry.ts', 'app/lib/mcp/server/streamable-http.ts',
+    'app/lib/documents/service.ts', 'app/lib/observability/document-operation-metrics.ts'],
   'scripts/document-path-operations-baseline-postgres-entry.ts': [entryPoint,
+    'scripts/helpers/document-baseline-fixture.ts',
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/api/files/rename/route.ts',
     'app/api/mobile/v1/files/move/route.ts', 'app/api/files/operations/implicit-moves/[requestId]/route.ts',
     'app/api/files/operations/batches/[batchId]/route.ts',
@@ -21,6 +26,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',
     'app/lib/observability/document-operation-metrics.ts'],
   'scripts/document-editor-runtime-baseline-postgres-entry.ts': [entryPoint,
+    'scripts/helpers/document-baseline-fixture.ts',
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/api/files/collaboration/session/route.ts', 'server/collaboration-server.ts',
     'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',

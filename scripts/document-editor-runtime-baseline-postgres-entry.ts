@@ -9,9 +9,12 @@ import WebSocket from 'ws';
 import { measureDocumentDatabaseActivity, measureDocumentOperation, withDocumentOperationMetricObserver,
   type DocumentDatabaseActivityMeasurement, type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+import { documentBaselineSize, fillDocumentBaselineFixture } from './helpers/document-baseline-fixture';
 
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
 assert.equal(process.env.NODE_ENV, 'test'); assert(output && path.isAbsolute(output));
+const desiredSourceCount = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 2);
+let fixtureSourceCount = 0;
 const profiles: Array<{ label: string; measurement: DocumentDatabaseActivityMeasurement;
   backendSamples: number; sampledPeakRuntimeBackends: number; sampledPeakDedicatedBackends: number }> = [];
 const operations: DocumentOperationMeasurement[] = [];
@@ -38,10 +41,14 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   const { createCollaborationRoomOwnerOptions } = await import('../app/lib/collaboration/room-owner-options');
   const sourcePath = 'profile/normal.md', initial = 'Editor baseline body.';
   const native = await h.upload(sourcePath, Buffer.from(initial));
+  const sourceCount = await fillDocumentBaselineFixture({ target: desiredSourceCount,
+    count: async () => Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
+      [h.source.workspaceId])).rows[0].n),
+    seed: index => h.upload(`profile/unrelated-${index}.md`, Buffer.from(`# Unrelated fixture ${index}\n\nKept content.\n`)),
+  });
+  fixtureSourceCount = sourceCount;
   const original = await h.request(h.source, 'owner', true);
   const cookie = original.headers.get('cookie') ?? assert.fail('The real fixture cookie is absent.');
-  const sourceCount = Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
-    [h.source.workspaceId])).rows[0].n);
   const runtimeNames = [h.applicationName, `canvas-collaboration-owner-${process.pid}`,
     `canvas-collaboration-release-recovery-${process.pid}`];
   const backendCount = async () => {
@@ -200,7 +207,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     console.log(JSON.stringify({ closure: 'document-editor-runtime-baseline', httpClosed: true, socketsClosed: true, dedicatedBackendsClosed: true }));
   }
 }));
-await fs.writeFile(output, JSON.stringify({ version: 1, fixture: 'normal-editor-runtime',
+await fs.writeFile(output, JSON.stringify({ version: 2, fixture: 'normal-editor-runtime', nativeDocuments: fixtureSourceCount,
   scope: 'isolated-runtime-process-windows-including-concurrent-background-work',
   physicalConnectionCoverage: '100ms-administrative-pg_stat_activity-sampling-lower-bound', profiles, operations, admissionPolls }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 completed = true;
