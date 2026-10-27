@@ -203,3 +203,59 @@ Release-TypeScript, Test-TypeScript (5086 Quellen, 24 Wurzeln, null Diagnosen),
 ESLint und die aktuellen PostgreSQL-Nachweise bestehen. Der große aktuelle
 Vergleich, Build/UI und reguläres `test:all` folgen nach Abschluss des gesamten
 Bündelungspakets; die übrigen Architektur-, Recovery- und Rollout-Gates bleiben offen.
+
+## Abschließenden Agenten-Ursprung gemeinsam beobachten
+
+Die private echte Agenten-Neuanlage liest drei unmittelbar benachbarte abschließende
+Identitäts-/Ursprungs-/Identitätsbeobachtungen jetzt in einem frischen SQL-Snapshot.
+Dazwischen lag bisher weder ein Callback noch eine Mutation. Ein `LEFT JOIN` erhält
+die vollständige Kontextbeobachtung auch bei fehlendem Workspace. Der bisherige
+Identitätsvalidator, sein eigenständiger SQL-Leser und die vollständige
+Agenten-/Sitzungs-/Seat-/Workspace-Entscheidungslogik sind bytegleich ausgelagert.
+Gewöhnliche Principals behalten ihre Lesekette; eingeschränkte Agenten behalten
+ihren tatsächlichen zusätzlichen Zugriffsresolver. Es gibt keinen Prüfungs-Cache
+und keine Änderung an Sperren, Toolkonfiguration oder Phasenfristen.
+
+Der [Quell- und Messnachweis](document-service-agent-final-origin-snapshot-2026-10-27.json)
+bindet die tatsächlichen Quellen auf Grundlage `585f82edb`. Zwölf neue echte
+PostgreSQL-Fälle verändern nach dem tatsächlichen Scope-Snapshot dieselbe gehaltene
+Transaktion: Suchpfad, Workspace-Wurzel/-Status, Tabellenzuordnung oder fehlende
+Workspace-Tabelle. Haupt- und E-Mail-Agent werden kontrolliert geprüft. Jede
+Abweisung verhindert Ergebnisfreigabe und Ursprungs-Sink; Rollback stellt alle
+beobachteten Autoritätszeilen/xmin und ursprünglichen Tabellen-OIDs wieder her.
+Diese zwölf Fälle bestehen sowohl vor als auch nach der Produktänderung. Dazu
+bestehen 60 Scope-, 49 gewöhnliche Principal-, 26 Original-Origin-, 66 Member-/
+Metadaten-, zwölf MCP- und zwölf native PI-Create-Gruppen.
+
+| Zehn normale Upload-Quellen | Erster Adapteraufruf | Warme Neuanlage 1 / 2 | Ursprüngliche Wiederholung | Ausleihen erster / warm / Wiederholung |
+| --- | ---: | ---: | ---: | ---: |
+| Derselbe Hauptagent vorher → aktuell | 3590 → 3116 | 3485 → 3011 / 3485 → 3011 | 226 → 198 | 92 / 58 / 7 |
+
+Alle 229 aktuellen Berechtigungsbeobachtungen bleiben aktiv; sie benötigen 687
+statt 1145 SQL-Aufrufe, also drei statt fünf je Beobachtung. Das Engine-Fenster
+sinkt von 3334 auf 2876. Die beiden vollständigen warmen Adapterfenster sparen
+jeweils 474 Aufrufe (rund 13,6 Prozent gegenüber dem vorigen Stand). Darin liegen
+1367 Katalog-/Kontextabfragen (45,4 Prozent), 829 Konto-/Seat-/Agenten-/Workspace-/
+Sitzungsabfragen (27,5 Prozent) und 273 Dokumentzustands-/Register-/Projektionsabfragen
+(9,1 Prozent). Die Gruppen sind heuristisch; die verschachtelte Autorisierungsphase
+wird nicht dazuaddiert. Pool-Ausleihen bleiben gleich; ein kontrollierter
+Latenzgewinn ist nicht nachgewiesen. Frühere 200er-Nachweise gehören zu früheren
+Quellen. Das endgültige Create-Budget ist weiterhin offen.
+
+Ein früherer Member-Lauf traf bei einem konkurrierenden Metadaten-Patch einen
+tatsächlichen Foundation-Tabellen-Sperrfehler `55P03`. Zwei nachfolgende vollständige
+66er-Läufe bestehen; die sporadische Ursache ist damit nicht geklärt oder behoben.
+Ein rein lesender Fehlerzeuge erfasst künftig konkrete eigene Sperrhalter und
+Wartungsstände, ohne SQL-Ergebnisse, Fehler oder Parallelitätsassertionen zu ändern.
+Ein zunächst fehlgeschlagener Agenten-Messlauf bestätigte nach dem Client-Ende noch
+einen eigenen PostgreSQL-Backendprozess. Die Fixture beobachtet nun ausschließlich
+ihre beiden exakten Zufallsnamen bis zu zwei Sekunden und entfernt ihr Schema nur
+nach nachgewiesener Backend-Beendigung. Der zunächst zurückgelassene eigene
+Schemazustand wurde nach OID-/Marker-/Eigentümerprüfung und null eigenen Backends
+entfernt. Der akzeptierte Agentenvergleich und der MCP-Lauf schließen alle eigenen
+Ressourcen und tätigen keine externen Netzaufrufe.
+
+Release-TypeScript, Test-TypeScript (5094 Quellen, 26 Wurzeln, null Diagnosen),
+ESLint und Quellenvergleich bestehen. Die offene Sperrbeobachtung, aktueller großer
+Vergleich, finale Build-/UI-/Gesamtsuite und sämtliche weiteren Architektur-,
+Recovery-, PR-/CI- und Release-/Rollout-Gates bleiben Teil des Gesamtplans.

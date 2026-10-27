@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "sourceBaseCommit": "585f82edb498ab4dd8f4f55828c9598b2e624c75",
+  "sourceHashes": {
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/agent-markdown-create-final-origin-postgres-test.ts": "486aa9fa2bf6201ae2ff1b4e831e7e3a780ace5be932844c60ca3b6382cf6fb4",
+    "scripts/workspace-request-principal-postgres-test.ts": "1260615e80044ab67b46f80caef7cee30b71f9b7aa3112c489601af06786e169",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "450ad4c4e1d69ced8d7b55e80d8e80eb51ebc225341260e576f13c5627f87f5d",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "3086337b72078d6c0feb2953a2ca193a8e51ef47b1cf324e31d92be45fe71e0a",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/agent-markdown-create-principal-scope-postgres-test.ts": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/pi/session-workspace-context.ts": "27b1377874f690a2c71e9a8e60a69d94a01b1fbf6d3ce2e8ca0e6ff7a54cbd7c",
+    "app/lib/workspaces/request-principal.ts": "10e23255788428a52e36ff59ef444662ef94983858b565b064a2d2e6620ce574",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/session-workspace-scoped-read-test.ts": "aa5d37a3efd697a65e3145a310dc628c37e7b4c07253d1372a891c8e64536d8a",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0"
+  },
+  "scope": "private-genuine-agent-create-final-origin-observation-and-matched-agent10",
+  "standaloneIdentitySqlAndIdentityValidatorAndAgentDecisionBodyByteIdenticalToBase": true,
+  "finalAdjacentIdentityOriginIdentityReadsBefore": 3,
+  "finalJointSnapshotReadsAfter": 1,
+  "workspaceMissingKeepsContextRow": true,
+  "lateRelationOrNamespacePlanningFailureKeepsTypedDenial": true,
+  "ordinaryPrincipalAndActualRestrictedResolverRetained": true,
+  "freshAuthorizationAndLocksAndPhaseLimitsRetained": true,
+  "windows": [
+    {
+      "label": "first-adapter-entry-and-create",
+      "nativeDocumentsBefore": 10,
+      "sql": 3116,
+      "matchedBeforeSql": 3590,
+      "checkouts": 92,
+      "wallMs": 4655.81,
+      "databaseMs": 3025.84,
+      "poolWaitMs": 5.57,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-1",
+      "nativeDocumentsBefore": 11,
+      "sql": 3011,
+      "matchedBeforeSql": 3485,
+      "checkouts": 58,
+      "wallMs": 3822.61,
+      "databaseMs": 2565.74,
+      "poolWaitMs": 4.63,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-2",
+      "nativeDocumentsBefore": 12,
+      "sql": 3011,
+      "matchedBeforeSql": 3485,
+      "checkouts": 58,
+      "wallMs": 3594.47,
+      "databaseMs": 2367.25,
+      "poolWaitMs": 5.41,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "same-original-idempotent-retry",
+      "nativeDocumentsBefore": 13,
+      "sql": 198,
+      "matchedBeforeSql": 226,
+      "checkouts": 7,
+      "wallMs": 232.52,
+      "databaseMs": 175.9,
+      "poolWaitMs": 0.09,
+      "peakConnections": 2,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    }
+  ],
+  "mainEngine": {
+    "beforeSql": 3334,
+    "afterSql": 2876,
+    "currentObservations": 229,
+    "authorizationSqlBefore": 1145,
+    "authorizationSqlAfter": 687,
+    "sqlPerCurrentBefore": 5,
+    "sqlPerCurrentAfter": 3
+  },
+  "warmAgentQueryGroups": [
+    {
+      "group": "other",
+      "statements": 353,
+      "percent": 11.7
+    },
+    {
+      "group": "catalogue",
+      "statements": 1367,
+      "percent": 45.4
+    },
+    {
+      "group": "session",
+      "statements": 48,
+      "percent": 1.6
+    },
+    {
+      "group": "agent",
+      "statements": 250,
+      "percent": 8.3
+    },
+    {
+      "group": "account",
+      "statements": 128,
+      "percent": 4.3
+    },
+    {
+      "group": "seat",
+      "statements": 317,
+      "percent": 10.5
+    },
+    {
+      "group": "workspace",
+      "statements": 86,
+      "percent": 2.9
+    },
+    {
+      "group": "transaction",
+      "statements": 189,
+      "percent": 6.3
+    },
+    {
+      "group": "document-state",
+      "statements": 215,
+      "percent": 7.1
+    },
+    {
+      "group": "document-registry",
+      "statements": 51,
+      "percent": 1.7
+    },
+    {
+      "group": "document-projection",
+      "statements": 7,
+      "percent": 0.2
+    }
+  ],
+  "regressions": [
+    {
+      "suite": "final-original-origin-real-drift",
+      "groups": 12,
+      "passed": true
+    },
+    {
+      "suite": "current-agent-scope",
+      "groups": 60,
+      "passed": true
+    },
+    {
+      "suite": "ordinary-agent-principal",
+      "groups": 49,
+      "passed": true
+    },
+    {
+      "suite": "original-agent-origin",
+      "groups": 26,
+      "passed": true
+    },
+    {
+      "suite": "cookie-bearer-team-member-and-metadata",
+      "groups": 66,
+      "passed": true
+    },
+    {
+      "suite": "mcp-workspace-path-authority",
+      "groups": 12,
+      "passed": true
+    },
+    {
+      "suite": "native-pi-create",
+      "groups": 12,
+      "passed": true
+    }
+  ],
+  "finalOriginDrifts": [
+    "control",
+    "search-path",
+    "workspace-root",
+    "workspace-disabled",
+    "relation-shadow",
+    "workspace-missing"
+  ],
+  "finalOriginAgents": [
+    "main",
+    "managed-email"
+  ],
+  "finalOriginDriftsUseActualSameTransactionSql": true,
+  "finalOriginDenialPreventsPublishedResultAndOriginSink": true,
+  "exactAuthorityRowsAndXminAndRelationOidsRestored": true,
+  "memberLockObservation": {
+    "earlierRealFailureCode": "55P03",
+    "category": "principal-foundation-table-lock",
+    "metadataSubcase": "existing/pin-first",
+    "failurePhase": "first-service-request",
+    "diagnosticMember66PassesAfterFailure": 2,
+    "causeEstablished": false,
+    "fixedClaimed": false,
+    "readonlyLockAndMaintenanceWitnessAdded": true,
+    "originalQueryErrorsAndConcurrencyAssertionsUnchanged": true
+  },
+  "dispatchCleanup": {
+    "earlierImmediateBackendCount": 1,
+    "earlierRunRejected": true,
+    "abandonedExactOwnedSchemaMarkerAndOidVerifiedBeforeCleanup": true,
+    "ownedBackendsBeforeAbandonedSchemaDrop": 0,
+    "boundedDrainMs": 2000,
+    "exactRandomApplicationNamesOnly": true,
+    "remainingBackendStillPreventsSchemaDrop": true,
+    "currentAgentAndMcpOwnedSchemaClientsDataClosed": true,
+    "noExternalFetches": true
+  },
+  "releaseTypeScriptDiagnostics": 0,
+  "scopedTestTypeScript": {
+    "roots": 26,
+    "sourceFiles": 5094,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "largeMatrixStillRequired": true,
+  "currentSourceBuildUiAndRegularSuiteStillRequired": true,
+  "poolCheckoutReductionClaimed": false,
+  "controlledLatencyGainClaimed": false,
+  "diagnosticQueryGroupsAreHeuristic": true,
+  "authorizationPhaseOverlapsQueryGroups": true,
+  "nestedScopesNotAdditive": true,
+  "finalBudgetsMet": false,
+  "fullCentralServicePlanComplete": false
+}

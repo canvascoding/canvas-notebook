@@ -284,6 +284,11 @@ const principalIdentitySql = `SELECT current_schema() AS schema,current_setting(
     pg_current_xact_id()::text AS transaction,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only,
     current_setting('session_replication_role') AS replication FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
+const principalIdentitySnapshotSql = `SELECT header.*,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM (
+      SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
+      FROM unnest($2::text[]) names(name)) r) AS relations
+    FROM (${principalIdentitySql}) header`;
 function parseIdentity(phase: Phase, row: Row | undefined): Identity {
   if (!row || row.schema !== phase.request.schema || !number(row.database,1) || Number(row.database) !== phase.request.database
     || typeof row.search_path !== 'string' || !number(row.backend,1) || typeof row.start !== 'string'
@@ -303,11 +308,11 @@ async function checkIdentity(phase: Phase): Promise<Row> {
   const requiredTables = principalRelations(phase);
   // One fresh context snapshot, including every required relation. The extra
   // realm field is consumed only by the private durable-job check below.
-  const row = await phase.database.get(`SELECT header.*,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
-    (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM (
-      SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-      FROM unnest($2::text[]) names(name)) r) AS relations
-    FROM (${principalIdentitySql}) header`, [quote(phase.request.schema),requiredTables]) as Row | undefined;
+  const row = await phase.database.get(principalIdentitySnapshotSql, [quote(phase.request.schema),requiredTables]) as Row | undefined;
+  return validatePrincipalIdentitySnapshot(phase, row, requiredTables);
+}
+/** Same context/relations decision for standalone and joint actual snapshots. */
+function validatePrincipalIdentitySnapshot(phase: Phase, row: Row | undefined, requiredTables: readonly string[]): Row {
   active(phase);
   const current = parseIdentity(phase,row), before = phase.identity;
   if (!before || Object.keys(before).some(k => Reflect.get(before,k) !== Reflect.get(current,k))) fail('PRINCIPAL_SCOPE_CHANGED');
@@ -911,8 +916,9 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
     profile: facts.profile ?? undefined, account: facts.account ?? undefined, seat: facts.seat ?? undefined, seatPolicy });
 }
 
-async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
-  await checkIdentity(phase);
+/** Private core between the caller's actual context observations. */
+async function readCurrentAgentWorkspace(phase: Phase): Promise<WorkspaceContext> {
+  active(phase);
   const request = phase.request;
   if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');
   const create = agentMarkdownCreateCaptures.has(request);
@@ -932,16 +938,30 @@ async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   const workspace = await readAgentWorkspace(phase.database, phase.identity!.schema, request.origin, request.agentId,
     request.permission, request.license, () => active(phase), true, create ? phase : undefined, facts);
   if (!scope(workspace,request.workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
+  return workspace;
+}
+
+async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
+  await checkIdentity(phase);
+  const workspace = await readCurrentAgentWorkspace(phase);
   await checkIdentity(phase);
   return workspace;
 }
 
 async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceContext> {
-  const workspace = await currentAgent(phase);
   const request = phase.request;
+  const create = request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request);
+  let workspace: WorkspaceContext;
+  if (create) {
+    await checkIdentity(phase);
+    workspace = await readCurrentAgentWorkspace(phase);
+  } else workspace = await currentAgent(phase);
   if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');
   const optin = request.originalOrigin;
-  if (!optin) return workspace;
+  if (!optin) {
+    if (create) await checkIdentity(phase);
+    return workspace;
+  }
   const original = request.workspace;
   const expected = Object.freeze({ userId: request.userId, agentId: request.agentId, piSessionId: request.origin.sessionId,
     toolName: request.origin.toolName, toolCallId: request.origin.toolCallId, agentTurnId: request.origin.agentTurnId ?? null,
@@ -951,7 +971,28 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
     customerId: original.customerId ?? null, projectId: original.projectId ?? null, ownerUserId: original.ownerUserId ?? null,
     rootPath: original.rootPath, rootRelativePath: original.rootRelativePath, legacy: original.legacy, status: original.status });
   active(phase);
-  const row = await phase.database.get(`SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
+  let row: Row | undefined;
+  if (create) {
+    const requiredTables = principalRelations(phase);
+    // The three adjacent context/origin/context reads contain no intervening
+    // callback or mutation. Observe their complete facts together, including a
+    // context row when the Workspace row is absent. No earlier proof is cached.
+    try {
+      row = await phase.database.get(`SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
+        w.project_id,w.owner_user_id,w.root_relative_path,w.status,header.*,header.database AS database_oid
+        FROM (${principalIdentitySnapshotSql}) header
+        LEFT JOIN ${table(phase,'canvas_workspaces')} w ON w.id=$3`,
+      [quote(request.schema), requiredTables, expected.workspaceId]) as Row | undefined;
+    } catch (error) {
+      // A same-B rename/removal used to be rejected by the preceding standalone
+      // relation check. Preserve that typed denial if lookup cannot be planned.
+      const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+      if (code === '42P01') fail('PRINCIPAL_SCHEMA_INVALID');
+      if (code === '3F000') fail('PRINCIPAL_SCOPE_CHANGED');
+      throw error;
+    }
+    validatePrincipalIdentitySnapshot(phase, row, requiredTables);
+  } else row = await phase.database.get(`SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
     w.project_id,w.owner_user_id,w.root_relative_path,w.status,current_schema() AS schema,
     to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid
@@ -968,7 +1009,7 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
     || row.schema !== request.schema || !number(row.schema_oid,1) || Number(row.schema_oid) !== optin.realm.schemaOid
     || row.search_path !== (agentMarkdownCreateCaptures.has(request) ? phase.agentCreateRealm : optin.realm.searchPath)
     || !number(row.database_oid,1) || Number(row.database_oid) !== request.database) fail('PRINCIPAL_SCOPE_CHANGED');
-  await checkIdentity(phase);
+  if (!create) await checkIdentity(phase);
   const historical: WorkspaceAgentToolHistoricalOrigin = Object.freeze({ ...expected,
     rootRelativePath: expected.rootRelativePath, legacy: false, status: 'active', schema: request.schema,
     schemaOid: Number(row.schema_oid), searchPath: optin.realm.searchPath, databaseOid: request.database });

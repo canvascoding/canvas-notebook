@@ -1107,6 +1107,10 @@ async function main(): Promise<void> {
     });
     await check('metadata disjoint favorite and pin patches preserve both commits for missing and existing rows',async()=>{
       const diagnosticOriginalQuery=Client.prototype.query;
+      const diagnosticReads:Promise<void>[]=[];
+      const foundationTables=['canvas_organization_settings','team_memberships','team_membership_sync_state','user','session',
+        'organization_user_permissions','canvas_workspaces','canvas_projects','canvas_workspace_members','canvas_project_members'];
+      const lastFoundationDml=new Map<number,{table:string;command:string;phase:string}>();
       let diagnosticSubcase='not-started',diagnosticPhase='fixture-setup';
       const queryCategory=(sql:string):string=>{
         const normalized=sql.trim().replace(/\s+/gu,' ');
@@ -1128,6 +1132,8 @@ async function main(): Promise<void> {
         const sql=typeof args[0]==='string'?args[0]:args[0]&&typeof args[0]==='object'?String(Reflect.get(args[0],'text')??''):'';
         const category=queryCategory(sql),subcase=diagnosticSubcase,startedInPhase=diagnosticPhase,startedAt=performance.now();
         const backendPid=Number(Reflect.get(this,'processID'));
+        const dml=/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]+"\.)?"?([a-z_]+)"?/iu.exec(sql);
+        if(dml&&foundationTables.includes(dml[2]))lastFoundationDml.set(backendPid,{table:dml[2],command:dml[1].toUpperCase(),phase:startedInPhase});
         const observeLockFailure=(error:unknown):void=>{
           // Observe the original query rejection only. Never print SQL, values,
           // credentials, or replace the original result/error with this witness.
@@ -1138,6 +1144,24 @@ async function main(): Promise<void> {
               elapsedMs:Math.round((performance.now()-startedAt)*100)/100,
               backendPid:Number.isSafeInteger(backendPid)&&backendPid>0?backendPid:null,
             }));
+            const message=typeof Reflect.get(error,'message')==='string'?String(Reflect.get(error,'message')):'';
+            const blockedRelation=foundationTables.find(name=>message.includes('"'+name+'"'))??null;
+            const diagnostic=(async()=>{
+              const locks=(await admin.query(`SELECT c.relname AS relation,l.mode,a.pid,a.backend_type,a.state,
+                a.wait_event_type,a.wait_event FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+                JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_stat_activity a ON a.pid=l.pid
+                WHERE n.nspname=$1 AND c.relname=ANY($2::text[]) AND l.granted AND l.pid<>$3
+                  AND l.mode IN('RowExclusiveLock','ShareUpdateExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')
+                ORDER BY c.relname,a.pid`,[schema,foundationTables,backendPid])).rows;
+              const maintenance=(await admin.query(`SELECT relname,
+                extract(epoch FROM last_autovacuum)*1000 AS last_autovacuum_ms,
+                extract(epoch FROM last_autoanalyze)*1000 AS last_autoanalyze_ms
+                FROM pg_stat_all_tables WHERE schemaname=$1 AND relname=ANY($2::text[]) ORDER BY relname`,[schema,foundationTables])).rows;
+              console.error('Actual metadata foundation lock details:',JSON.stringify({subcase,blockedRelation,
+                locks:locks.map(row=>({...row,lastObservedFoundationDml:lastFoundationDml.get(Number(row.pid))??null})),maintenance}));
+            })();
+            diagnosticReads.push(diagnostic);
+            void diagnostic.catch(()=>undefined);
           }catch{/* Diagnostic output must not change the original query outcome. */}
         };
         try{
@@ -1197,7 +1221,7 @@ async function main(): Promise<void> {
         }finally{diagnosticPhase='draining-original-fixture-promises';release.release();await first.done;if(second)await second.done;Client.prototype.query=originalQuery;}
         });
       }
-      }finally{Client.prototype.query=diagnosticOriginalQuery;}
+      }finally{Client.prototype.query=diagnosticOriginalQuery;await Promise.allSettled(diagnosticReads);}
     });
     await check('metadata genuine SQL failure rolls back title and personal changes together',async()=>{
       const target=await nativeTarget('metadata-rollback.md');await metadataWrite(target.expectedTarget,{title:'Before rollback'});

@@ -57,7 +57,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
     options: `-c statement_timeout=15000 -c application_name=${applicationName}-control` });
   control.on('error', () => undefined);
   let controlConnected = false, schemaOid: string | undefined, schemaCreated = false, pool: Pool | undefined;
-  let primary: unknown, result: T | undefined, fetches = 0;
+  let primary: unknown, result: T | undefined, fetches = 0, backendDrainChecks = 0;
   const clients = new Set<Client>(), documents = new Set<{ destroy: () => void }>();
   const cleanupErrors: unknown[] = [];
   try {
@@ -242,8 +242,19 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
         const row = (await control.query(`SELECT n.oid::text AS oid,obj_description(n.oid,'pg_namespace') AS marker,
           pg_get_userbyid(n.nspowner)=current_user AS owned FROM pg_namespace n WHERE n.nspname=$1`, [schema])).rows[0];
         assert(row); assert.equal(row.oid, schemaOid); assert.equal(row.marker, `document-tool-dispatch:${nonce}`); assert.equal(row.owned, true);
-        assert.equal((await control.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE application_name LIKE $1 AND pid<>pg_backend_pid()',
-          [`${applicationName}%`])).rows[0].count, 0);
+        // The client socket can close before PostgreSQL removes its backend.
+        // Wait only for the two exact owned names, after pool/client close;
+        // a backend that remains still prevents schema removal.
+        const deadline = performance.now() + 2000;
+        let remaining: number;
+        do {
+          remaining = Number((await control.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE application_name=ANY($1::text[])',
+            [[applicationName, `${applicationName}-admin`]])).rows[0].count);
+          backendDrainChecks++;
+          if (remaining === 0 || performance.now() >= deadline) break;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        } while (true);
+        assert.equal(remaining, 0, 'Owned PostgreSQL backends did not exit after pool/client close.');
         await control.query(`DROP SCHEMA "${schema}" CASCADE`);
         assert.equal((await control.query('SELECT to_regnamespace($1) AS oid', [schema])).rows[0].oid, null);
       } catch (error) { cleanupErrors.push(error); }
@@ -265,6 +276,6 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   if (primary !== undefined) throw primary;
   if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Dispatch fixture cleanup was not fully confirmed.');
   console.log(JSON.stringify({ fixture: 'document-read-tool-dispatch', schemaRemoved: true, clientsClosed: clients.size === 0,
-    dataRemoved: true, fetches, tcpServersCreated: 0 }));
+    dataRemoved: true, fetches, tcpServersCreated: 0, backendDrainChecks }));
   return result as T;
 }
