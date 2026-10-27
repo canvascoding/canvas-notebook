@@ -12,6 +12,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-implicit-move-group-authority-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/api/files/rename/route.ts',
+    'app/lib/files/workspace-implicit-move-operation.ts', 'app/lib/files/workspace-implicit-move-phase.ts',
+    'app/lib/workspaces/request-principal.ts', 'app/lib/collaboration/room-admission-quiescence.ts'],
   'scripts/document-adapter-matrix-baseline-postgres-entry.ts': [entryPoint,
     'scripts/helpers/document-baseline-fixture.ts', 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
     'app/api/documents/read/route.ts', 'app/lib/pi/tool-registry.ts', 'app/lib/mcp/server/streamable-http.ts',
@@ -23,6 +27,8 @@ const criticalInputsByEntryPoint = {
     'app/api/files/operations/batches/[batchId]/route.ts',
     'app/lib/files/workspace-implicit-move-operation.ts', 'app/lib/files/workspace-implicit-move-phase.ts',
     'app/lib/collaboration/native-inspection-schema.ts', 'app/lib/files/workspace-operation-original-move-runner.ts',
+    'app/lib/collaboration/room-admission-handoff.ts',
+    'app/lib/collaboration/room-admission-quiescence.ts', 'app/lib/markdown/native-file-operation-handoff.ts',
     'app/lib/files/workspace-operation-job-lifecycle-owner.ts',
     'app/lib/files/workspace-operation-batch-worker.ts', 'server/collaboration-server.ts',
     'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',

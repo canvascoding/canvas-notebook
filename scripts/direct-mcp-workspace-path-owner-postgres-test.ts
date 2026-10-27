@@ -69,6 +69,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
     'physical-web': 'Physical5 actual cookie Web DELETE and ordinary worker prove links, pristine registry and Trash response',
     'physical-b2-revocation': 'Physical5 real rename fault, revoked grant and genuine SID-B recover original pristine PDF once',
     'implicit-live-update': 'implicit Web rename retains a real accepted rich update through its pending final store and original Move',
+    'live-incoming': 'actual live Incoming rooms drain by retained tickets before native Move and Delete; explicit SID-B recovery keeps Original',
     'after-physical': 'HTML Delete4: after-physical retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
     'grant-after-intent': 'HTML Delete4: grant-after-intent retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
     'commit-ack-loss': 'HTML Delete E6: actual completion COMMIT ACK loss and genuine SID-B preserve Original, receipts and later same-path D2 exactly once',
@@ -79,7 +80,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
   } as const;
   const selectedCaseId = process.env.CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE;
   assert(selectedCaseId === undefined || Object.hasOwn(htmlDeleteCaseNames, selectedCaseId),
-    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of cohort, physical-web, physical-b2-revocation, implicit-live-update, after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
+    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of cohort, physical-web, physical-b2-revocation, implicit-live-update, live-incoming, after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
   const selectedCaseName = selectedCaseId === undefined ? undefined
     : htmlDeleteCaseNames[selectedCaseId as keyof typeof htmlDeleteCaseNames];
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';
@@ -1189,10 +1190,10 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           await sendNativePathRoomParagraph(nativeRooms, peer, marker); await nativeRooms.flush();
           // Final initial planning follows actual accepted/saved peer content.
           // No job or immutable Original exists until this exact plan is bound.
-          await run(kind, currentToken, h.source.workspaceId, async live => {
+          await withSettledProjectionReadBoundary(() => run(kind, currentToken, h.source.workspaceId, async live => {
             job.scope = await freshScope(live); const actual = await buildWorkspaceOperationBatchPlan({ scope: job.scope, actions: job.plan.actions });
             assert(actual.version === 2 || actual.version === 3); job.plan = actual;
-          });
+          }));
           const hold = nativeRooms.holdNextUpdate(job.incomingId);
           peer.sendUpdate(nativeRooms.Y.encodeStateAsUpdate(peer.doc, nativeRooms.Y.encodeStateVector(peer.doc)));
           await waitForNativePathRoomCondition(() => hold.entered, 'Actual beforeSync activity was not entered.');
@@ -1236,9 +1237,9 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           const { authoritativeNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
           const { nativeCollaborationSearchText } = await import('../app/lib/collaboration/workspace-search-reader');
           assert(nativeCollaborationSearchText(authoritativeNativeCollaborationSnapshot(incoming).content).includes(marker));
-          await run(kind, currentToken, h.source.workspaceId, async live => noMutation(async () => {
+          await withSettledProjectionReadBoundary(() => run(kind, currentToken, h.source.workspaceId, async live => noMutation(async () => {
             const historical = await status(job, live); assert(historical); assert.equal(historical.batch.status, 'applied');
-          }));
+          })));
           nativeRooms.assertHealthy();
         }
       });

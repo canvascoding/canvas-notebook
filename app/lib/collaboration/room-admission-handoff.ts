@@ -12,7 +12,7 @@ import { captureCollaborationAdmissionOutcomeResult, captureCollaborationAdmissi
   collaborationAdmissionOutcomeDigest, readCollaborationAdmissionOutcome,
   serializeCollaborationAdmissionOutcome,
   type CollaborationAdmissionAbortReason, type CollaborationAdmissionOutcome } from './room-admission-outcome';
-import { inspectCollaborationAdmissionQuiescence,
+import { inspectCollaborationAdmissionQuiescenceSet,
   type CollaborationAdmissionQuiescenceProof } from './room-admission-quiescence';
 import { lockIdentity } from './room-owner';
 import { hasCollaborationHandoffExecutionContext, withCollaborationHandoffExecutionContext } from './handoff-execution-context';
@@ -129,8 +129,10 @@ async function executeCapturedHandoffOnConnection(
   // Only this invocation's actual, fully decoded VACANT inspection can prove
   // an unchanged post-row. Never reuse a caller DTO, prior TX or release proof.
   const validatedVacant = new Map<string, CollaborationAdmissionTarget>();
+  const inspections = await inspectCollaborationAdmissionQuiescenceSet(transaction, captured,
+    captured.request.expectedDocuments.map(document => document.documentId));
   for (const [index, document] of captured.request.expectedDocuments.entries()) {
-    const inspected = await inspectCollaborationAdmissionQuiescence(transaction, captured, document.documentId);
+    const inspected = inspections[index];
     if (!inspected.alreadyProven) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
     const proof = inspected.proof;
     proofs.push(proof);
@@ -159,11 +161,21 @@ async function executeCapturedHandoffOnConnection(
     if (authority.inFlight !== 0) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
     if (afterMutation) await afterMutation();
   }
+  // All domain writes and the post-mutation authority check have completed.
+  // Lock and reread the complete exact set on this same transaction before
+  // deriving any outcomes; no caller callback runs between these observations.
+  const documentIds = proofs.map(proof => proof.documentId);
+  const currentRows = await transaction.all(`SELECT * FROM collaboration_yjs_states
+    WHERE document_id = ANY($1::text[]) ORDER BY document_id COLLATE "C" FOR UPDATE`,
+  [documentIds]) as Row[];
+  const currentById = new Map(currentRows.map(row => [row.document_id, row]));
+  if (currentRows.length !== documentIds.length || currentById.size !== documentIds.length
+    || documentIds.some(documentId => !currentById.has(documentId))) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
   const targets = [];
   for (const [index, proof] of proofs.entries()) {
-    const row = await transaction.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
-      [proof.documentId]) as Row | undefined;
-    if (!row) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+    const row = currentById.get(proof.documentId)!;
     let snapshot: CollaborationAdmissionTarget | undefined;
     const originalVacant = validatedVacant.get(proof.documentId);
     if (originalVacant) {
@@ -188,9 +200,21 @@ async function executeCapturedHandoffOnConnection(
     const snapshotDigest = collaborationAdmissionOutcomeDigest('snapshot', snapshotText);
     targets.push(Object.freeze({ documentId: proof.documentId,
       proofDigest: collaborationAdmissionOutcomeDigest('input', proof.proofText), snapshotText, snapshotDigest }));
-    await transaction.run(`UPDATE collaboration_admission_targets SET status = 'completed', active = false,
-      outcome_snapshot_text = $3, outcome_snapshot_digest = $4 WHERE request_id = $1 AND document_id = $2`,
-    [captured.request.requestId, proof.documentId, snapshotText, snapshotDigest]);
+  }
+  // Target rows were locked and their exact request scope verified above.
+  // PostgreSQL still executes all existing per-row constraints and triggers;
+  // RETURNING also proves that every expected target was actually completed.
+  const completedRows = await transaction.all(`UPDATE collaboration_admission_targets AS target
+    SET status = 'completed', active = false,
+      outcome_snapshot_text = outcome.snapshot_text, outcome_snapshot_digest = outcome.snapshot_digest
+    FROM unnest($2::text[], $3::text[], $4::text[]) AS outcome(document_id, snapshot_text, snapshot_digest)
+    WHERE target.request_id = $1 AND target.document_id = outcome.document_id
+    RETURNING target.document_id`, [captured.request.requestId, documentIds,
+    targets.map(target => target.snapshotText), targets.map(target => target.snapshotDigest)]) as Row[];
+  const completedIds = new Set(completedRows.map(row => row.document_id));
+  if (completedRows.length !== documentIds.length || completedIds.size !== documentIds.length
+    || documentIds.some(documentId => !completedIds.has(documentId))) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
   }
   const outcome: CollaborationAdmissionOutcome = Object.freeze({
     ...(domain.kind === 'abort' ? { version: 2 as const, disposition: 'aborted' as const, reasonCode: domain.reasonCode }

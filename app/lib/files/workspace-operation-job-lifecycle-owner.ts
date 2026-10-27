@@ -852,7 +852,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
 async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperationJobLifecycleOwner): Promise<boolean> {
   const captured = owners.get(owner);
   if (!captured?.nativePaths) fail('JOB_LIFECYCLE_REQUIRED');
-  return runLifecycleTransaction(owner, undefined, async (access, database, check) => {
+  const prepare = () => runLifecycleTransaction(owner, undefined, async (access, database, check) => {
     const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
     if (!admission) return true; // Existing historical protocol, without a new P0.
     if (admission.outcome) return admission.outcome.version === 1;
@@ -901,6 +901,9 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
     await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
     return false;
   });
+  // The Move preflight also inspects the complete native corpus. Keep the
+  // grammar within this actual transaction, as in the later fixed Move phases.
+  return captured.move ? withNativeInspectionSchema(prepare) : prepare();
 }
 
 declare const moveOwnerBrand: unique symbol;
@@ -940,7 +943,10 @@ function moveOwner(owner: WorkspaceOperationNativeMoveJobOwner): Capture {
 }
 function movePhase<T>(owner: WorkspaceOperationJobLifecycleOwner | WorkspaceOperationNativeMoveJobOwner,
   operation: (access: WorkspaceOperationJobPolicyAccess, database: SqlConnection, check: () => Promise<void>) => Promise<T>): Promise<T> {
-  return runLifecycleTransaction(owner as WorkspaceOperationJobLifecycleOwner, undefined, operation);
+  // As in the fixed Delete/Copy phases, retain one grammar for the fully
+  // awaited transaction. Source bytes, proofs and current authority stay fresh.
+  return withNativeInspectionSchema(() =>
+    runLifecycleTransaction(owner as WorkspaceOperationJobLifecycleOwner, undefined, operation));
 }
 function captureMovePrepared(input: readonly MovePrepared[], requireReceipts: boolean): readonly MovePrepared[] {
   if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype || !input.length || input.length > 1000

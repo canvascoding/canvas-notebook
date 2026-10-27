@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '../db';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
+import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { captureCollaborationAdmissionRequest, collaborationAdmissionLockKey,
   type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { reserveCollaborationAdmissionOnConnection, tryLockCollaborationAdmissionWorkspace }
@@ -200,7 +201,9 @@ export async function withWorkspaceImplicitMoveHandoffTransactionOnConnection<T>
   // OriginalOrigin also observes the actual B after entry and on every current/final check.
   // It never permits replacing an original session or realm with new request selectors.
   let actualCurrentOrigin: WorkspaceRequestHistoricalOrigin | undefined;
-  return withWorkspaceRequestPrincipalOriginalOrigin(input.originalRequest,
+  // Reuse only the fixed grammar for this fully awaited phase. Every native
+  // snapshot and current-authority fence below is still independently checked.
+  return withNativeInspectionSchema(() => withWorkspaceRequestPrincipalOriginalOrigin(input.originalRequest,
     { workspaceId: selection.scope.workspaceId, permission: 'canWrite' },
     origin => {
       if (!sameReauthorizedOrigin(origin, selection.origin) || actualCurrentOrigin && !equal(origin, actualCurrentOrigin)) fail();
@@ -262,5 +265,5 @@ export async function withWorkspaceImplicitMoveHandoffTransactionOnConnection<T>
             version: 1, stage: frame.stage, elapsedMs: Math.round(performance.now() - startedAt), milestones: frame.milestones })); }
           catch { /* A diagnostic sink cannot change the original phase result. */ }
         }
-      }));
+      })));
 }

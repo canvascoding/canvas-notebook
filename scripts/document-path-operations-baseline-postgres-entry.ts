@@ -13,6 +13,8 @@ import { documentBaselineSize, fillDocumentBaselineFixture } from './helpers/doc
 assert.equal(process.env.NODE_ENV, 'test');
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT; assert(output && path.isAbsolute(output));
 const desiredSourceCount = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 3);
+const seedMode = 'normal-upload';
+assert.equal(process.env.CANVAS_DOCUMENT_PATH_DIAGNOSTIC_CLONES, undefined, 'Acceptance requires normal uploads and their actual projection receipts.');
 let fixtureSourceCount = 0;
 const measurements: Array<{ label: string; value: DocumentDatabaseActivityMeasurement }> = [];
 const operations: DocumentOperationMeasurement[] = [];
@@ -20,7 +22,8 @@ let completed = false;
 process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
 process.once('uncaughtExceptionMonitor', () => {
   try { writeFileSync(output, JSON.stringify({ version: 3, passed: false, fixture: 'public-document-path-operations',
-    nativeDocuments: fixtureSourceCount, measurements, operations }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
+    nativeDocuments: fixtureSourceCount, seedMode, normalUploadAcceptance: false,
+    measurements, operations }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
   catch { /* Preserve the original test failure and exit status. */ }
 });
 
@@ -53,17 +56,20 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
       [h.source.workspaceId])).rows[0].n),
     seed: async index => {
       const file = { path: `unrelated/extra-${index}.md`, content: `# Unrelated fixture ${index}\n\nKept content.\n` };
-      await h.upload(file.path, Buffer.from(file.content)); unrelatedFiles.push(file);
+      await h.upload(file.path, Buffer.from(file.content));
+      unrelatedFiles.push(file);
     },
   });
-  const unrelatedFingerprint = async () => createHash('sha256').update(JSON.stringify((await h.admin.query(`
+  const readUnrelatedRows = async () => (await h.admin.query(`
     SELECT to_jsonb(d) AS registry,d.xmin::text AS registry_xmin,to_jsonb(l) AS lineage,l.xmin::text AS lineage_xmin,
       to_jsonb(s) AS native,s.xmin::text AS native_xmin,to_jsonb(m) AS metadata,m.xmin::text AS metadata_xmin
     FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
       JOIN collaboration_yjs_states s ON s.document_id=d.id
       LEFT JOIN workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
-    WHERE d.workspace_id=$1 AND d.path LIKE 'unrelated/%' ORDER BY d.id`, [h.source.workspaceId])).rows)).digest('hex');
-  const originalUnrelatedFingerprint = await unrelatedFingerprint();
+    WHERE d.workspace_id=$1 AND d.path LIKE 'unrelated/%' ORDER BY d.id`, [h.source.workspaceId])).rows;
+  const originalUnrelatedRows = await readUnrelatedRows();
+  const fingerprint = (rows: unknown[]) => createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+  const originalUnrelatedFingerprint = fingerprint(originalUnrelatedRows);
   const authenticated = await h.request(h.source, 'owner', true);
   const request = (url: string, method: 'GET' | 'POST', body?: object) => new NextRequest(`http://localhost${url}`, {
     method, headers: new Headers({ ...Object.fromEntries(authenticated.headers), 'content-type': 'application/json' }),
@@ -176,7 +182,28 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/target.md')), { code: 'ENOENT' });
     await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/renamed.md')), { code: 'ENOENT' });
     assert.notEqual(renamed.operationId, moved.operationId);
-    assert.equal(await unrelatedFingerprint(), originalUnrelatedFingerprint,
+    const finalUnrelatedRows = await readUnrelatedRows(), finalUnrelatedFingerprint = fingerprint(finalUnrelatedRows);
+    if (finalUnrelatedFingerprint !== originalUnrelatedFingerprint) {
+      const changedFields = new Set<string>(); let affectedRows = 0;
+      for (let index = 0; index < Math.max(originalUnrelatedRows.length, finalUnrelatedRows.length); index++) {
+        const before = originalUnrelatedRows[index], after = finalUnrelatedRows[index];
+        if (JSON.stringify(before) === JSON.stringify(after)) continue;
+        affectedRows++;
+        for (const field of ['registry', 'lineage', 'native', 'metadata', 'registry_xmin', 'lineage_xmin', 'native_xmin', 'metadata_xmin']) {
+          if (JSON.stringify(before?.[field]) === JSON.stringify(after?.[field])) continue;
+          changedFields.add(field);
+          if (!field.endsWith('_xmin')) for (const column of Object.keys({ ...before?.[field], ...after?.[field] })) {
+            if (/^[a-z_]+$/u.test(column) && JSON.stringify(before?.[field]?.[column]) !== JSON.stringify(after?.[field]?.[column])) {
+              changedFields.add(`${field}.${column}`);
+            }
+          }
+        }
+      }
+      // Aggregate column names only; no IDs, paths, SQL parameters or contents.
+      console.log(JSON.stringify({ unrelatedSourceInvariantFailure: true, seedMode, affectedRows,
+        fields: [...changedFields].sort() }));
+    }
+    assert.equal(finalUnrelatedFingerprint, originalUnrelatedFingerprint,
       'Rename/Move must preserve all unrelated native rows, identities, metadata and xmin.');
     for (const file of unrelatedFiles) assert.equal(createHash('sha256').update(await fs.readFile(path.join(h.source.rootPath, file.path))).digest('hex'),
       createHash('sha256').update(file.content).digest('hex'), 'An unrelated physical source must remain byte-identical.');
@@ -196,6 +223,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   }
 }));
 await fs.writeFile(output, JSON.stringify({ version: 3, passed: true, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
+  seedMode, normalUploadAcceptance: true,
   scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations }, null, 2) + '\n',
 { mode: 0o600, flag: 'wx' });
 completed = true;
