@@ -284,11 +284,17 @@ const principalIdentitySql = `SELECT current_schema() AS schema,current_setting(
     pg_current_xact_id()::text AS transaction,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only,
     current_setting('session_replication_role') AS replication FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
-const principalIdentitySnapshotSql = `SELECT header.*,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+function principalIdentitySnapshotQuery(schemaParameter: number, relationsParameter: number): string {
+  if (![schemaParameter, relationsParameter].every(value => Number.isInteger(value) && value >= 1 && value <= 32)) {
+    throw new RangeError('Invalid Principal snapshot parameter ordinal.');
+  }
+  return `SELECT header.*,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM (
-      SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-      FROM unnest($2::text[]) names(name)) r) AS relations
+      SELECT name,to_regclass(name)::oid=to_regclass($${schemaParameter}||'.'||quote_ident(name))::oid AS same
+      FROM unnest($${relationsParameter}::text[]) names(name)) r) AS relations
     FROM (${principalIdentitySql}) header`;
+}
+const principalIdentitySnapshotSql = principalIdentitySnapshotQuery(1, 2);
 function parseIdentity(phase: Phase, row: Row | undefined): Identity {
   if (!row || row.schema !== phase.request.schema || !number(row.database,1) || Number(row.database) !== phase.request.database
     || typeof row.search_path !== 'string' || !number(row.backend,1) || typeof row.start !== 'string'
@@ -896,7 +902,7 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
   if (request.kind !== 'agent_tool' || !agentMarkdownCreateCaptures.has(request)
     || !phase.agentCreateRealm || !phase.identity || phase.identity.schema !== request.schema) fail('PRINCIPAL_REQUIRED');
   const seatPolicy = resolveEffectiveSeatPolicy(request.license);
-  const facts = await phase.database.get(`SELECT
+  const scopeSql = `SELECT
     (SELECT to_jsonb(w) FROM (${workspacePermissionSnapshotSql}) w) AS workspace,
     (SELECT COALESCE(jsonb_agg(to_jsonb(s)),'[]'::jsonb) FROM (
       SELECT id,session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,customer_id,
@@ -907,11 +913,28 @@ async function readAgentCreateScopeFacts(phase: Phase): Promise<AgentCreateScope
       FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1) a) AS profile,
     (SELECT to_jsonb(u) FROM (
       SELECT id,banned,email,role FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1) u) AS account,
-    (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,5)}) seat) AS seat`,
-  [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId, seatPolicy.mode]) as {
+    (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,5)}) seat) AS seat`;
+  const requiredTables = principalRelations(phase);
+  let facts: {
     workspace: WorkspacePermissionSnapshotRow | null; sessions: Row[]; profile: Row | null; account: Row | null;
-    seat: CurrentSeatSnapshotRow | null;
+    seat: CurrentSeatSnapshotRow | null; principal_identity?: Row;
   } | undefined;
+  try {
+    // The initial context check and scope read have no intervening callback or
+    // mutation. Read both fresh on this actual held B; the final check remains.
+    facts = await phase.database.get(`SELECT facts.*,to_jsonb(context) AS principal_identity
+      FROM (${scopeSql}) facts CROSS JOIN (${principalIdentitySnapshotQuery(6, 7)}) context`,
+    [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId, seatPolicy.mode,
+      quote(request.schema), requiredTables]) as typeof facts;
+  } catch (error) {
+    // Namespace/relation drift can fail during planning of the combined read.
+    // Deny through the Principal contract; never retry an aborted transaction.
+    const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+    if (code === '42P01' || code === '42703') fail('PRINCIPAL_SCHEMA_INVALID');
+    if (code === '3F000') fail('PRINCIPAL_SCOPE_CHANGED');
+    throw error;
+  }
+  validatePrincipalIdentitySnapshot(phase, facts?.principal_identity, requiredTables);
   active(phase);
   if (!facts || !Array.isArray(facts.sessions)) fail('PRINCIPAL_SCOPE_CHANGED');
   return freeze({ workspace: facts.workspace ?? undefined, sessions: facts.sessions,
@@ -955,7 +978,6 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
   const create = request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request);
   let workspace: WorkspaceContext;
   if (create) {
-    await checkIdentity(phase);
     workspace = await readCurrentAgentWorkspace(phase);
   } else workspace = await currentAgent(phase);
   if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');

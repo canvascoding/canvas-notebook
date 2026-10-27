@@ -399,3 +399,59 @@ gesunde Receipt-Wiederholung und Status bleibt bytegleich. Auth-Produktcode wird
 nicht geändert. Release-TypeScript, Test-TypeScript (5.105 Quellen, 33 Wurzeln)
 und ESLint ohne Warnungen bestehen. Aktuelle große Matrix, Build/UI,
 reguläres test:all und die übrigen Gesamtplan-/Rollout-Gates bleiben erforderlich.
+
+## Anfangsnachweis und aktuelle Agenten-Scope-Daten gemeinsam lesen
+
+Die private Agenten-Anlage liest nun den ersten vollständigen Identitäts-/Relations-
+nachweis zusammen mit ihren bisherigen aktuellen Scope-Daten. Zwischen diesen
+vorherigen beiden Abfragen lag weder Callback noch Mutation. Der abschließende
+frische Origin-/Identitätsnachweis bleibt erhalten, einschließlich der Erkennung
+tatsächlicher Änderungen nach dem Scope-Lesen. Es wird kein positiver Nachweis
+übernommen oder über eine notwendige Grenze gespeichert.
+
+Der [gebundene Bericht](document-service-agent-initial-snapshot-2026-10-27.json)
+vergleicht den tatsächlichen Stand `d0068b4f98a9a6f92ab705620027284a2600981b` mit den neuen
+Quellen. Der bisherige Identitäts-Snapshot wird mit festen Parameterpositionen
+wiederverwendet; seine Standard-SQL-Bytes und der Scope-SQL-Block sind unverändert.
+Neun vorhandene Entscheidungs-/Phasenfunktionen, einschließlich Konto-/Seat-/
+Workspace-/Agent-Entscheidung, Parser, Locks und Laufzeitgrenzen, sind bytegleich.
+Gewöhnliche Agenten-, Member- und Job-Pfade behalten ihre bisherigen Lesewege.
+
+21 tatsächliche PostgreSQL-Fälle prüfen Haupt-, E-Mail- und eingeschränkte Agenten.
+Eine aktuelle Managed-Prüfung benötigt tatsächlich zwei statt drei SQL-Anweisungen;
+der eingeschränkte Agent behält seinen echten Resolver und benötigt acht. Jede
+erneute Prüfung liest beide Nachweise neu. Kontosperre, Sitzungsarchivierung,
+Suchpfad-Reihenfolge, fehlender Suchpfad, echte temporäre Relation und echte
+Relationsentfernung werden vor einem erfolgreichen Ergebnis abgewiesen. Die
+gebündelte Abfrage kann bei fehlenden Relationen/Spalten bereits bei der Planung
+scheitern; diese Fälle liefern PRINCIPAL_SCHEMA_INVALID. Ein vollständig verstellter
+Suchpfad kann deshalb als Schemafehler statt als unabhängiger Scopefehler erscheinen.
+Ein fehlender Namensraum liefert PRINCIPAL_SCOPE_CHANGED. Es erfolgt kein Retry
+einer abgebrochenen Transaktion. Alle beobachteten Authority-/Native-Zeilen und xmin
+bleiben nach Erfolg beziehungsweise Rollback gleich.
+
+Die unveränderten zwölf finalen Origin-, 60 Scope-, 49 normalen Agent-, 26
+Original-Origin-, 66 Member-, zwei Storage-Phasen-, zwei COMMIT-Verlust- und zwölf
+nativen PI-Gruppen bestehen ebenfalls. Alle eigenen Fixtures schließen vollständig.
+
+| Agent, zehn reguläre Quellen | SQL vorher → aktuell | Ausleihen vorher → aktuell |
+| --- | ---: | ---: |
+| first-adapter-entry-and-create | 2505 → 2285 | 80 → 80 |
+| warm-fresh-create-1 | 2400 → 2180 | 46 → 46 |
+| warm-fresh-create-2 | 2400 → 2180 | 46 → 46 |
+| same-original-idempotent-retry | 194 → 180 | 7 → 7 |
+
+Das Create-Engine-Fenster benötigt jetzt 2053 SQL-Anweisungen bei
+39 Ausleihen. Seine 212 aktuellen Berechtigungsbeobachtungen benötigen
+424 statt 636 SQL-Anweisungen. Vollständige native/physische Originalinhalte,
+authentifizierte ID-Leser, unveränderte vorherige Zeilen/Metadaten/xmin/Dateien und
+die ursprüngliche Wiederholung bleiben nachgewiesen. Verschachtelte Werte werden
+nicht addiert; ein kontrollierter Latenzgewinn wird nicht behauptet. Die groben
+Abfragefamilien sind Diagnosehilfen: Ein gemeinsamer Berechtigungs-/Identitäts-
+Snapshot wird wegen seiner Kataloganteile als catalogue gezählt.
+
+Release-TypeScript, die Testtypprüfung mit 5.106 Quellen und 34 Wurzeln sowie ESLint
+ohne Warnungen bestehen. Die verbleibenden Abfragen und Phasen müssen weiter
+gebündelt werden; die endgültigen Create-Budgets sind nicht erreicht. Aktuelle große
+Matrix, Build/UI, reguläres test:all, PR/CI/Reviews und die übrigen Gesamtplan-/
+Recovery-/Release-Gates bleiben erforderlich.
