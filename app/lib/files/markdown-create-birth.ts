@@ -35,6 +35,9 @@ export type MarkdownCreateBirthClaim = Readonly<{
   publish(serialized: string, beforeBoundary: (stage?: string) => Promise<void>, assertWithinTurn: () => void): Promise<Observation>;
   complete(serializedHash: string, revisionId: string, beforeBoundary: (stage?: string) => Promise<void>): Promise<void>;
 }>;
+/** The coordinator may own one genuine database phase around a whole helper
+ * action. This callback supplies no authority; fixed source guards still run. */
+export type MarkdownCreateBirthStoragePhase = <T>(operation: () => Promise<T>) => Promise<T>;
 export class MarkdownCreateBirthError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'MarkdownCreateBirthError'; }
 }
@@ -268,7 +271,7 @@ type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
-  fixedSourceWithinTurn?: () => void };
+  fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
 function manualEmptyAttribution(intent: Record<string, unknown>): Record<string, unknown> {
   const selected = intent.source as Record<string, unknown>, origin = intent.origin as Record<string, unknown>;
   const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'];
@@ -314,7 +317,7 @@ async function root(frame: Frame): Promise<void> {
 async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'observe' | 'complete',
   boundary: (stage?: string) => Promise<void>, fields: Record<string, unknown> = {}): Promise<Observation> {
   const phase = { open: 'birth_open', verify: 'birth_verify', prepare: 'birth_prepare', observe: 'birth_observe', complete: 'birth_complete' } as const;
-  return inCollaborationProjectionPhase(phase[action], async () => {
+  const operation = async () => {
     const agentSource = !!frame.intent.source && typeof frame.intent.source === 'object' && Reflect.get(frame.intent.source,'kind') === 'agent-markdown-v1';
     if (agentSource) agentMarkdownCreateAttribution(frame.intent);
     const message = JSON.stringify({action,key:frame.key,intent:frame.intent,...fields}) + '\n';
@@ -366,7 +369,9 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     await root(frame); await boundary();
     if (frame.storePin) readStorePointer(frame);
     return observed;
-  });
+  };
+  return inCollaborationProjectionPhase(phase[action], () =>
+    frame.withStoragePhase ? frame.withStoragePhase(operation) : operation());
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -594,8 +599,11 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
  * and every helper/ACK promise close before this whole callback settles. */
 export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: string; targetPath: string;
   origin: Readonly<Record<string, unknown>>; source: Readonly<Record<string, unknown>>; operationId: string },
-  beforeBoundary: () => Promise<void>, operation: (claim: MarkdownCreateBirthClaim) => Promise<T>): Promise<T> {
+  beforeBoundary: () => Promise<void>, operation: (claim: MarkdownCreateBirthClaim) => Promise<T>,
+  withStoragePhase?: MarkdownCreateBirthStoragePhase): Promise<T> {
   const captured = captureBirthInput(input);
+  if (withStoragePhase !== undefined && (typeof withStoragePhase !== 'function'
+    || captured.source.kind !== 'agent-markdown-v1')) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   let fixedSourceGuard: ((stage: string) => Promise<void>) | undefined, fixedSourceWithinTurn: (() => void) | undefined;
   if (Object.hasOwn(captured.source, 'kind')) {
     const context = await import('../collaboration/markdown-file-import-persistence');
@@ -631,7 +639,8 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}) };
+      intent, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
+      ...(withStoragePhase ? { withStoragePhase } : {}) };
     frame = current;
     const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;
     current.storePin = readStorePointer(current);

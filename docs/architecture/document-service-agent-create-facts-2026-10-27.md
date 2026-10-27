@@ -259,3 +259,60 @@ Release-TypeScript, Test-TypeScript (5094 Quellen, 26 Wurzeln, null Diagnosen),
 ESLint und Quellenvergleich bestehen. Die offene Sperrbeobachtung, aktueller großer
 Vergleich, finale Build-/UI-/Gesamtsuite und sämtliche weiteren Architektur-,
 Recovery-, PR-/CI- und Release-/Rollout-Gates bleiben Teil des Gesamtplans.
+
+## Eine Transaktion pro Agenten-Speicheraktion
+
+Die feste Dateisystemhilfe meldet ihre Zwischenstände an den Koordinator zurück.
+Bisher konnte jeder dieser Prüfaufrufe außerhalb einer laufenden Native-/
+Publikationsphase eine eigene Principal-Transaktion eröffnen. Die echte Agenten-
+Neuanlage hält jetzt eine Transaktion je vollständiger Speicheraktion: vor dem
+ersten Root-/Guard-Aufruf bis nach Helper-Schluss, Rückmeldungsverarbeitung und
+abschließenden Prüfungen. Eine bereits gehaltene Native-/Publikationsverbindung
+wird wiederverwendet. Die nächste getrennte Aktion authentifiziert sich neu.
+
+Der Koordinator liefert dafür einen begrenzten Phasen-Wrapper an die bestehende
+Speichermechanik. Er gibt weder eine Verbindung noch eine Berechtigung zurück.
+Sämtliche festen Storage-Guards sowie der tatsächliche Helper-/ACK-/Close-Körper
+sind bytegleich erhalten. Principal, Tool-Policy, Transaktionskern und Python-Hilfe
+bleiben unverändert. Die Fünf-Sekunden- und 50-ms-Grenzen gelten weiterhin; die
+Transaktion wird während einer Aktion nicht durch neue Principal-Laufzeiten ersetzt.
+Manuelle Anlage, Upload und MCP verwenden weiterhin ihren bisherigen Standardpfad.
+Der [Quell- und Messbericht](document-service-agent-storage-phase-2026-10-27.json)
+bindet die Abnahme auf Grundlage `4bebe6932`.
+
+Ein echter PostgreSQL-/Helper-Test beobachtet beim ursprünglichen `open` zwei
+Transaktions-IDs und schlägt ausschließlich an der neuen Phasengrenze fehl, nachdem
+nativer und physischer Inhalt sowie bestätigte Birth-/Projektionszeilen geprüft sind.
+Am neuen Stand verwenden sämtliche beobachteten Aktionen eine Transaktion. Zwei
+tatsächliche konkurrierende Kontoänderungen blockieren während der Open-Rückmeldung
+mit `55P03`; nach bestätigtem Aktions-Commit wird eine tatsächliche Kontosperre
+zugelassen. Die nächste Principal-Phase weist sie mit `PRINCIPAL_AUTH_REVOKED` ab.
+Für diese abgewiesene Anlage entstehen weder natives Dokument noch Importbeleg oder
+öffentliche Datei. Die erfolgreiche Quelle bleibt vollständig und authentifiziert
+über ihre ID lesbar; alle eigenen Ressourcen werden geschlossen.
+
+| Zehn normale Upload-Quellen | Erster Adapteraufruf | Warme Neuanlage 1 / 2 | Ursprüngliche Wiederholung | Ausleihen erster / warm / Wiederholung |
+| --- | ---: | ---: | ---: | ---: |
+| Derselbe Hauptagent vorher → aktuell | 3116 → 2829 | 3011 → 2724 / 3011 → 2724 | 198 → 198 | 92 → 80 / 58 → 46 / 7 → 7 |
+
+Das vollständige warme Fenster benötigt rund 9,5 Prozent weniger SQL-Aufrufe und
+rund 20,7 Prozent weniger Pool-Ausleihen als der vorherige Stand. Der Engine sinkt
+von 2876 auf 2589 Aufrufe und von 51 auf 39 Ausleihen. Seine Current-Beobachtungen
+sinken von 229 auf 212, weil redundante Principal-Ein-/Austritte entfallen; die
+bestehenden festen Grenzprüfungen bleiben aktiv. Jede Beobachtung benötigt weiter
+drei SQL-Aufrufe. Vollständige Original-Birth-/Projektionsbelege, authentifizierte
+ID-Leser, vorherige native Zeilen/Metadaten/xmin/Dateien und ursprüngliche Wiederholung
+ohne zweite Anlage werden im vergleichbaren registrierten Werkzeug geprüft.
+Die Messbereiche überlappen; ein kontrollierter Latenzgewinn ist nicht nachgewiesen.
+
+Die neuen Speicherphasen-/Widerrufsnachweise, zwölf native PI-Create-, 60 Scope-,
+zwölf Final-Origin-, 16 Upload-, 15 Erstprojektions- und 15 manuelle Create-Gruppen
+sowie der Agentenvergleich bestehen. Die ursprünglichen Prüfungen umfassen unter
+anderem tatsächlichen Bestätigungsverlust, Prozessabbruch und Wiederaufnahme. Ein
+verlorener Commit speziell der neu eingeführten Speicheraktions-Transaktion wurde
+im neuen fokussierten Test noch nicht separat injiziert; deren vorhandener
+Transaktionskern verwirft die Verbindung und meldet den Ausgang unbestätigt.
+Release-TypeScript, Test-TypeScript (5097 Quellen, 28 Wurzeln, null Diagnosen),
+ESLint und Quellenvergleich bestehen. Weitere Adapter-/Zustandsbündelung, das
+endgültige Gesamtbudget, aktueller großer Vergleich, Build/UI/`test:all`, ungeklärter
+Member-Sperrfehler und sämtliche Architektur-/Recovery-/PR-/Release-Gates bleiben offen.

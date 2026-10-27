@@ -1085,6 +1085,30 @@ function currentAgentBirthOwner(input: MarkdownCreateBirthStorageInput): AgentBi
     || !isDeepStrictEqual(input.origin,owner.frame.originalOrigin) || !isDeepStrictEqual(input.source,binding)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   currentAgentCreateInvocation(owner.frame); agentMarkdownCreateAttribution(input as unknown as Record<string,unknown>); return owner;
 }
+/** One actual Principal/transaction owns a complete storage helper action,
+ * including its ACK callbacks and close. Existing publication/native phases
+ * retain their own connection. No Current or fixed storage guard is skipped. */
+async function withAgentMarkdownBirthStoragePhase<T>(frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>,
+  operation: () => Promise<T>): Promise<T> {
+  const owner = agentBirthOwners.getStore();
+  if (!owner?.active || !owner.accepting || owner.frame !== frame || !owner.invocation
+    || typeof operation !== 'function') return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  currentAgentBirthOwner(owner.invocation);
+  const consumer = agentCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
+  if (consumer) {
+    if (!consumer.active || consumer.frame !== frame || projection && (!projection.active || projection.frame !== frame
+      || projection.source !== owner.source || projection.database !== consumer.database || projection.access !== consumer.access)) {
+      return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    }
+    return operation();
+  }
+  if (projection) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return withAuthenticatedCreatePhaseFactory(frame, () => executeLifecycleTransaction({ openConnection: owner.openPhase,
+    execute: async database => {
+      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+      return withAuthenticatedCreatePrincipalOnConnection(database, frame, () => operation());
+    }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+}
 export async function assertAuthenticatedAgentMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
   const owner = currentAgentBirthOwner(input), consumer = agentCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
   if (consumer && (!consumer.active || consumer.frame !== owner.frame)
@@ -2161,7 +2185,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         // Original source/auth is checked by the native/publication phase;
         // A and the physical/SQL origin remain pinned during every IO/close.
         await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
-      }, persist);
+      }, persist, frame.kind === 'agent-tool' ? operation => withAgentMarkdownBirthStoragePhase(frame, operation) : undefined);
       let projected: AuthenticatedMarkdownFirstProjectionResult;
       if ('kind' in source.binding && source.binding.kind === 'manual-empty-v1') {
         const manualOwner: ManualBirthOwner = { active: true, accepting: true, frame, source };
