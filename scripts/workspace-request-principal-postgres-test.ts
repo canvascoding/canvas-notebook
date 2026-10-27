@@ -631,13 +631,17 @@ async function main(): Promise<void> {
       })),expected('PRINCIPAL_SCOPE_CHANGED'));
       await assert.rejects(captured(p=>transaction(async(db)=>{await db.run('SET LOCAL search_path=pg_catalog');await phase(db,p,async()=>assert.fail());})),expected('PRINCIPAL_SCOPE_CHANGED'));
     });
-    await check('final expiry response cannot hide changed backend',async()=>{
+    await check('final fresh observation cannot hide a backend change after the actual session reply',async()=>{
       await assert.rejects(captured(p=>transaction(async(_db,client)=>{
-        const peer=await ownClient();await peer.query('BEGIN');let active=client,armed=false;
+        const peer=await ownClient();await peer.query('BEGIN');let active=client,armed=false,switched=false;
         const wrapper:SqlConnection={get:async(sql,args)=>{const row=(await active.query(sql,args)).rows[0];
-          if(armed && sql.startsWith('SELECT expires_at')) active=peer;return row;},
+          // The session expiry now arrives with the complete context/policy
+          // snapshot. Change only the real backend after its first reply.
+          if(armed && !switched && row?.token_hash && row.workspace && row.seat && Array.isArray(row.relations)) {
+            active=peer;switched=true;
+          }return row;},
         all:async(sql,args)=>(await active.query(sql,args)).rows,run:async(sql,args)=>({changes:(await active.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
-        try{await phase(wrapper,p,async()=>{armed=true;});}finally{await peer.query('ROLLBACK');await endClient(peer);}
+        try{await phase(wrapper,p,async()=>{armed=true;});}finally{assert(switched);await peer.query('ROLLBACK');await endClient(peer);}
       })),expected('PRINCIPAL_SCOPE_CHANGED'));
     });
     await check('fresh locked role follows DB, not the captured session user',async()=>{

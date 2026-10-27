@@ -91,9 +91,13 @@ physische Bytes bleiben geprüft; alle eigenen Ressourcen schließen vollständi
 Diese Werte sind innerhalb der jeweils gleichen Messgrenze vergleichbar.
 
 Das ist ein abgeschlossener Messnachweis für Create, keine Abnahme von Paket 2
-oder des Gesamtplans. Der normale Benutzer-/Editor-/HTTP-Lesepfad braucht weiter
-gebündelte aktuelle Sitzungs-, Konto-, Seat- und Workspace-Daten sowie eigene
-aktuelle Messungen. Die Create-Budgets von wenigen Hundert Aufrufen, gemeinsame
+oder des Gesamtplans. Die [gemeinsame Member-Prüfung](architecture/document-service-member-current-2026-10-27.md)
+liest aktuelle Sitzungs-, Konto-, Seat-, Workspace- und Kontextdaten inzwischen
+in zwei statt acht frischen SQL-Aufrufen. Der tatsächliche 10-Quellen-Vergleich
+reduziert warmes HTTP-Öffnen von 100 auf 88 Aufrufe und ein Editor-Leerlauffenster
+von 1390 auf 1176; MCP-Neuanlage bleibt bei 2597. Die übrige gemeinsame Fakten-,
+Registry- und Zustandsbündelung sowie abschließende Größen-/Latenzvergleiche
+bleiben offen. Die Create-Budgets von wenigen Hundert Aufrufen, gemeinsame
 Verträge, inkrementelle Links, normale gemeinsame Schreibwege und alle finalen
 Recovery-/Build-/UI-/Suite-/Release-Gates bleiben erforderlich.
 

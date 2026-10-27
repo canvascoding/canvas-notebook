@@ -515,27 +515,67 @@ async function currentUserWorkspace(phase: Phase, row: Row): Promise<WorkspaceCo
   await checkIdentity(phase);
   return workspace;
 }
-async function current(phase: Phase): Promise<WorkspaceContext> {
-  await checkIdentity(phase);
+type MemberScopeSnapshot = {
+  row: Row & { workspace: WorkspacePermissionSnapshotRow | null; seat: CurrentSeatSnapshotRow | null };
+  seatPolicy: EffectiveSeatPolicy;
+};
+/** Fresh facts on the actual held Member connection, never a cached grant.
+ * Pin data relations while observing the real search path independently. */
+async function readMemberScopeSnapshot(phase: Phase): Promise<MemberScopeSnapshot> {
+  active(phase);
   const request = phase.request;
   if (request.kind !== 'member') fail('PRINCIPAL_REQUIRED');
-  const rawWorkspace = await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
-    FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
-  active(phase); assertWorkspaceRow(phase,rawWorkspace);
-  const row = await phase.database.get(`SELECT s.user_id,s.expires_at,s.impersonated_by,
-    encode(sha256(convert_to(s.token,'UTF8')),'hex') AS token_hash,u.id,u.email,u.role,u.banned
-    FROM ${table(phase,'session')} s JOIN ${table(phase,'user')} u ON u.id=s.user_id WHERE s.id=$1`, [request.sessionId]) as Row | undefined;
+  const seatPolicy = resolveEffectiveSeatPolicy(request.license), requiredTables = principalRelations(phase);
+  // Fixed, inlined aliases let the existing policy SQL read the pinned schema
+  // even when the actual path has drifted. The header must still reject drift.
+  const relations = tables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${table(phase,name)})`).join(',');
+  let row: MemberScopeSnapshot['row'] | undefined;
+  try {
+    row = await phase.database.get(`WITH ${relations}
+      SELECT header.*,account.*,
+        (SELECT to_jsonb(w) FROM (${workspacePermissionSnapshotSql}) w) AS workspace,
+        (SELECT to_jsonb(seat) FROM (${userSeatAccessSnapshotSql(2,4)}) seat) AS seat
+      FROM (${principalIdentitySnapshotQuery(5,6)}) header
+      LEFT JOIN LATERAL (
+        SELECT s.user_id,s.expires_at,s.impersonated_by,
+          encode(sha256(convert_to(s.token,'UTF8')),'hex') AS token_hash,u.id,u.email,u.role,u.banned
+        FROM ${table(phase,'session')} s JOIN ${table(phase,'user')} u ON u.id=s.user_id WHERE s.id=$3
+      ) account ON true`, [request.workspace.workspaceId,request.userId,request.sessionId,seatPolicy.mode,
+      quote(request.schema),requiredTables]) as typeof row;
+  } catch (error) {
+    const code = error && typeof error === 'object' ? Reflect.get(error,'code') : undefined;
+    if (code === '42P01' || code === '42703') fail('PRINCIPAL_SCHEMA_INVALID');
+    if (code === '3F000') fail('PRINCIPAL_SCOPE_CHANGED');
+    throw error;
+  }
+  validatePrincipalIdentitySnapshot(phase,row,requiredTables);
+  return { row: row!, seatPolicy };
+}
+/** Reuse the ordinary seat/workspace decisions for each actual fresh reply. */
+function memberSnapshotWorkspace(phase: Phase, { row, seatPolicy }: MemberScopeSnapshot): WorkspaceContext {
   active(phase);
-  if (!row || row.user_id !== request.userId || row.id !== request.userId || row.token_hash !== request.tokenHash
+  const request = phase.request;
+  if (request.kind !== 'member') fail('PRINCIPAL_REQUIRED');
+  assertWorkspaceRow(phase,row.workspace ?? undefined);
+  active(phase);
+  if (row.user_id !== request.userId || row.id !== request.userId || row.token_hash !== request.tokenHash
     || row.impersonated_by !== request.impersonatedBy || !number(row.expires_at) || !flag(row.banned)
     || normalizeDatabaseTimestamp(Number(row.expires_at)) <= Date.now()) fail('PRINCIPAL_AUTH_REVOKED');
-  const workspace = await currentUserWorkspace(phase, row);
-  const expiry = await phase.database.get(`SELECT expires_at FROM ${table(phase,'session')} WHERE id=$1`, [request.sessionId]) as Row | undefined;
+  evaluateUserSeatAccessSnapshot(request.userId,seatPolicy,row.seat ?? undefined);
+  const actor = resolveWorkspaceActor({ id: request.userId, email: row.email as string | null, role: row.role as string | null });
+  const workspace = workspaceContextFromPermissionSnapshot(row.workspace ?? undefined,actor);
   active(phase);
-  if (!expiry || !number(expiry.expires_at) || normalizeDatabaseTimestamp(Number(expiry.expires_at)) <= Date.now()) fail('PRINCIPAL_AUTH_REVOKED');
-  await checkIdentity(phase);
+  if (!workspace || !scope(workspace,request.workspace) || !workspace.permissions.canRead || !workspace.permissions[request.permission]) fail('PRINCIPAL_ACCESS_DENIED');
+  return workspace;
+}
+async function current(phase: Phase): Promise<WorkspaceContext> {
+  memberSnapshotWorkspace(phase,await readMemberScopeSnapshot(phase));
+  // Retain a fresh final fence. Session/account/seat/workspace and context are
+  // all observed again, including changes after the first real query reply.
+  const final = await readMemberScopeSnapshot(phase);
+  const workspace = memberSnapshotWorkspace(phase,final);
   // Private evidence for the fixed native edit fence, never a caller expiry.
-  phase.nativeEditSessionExpiresAt = normalizeDatabaseTimestamp(Number(expiry.expires_at));
+  phase.nativeEditSessionExpiresAt = normalizeDatabaseTimestamp(Number(final.row.expires_at));
   return freeze(workspace);
 }
 
