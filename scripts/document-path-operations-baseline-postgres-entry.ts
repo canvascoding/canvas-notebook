@@ -13,6 +13,9 @@ import { documentBaselineSize, fillDocumentBaselineFixture } from './helpers/doc
 assert.equal(process.env.NODE_ENV, 'test');
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT; assert(output && path.isAbsolute(output));
 const desiredSourceCount = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 3);
+const configuredFamily = process.env.CANVAS_DOCUMENT_PATH_BASELINE_FAMILY;
+assert(configuredFamily === undefined || configuredFamily === 'rename' || configuredFamily === 'move');
+const family: 'rename' | 'move' | undefined = configuredFamily;
 const seedMode = 'normal-upload';
 assert.equal(process.env.CANVAS_DOCUMENT_PATH_DIAGNOSTIC_CLONES, undefined, 'Acceptance requires normal uploads and their actual projection receipts.');
 let fixtureSourceCount = 0;
@@ -21,8 +24,8 @@ const operations: DocumentOperationMeasurement[] = [];
 let completed = false;
 process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
 process.once('uncaughtExceptionMonitor', () => {
-  try { writeFileSync(output, JSON.stringify({ version: 3, passed: false, fixture: 'public-document-path-operations',
-    nativeDocuments: fixtureSourceCount, seedMode, normalUploadAcceptance: false,
+  try { writeFileSync(output, JSON.stringify({ version: 4, passed: false, fixture: 'public-document-path-operations',
+    family: family ?? 'rename-then-move', nativeDocuments: fixtureSourceCount, seedMode, normalUploadAcceptance: false,
     measurements, operations }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
   catch { /* Preserve the original test failure and exit status. */ }
 });
@@ -44,32 +47,37 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   const { richMarkdownFromYDoc } = await import('../app/lib/collaboration/markdown-state');
   const { createCollaborationServer } = await import('../server/collaboration-server');
   const { createCollaborationRoomOwnerOptions } = await import('../app/lib/collaboration/room-owner-options');
+  const { listPendingCollaborationProjections, readCollaborationProjectionHealth } = await import('../app/lib/collaboration/projection-repository');
+  const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
+  const { WORKSPACE_STARTER_DOCUMENT_NAME } = await import('../app/lib/workspaces/starter-document');
   await readPiRuntimeConfig(); assert.equal(readDocumentReviewAvailability().documentReviewEnabled, false);
   assert.equal(WORKSPACE_FILE_UNDO_ENABLED, false);
   const targetText = '# Native target\n\n[Other](source.md)\n\nKeep all content 😀.\n';
   const incomingText = '# Incoming\n\n[Target](target.md)\n';
   const target = await h.upload('folder/target.md', Buffer.from(targetText));
   const incoming = await h.upload('folder/source.md', Buffer.from(incomingText));
-  const unrelatedFiles: Array<{ path: string; content: string }> = [];
   fixtureSourceCount = await fillDocumentBaselineFixture({ target: desiredSourceCount,
     count: async () => Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
       [h.source.workspaceId])).rows[0].n),
     seed: async index => {
       const file = { path: `unrelated/extra-${index}.md`, content: `# Unrelated fixture ${index}\n\nKept content.\n` };
       await h.upload(file.path, Buffer.from(file.content));
-      unrelatedFiles.push(file);
     },
   });
+  const unrelatedFiles = (await h.admin.query(`SELECT id,path FROM collaboration_documents
+    WHERE workspace_id=$1 AND status='active' AND id<>ALL($2::text[]) ORDER BY id`,
+  [h.source.workspaceId, [target.documentId, incoming.documentId]])).rows as Array<{ id: string; path: string }>;
+  assert.equal(unrelatedFiles.length, fixtureSourceCount - 2);
+  const unrelatedPhysical = new Map<string, string>();
   const readUnrelatedRows = async () => (await h.admin.query(`
     SELECT to_jsonb(d) AS registry,d.xmin::text AS registry_xmin,to_jsonb(l) AS lineage,l.xmin::text AS lineage_xmin,
       to_jsonb(s) AS native,s.xmin::text AS native_xmin,to_jsonb(m) AS metadata,m.xmin::text AS metadata_xmin
     FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
       JOIN collaboration_yjs_states s ON s.document_id=d.id
       LEFT JOIN workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
-    WHERE d.workspace_id=$1 AND d.path LIKE 'unrelated/%' ORDER BY d.id`, [h.source.workspaceId])).rows;
-  const originalUnrelatedRows = await readUnrelatedRows();
+    WHERE d.workspace_id=$1 AND d.id=ANY($2::text[]) ORDER BY d.id`,
+  [h.source.workspaceId, unrelatedFiles.map(file => file.id)])).rows;
   const fingerprint = (rows: unknown[]) => createHash('sha256').update(JSON.stringify(rows)).digest('hex');
-  const originalUnrelatedFingerprint = fingerprint(originalUnrelatedRows);
   const authenticated = await h.request(h.source, 'owner', true);
   const request = (url: string, method: 'GET' | 'POST', body?: object) => new NextRequest(`http://localhost${url}`, {
     method, headers: new Headers({ ...Object.fromEntries(authenticated.headers), 'content-type': 'application/json' }),
@@ -87,7 +95,6 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
       text: row.representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc) }; }
     finally { doc.destroy(); }
   };
-  const initialTarget = await readNative(target.documentId), initialIncoming = await readNative(incoming.documentId);
   const run = async (label: string, action: 'rename' | 'move', oldPath: string, newPath: string,
     invoke: typeof rename): Promise<{ operationId: string; body: Record<string, unknown> }> => {
     const operationId = randomUUID();
@@ -145,7 +152,14 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
             try { if (await fs.readFile(path.join(h.source.rootPath, state.path), 'utf8') !== state.text) converged = false; }
             catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') converged = false; else throw error; }
           }
-          if (converged) break;
+          if (converged) {
+            // This administrative observer uses the actual health predicate,
+            // outside the instrumented runtime pool, and cannot authorize work.
+            const health = await readCollaborationProjectionHealth(h.connection);
+            assert.equal(health.identityConflicts, 0); assert.equal(health.quarantined, 0);
+            assert.equal(health.binaryPersistenceFailures, 0); assert.equal(health.inactiveWorkspaceStates, 0);
+            if (health.pending === 0) break;
+          }
           assert(Date.now() < projectionDeadline, 'The normal durable projector did not materialize native link changes.');
           await new Promise(done => setTimeout(done, 250));
         }
@@ -158,6 +172,11 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   // Retain all genuine ticks so cleanup waits for actual claim completion.
   const worker = createWorkspaceOperationBatchWorker(), ticks = new Set<Promise<unknown>>(), workerErrors: unknown[] = [];
   const server = http.createServer((_request, response) => { response.writeHead(404); response.end(); });
+  const pendingBeforeRuntime = await listPendingCollaborationProjections('', 500);
+  console.log(JSON.stringify({ pathBaselineSetup: true, pendingBeforeRuntime: pendingBeforeRuntime.length,
+    pendingUnrelated: unrelatedFiles.filter(file => pendingBeforeRuntime.some(item => item.documentId === file.id)).length,
+    pendingStarter: unrelatedFiles.some(file => file.path === WORKSPACE_STARTER_DOCUMENT_NAME
+      && pendingBeforeRuntime.some(item => item.documentId === file.id)) }));
   const wss = createCollaborationServer(server, { roomOwner: createCollaborationRoomOwnerOptions() });
   const tick = () => {
     const pending = worker.tick(); ticks.add(pending);
@@ -166,22 +185,74 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
   const timer = setInterval(tick, 1000); tick();
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-    const renamed = await run('public-web-rename-including-preview-and-completion', 'rename', 'folder/target.md', 'folder/renamed.md', rename);
-    assert.deepEqual(await readNative(target.documentId), { ...initialTarget, path: 'folder/renamed.md' });
-    assert.equal((await readNative(incoming.documentId)).text, incomingText.replace('(target.md)', '(renamed.md)'));
-    const moved = await run('public-mobile-move-including-preview-and-completion', 'move', 'folder/renamed.md', 'destination/renamed.md', mobileMove);
-    const finalTarget = await readNative(target.documentId), finalIncoming = await readNative(incoming.documentId);
-    assert.equal(finalTarget.lineageId, initialTarget.lineageId); assert.equal(finalIncoming.lineageId, initialIncoming.lineageId);
-    assert.equal(finalTarget.status, 'active'); assert.equal(finalTarget.registryStatus, 'active');
-    assert.equal(finalIncoming.status, 'active'); assert.equal(finalIncoming.registryStatus, 'active');
-    assert.equal(finalTarget.path, 'destination/renamed.md');
-    assert.equal(finalTarget.text, targetText.replace('(source.md)', '(../folder/source.md)'));
-    assert.equal(finalIncoming.text, incomingText.replace('(target.md)', '(../destination/renamed.md)'));
-    assert.equal(await fs.readFile(path.join(h.source.rootPath, finalTarget.path), 'utf8'), finalTarget.text);
-    assert.equal(await fs.readFile(path.join(h.source.rootPath, finalIncoming.path), 'utf8'), finalIncoming.text);
-    await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/target.md')), { code: 'ENOENT' });
-    await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/renamed.md')), { code: 'ENOENT' });
-    assert.notEqual(renamed.operationId, moved.operationId);
+    // Finish genuine startup projection before the immutable action baseline.
+    // The real kernel lock waits through the projector's post-checkpoint work;
+    // the original unrelated-state comparison is never refreshed after an action.
+    const startupDeadline = Date.now() + 45_000;
+    let baseline: { rows: Awaited<ReturnType<typeof readUnrelatedRows>>;
+      target: Awaited<ReturnType<typeof readNative>>; incoming: Awaited<ReturnType<typeof readNative>> } | null = null;
+    while (!baseline) {
+      baseline = await withWorkspaceMutationLock(h.source.workspaceId, async () => {
+        if ((await listPendingCollaborationProjections('', 500)).length) return null;
+        for (const file of unrelatedFiles) unrelatedPhysical.set(file.path,
+          createHash('sha256').update(await fs.readFile(path.join(h.source.rootPath, file.path))).digest('hex'));
+        return { rows: await readUnrelatedRows(), target: await readNative(target.documentId), incoming: await readNative(incoming.documentId) };
+      });
+      if (!baseline) { assert(Date.now() < startupDeadline, 'Actual initial projection backlog did not settle.'); await new Promise(done => setTimeout(done, 100)); }
+    }
+    const originalUnrelatedRows = baseline.rows, originalUnrelatedFingerprint = fingerprint(originalUnrelatedRows);
+    assert.equal(originalUnrelatedRows.length, unrelatedFiles.length);
+    const initialTarget = baseline.target, initialIncoming = baseline.incoming;
+    console.log(JSON.stringify({ pathBaselineSetup: true, startupProjectionSettled: true,
+      originalUnrelatedSources: originalUnrelatedRows.length, includesStarter: true }));
+    if (family) {
+      const alternate = family === 'rename' ? 'folder/renamed.md' : 'destination/target.md';
+      const invoke = family === 'rename' ? rename : mobileMove;
+      const operationIds = new Set<string>();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const restoring = attempt === 1, oldPath = restoring ? alternate : initialTarget.path;
+        const newPath = restoring ? initialTarget.path : alternate;
+        const applied = await run(`${attempt === 0 ? 'cold' : 'warm'}-public-${family}-preview-through-file-checkpoint`,
+          family, oldPath, newPath, invoke);
+        assert.equal(operationIds.has(applied.operationId), false); operationIds.add(applied.operationId);
+        const actualTarget = await readNative(target.documentId), actualIncoming = await readNative(incoming.documentId);
+        for (const [actual, initial] of [[actualTarget, initialTarget], [actualIncoming, initialIncoming]]) {
+          assert.equal(actual.lineageId, initial.lineageId); assert.equal(actual.lifecycleGeneration, initial.lifecycleGeneration);
+          assert.equal(actual.status, 'active'); assert.equal(actual.registryStatus, 'active');
+          assert(actual.sequence >= initial.sequence); assert.equal(actual.checkpointSequence, actual.sequence);
+          assert.equal(actual.checkpointed, true);
+        }
+        assert.equal(actualTarget.path, newPath); assert.equal(actualIncoming.path, initialIncoming.path);
+        if (family === 'rename') assert.deepEqual(actualTarget, { ...initialTarget, path: newPath });
+        assert.equal(actualTarget.text, restoring || family === 'rename' ? targetText
+          : targetText.replace('(source.md)', '(../folder/source.md)'));
+        assert.equal(actualIncoming.text, restoring ? incomingText : incomingText.replace('(target.md)',
+          family === 'rename' ? '(renamed.md)' : '(../destination/target.md)'));
+        assert.equal(await fs.readFile(path.join(h.source.rootPath, newPath), 'utf8'), actualTarget.text);
+        assert.equal(await fs.readFile(path.join(h.source.rootPath, initialIncoming.path), 'utf8'), actualIncoming.text);
+        await assert.rejects(fs.lstat(path.join(h.source.rootPath, oldPath)), { code: 'ENOENT' });
+      }
+      assert.equal(operationIds.size, 2);
+      assert.equal(await fs.readFile(path.join(h.source.rootPath, initialTarget.path), 'utf8'), targetText);
+      assert.equal(await fs.readFile(path.join(h.source.rootPath, initialIncoming.path), 'utf8'), incomingText);
+    } else {
+      const renamed = await run('public-web-rename-including-preview-and-completion', 'rename', 'folder/target.md', 'folder/renamed.md', rename);
+      assert.deepEqual(await readNative(target.documentId), { ...initialTarget, path: 'folder/renamed.md' });
+      assert.equal((await readNative(incoming.documentId)).text, incomingText.replace('(target.md)', '(renamed.md)'));
+      const moved = await run('public-mobile-move-including-preview-and-completion', 'move', 'folder/renamed.md', 'destination/renamed.md', mobileMove);
+      const finalTarget = await readNative(target.documentId), finalIncoming = await readNative(incoming.documentId);
+      assert.equal(finalTarget.lineageId, initialTarget.lineageId); assert.equal(finalIncoming.lineageId, initialIncoming.lineageId);
+      assert.equal(finalTarget.status, 'active'); assert.equal(finalTarget.registryStatus, 'active');
+      assert.equal(finalIncoming.status, 'active'); assert.equal(finalIncoming.registryStatus, 'active');
+      assert.equal(finalTarget.path, 'destination/renamed.md');
+      assert.equal(finalTarget.text, targetText.replace('(source.md)', '(../folder/source.md)'));
+      assert.equal(finalIncoming.text, incomingText.replace('(target.md)', '(../destination/renamed.md)'));
+      assert.equal(await fs.readFile(path.join(h.source.rootPath, finalTarget.path), 'utf8'), finalTarget.text);
+      assert.equal(await fs.readFile(path.join(h.source.rootPath, finalIncoming.path), 'utf8'), finalIncoming.text);
+      await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/target.md')), { code: 'ENOENT' });
+      await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'folder/renamed.md')), { code: 'ENOENT' });
+      assert.notEqual(renamed.operationId, moved.operationId);
+    }
     const finalUnrelatedRows = await readUnrelatedRows(), finalUnrelatedFingerprint = fingerprint(finalUnrelatedRows);
     if (finalUnrelatedFingerprint !== originalUnrelatedFingerprint) {
       const changedFields = new Set<string>(); let affectedRows = 0;
@@ -205,12 +276,14 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     }
     assert.equal(finalUnrelatedFingerprint, originalUnrelatedFingerprint,
       'Rename/Move must preserve all unrelated native rows, identities, metadata and xmin.');
-    for (const file of unrelatedFiles) assert.equal(createHash('sha256').update(await fs.readFile(path.join(h.source.rootPath, file.path))).digest('hex'),
-      createHash('sha256').update(file.content).digest('hex'), 'An unrelated physical source must remain byte-identical.');
+    for (const [filePath, expected] of unrelatedPhysical) assert.equal(createHash('sha256')
+      .update(await fs.readFile(path.join(h.source.rootPath, filePath))).digest('hex'), expected,
+    'An unrelated physical source, including the starter, must remain byte-identical.');
     assert.equal(Number((await h.admin.query("SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND status='active'",
       [h.source.workspaceId])).rows[0].n), fixtureSourceCount);
     console.log(JSON.stringify({ publicPathBaseline: true, reviewCenter: false, fileUndo: false,
-      nativeDocuments: fixtureSourceCount, unrelatedSourcesUnchanged: unrelatedFiles.length,
+      family: family ?? 'rename-then-move', originalPathsRestored: family !== undefined,
+      nativeDocuments: fixtureSourceCount, unrelatedSourcesUnchanged: unrelatedFiles.length, includesStarter: true,
       verified: 'actual-cookie-public-handlers-native-owner-and-bidirectional-links',
       measurements: measurements.map(row => ({ label: row.label, statements: row.value.statements, checkouts: row.value.checkouts })) }));
   } finally {
@@ -218,11 +291,18 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     assert.equal(wss.clients.size, 0, 'This path fixture must retain no transport peers.');
     await new Promise<void>((resolve, reject) => wss.close(error => error ? reject(error) : resolve()));
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    // Server close disposes future projection scheduling. Wait for existing
+    // filesystem callbacks to release their real fences before pool teardown.
+    for (const workspaceId of [h.source.workspaceId, h.destination.workspaceId].sort()) {
+      await withWorkspaceMutationLock(workspaceId, async () => undefined);
+    }
     assert.equal(workerErrors.length, 0);
-    console.log(JSON.stringify({ closure: 'document-public-path-runtime', workerDrained: true, serversClosed: true }));
+    console.log(JSON.stringify({ closure: 'document-public-path-runtime', workerDrained: true, serversClosed: true, projectionFencesDrained: true }));
   }
 }));
-await fs.writeFile(output, JSON.stringify({ version: 3, passed: true, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
+await fs.writeFile(output, JSON.stringify({ version: 4, passed: true, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
+  family: family ?? 'rename-then-move', originalPathsRestored: family !== undefined,
+  unrelatedSourcesUnchanged: fixtureSourceCount - 2, includesStarter: true,
   seedMode, normalUploadAcceptance: true,
   scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations }, null, 2) + '\n',
 { mode: 0o600, flag: 'wx' });
