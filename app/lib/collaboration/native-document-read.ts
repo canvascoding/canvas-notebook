@@ -71,15 +71,15 @@ const integer = (value: unknown, minimum = 0): boolean => (typeof value === 'num
   && Number.isSafeInteger(Number(value)) && Number(value) >= minimum;
 function fail(code: ConstructorParameters<typeof DocumentReadError>[0]): never { throw new DocumentReadError(code); }
 
-async function readRealm(connection: SqlConnection): Promise<Realm> {
-  const row = await connection.get(`SELECT current_schema() AS schema_name,
+const nativeReadRealmSql = `SELECT current_schema() AS schema_name,
     to_regnamespace(current_schema())::oid::text AS schema_oid,
     CASE WHEN octet_length(current_setting('search_path'))<=16384 THEN current_setting('search_path') END AS search_path,
     (SELECT oid::text FROM pg_database WHERE datname=current_database()) AS database_oid,
     pg_backend_pid() AS backend_pid,extract(epoch FROM a.backend_start)::text AS backend_start,
     pg_current_xact_id_if_assigned()::text AS transaction_id,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only
-    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as Row | undefined;
+    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
+function parseNativeReadRealmRow(row: Row | undefined): Realm {
   if (!row || !validId(row.schema_name) || row.schema_name.length > 63 || !integer(row.schema_oid, 1)
     || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
     || !integer(row.database_oid, 1) || !integer(row.backend_pid, 1)
@@ -92,12 +92,32 @@ async function readRealm(connection: SqlConnection): Promise<Realm> {
     transaction: String(row.transaction_id) });
 }
 
-async function assertRealm(connection: SqlConnection, expected: Realm): Promise<void> {
-  if (!isDeepStrictEqual(await readRealm(connection), expected)) fail('DOCUMENT_SCOPE_CHANGED');
-  const rows = await connection.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same_relation
-    FROM unnest($2::text[]) names(name)`, [quote(expected.schema), requiredTables]) as Row[];
-  if (rows.length !== requiredTables.length || new Set(rows.map(row => row.name)).size !== requiredTables.length
-    || rows.some(row => !requiredTables.includes(String(row.name)) || row.same_relation !== true)) fail('DOCUMENT_SCOPE_CHANGED');
+async function readRealm(connection: SqlConnection): Promise<Realm> {
+  return parseNativeReadRealmRow(await connection.get(nativeReadRealmSql) as Row | undefined);
+}
+
+/** Fresh realm, relation resolution and actual shared-lock modes at each
+ * existing fence. This is observation data, never a permission or row cache. */
+async function assertRealmAndSharedFence(connection: SqlConnection, expected: Realm, workspaceId: string): Promise<void> {
+  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(workspaceId)));
+  const row = await connection.get(`SELECT realm.*,
+    (SELECT jsonb_agg(jsonb_build_object('name',name,'same_relation',
+      to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid))
+      FROM unnest($2::text[]) names(name)) AS native_read_relations,
+    (SELECT jsonb_agg(l.mode) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+      WHERE l.locktype='advisory' AND l.granted AND l.database=$3::oid AND l.classid::bigint=$4 AND l.objid::bigint=$5
+        AND l.objsubid=1 AND l.pid=$6 AND extract(epoch FROM a.backend_start)::text=$7) AS native_read_modes
+    FROM (${nativeReadRealmSql}) realm`,
+  [quote(expected.schema), requiredTables, expected.database, Number(key >> BigInt(32)), Number(key & BigInt(0xffffffff)),
+    expected.backend, expected.backendStart]) as Row | undefined;
+  if (!isDeepStrictEqual(parseNativeReadRealmRow(row), expected)) fail('DOCUMENT_SCOPE_CHANGED');
+  const relations = row?.native_read_relations as Row[] | undefined;
+  if (!Array.isArray(relations) || relations.length !== requiredTables.length
+    || relations.some(relation => !relation || typeof relation !== 'object' || Array.isArray(relation)
+      || !requiredTables.includes(String(relation.name)) || relation.same_relation !== true)
+    || new Set(relations.map(relation => relation.name)).size !== requiredTables.length) fail('DOCUMENT_SCOPE_CHANGED');
+  const modes = row?.native_read_modes;
+  if (!Array.isArray(modes) || !modes.includes('ShareLock') || modes.some(mode => mode !== 'ShareLock')) fail('DOCUMENT_SCOPE_CHANGED');
 }
 
 async function assertWorkspaceScope(connection: SqlConnection, realm: Realm, workspace: WorkspaceContext): Promise<void> {
@@ -112,15 +132,6 @@ async function assertWorkspaceScope(connection: SqlConnection, realm: Realm, wor
     || row.organization_id !== (workspace.organizationId ?? null) || row.customer_id !== (workspace.customerId ?? null)
     || row.project_id !== (workspace.projectId ?? null) || row.owner_user_id !== (workspace.ownerUserId ?? null)
     || row.root_relative_path !== workspace.rootRelativePath || row.status !== 'active') fail('DOCUMENT_SCOPE_CHANGED');
-}
-
-async function assertSharedFence(connection: SqlConnection, realm: Realm, workspaceId: string): Promise<void> {
-  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(workspaceId)));
-  const rows = await connection.all(`SELECT l.mode FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
-    WHERE l.locktype='advisory' AND l.granted AND l.database=$1::oid AND l.classid::bigint=$2 AND l.objid::bigint=$3
-      AND l.objsubid=1 AND l.pid=$4 AND extract(epoch FROM a.backend_start)::text=$5`,
-  [realm.database, Number(key >> BigInt(32)), Number(key & BigInt(0xffffffff)), realm.backend, realm.backendStart]) as Row[];
-  if (!rows.some(row => row.mode === 'ShareLock') || rows.some(row => row.mode !== 'ShareLock')) fail('DOCUMENT_SCOPE_CHANGED');
 }
 
 async function readHeader(connection: SqlConnection, realm: Realm, workspace: WorkspaceContext, documentId: string,
@@ -217,13 +228,13 @@ export async function readNativeDocumentHeaderByIdOnConnection(connection: SqlCo
     if (acquired?.acquired !== true) fail('DOCUMENT_BUSY');
     await connection.run(`LOCK TABLE ${requiredTables.map(table => `${quote(realm.schema)}.${quote(table)}`).join(',')}
       IN ACCESS SHARE MODE NOWAIT`);
-    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    await assertRealmAndSharedFence(connection, realm, workspace.workspaceId);
     await assertWorkspaceScope(connection, realm, workspace);
     const initial = await readHeader(connection, realm, workspace, documentId);
     await assertWorkspaceScope(connection, realm, workspace);
     const final = await readHeader(connection, realm, workspace, documentId);
     if (stableHeaderFields.some(field => !Object.is(final[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
-    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    await assertRealmAndSharedFence(connection, realm, workspace.workspaceId);
     if (failure !== undefined) throw failure;
     return freezeObservation({ identity: { documentId, lineageId: initial.lineage_id as string,
       workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null, path: initial.path as string,
@@ -293,7 +304,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
     if (acquired?.acquired !== true) fail('DOCUMENT_BUSY');
     await connection.run(`LOCK TABLE ${requiredTables.map(table => `${quote(realm.schema)}.${quote(table)}`).join(',')}
       IN ACCESS SHARE MODE NOWAIT`);
-    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    await assertRealmAndSharedFence(connection, realm, workspace.workspaceId);
     await assertWorkspaceScope(connection, realm, workspace);
     const initial = await readHeader(connection, realm, workspace, documentId, requestedBudget);
     if (includeEditTargets) {
@@ -309,7 +320,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
         failure ??= new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); return Promise.reject(failure);
       }
       const operation = (async () => {
-        await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+        await assertRealmAndSharedFence(connection, realm, workspace.workspaceId);
         const header = await readHeader(connection, realm, workspace, documentId, budget);
         if (stableHeaderFields.some(field => !Object.is(header[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
         // Exclude unneeded owner/cause/hash columns. Bound every selected text
@@ -389,7 +400,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
     await assertWorkspaceScope(connection, realm, workspace);
     const final = await readHeader(connection, realm, workspace, documentId, budget);
     if (stableHeaderFields.some(field => !Object.is(final[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
-    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    await assertRealmAndSharedFence(connection, realm, workspace.workspaceId);
     if (failure !== undefined) throw failure;
     return freezeObservation({ identity: { documentId, lineageId: initial.lineage_id as string,
       workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null, path: initial.path as string,

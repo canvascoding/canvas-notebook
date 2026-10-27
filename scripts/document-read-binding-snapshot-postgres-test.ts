@@ -6,9 +6,11 @@ import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { DocumentReadError, type DocumentReadPageV1 } from '../app/lib/documents/contracts';
+import { collaborationAdmissionLockKey } from '../app/lib/collaboration/room-admission-contract';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
 
 type Audit = { realm: number; relations: number; workspace: number; snapshots: number; failedSnapshots: number;
+  nativeRealm: number; nativeRelations: number; nativeFences: number; nativeSnapshots: number;
   begins: number; commits: number; rollbacks: number; injected: boolean; pid?: number };
 type Actor = 'http' | 'agent' | 'mcp';
 
@@ -20,9 +22,11 @@ function object(value: unknown): Record<string, unknown> {
 /** Observe real driver replies and optionally mutate that same held transaction.
  * Never replace a reply, construct authority or retry an operation. */
 async function withReadBindingAudit<T>(operation: () => Promise<T>,
-  mutate?: (client: Client, query: typeof Client.prototype.query) => Promise<void>, mutateAfter = 5): Promise<{ result: T; audit: Audit }> {
+  mutate?: (client: Client, query: typeof Client.prototype.query) => Promise<void>, mutateAfter = 5,
+  boundary: 'binding' | 'native' = 'binding'): Promise<{ result: T; audit: Audit }> {
   const original = Client.prototype.query;
   const audit: Audit = { realm: 0, relations: 0, workspace: 0, snapshots: 0, failedSnapshots: 0,
+    nativeRealm: 0, nativeRelations: 0, nativeFences: 0, nativeSnapshots: 0,
     begins: 0, commits: 0, rollbacks: 0, injected: false };
   const held: { client?: Client } = {};
   Client.prototype.query = function (this: Client, ...args: unknown[]) {
@@ -45,14 +49,21 @@ async function withReadBindingAudit<T>(operation: () => Promise<T>,
       const values = args[1];
       if (sql.startsWith('SELECT name,') && sql.includes('AS same_relation') && Array.isArray(values)
         && Array.isArray(values[1]) && values[1].length === 6 && values[1].includes('collaboration_file_projections')) audit.relations++;
+      if (sql.startsWith('SELECT current_schema() AS schema_name,') && sql.includes('AS transaction_id')) audit.nativeRealm++;
+      if (sql.startsWith('SELECT name,') && sql.includes('AS same_relation') && Array.isArray(values)
+        && Array.isArray(values[1]) && values[1].length === 8 && values[1].includes('collaboration_admission_targets')) audit.nativeRelations++;
+      if (sql.startsWith('SELECT l.mode FROM pg_locks l JOIN pg_stat_activity a')) audit.nativeFences++;
       if (sql.startsWith('SELECT CASE WHEN octet_length(id)<=16384 THEN id END AS id')
         && sql.includes('.canvas_workspaces WHERE id=$1')) audit.workspace++;
-      if (sql.includes('AS binding_relations') && sql.includes('AS binding_workspace_id')) {
-        audit.snapshots++;
-        if (mutate && audit.snapshots === mutateAfter) {
-          try { await mutate(this, original); audit.injected = true; }
-          catch (error) { console.error('Read binding mutation failed:', (error as { code?: string }).code ?? 'no-pg-code'); throw error; }
-        }
+      const binding = sql.includes('AS binding_relations') && sql.includes('AS binding_workspace_id');
+      const native = sql.includes('AS native_read_relations') && sql.includes('AS native_read_modes');
+      if (binding) audit.snapshots++;
+      if (native) audit.nativeSnapshots++;
+      const selected = boundary === 'binding' ? binding : native;
+      const count = boundary === 'binding' ? audit.snapshots : audit.nativeSnapshots;
+      if (mutate && selected && count === mutateAfter) {
+        try { await mutate(this, original); audit.injected = true; }
+        catch (error) { console.error('Read binding mutation failed:', (error as { code?: string }).code ?? 'no-pg-code'); throw error; }
       }
       if (sql === 'COMMIT') audit.commits++;
       if (sql === 'ROLLBACK') audit.rollbacks++;
@@ -65,6 +76,8 @@ async function withReadBindingAudit<T>(operation: () => Promise<T>,
 
 async function documentReadBindingSnapshotPostgresTest(): Promise<void> {
   const baselineOnly = process.env.CANVAS_READ_BINDING_BASELINE === '1';
+  const nativeBaselineOnly = process.env.CANVAS_NATIVE_READ_FENCE_BASELINE === '1';
+  assert.equal(baselineOnly && nativeBaselineOnly, false);
   await withDocumentReadToolDispatchFixture(async h => {
     const expected = '# Binding observation\n\n[Sibling](source.md)\n\nPreserved äöü 😀.\n';
     const target = await h.seed({ filePath: 'binding/target.md', text: expected, representation: 'tiptap_blocks' });
@@ -146,8 +159,14 @@ async function documentReadBindingSnapshotPostgresTest(): Promise<void> {
       assert.equal(audit.begins, 1); assert.equal(audit.commits, 1); assert.equal(audit.rollbacks, 0);
       assert.equal(audit.realm, baselineOnly ? 7 : 1); assert.equal(audit.relations, baselineOnly ? 6 : 0);
       assert.equal(audit.workspace, baselineOnly ? 6 : 0); assert.equal(audit.snapshots, baselineOnly ? 0 : 6);
+      if (!baselineOnly) {
+        assert.equal(audit.nativeRealm, nativeBaselineOnly ? 4 : 1);
+        assert.equal(audit.nativeRelations, nativeBaselineOnly ? 3 : 0);
+        assert.equal(audit.nativeFences, nativeBaselineOnly ? 3 : 0);
+        assert.equal(audit.nativeSnapshots, nativeBaselineOnly ? 0 : 3);
+      }
       assert.equal(audit.injected, false); observations.push({ actor, audit }); controls++;
-      if (baselineOnly) continue;
+      if (baselineOnly || nativeBaselineOnly) continue;
       for (const fault of ['workspace', 'search-path', 'shadow-relation', 'namespace', 'oversized'] as const) {
         const mutateAfter = fault === 'namespace' ? 2 : 5;
         console.log(JSON.stringify({ bindingFault: fault, actor, afterSnapshot: mutateAfter }));
@@ -175,12 +194,32 @@ async function documentReadBindingSnapshotPostgresTest(): Promise<void> {
         assert.deepEqual(await h.snapshot(), before, 'Rollback preserves original identity, native bytes, metadata and projection rows.');
         denied++;
       }
+      for (const fault of ['search-path', 'shadow-relation', 'mixed-fence'] as const) {
+        console.log(JSON.stringify({ nativeFenceFault: fault, actor, afterSnapshot: 2 }));
+        const { audit: rejected } = await withReadBindingAudit(() => readAdapterBinding(actor, 'DOCUMENT_SCOPE_CHANGED'), async (client, query) => {
+          const sql = (text: string, values?: unknown[]) => Reflect.apply(query, client, [text, values]);
+          if (fault === 'search-path') await sql(`SET LOCAL search_path="${schema}",pg_catalog,public`);
+          if (fault === 'shadow-relation') await sql(`CREATE TEMP TABLE canvas_workspaces (LIKE "${schema}".canvas_workspaces INCLUDING ALL)`);
+          if (fault === 'mixed-fence') {
+            const result = await sql('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked', [collaborationAdmissionLockKey(h.workspaceId)]);
+            assert.equal(result.rows[0].locked, true, 'Actually add the incompatible exclusive mode on the same held backend.');
+          }
+        }, 2, 'native');
+        assert.equal(rejected.begins, 1); assert.equal(rejected.commits, 0); assert.equal(rejected.rollbacks, 1);
+        assert.equal(rejected.injected, true); assert.equal(rejected.nativeSnapshots, 3);
+        assert.equal(rejected.nativeRealm, 1); assert.equal(rejected.nativeRelations, 0); assert.equal(rejected.nativeFences, 0);
+        assert.deepEqual((await h.admin.query('SELECT *,xmin::text AS xmin FROM canvas_workspaces WHERE id=$1', [h.workspaceId])).rows, workspace);
+        assert.deepEqual(await h.snapshot(), before);
+        assert.equal((await h.admin.query("SELECT count(*)::integer AS n FROM pg_stat_activity WHERE pid=$1 AND state LIKE 'idle in transaction%'", [rejected.pid])).rows[0].n, 0);
+        denied++;
+      }
       await readAdapterBinding(actor); controls++;
     }
     assert.deepEqual(await h.snapshot(), before);
-    assert.equal(controls, baselineOnly ? 3 : 6); assert.equal(denied, baselineOnly ? 0 : 15);
-    console.log(JSON.stringify({ documentReadBindingSnapshot: true, baselineOnly, controls, denied,
-      lateActualMutationCases: baselineOnly ? 0 : 12, beforeBodyNamespaceCases: baselineOnly ? 0 : 3,
+    const baseline = baselineOnly || nativeBaselineOnly;
+    assert.equal(controls, baseline ? 3 : 6); assert.equal(denied, baseline ? 0 : 24);
+    console.log(JSON.stringify({ documentReadBindingSnapshot: true, baselineOnly, nativeBaselineOnly, controls, denied,
+      lateActualMutationCases: baseline ? 0 : 12, beforeBodyNamespaceCases: baseline ? 0 : 3, nativeFenceDenials: baseline ? 0 : 9,
       originalRowsAndBytesPreserved: true, observations }));
   });
 }

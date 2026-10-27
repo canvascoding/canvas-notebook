@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 27.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 28.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -327,3 +327,14 @@ Fixtures mit 10/200 Dokumenten sparen in allen 18 Vergleichsfenstern jeweils zw�
 SQL-Aufrufe bei unveränderten Ausleihen. Normales warmes HTTP-Lesen sinkt von
 88 auf 76 SQL-Aufrufe / 9 Ausleihen. Das finale Budget und alle übrigen Pakete
 bleiben offen; dies ist keine Produktions-/Release-Abnahme.
+
+Die [gemeinsame native Realm-/Sperrbeobachtung](architecture/document-service-native-read-fence-2026-10-28.md)
+ersetzt benachbarte Realm-/Relations-/Shared-Lock-Lesungen an allen fünf bestehenden
+Header-/Body-Grenzen. Sechs Kontrollen und 24 reale Fehlerfälle sowie zehn Lese-/
+Such-/Rechte- und drei tatsächliche Edit-PG-Suiten bestehen. Der veraltete ACK-Hook
+des Owner-Tests wird nach nachgewiesenem Ausgangsfehler an die tatsächliche Member-
+Beobachtung angepasst; alle ursprünglichen Recovery-Assertions bleiben erhalten.
+Zwölf 10/200-Dokument-Fixtures sparen in allen 18 Vergleichsfenstern sechs weitere
+SQL-Aufrufe: warm HTTP 76 → 70 / 9 Ausleihen, Agent 116 → 110 / 3 und MCP 90 → 84 / 19.
+Release-TypeScript, erweiterte TypeScript-Prüfung (55 Wurzeln/5184 Quellen) und ESLint
+bestehen. Gesamtbudgets und übrige Pakete bleiben weiterhin offen.
