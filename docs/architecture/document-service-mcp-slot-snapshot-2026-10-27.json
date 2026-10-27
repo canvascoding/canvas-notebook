@@ -1,0 +1,419 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "baseHead": "bcf4b38b4d6090eab7ce816c6d13cc9e860382d1",
+  "sourceHashes": {
+    "app/lib/mcp/server/document-read-principal.ts": "801731454c4047ee941e3efde3d4378b70973dca9acf55214dc68e74193680ec",
+    "app/lib/mcp/server/access-token-verifier.ts": "e3d5cd89df658364d264ac35bed65c51e7aff577552e076508c7ab7c627f9c5c",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/direct-mcp-slot-snapshot-postgres-test.ts": "62213af8a9245a08fe87be3a421dcc822ec39f0358e876a0ea513787b7cf9431",
+    "scripts/direct-mcp-document-create-principal-postgres-test.ts": "30002d6de27c6ec8ee20ab7f5a723132f6e3207dd06613738d9248b5d2c96907",
+    "scripts/direct-mcp-document-read-principal-postgres-test.ts": "25b3d755bbb7d063f8b63633598aee5e662a4e55d66835b0e3125f38c432b2cb",
+    "scripts/direct-mcp-workspace-copy-principal-postgres-test.ts": "a2713c3b4c719fe06c7eba5793fc0b0202f9310bb59ce291e0f3a016cedb2f83",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/direct-mcp-native-markdown-create-postgres-test.ts": "97c66c5d766390210d697045b12db0b2b85ac1201bf7cb84c78d9fa4b27dd880",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "7823c35161146a4f5df6311b28229f8326439714097808647679e6c9a2f693ed",
+    "app/lib/workspaces/request-principal.ts": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/helpers/document-baseline-fixture.ts": "13cc42638e01bb92e496f94e2c0cbdbc94691ad8376cdffb6d10757c4fd9582f",
+    "app/lib/db/index.ts": "c3edce1e2d640d02e4d42d0f8d4112679d7b3cc6c9e032b8d26f6fe8b4275536",
+    "app/lib/mcp/server/ingest-tools.ts": "e235e57ecf0e7276d27d6968800756f28d9b0a2cfb1a8eebea2c061bc3c9d3d9",
+    "app/lib/mcp/server/streamable-http.ts": "82f9635043d5fb2e970f96ffd91042533d601e6c23da20334ca295a7d9ed34a8"
+  },
+  "currentProductHashes": {
+    "app/lib/mcp/server/document-read-principal.ts": "801731454c4047ee941e3efde3d4378b70973dca9acf55214dc68e74193680ec",
+    "app/lib/mcp/server/access-token-verifier.ts": "e3d5cd89df658364d264ac35bed65c51e7aff577552e076508c7ab7c627f9c5c"
+  },
+  "baselineProductHashes": {
+    "app/lib/mcp/server/document-read-principal.ts": "c8dbea5a0e3abc76ab17db78efce9bacb018031ee7a110f2a37bdebee5e28a45",
+    "app/lib/mcp/server/access-token-verifier.ts": "49092cd28c242f1bb82b47c7c6e09f8b822d1195982c2372e14c634b729e31b4"
+  },
+  "metric": "PostgreSQL driver calls incl transaction control; multi-statement strings not split",
+  "freshMcpSlotCurrentSql": {
+    "baseline": 6,
+    "current": 3,
+    "preRuntimeSchemaFenceRetained": true,
+    "completeInitialAndFinalFactSnapshots": true
+  },
+  "originalSqlAndFunctionProof": {
+    "app/lib/mcp/server/document-read-principal.ts": {
+      "defaultRuntimeSqlByteIdentical": true,
+      "changedExistingFunctions": [
+        "schema",
+        "readCurrentSlotFacts",
+        "currentSlot"
+      ],
+      "addedFunctions": [
+        "schemaSnapshotSql",
+        "validateSchemaSnapshot",
+        "typedSlotSnapshotSql",
+        "mcpSlotWorkspace"
+      ],
+      "unchangedExistingFunctions": 39
+    },
+    "app/lib/mcp/server/access-token-verifier.ts": {
+      "defaultRuntimeSqlByteIdentical": true,
+      "changedExistingFunctions": [
+        "loadDirectMcpGrantStateOnConnection"
+      ],
+      "addedFunctions": [
+        "directMcpGrantStateSnapshotSql"
+      ],
+      "unchangedExistingFunctions": 13
+    }
+  },
+  "newActualPreparedAndFallbackCases": 132,
+  "newCasesLogSha256": "0708599920bba40f4e7dd8bbf1aab4f8a2982cf45efd4b1a6fe414ae4d64e800",
+  "regressions": [
+    {
+      "label": "read-principal",
+      "entry": "scripts/direct-mcp-document-read-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "727a5b0d3c15539c33d3b4f87e3803d792a055e0f1f86d58f4836cdaa0b84d98"
+    },
+    {
+      "label": "create-principal",
+      "entry": "scripts/direct-mcp-document-create-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "05172ab6dfdc6c8bdbeb6de74c8b69503f1fa5647eb5c80e45115abb4e43d9f1"
+    },
+    {
+      "label": "copy-principal",
+      "entry": "scripts/direct-mcp-workspace-copy-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "4aa217d69bd3d186a0d12d5fc62febc243fd44e7be5d33e1c75bedb38a3dce2c"
+    },
+    {
+      "label": "path-principal",
+      "entry": "scripts/direct-mcp-workspace-path-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "f05f9947121781da504531220cccde7a190086df527f9d0435d298071e95e113"
+    },
+    {
+      "label": "native-create",
+      "entry": "scripts/direct-mcp-native-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "57aefb28c7658614b0fa36a571879e3270b68321e6b5874229b694fc29c75c4d"
+    },
+    {
+      "label": "native-copy",
+      "entry": "scripts/direct-mcp-native-copy-owner-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "1d3e46b2bf8ad664bed7507a473de73744d4df0a3904013576c166e2b03d6209"
+    }
+  ],
+  "matrix": [
+    {
+      "variant": "baseline",
+      "adapter": "mcp",
+      "size": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2618,
+          "checkouts": 50,
+          "wallMs": 2857.78,
+          "databaseMs": 1593.78,
+          "poolWaitMs": 4.62,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2598.32,
+          "databaseMs": 1508.34,
+          "poolWaitMs": 4.08,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2659.88,
+          "databaseMs": 1560.36,
+          "poolWaitMs": 4.53,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 129,
+          "checkouts": 12,
+          "wallMs": 137.34,
+          "databaseMs": 78.08,
+          "poolWaitMs": 0.14,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "458352c3b067d8f88413734ce45083391d87f687bbbb115065067ec195f8e7ce",
+      "logSha256": "f0de920e04ef63bec15af048e56b14b0bdcb5afba7de72236a6094eb8cb7119f",
+      "namedSnapshotQueries": 0,
+      "unnamedSnapshotQueries": 0
+    },
+    {
+      "variant": "current",
+      "adapter": "mcp",
+      "size": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1997,
+          "checkouts": 50,
+          "wallMs": 2624.42,
+          "databaseMs": 1304.17,
+          "poolWaitMs": 4.62,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2361.42,
+          "databaseMs": 1234.89,
+          "poolWaitMs": 4.18,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2392.26,
+          "databaseMs": 1258.5,
+          "poolWaitMs": 4.43,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 141.58,
+          "databaseMs": 79.58,
+          "poolWaitMs": 0.17,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "b1c12e9be3b5dd487ec255088a624aa8265dbcdc5e2563403fd65ada54045044",
+      "logSha256": "7b0a274a3fabcb193e353e868cd0e65939a300b4c86b47ee9eef242bc2eb69f1",
+      "namedSnapshotQueries": 1260,
+      "unnamedSnapshotQueries": 0
+    },
+    {
+      "variant": "current",
+      "adapter": "agent",
+      "size": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2285,
+          "checkouts": 80,
+          "wallMs": 3394.14,
+          "databaseMs": 1898.88,
+          "poolWaitMs": 5.2,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2957.39,
+          "databaseMs": 1797.47,
+          "poolWaitMs": 4.37,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2987.7,
+          "databaseMs": 1820.48,
+          "poolWaitMs": 4.61,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 202.63,
+          "databaseMs": 149.06,
+          "poolWaitMs": 0.07,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "b1c33955e503fc9f356ebd5a6cc9a8ea39c5cc210ce2859a6253cc33a5aec36f",
+      "logSha256": "d82bec9f46297b30bc20d722662c7af66305b2147a0ab3cf10ce0aa045f0017e",
+      "namedSnapshotQueries": 0,
+      "unnamedSnapshotQueries": 0
+    },
+    {
+      "variant": "current",
+      "adapter": "mcp",
+      "size": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1997,
+          "checkouts": 50,
+          "wallMs": 2804.92,
+          "databaseMs": 1397.88,
+          "poolWaitMs": 4.85,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2647.54,
+          "databaseMs": 1447.35,
+          "poolWaitMs": 4.84,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2361.26,
+          "databaseMs": 1234.4,
+          "poolWaitMs": 4.13,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 137.04,
+          "databaseMs": 79.43,
+          "poolWaitMs": 0.11,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "2c4974ee6f39768779e055d36c4e9486c8e867b87e98d0c812148eacc1988c7c",
+      "logSha256": "618efbe143556974483b46e9495bc4b00ce5711063d41db66306ec34a8820aeb",
+      "namedSnapshotQueries": 1260,
+      "unnamedSnapshotQueries": 0
+    }
+  ],
+  "actualServerPlanReuse": {
+    "generic_plans": 5,
+    "custom_plans": 5
+  },
+  "firstUnpreparedCandidateRejected": {
+    "sqlWarm": 1976,
+    "wallMsWarm": [
+      3572.98,
+      3472.14
+    ],
+    "reason": "fewer calls but slower than baseline; planning dominated",
+    "matrixStateSha256": "811d5f179f24148fe3434d15d02530dce22c7ad09c3723a1740ec758c9da4709"
+  },
+  "actualUnpreparedExplain": {
+    "planningMs": [
+      1.737,
+      1.755,
+      1.619,
+      1.654
+    ],
+    "executionMs": [
+      0.691,
+      0.339,
+      0.327,
+      0.33
+    ],
+    "outputSha256": "09f91e6e5c58c4945e256ac98814760c5f81badc534b9cf8c3d88c9cea89bdee"
+  },
+  "wireProtocol": "one JSONB field for prepared result-shape stability; exact NUMERIC scalar strings and explicit supported scalar types; no authorization/data cache",
+  "verification": {
+    "scopedTypeScript": {
+      "roots": 41,
+      "sourceFiles": 5162,
+      "diagnostics": 0
+    },
+    "releaseTypeScriptExitCode": 0,
+    "eslintExitCode": 0,
+    "eslintMaxWarnings": 0
+  },
+  "productionChanged": false,
+  "releasePublished": false,
+  "reviewCenterDevelopment": false,
+  "undoDevelopment": false,
+  "fullGoalComplete": false,
+  "requiredFollowup": [
+    "Share precision-safe snapshot encoding and correct independently reproduced numeric/JSON policy divergence in Member and Agent Create workspace readers before merge/release",
+    "Further phase/connection and registry/state batching; current Create counts still exceed final budgets",
+    "Incremental link dependency projection and shared normal writes",
+    "Final source comparisons, build/Desktop/Mobile/test:all/required CI/reviews",
+    "Fresh backup with actual restore proof, original-document recovery, controlled release/deployment"
+  ],
+  "focusedTestHashAtEarlierMatrixFreeze": "de8e573579ff5b351cb83c40648a2d28595d20c12d1cea24825898d619c6559f",
+  "focusedModes": [
+    "read",
+    "create",
+    "edit"
+  ],
+  "focusedTestProvenance": "Focused test expanded after the matrix from Read/Create to Read/Create/Edit; product, actual regression-entry and matrix sources unchanged. The old unused test pin is retained separately."
+}
