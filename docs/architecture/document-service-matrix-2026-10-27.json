@@ -6,8 +6,8 @@
   "scope": "isolated-PG18-fixtures-not-production-latency",
   "warning": "Shared-service operations are subsets of process windows; do not add the two. Checkouts are pool leases, not newly established TCP connections.",
   "pending": [
-    "public-path-operations-200-running",
-    "separate-cold-move-and-warm-rename-if-required-for-full-action-matrix",
+    "fix-and-rerun-public-path-operations-200-timeout",
+    "required-separate-cold-and-warm-public-rename-and-move-matrix",
     "agent-and-MCP-create-cold-warm-size-matrix",
     "all-remaining-central-service-plan-acceptance"
   ],
@@ -3561,6 +3561,117 @@
             ]
           }
         }
+      ]
+    }
+  ],
+  "failedDatasets": [
+    {
+      "fixture": "public-document-path-operations",
+      "nativeDocuments": 200,
+      "passed": false,
+      "exitCode": 1,
+      "action": "rename",
+      "publicStatus": 503,
+      "publicCode": "IMPLICIT_MOVE_DISPOSAL_UNCONFIRMED",
+      "diagnosticCode": "SQLSTATE_25P04",
+      "measurementScope": "scoped-foreground-operation-only; the failed process window was not persisted",
+      "operation": {
+        "component": "document_operation",
+        "version": 1,
+        "operation": "rename",
+        "actor": "request",
+        "outcome": "failed",
+        "wallMs": 51329.21,
+        "statements": 39686,
+        "databaseMs": 23073.87,
+        "failedStatements": 2,
+        "poolWaitMs": 207.68,
+        "checkouts": 3541,
+        "peakConnections": 2,
+        "openConnectionsAtCompletion": 0,
+        "openQueriesAtCompletion": 0,
+        "unsupportedQueryForms": 0,
+        "queryGroups": [
+          {
+            "group": "session",
+            "statements": 4676,
+            "databaseMs": 1741.1,
+            "failedStatements": 0
+          },
+          {
+            "group": "account",
+            "statements": 4321,
+            "databaseMs": 1372.57,
+            "failedStatements": 0
+          },
+          {
+            "group": "other",
+            "statements": 5862,
+            "databaseMs": 2189.12,
+            "failedStatements": 1
+          },
+          {
+            "group": "seat",
+            "statements": 3909,
+            "databaseMs": 2357.52,
+            "failedStatements": 0
+          },
+          {
+            "group": "transaction",
+            "statements": 4288,
+            "databaseMs": 2485.77,
+            "failedStatements": 1
+          },
+          {
+            "group": "workspace",
+            "statements": 5465,
+            "databaseMs": 2503.47,
+            "failedStatements": 0
+          },
+          {
+            "group": "catalogue",
+            "statements": 10530,
+            "databaseMs": 9997.8,
+            "failedStatements": 0
+          },
+          {
+            "group": "document-state",
+            "statements": 635,
+            "databaseMs": 426.52,
+            "failedStatements": 0
+          }
+        ],
+        "phases": [
+          {
+            "phase": "operation",
+            "calls": 1,
+            "wallMs": 51329.21,
+            "statements": 39686,
+            "databaseMs": 23073.87,
+            "failedStatements": 2
+          },
+          {
+            "phase": "authorization",
+            "calls": 1946,
+            "wallMs": 9440.46,
+            "statements": 15568,
+            "databaseMs": 9262.74,
+            "failedStatements": 0
+          }
+        ]
+      },
+      "cleanup": {
+        "workerDrained": true,
+        "serversClosed": true,
+        "schemaRemoved": true,
+        "poolClosed": true,
+        "clientsClosed": true,
+        "dataRemoved": true
+      },
+      "limitations": [
+        "Move was not reached.",
+        "Successful final document, link and unrelated-row assertions were not reached.",
+        "Preparation used the normal upload service and asserted exactly 200 active native documents."
       ]
     }
   ]

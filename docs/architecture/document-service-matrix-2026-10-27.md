@@ -85,9 +85,19 @@ nativen Zeilen, IDs, Lineages, Metadaten, `xmin` und physischen Dateibytes.
 Die beiden betroffenen Dokumente behalten ebenfalls IDs und Lineages; eingehende
 und relative Verweise werden korrekt angepasst. Alle eigenen Ressourcen schließen.
 
-Der Pfadaktions-Fall mit 200 Dokumenten läuft noch. Getrennte kalte/wiederholte
-Pfadaktionen sowie die Größen-/Wiederholungsmatrix für Agenten- und MCP-Neuanlagen
-sind noch offen. Die bisherige vollständige Agenten-/MCP-Create-Regressionsprüfung
+Der Pfadaktions-Fall mit 200 über den normalen Upload-Service angelegten
+nativen Dokumenten ist **fehlgeschlagen**: Rename endet nach 51,3 Sekunden mit
+HTTP 503 (`IMPLICIT_MOVE_DISPOSAL_UNCONFIRMED`). Das Diagnoseprotokoll enthält
+`SQLSTATE_25P04`; die abschließende Vorbereitung überschreitet das unveränderte
+Transaktionslimit. Der gemessene Vordergrundvorgang umfasst 39.686 SQL-Aufrufe,
+3.541 Pool-Ausleihen und 1.946 Rechteprüfungen. Dieser Messbereich ist kein
+vollständig gespeichertes Prozessfenster. Move und die abschließenden Inhalts-/
+Unverändertheitsprüfungen werden nach dem Fehler nicht mehr erreicht. Worker,
+Server, Pool, Clients, privates Schema und Datenverzeichnis schließen vollständig.
+Die größere Pfadaktion hat damit noch keine Abnahme.
+
+Getrennte kalte/wiederholte Pfadaktionen sowie die Größen-/Wiederholungsmatrix
+für Agenten- und MCP-Neuanlagen sind weiterhin erforderlich und offen. Die bisherige vollständige Agenten-/MCP-Create-Regressionsprüfung
 ersetzt diese Messfelder nicht. Auch Verbindungsbündelung, inkrementelle Link-
 auflösung, gemeinsame Änderungspfade, Original-Recovery, endgültige Gesamtsuite,
 Backup-/Restore-Nachweis und kontrolliertes Release bleiben Teil des Gesamtplans.

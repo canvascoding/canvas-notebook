@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { measureDocumentDatabaseActivity, measureDocumentOperation, withDocumentOperationMetricObserver,
@@ -17,6 +18,11 @@ const measurements: Array<{ label: string; value: DocumentDatabaseActivityMeasur
 const operations: DocumentOperationMeasurement[] = [];
 let completed = false;
 process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
+process.once('uncaughtExceptionMonitor', () => {
+  try { writeFileSync(output, JSON.stringify({ version: 3, passed: false, fixture: 'public-document-path-operations',
+    nativeDocuments: fixtureSourceCount, measurements, operations }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
+  catch { /* Preserve the original test failure and exit status. */ }
+});
 
 await withDocumentOperationMetricObserver(value => operations.push(value), () => withNativeCopyMetadataOwnerFixture(async h => {
   // Real cookie route handlers and their actual native Move owner. Only setup
@@ -189,7 +195,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     console.log(JSON.stringify({ closure: 'document-public-path-runtime', workerDrained: true, serversClosed: true }));
   }
 }));
-await fs.writeFile(output, JSON.stringify({ version: 2, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
+await fs.writeFile(output, JSON.stringify({ version: 3, passed: true, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
   scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations }, null, 2) + '\n',
 { mode: 0o600, flag: 'wx' });
 completed = true;
