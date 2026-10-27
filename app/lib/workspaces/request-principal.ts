@@ -770,6 +770,10 @@ async function readAgentSession(database: SqlConnection, schemaName: string, ori
     organization_id,customer_id,project_id,workspace_root_relative_path,archived_at
     FROM ${quote(schemaName)}.pi_sessions WHERE user_id=$1 AND session_id=$2 LIMIT 2${lock ? ' FOR SHARE NOWAIT' : ''}`,
   [origin.userId, origin.sessionId]) as Row[];
+  return parseAgentSession(rows, origin, agentId);
+}
+
+function parseAgentSession(rows: Row[], origin: AgentWorkspaceOrigin, agentId: string): number {
   const row = rows[0];
   if (rows.length !== 1 || !number(row?.id,1) || row.session_id !== origin.sessionId || row.user_id !== origin.userId
     || row.agent_id !== agentId || row.archived_at !== null) fail('PRINCIPAL_AUTH_REVOKED');
@@ -783,6 +787,10 @@ async function readAgentSession(database: SqlConnection, schemaName: string, ori
 async function readAgentProfilePin(database: SqlConnection, schemaName: string, agentId: string, lock = false): Promise<AgentProfilePin> {
   const row = await database.get(`SELECT id,revision,enabled_tools_json,workflow_version,workflow_revision
     FROM ${quote(schemaName)}.agents WHERE agent_id=$1${lock ? ' FOR SHARE NOWAIT' : ''}`, [agentId]) as Row | undefined;
+  return parseAgentProfilePin(row);
+}
+
+function parseAgentProfilePin(row: Row | undefined): AgentProfilePin {
   if (!row || !number(row.id,1) || !number(row.revision,1) || !number(row.workflow_revision)
     || row.workflow_version !== null && Number(row.workflow_version) !== 1
     || row.enabled_tools_json !== null && (typeof row.enabled_tools_json !== 'string' || row.enabled_tools_json.length > 1024*1024)) fail('PRINCIPAL_ACCESS_DENIED');
@@ -804,7 +812,7 @@ function matchesAgentWorkspace(origin: AgentWorkspaceOrigin, workspace: Workspac
  * account/seat/workspace check required for built-in Agent.canUse shortcuts. */
 async function readAgentWorkspace(database: SqlConnection, schemaName: string, origin: AgentWorkspaceOrigin,
   agentId: string, permission: AuthorizationCapture['permission'], license: LicenseStatus,
-  assertAlive: () => unknown, lock: boolean, createPhase?: Phase): Promise<WorkspaceContext> {
+  assertAlive: () => unknown, lock: boolean, createPhase?: Phase, createAccount?: Row): Promise<WorkspaceContext> {
   assertAlive();
   if (createPhase) {
     active(createPhase);
@@ -813,8 +821,9 @@ async function readAgentWorkspace(database: SqlConnection, schemaName: string, o
       || !agentMarkdownCreateCaptures.has(request) || !createPhase.agentCreateRealm
       || request.origin !== origin || request.agentId !== agentId || request.permission !== permission
       || request.license !== license || request.schema !== schemaName || !lock) fail('PRINCIPAL_REQUIRED');
-  }
-  const user = await database.get(`SELECT id,banned FROM ${quote(schemaName)}."user" WHERE id=$1`, [origin.userId]) as Row | undefined;
+  } else if (createAccount !== undefined) fail('PRINCIPAL_REQUIRED');
+  const user = createPhase ? createAccount
+    : await database.get(`SELECT id,banned FROM ${quote(schemaName)}."user" WHERE id=$1`, [origin.userId]) as Row | undefined;
   assertAlive();
   if (!user || user.id !== origin.userId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
   if (createPhase) {
@@ -853,21 +862,57 @@ async function lockAgentOrigin(phase: Phase, request: AgentCapture | JobAgentCap
   active(phase);
 }
 
+/** Fresh facts on the genuine Create phase's already locked connection. No
+ * caller can supply these rows, and no observation survives this current check. */
+async function readAgentCreateScopeFacts(phase: Phase): Promise<{
+  workspace?: Row; sessions: Row[]; profile?: Row; account?: Row;
+}> {
+  active(phase);
+  const request = phase.request;
+  if (request.kind !== 'agent_tool' || !agentMarkdownCreateCaptures.has(request)
+    || !phase.agentCreateRealm || !phase.identity || phase.identity.schema !== request.schema) fail('PRINCIPAL_REQUIRED');
+  const facts = await phase.database.get(`SELECT
+    (SELECT to_jsonb(w) FROM (
+      SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
+      FROM ${table(phase,'canvas_workspaces')} WHERE id=$1 LIMIT 1) w) AS workspace,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(s)),'[]'::jsonb) FROM (
+      SELECT id,session_id,user_id,agent_id,workspace_id,workspace_type,organization_id,customer_id,
+        project_id,workspace_root_relative_path,archived_at
+      FROM ${table(phase,'pi_sessions')} WHERE user_id=$2 AND session_id=$3 LIMIT 2) s) AS sessions,
+    (SELECT to_jsonb(a) FROM (
+      SELECT id,revision,enabled_tools_json,workflow_version,workflow_revision
+      FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1) a) AS profile,
+    (SELECT to_jsonb(u) FROM (
+      SELECT id,banned FROM ${table(phase,'user')} WHERE id=$2 LIMIT 1) u) AS account`,
+  [request.workspace.workspaceId, request.origin.userId, request.origin.sessionId, request.agentId]) as {
+    workspace: Row | null; sessions: Row[]; profile: Row | null; account: Row | null;
+  } | undefined;
+  active(phase);
+  if (!facts || !Array.isArray(facts.sessions)) fail('PRINCIPAL_SCOPE_CHANGED');
+  return { workspace: facts.workspace ?? undefined, sessions: facts.sessions,
+    profile: facts.profile ?? undefined, account: facts.account ?? undefined };
+}
+
 async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   await checkIdentity(phase);
   const request = phase.request;
   if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');
-  const rawWorkspace = await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
-    FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
+  const create = agentMarkdownCreateCaptures.has(request);
+  const facts = create ? await readAgentCreateScopeFacts(phase) : undefined;
+  const rawWorkspace = create ? facts!.workspace
+    : await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
+      FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
   active(phase); assertWorkspaceRow(phase,rawWorkspace);
-  const sessionId = await readAgentSession(phase.database, phase.identity!.schema, request.origin, request.agentId);
+  const sessionId = create ? parseAgentSession(facts!.sessions, request.origin, request.agentId)
+    : await readAgentSession(phase.database, phase.identity!.schema, request.origin, request.agentId);
   active(phase);
   if (sessionId !== request.piSessionDbId) fail('PRINCIPAL_AUTH_REVOKED');
-  const profile = await readAgentProfilePin(phase.database, phase.identity!.schema, request.agentId);
+  const profile = create ? parseAgentProfilePin(facts!.profile)
+    : await readAgentProfilePin(phase.database, phase.identity!.schema, request.agentId);
   active(phase);
   if (!sameAgentProfile(request.profile,profile)) fail('PRINCIPAL_SCOPE_CHANGED');
   const workspace = await readAgentWorkspace(phase.database, phase.identity!.schema, request.origin, request.agentId,
-    request.permission, request.license, () => active(phase), true, agentMarkdownCreateCaptures.has(request) ? phase : undefined);
+    request.permission, request.license, () => active(phase), true, create ? phase : undefined, facts?.account);
   if (!scope(workspace,request.workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
   await checkIdentity(phase);
   return workspace;

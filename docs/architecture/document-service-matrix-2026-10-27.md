@@ -241,3 +241,10 @@ Dies schließt die Messbasis ab. Die gemeinsamen Verträge, weitere Datenbank- u
 Verbindungsbündelung, inkrementelle Linkauflösung, gemeinsame Änderungspfade,
 Original-Recovery, endgültige Leistungsbudgets und Gesamtsuite,
 Backup-/Restore-Nachweis sowie kontrolliertes Release bleiben Teil des Gesamtplans.
+
+Die erste nachfolgende [Bündelung aktueller Agenten-Scope-Daten](document-service-agent-create-facts-2026-10-27.md)
+ist bei beiden Größen geprüft: Der vollständige warme Agenten-Neuanlageaufruf
+benötigt 4.492 statt 5.203 SQL-Aufrufe. Die 229 aktuellen Autorisierungsbeobachtungen
+bleiben erhalten und benötigen im Create-Engine 2.061 statt 2.748 Aufrufe. Das ist
+eine abgegrenzte Teilkorrektur; Pool-Ausleihen und die übrigen offenen Pakete
+werden dadurch nicht als abgeschlossen bewertet.

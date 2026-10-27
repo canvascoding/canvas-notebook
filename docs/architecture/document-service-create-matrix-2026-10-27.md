@@ -1,5 +1,9 @@
 # Native Create: registrierter Agent und MCP bei 10 und 200 Dokumenten
 
+Diese Messung ist die ursprüngliche Vergleichsbasis. Der nachfolgende
+[Agenten-Scope-Vergleich](document-service-agent-create-facts-2026-10-27.md)
+belegt die erste weitere Bündelung bei gleichem registrierten Aufrufer und Testaufbau.
+
 Stand: 27.10.2026. Produktgrundlage `9fee44a700e455507b0a9ecd566bc98fac8f52b7`,
 Messwerkzeug `de092c88e7d707f7b19ffc88a69fd388df56ba9b`.
 Teil des [zentralen Dokument- und Linkservice](../document-write-database-performance-plan.md).

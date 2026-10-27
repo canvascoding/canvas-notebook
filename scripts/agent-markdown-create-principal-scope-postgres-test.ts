@@ -3,8 +3,8 @@ import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceAgentToolPrincipalAccess } from '../app/lib/workspaces/request-principal';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
-// Real captured PI invocations and transactions. A valid seat in a different
-// configured organization must never authorize the original workspace.
+// Real captured PI invocations and transactions. Every current check must see
+// changes made after admission, including the genuine Create snapshot path.
 await withNativeCopyMetadataOwnerFixture(async h => {
   const { MAIN_AGENT_ID } = await import('../app/lib/agents/main-agent');
   const { EMAIL_MANAGED_AGENT_ID } = await import('../app/lib/agents/storage');
@@ -33,18 +33,43 @@ await withNativeCopyMetadataOwnerFixture(async h => {
   await h.admin.query(`INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at)
     VALUES('second-fixture-seat','second-fixture-org','owner@principal.test','owner','owner','active',100,100,200,200)`);
   await h.admin.query(`INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('second-fixture-org',200,200)`);
+  const drifts = ['control', 'organization', 'session-archive', 'session-scope', 'session-id',
+    'profile-revision', 'workspace-root', 'account-ban'] as const;
+  const authorityRows = async () => (await h.admin.query(`
+    SELECT 'organization' AS kind,organization_id AS key,to_jsonb(o) AS value,xmin::text AS version FROM canvas_organization_settings o
+    UNION ALL SELECT 'session',session_id,to_jsonb(s),xmin::text FROM pi_sessions s
+    UNION ALL SELECT 'profile',agent_id,to_jsonb(a),xmin::text FROM agents a
+    UNION ALL SELECT 'workspace',id,to_jsonb(w),xmin::text FROM canvas_workspaces w
+    UNION ALL SELECT 'account',id,to_jsonb(u),xmin::text FROM "user" u
+    ORDER BY kind,key`)).rows;
   let groups = 0;
-  for (const agentId of agentIds) for (const create of [false, true]) for (const drift of [false, true]) {
+  for (const agentId of agentIds) for (const create of [false, true]) for (const drift of drifts) {
     let entered = false, checked = false, published = false, errorCode: string | null = null;
     const actual = await resolveAgentExecutionContextForStoredSession({ sessionId: `scope-${agentId}`, userId: 'owner', agentId,
       permissions: ['canRead', 'canRunAgent', 'canWrite'] });
+    const before = await authorityRows();
     async function phase<P>(p: P, bind: (database: SqlConnection, p: P,
       operation: (access: WorkspaceAgentToolPrincipalAccess) => Promise<string>) => Promise<string>) {
       return executeLifecycleTransaction({ openConnection: openDb, execute: async database => {
         await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
         return bind(database, p, async access => {
           entered = true;
-          if (drift) await database.run(`UPDATE canvas_organization_settings SET created_at=50 WHERE organization_id='second-fixture-org'`);
+          switch (drift) {
+            case 'organization':
+              await database.run(`UPDATE canvas_organization_settings SET created_at=50 WHERE organization_id='second-fixture-org'`); break;
+            case 'session-archive':
+              await database.run('UPDATE pi_sessions SET archived_at=101 WHERE session_id=$1', [`scope-${agentId}`]); break;
+            case 'session-scope':
+              await database.run("UPDATE pi_sessions SET workspace_root_relative_path=workspace_root_relative_path||'/drift' WHERE session_id=$1", [`scope-${agentId}`]); break;
+            case 'session-id':
+              await database.run('UPDATE pi_sessions SET id=id+1000 WHERE session_id=$1', [`scope-${agentId}`]); break;
+            case 'profile-revision':
+              await database.run('UPDATE agents SET revision=revision+1 WHERE agent_id=$1', [agentId]); break;
+            case 'workspace-root':
+              await database.run("UPDATE canvas_workspaces SET root_relative_path=root_relative_path||'/drift' WHERE id=$1", [h.source.workspaceId]); break;
+            case 'account-ban':
+              await database.run('UPDATE "user" SET banned=1 WHERE id=$1', ['owner']); break;
+          }
           await access.assertCurrent(); checked = true;
           return 'current-result';
         });
@@ -60,19 +85,17 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       published = result === 'current-result';
     } catch (error) {
       errorCode = error && typeof error === 'object' ? String(Reflect.get(error, 'code') ?? Reflect.get(error, 'name')) : 'unknown';
-    } finally {
-      // Restore only this fixture's row, including when the pre-fix Create
-      // incorrectly committed its self-drift. No production row is touched.
-      await h.admin.query(`UPDATE canvas_organization_settings SET created_at=200 WHERE organization_id='second-fixture-org'`);
     }
     assert(entered, 'Each genuine phase must enter before any drift.');
-    assert.equal(checked, !drift, 'Current must reject organization drift for every Agent access shortcut.');
-    assert.equal(published, !drift, 'No precomputed successful result may escape a drifted scope.');
-    if (drift) assert(errorCode && /^(?:PRINCIPAL_|AGENT_ACTOR_CONTEXT_)/u.test(errorCode));
+    const succeeds = drift === 'control';
+    assert.equal(checked, succeeds, `Current must reject ${drift} for every Agent access shortcut.`);
+    assert.equal(published, succeeds, 'No precomputed successful result may escape a drifted scope.');
+    if (!succeeds) assert(errorCode && /^(?:PRINCIPAL_|AGENT_ACTOR_CONTEXT_)/u.test(errorCode));
     else assert.equal(errorCode, null);
+    assert.deepEqual(await authorityRows(), before, 'Controls and rolled-back denials preserve actual authority rows and xmin.');
     groups++;
   }
-  assert.equal(groups, 12);
+  assert.equal(groups, agentIds.length * 2 * drifts.length);
   console.log(JSON.stringify({ suite: 'agent-markdown-create-principal-scope', groups,
-    evidence: 'genuine_pg_and_pi_default_email_and_restricted_agent_controls_and_primary_organization_drift' }));
+    evidence: 'genuine_pg_and_pi_default_email_and_restricted_agents_fresh_scope_account_session_profile_checks_and_exact_rollback' }));
 });
