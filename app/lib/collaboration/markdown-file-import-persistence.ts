@@ -60,7 +60,7 @@ import { readMarkdownOriginalImportRecordOnConnection } from './markdown-origina
 import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import { authenticatedNativeTextSessionEnabled } from './native-text-session-activation';
-import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
+import { loadCollaborationStateOnConnection, mapPersistedCollaborationStateRow, type PersistedCollaborationState } from './persistence';
 import { inCollaborationProjectionPhase } from './projection-errors';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { assertCollaborationAdmissionOpen } from './room-admission';
@@ -69,7 +69,7 @@ import { lockIdentity } from './room-owner';
 import { getCollaborationRoomConnectionCount } from './runtime-state';
 import { Y } from './server-runtime';
 import { isCollaborationStateProof } from './state-proof';
-import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
+import { readWorkspaceDocumentCatalogue, WorkspaceDocumentCatalogueError } from './workspace-document-catalogue';
 import type { TextCollaborationRepresentation } from './types';
 import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
 import type { WorkspaceOperationRawHtmlCopyStageV8 } from '../files/workspace-operation-raw-html-copy-stage';
@@ -173,13 +173,10 @@ function capture(input: MarkdownFileImportRequest): Captured {
     actorUserId: input.actorUserId, actorSessionId: input.actorSessionId, expectedTarget, prepared, fingerprint };
 }
 
-async function observedState(database: SqlConnection, input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt): Promise<PersistedCollaborationState> {
-  const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
+function assertObservedMarkdownImportState(documents: Awaited<ReturnType<typeof readWorkspaceDocumentCatalogue>>,
+  input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt, state: PersistedCollaborationState | null,
+  lineage: boolean): PersistedCollaborationState {
   const document = documents.find(document => document.path === input.path);
-  const state = await loadCollaborationStateOnConnection(database, receipt.target.documentId, true);
-  const lineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
-    AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
-  [receipt.target.lineageId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path]);
   if (documents.length !== 1 || !document || document.id !== receipt.target.documentId
     || document.authority !== 'initialized' || document.yjs_state_lifecycle !== 'initialized'
     || document.lineage_id !== receipt.target.lineageId || !lineage || !state
@@ -189,10 +186,16 @@ async function observedState(database: SqlConnection, input: Pick<Captured, 'wor
   authoritativeNativeCollaborationSnapshot(state);
   return state;
 }
-async function confirmedRetry(database: SqlConnection, input: RetryExpectation): Promise<Omit<MarkdownFileImportResult, 'disposition'> | null> {
-  const rows = await database.all(`SELECT * FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1
-    AND (operation_id=$2 OR (actor_user_id=$3 AND actor_session_id IS NOT DISTINCT FROM $4 AND request_id=$5))`,
-  [input.workspace.workspaceId, input.operationId, input.actorUserId, input.actorSessionId, input.requestId]) as Array<Record<string, unknown>>;
+async function observedState(database: SqlConnection, input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt): Promise<PersistedCollaborationState> {
+  const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
+  const state = await loadCollaborationStateOnConnection(database, receipt.target.documentId, true);
+  const lineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
+    AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
+  [receipt.target.lineageId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path]);
+  return assertObservedMarkdownImportState(documents, input, receipt, state, !!lineage);
+}
+function decodeMarkdownImportRetryRows(rows: Array<Record<string, unknown>>, input: RetryExpectation):
+  { row: Record<string, unknown> & { after_state_snapshot: Uint8Array }; receipt: MarkdownFileImportReceipt } | null {
   if (!rows.length) return null;
   if (rows.length !== 1) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
   const row = rows[0], receipt = row.private_result as MarkdownFileImportReceipt;
@@ -216,13 +219,25 @@ async function confirmedRetry(database: SqlConnection, input: RetryExpectation):
       || receipt.target.initialSequence !== expected.documentSequence + 1) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
   } else if (receipt.target.initialSequence !== 0 || receipt.target.lifecycleGeneration !== 1
     || input.expectedTarget.kind === 'pristine' && receipt.target.documentId !== input.expectedTarget.documentId) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
-  const state = await observedState(database, input, receipt);
+  return { row: row as Record<string, unknown> & { after_state_snapshot: Uint8Array }, receipt };
+}
+function confirmMarkdownImportRetryState(row: Record<string, unknown> & { after_state_snapshot: Uint8Array }, receipt: MarkdownFileImportReceipt,
+  state: PersistedCollaborationState): Omit<MarkdownFileImportResult, 'disposition'> {
   // The empty initial Plain snapshot is a legitimate subset with no client items.
   const empty = Y.encodeSnapshot(Y.createSnapshot(Y.createDeleteSet(), new Map()));
   if (state.documentSequence < receipt.target.initialSequence || !Buffer.from(row.after_state_snapshot).equals(Buffer.from(empty))
     && !persistedUpdateIncludesAgentSnapshot(state.yjsState, row.after_state_snapshot, Y)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   const native = authoritativeNativeCollaborationSnapshot(state);
   return { receipt, currentObservation: { documentSequence: state.documentSequence, stateProof: native.version.stateProof, persistedAt: state.persistedAt } };
+}
+async function confirmedRetry(database: SqlConnection, input: RetryExpectation): Promise<Omit<MarkdownFileImportResult, 'disposition'> | null> {
+  const rows = await database.all(`SELECT * FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1
+    AND (operation_id=$2 OR (actor_user_id=$3 AND actor_session_id IS NOT DISTINCT FROM $4 AND request_id=$5))`,
+  [input.workspace.workspaceId, input.operationId, input.actorUserId, input.actorSessionId, input.requestId]) as Array<Record<string, unknown>>;
+  const decoded = decodeMarkdownImportRetryRows(rows, input);
+  if (!decoded) return null;
+  const state = await observedState(database, input, decoded.receipt);
+  return confirmMarkdownImportRetryState(decoded.row, decoded.receipt, state);
 }
 
 function importedState(input: Captured, documentId: string, now: number): PersistedCollaborationState {
@@ -1753,17 +1768,18 @@ async function assertAuthenticatedUploadScope(database: SqlConnection, input: Ca
 }
 /** Validate the exact real row delivered to the mapper, including orphan raw
  * error flags. No earlier metadata SELECT can certify a later RC row. */
+function normalizeAuthenticatedMarkdownStateRow(value: Record<string, unknown>): Record<string, unknown> {
+  const row = normalizeBootstrapStateRow(value);
+  if (!(row.yjs_state instanceof Uint8Array) || row.yjs_state.byteLength < 1 || row.yjs_state.byteLength > BOOTSTRAP_STATE_LIMIT
+    || !(row.state_vector instanceof Uint8Array) || row.state_vector.byteLength < 1 || row.state_vector.byteLength > BOOTSTRAP_VECTOR_LIMIT
+    || row.degraded !== 0 || row.projection_error_permanent === 1 && row.projection_error_generation !== null
+      && Number(row.projection_error_generation) === Number(row.lifecycle_generation)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  return row;
+}
 function authenticatedUploadReads(database: SqlConnection): SqlConnection {
   const read = async (sql: string, values?: unknown[]) => {
     const rows = await database.all(sql, values);
-    if (/^SELECT \* FROM collaboration_yjs_states\s+WHERE document_id = \$1(?:\s|$)/u.test(sql)) return rows.map(value => {
-      const row = normalizeBootstrapStateRow(value as Record<string, unknown>);
-      if (!(row.yjs_state instanceof Uint8Array) || row.yjs_state.byteLength < 1 || row.yjs_state.byteLength > BOOTSTRAP_STATE_LIMIT
-        || !(row.state_vector instanceof Uint8Array) || row.state_vector.byteLength < 1 || row.state_vector.byteLength > BOOTSTRAP_VECTOR_LIMIT
-        || row.degraded !== 0 || row.projection_error_permanent === 1 && row.projection_error_generation !== null
-          && Number(row.projection_error_generation) === Number(row.lifecycle_generation)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-      return row;
-    });
+    if (/^SELECT \* FROM collaboration_yjs_states\s+WHERE document_id = \$1(?:\s|$)/u.test(sql)) return rows.map(value => normalizeAuthenticatedMarkdownStateRow(value as Record<string, unknown>));
     return rows;
   };
   return { all: read, get: async (sql, values) => (await read(sql, values))[0],
@@ -2292,18 +2308,28 @@ async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<
     || row.project_id !== expected.projectId || row.customer_id !== expected.customerId || row.owner_user_id !== expected.ownerUserId
     || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
-async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
-  if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const { database, frame, access, source, claim, input, result } = phase;
-  // Tool-origin policy already performs genuine Current: MCP refreshes its
-  // fixed slot; Agent checks before/after config/profile. Requests need theirs.
-  if (frame.kind === 'request') await access.assertCurrent();
-  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
-  if (checkSource) await source.assertCurrent();
-  await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
-  await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
-  const row = await database.get(`SELECT d.id FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+/** A fresh native/receipt row on the actual held publication connection.
+ * Catalogue identity failures retain their old precedence after the complete native and
+ * receipt checks. No earlier RC state certifies a later row and no row is cached. */
+async function readAuthenticatedMarkdownBirthSnapshot(phase: FirstProjectionPhase): Promise<PersistedCollaborationState> {
+  const { database, input, result } = phase;
+  const reads = firstProjectionReads(database);
+  let documents: Awaited<ReturnType<typeof readWorkspaceDocumentCatalogue>> = [], catalogueFailed = false, catalogueError: unknown;
+  try { documents = await readWorkspaceDocumentCatalogue(reads, input.workspace, { paths: [input.path] }); }
+  catch (error) {
+    if (!(error instanceof WorkspaceDocumentCatalogueError)) throw error;
+    catalogueFailed = true; catalogueError = error;
+  }
+  const row = await database.get(`SELECT y.*,l.id AS observed_lineage_id,
+    r.workspace_id AS import_workspace_id,r.operation_id AS import_operation_id,r.organization_id AS import_organization_id,
+    r.actor_user_id AS import_actor_user_id,r.actor_session_id AS import_actor_session_id,r.request_id AS import_request_id,
+    r.version AS import_version,r.request_fingerprint AS import_request_fingerprint,r.private_result AS import_private_result,
+    r.after_state_snapshot AS import_after_state_snapshot,r.created_at AS import_created_at,
+    r.live_yjs_state_sha256 AS import_live_yjs_state_sha256,r.live_state_vector_sha256 AS import_live_state_vector_sha256,
+    (SELECT count(*) FROM (SELECT 1 FROM collaboration_markdown_file_import_receipts retry
+      WHERE retry.workspace_id=$2 AND (retry.operation_id=$9 OR (retry.actor_user_id=$11
+        AND retry.actor_session_id IS NOT DISTINCT FROM $12 AND retry.request_id=$13)) LIMIT 2) matches) AS import_receipt_count
+    FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
     JOIN collaboration_yjs_states y ON y.document_id=d.id JOIN collaboration_markdown_file_import_receipts r
       ON r.workspace_id=d.workspace_id AND r.operation_id=$9
     WHERE d.id=$1 AND d.workspace_id=$2 AND d.organization_id IS NOT DISTINCT FROM $3 AND d.path=$4
@@ -2316,16 +2342,36 @@ async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, ch
       AND r.live_state_vector_sha256=encode(sha256(y.state_vector),'hex')`,
   [result.receipt.target.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path,
     input.workspace.workspaceType, input.workspace.customerId ?? null, input.workspace.projectId ?? null,
-    result.receipt.target.lineageId, input.operationId, input.fingerprint]);
+    result.receipt.target.lineageId, input.operationId, input.fingerprint, input.actorUserId, input.actorSessionId, input.requestId]) as Record<string, unknown> | undefined;
   if (!row) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const reads = firstProjectionReads(database), prior = await confirmedRetry(reads, input);
-  if (!prior || !isDeepStrictEqual(prior.receipt, result.receipt)
+  if (row.import_receipt_count !== 1 && row.import_receipt_count !== '1') return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  const receiptFields = ['workspace_id', 'operation_id', 'organization_id', 'actor_user_id', 'actor_session_id', 'request_id',
+    'version', 'request_fingerprint', 'private_result', 'after_state_snapshot', 'created_at', 'live_yjs_state_sha256', 'live_state_vector_sha256'];
+  const receiptRow = Object.fromEntries(receiptFields.map(field => [field, row[`import_${field}`]]));
+  const decoded = decodeMarkdownImportRetryRows([receiptRow], input);
+  if (!decoded) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  if (catalogueFailed) throw catalogueError;
+  const state = mapPersistedCollaborationStateRow(normalizeAuthenticatedMarkdownStateRow(row) as Parameters<typeof mapPersistedCollaborationStateRow>[0]);
+  assertObservedMarkdownImportState(documents, input, decoded.receipt, state, row.observed_lineage_id === decoded.receipt.target.lineageId);
+  const prior = confirmMarkdownImportRetryState(decoded.row, decoded.receipt, state);
+  if (!isDeepStrictEqual(prior.receipt, result.receipt)
     || prior.currentObservation.documentSequence !== result.receipt.target.initialSequence
     || prior.currentObservation.stateProof !== result.receipt.target.initialStateProof) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const state = await loadCollaborationStateOnConnection(reads, result.receipt.target.documentId);
-  if (!state) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   inspectPersistedNativeCollaborationSnapshot(state, doc => assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions())));
   return state;
+}
+async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
+  if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const { database, frame, access, source, claim, input, result } = phase;
+  // Tool-origin policy already performs genuine Current: MCP refreshes its
+  // fixed slot; Agent checks before/after config/profile. Requests need theirs.
+  if (frame.kind === 'request') await access.assertCurrent();
+  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
+  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
+  if (checkSource) await source.assertCurrent();
+  await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
+  await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
+  return readAuthenticatedMarkdownBirthSnapshot(phase);
 }
 
 /** Read-only generic-guard entry. No public API can install this module-private

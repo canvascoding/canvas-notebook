@@ -128,6 +128,17 @@ Echte native Versionsrennen verweigern die Publikation; explizite Wiederholungen
 erhalten Originalidentitäten und vollständige Bytes. Weitere Bündelung und alle
 übrigen Abnahmen des Gesamtplans bleiben offen.
 
+Die [gemeinsame frische native Beobachtung](architecture/document-service-native-observation-2026-10-27.md)
+bündelt Receipt, Registry/Lineage-Beleg und nativen Zustand nach den unveränderten
+strengen Katalogprüfungen. Am tatsächlichen Publikations-ACK sinken die betreffenden
+Dokumentabfragen von sieben auf drei; sechs reale Zustandsfehler verweigern die
+Publikation und explizite Wiederholungen erhalten Original-IDs und Bytes.
+Der direkte Zehn-Quellen-Vergleich reduziert warme MCP-Anlage von
+1556 / 33 auf 1404 / 33 und Agentenanlage von
+2143 / 46 auf 1991 / 46. Die bisherigen
+Validatoren bleiben gemeinsam verwendet. Weitere Bündelung und die übrigen
+Abnahmen des Gesamtplans bleiben offen.
+
 ## Zielaufbau
 
 Editor / Agent / MCP / Systemauftrag
