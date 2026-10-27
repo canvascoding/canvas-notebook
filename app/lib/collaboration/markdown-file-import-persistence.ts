@@ -326,14 +326,19 @@ const bootstrapRelations = ['collaboration_documents', 'collaboration_yjs_states
   'collaboration_admission_scopes', 'collaboration_markdown_file_import_receipts'];
 const quoteBootstrap = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
-async function bootstrapConnectionRealm(database: SqlConnection): Promise<BootstrapOwner> {
-  const row = await database.get(`SELECT current_schema() AS schema,current_setting('search_path') AS "searchPath",
+const bootstrapConnectionRealmSql = `SELECT current_schema() AS schema,current_setting('search_path') AS "searchPath",
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,pg_backend_pid() AS backend,
-    extract(epoch FROM a.backend_start)::text AS start FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as BootstrapOwner | undefined;
+    extract(epoch FROM a.backend_start)::text AS start FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
+const bootstrapRelationSql = `SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
+    FROM unnest($2::text[]) names(name)`;
+function parseBootstrapConnectionRealm(row: BootstrapOwner | undefined): BootstrapOwner {
   if (!row || typeof row.schema !== 'string' || !row.schema || row.schema.length > 256 || typeof row.searchPath !== 'string'
     || !Number.isSafeInteger(Number(row.database)) || Number(row.database) < 1 || !Number.isSafeInteger(Number(row.backend))
     || Number(row.backend) < 1 || typeof row.start !== 'string' || !row.start) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   return { ...row, database: Number(row.database), backend: Number(row.backend) };
+}
+async function bootstrapConnectionRealm(database: SqlConnection): Promise<BootstrapOwner> {
+  return parseBootstrapConnectionRealm(await database.get(bootstrapConnectionRealmSql) as BootstrapOwner | undefined);
 }
 async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
   const current = await bootstrapConnectionRealm(frame.owner);
@@ -347,18 +352,25 @@ async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
   if (held?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
 }
 async function assertBootstrapNativeRealm(database: SqlConnection, frame: BootstrapFrame, lock = false): Promise<void> {
-  const current = await bootstrapConnectionRealm(database);
-  if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
-    return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  }
   const relations = [...bootstrapRelations,
     ...(frame.kind === 'direct-mcp' && frame.invocation.apiVersion === 1 ? ['workspace_file_metadata'] : []),
     ...(frame.explicitOriginal ? ['collaboration_original_markdown_imports'] : [])];
+  // One fresh read for the ordinary observation. The locking path keeps its
+  // pre-lock identity check, actual LOCK and post-lock relation read in order.
+  const snapshot = lock ? undefined : await database.get(`SELECT realm.*,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(relation)),'[]'::jsonb)
+      FROM (${bootstrapRelationSql}) relation) AS relations
+    FROM (${bootstrapConnectionRealmSql}) realm`, [quoteBootstrap(frame.realm.schema), relations]) as
+      (BootstrapOwner & { relations: Array<{ same: boolean }> }) | undefined;
+  const current = lock ? await bootstrapConnectionRealm(database) : parseBootstrapConnectionRealm(snapshot);
+  if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
+    return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  }
   if (lock) await database.run(`LOCK TABLE ${relations.map(name => `${quoteBootstrap(frame.realm.schema)}.${quoteBootstrap(name)}`).join(',')}
     IN ROW EXCLUSIVE MODE NOWAIT`);
-  const rows = await database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-    FROM unnest($2::text[]) names(name)`, [quoteBootstrap(frame.realm.schema), relations]) as Array<{ same: boolean }>;
-  if (rows.length !== relations.length || rows.some(row => row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const rows = lock ? await database.all(bootstrapRelationSql, [quoteBootstrap(frame.realm.schema), relations]) as Array<{ same: boolean }>
+    : snapshot!.relations;
+  if (!Array.isArray(rows) || rows.length !== relations.length || rows.some(row => !row || row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
 }
 async function assertBootstrapScope(database: SqlConnection, input: Captured, scope: OriginalBootstrapScope): Promise<void> {
   if (!scope.active || scope.database !== database || originalBootstrapScopes.get(input) !== scope

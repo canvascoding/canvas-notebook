@@ -157,3 +157,49 @@ weiter ausführbar; die tatsächlichen Quelländerungen werden zusätzlich gepr�
 Der aktuelle Produktstand benötigt abschließend Build/UI und reguläres
 `test:all`; gemeinsame Verträge, inkrementelle Zielauflösung, Schreibmechanik,
 Original-Recovery und sämtliche PR-/Rollout-Gates des Gesamtplans bleiben offen.
+
+## Native Realm- und Relationsbeobachtung in einem Snapshot
+
+Die gemeinsame native Importmechanik liest bei gewöhnlichen Realm-Beobachtungen
+Verbindungsidentität und sämtliche erforderlichen Tabellenzuordnungen jetzt in
+einer statt zwei SQL-Anweisungen. Der vorhandene Identitätsparser und beide festen
+SQL-Leser sind bytegleich ausgelagert. Der sperrende Einstieg behält die Reihenfolge
+frische Identität → tatsächliches `LOCK` → frische Relationsprüfung. Jede
+Beobachtung lädt neue Daten; Current-Prüfungen und Zeitgrenzen bleiben erhalten.
+Der [Quell- und Messnachweis](document-service-native-realm-snapshot-2026-10-27.json)
+bindet den Vergleich auf Grundlage `55afd27eecdde730f5fa8807da1b2b315e54b24e`.
+
+| Zehn regulär angelegte Quellen | Erster Adapteraufruf | Warme Neuanlage 1 / 2 | Ursprüngliche Wiederholung | Ausleihen erster / warm / Wiederholung |
+| --- | ---: | ---: | ---: | ---: |
+| Derselbe Hauptagent vorher → aktuell | 3633 → 3590 | 3528 → 3485 / 3528 → 3485 | 226 → 226 | 92 / 58 / 7 |
+| Aktueller MCP-Aufrufer | 3244 | 3223 / 3223 | 133 | 50 / 37 / 12 |
+
+Das Hauptagenten-Engine sinkt von 3377 auf 3334 SQL-Aufrufe. Alle 229 aktuellen
+Berechtigungsbeobachtungen bleiben bei insgesamt 1145 Aufrufen. Vorhandene
+Dokumente, ihre nativen Zeilen/Metadaten/xmin/Dateien, tatsächliche vollständige
+Birth-/Projektionsbelege, authentifizierter Inhalt und ursprüngliche Wiederholung
+ohne zweite Anlage werden weiter in beiden echten registrierten Werkzeugen geprüft.
+Die Fenster überlappen; Pool-Ausleihen bleiben gleich. Ein kontrollierter
+Latenzgewinn wird nicht behauptet. Der aktuelle Vergleich gilt für zehn Quellen;
+die vorangegangene 200er-Abnahme gehört zum vorherigen Produktstand.
+
+16 echte Upload-, 15 Erstprojektions-, 15 manuelle Create-, 15 Copy-Metadaten-,
+26 vollständige Copy-Owner- und zwölf PI-Create-Fälle bestehen. Dazu zählen tatsächliche
+verlorene COMMIT-/Filesystem-Bestätigungen, Rechtewiderruf, Prozess-/Sitzungswechsel,
+Parallelität, Original-Recovery und vollständige Ressourcenbereinigung. Ein neuer
+Negativtest ersetzt innerhalb der echten Transaktion eine native Tabellenzuordnung:
+Der erwartete Realm-Fehler verhindert COMMIT; Rollback stellt die Original-OID und
+sämtliche beobachteten nativen Zeilen einschließlich xmin wieder her.
+
+Die Upload-Fixture führt nun die unveränderte tatsächliche `current_schema()`-
+Migration aus. Zwei manuelle Testannahmen zum alten deaktivierbaren Test-Opt-in
+passen zum inzwischen dauerhaft aktivierten nativen Kern: Web und Mobil erzeugen
+auch ohne Opt-in vollständige Dokumente; die Wiederholung erhält Identität, nativen
+Inhalt, Lineage und Revisionszahl. Gewöhnliche Route-Effekte einschließlich
+Registry-Zeitstempel und Audit bleiben dabei aktiv. Diese Korrekturen verändern
+keinen Produktschalter und keine Review-Center-/Undo-Funktion.
+
+Release-TypeScript, Test-TypeScript (5086 Quellen, 24 Wurzeln, null Diagnosen),
+ESLint und die aktuellen PostgreSQL-Nachweise bestehen. Der große aktuelle
+Vergleich, Build/UI und reguläres `test:all` folgen nach Abschluss des gesamten
+Bündelungspakets; die übrigen Architektur-, Recovery- und Rollout-Gates bleiben offen.

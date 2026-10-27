@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "sourceBaseCommit": "55afd27eecdde730f5fa8807da1b2b315e54b24e",
+  "sourceHashes": {
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "450ad4c4e1d69ced8d7b55e80d8e80eb51ebc225341260e576f13c5627f87f5d",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "1cf32da1d084e811fa77c30d681a6bf0fdad39c5e03f8d083793f6755847dbaf",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/agent-markdown-create-principal-scope-postgres-test.ts": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/pi/session-workspace-context.ts": "27b1377874f690a2c71e9a8e60a69d94a01b1fbf6d3ce2e8ca0e6ff7a54cbd7c",
+    "app/lib/workspaces/request-principal.ts": "57bb5c5eba12bc6b61f8eb1b9bfd52a857ce5702ccb9b6823a76f5cd63943780",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/session-workspace-scoped-read-test.ts": "aa5d37a3efd697a65e3145a310dc628c37e7b4c07253d1372a891c8e64536d8a",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0"
+  },
+  "scope": "fresh-native-realm-observations-and-matched-registered-agent10-plus-current-mcp10",
+  "realmParserAndBothFixedSqlReadsByteIdenticalToBase": true,
+  "unlockedRealmObservationSqlBefore": 2,
+  "unlockedRealmObservationSqlAfter": 1,
+  "lockingPathOrder": [
+    "fresh-identity",
+    "actual-lock",
+    "fresh-relation-read"
+  ],
+  "lockingPathOrderingAndSqlUnchanged": true,
+  "currentAuthorityChecksAndPhaseLimitsRetained": true,
+  "windows": [
+    {
+      "adapter": "agent",
+      "label": "first-adapter-entry-and-create",
+      "nativeDocumentsBefore": 10,
+      "sql": 3590,
+      "checkouts": 92,
+      "wallMs": 4496,
+      "databaseMs": 2915.88,
+      "poolWaitMs": 5.59,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0,
+      "matchedBeforeSql": 3633
+    },
+    {
+      "adapter": "agent",
+      "label": "warm-fresh-create-1",
+      "nativeDocumentsBefore": 11,
+      "sql": 3485,
+      "checkouts": 58,
+      "wallMs": 3808.07,
+      "databaseMs": 2582.39,
+      "poolWaitMs": 4.45,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0,
+      "matchedBeforeSql": 3528
+    },
+    {
+      "adapter": "agent",
+      "label": "warm-fresh-create-2",
+      "nativeDocumentsBefore": 12,
+      "sql": 3485,
+      "checkouts": 58,
+      "wallMs": 3520.5,
+      "databaseMs": 2329.16,
+      "poolWaitMs": 4.38,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0,
+      "matchedBeforeSql": 3528
+    },
+    {
+      "adapter": "agent",
+      "label": "same-original-idempotent-retry",
+      "nativeDocumentsBefore": 13,
+      "sql": 226,
+      "checkouts": 7,
+      "wallMs": 214.3,
+      "databaseMs": 163.11,
+      "poolWaitMs": 0.06,
+      "peakConnections": 2,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0,
+      "matchedBeforeSql": 226
+    },
+    {
+      "adapter": "mcp",
+      "label": "first-adapter-entry-and-create",
+      "nativeDocumentsBefore": 10,
+      "sql": 3244,
+      "checkouts": 50,
+      "wallMs": 3168.78,
+      "databaseMs": 1854.01,
+      "poolWaitMs": 4.64,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "adapter": "mcp",
+      "label": "warm-fresh-create-1",
+      "nativeDocumentsBefore": 11,
+      "sql": 3223,
+      "checkouts": 37,
+      "wallMs": 2928.12,
+      "databaseMs": 1795.55,
+      "poolWaitMs": 4.29,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "adapter": "mcp",
+      "label": "warm-fresh-create-2",
+      "nativeDocumentsBefore": 12,
+      "sql": 3223,
+      "checkouts": 37,
+      "wallMs": 2947.62,
+      "databaseMs": 1817.88,
+      "poolWaitMs": 4.48,
+      "peakConnections": 4,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "adapter": "mcp",
+      "label": "same-original-idempotent-retry",
+      "nativeDocumentsBefore": 13,
+      "sql": 133,
+      "checkouts": 12,
+      "wallMs": 136.69,
+      "databaseMs": 76.17,
+      "poolWaitMs": 0.14,
+      "peakConnections": 2,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    }
+  ],
+  "regressions": [
+    {
+      "suite": "scripts/authenticated-markdown-upload-postgres-test.ts",
+      "label": "upload",
+      "exitCode": 0,
+      "groups": 16
+    },
+    {
+      "suite": "scripts/authenticated-markdown-first-projection-postgres-test.ts",
+      "label": "first-projection",
+      "exitCode": 0,
+      "groups": 15
+    },
+    {
+      "suite": "scripts/authenticated-manual-markdown-create-postgres-test.ts",
+      "label": "manual-create",
+      "exitCode": 0,
+      "groups": 15
+    },
+    {
+      "suite": "scripts/workspace-operation-native-copy-metadata-owner-postgres-test.ts",
+      "label": "native-copy",
+      "exitCode": 0,
+      "groups": 15
+    },
+    {
+      "suite": "scripts/pi-markdown-create-postgres-entry.ts",
+      "label": "native-create",
+      "exitCode": 0,
+      "groups": 12
+    },
+    {
+      "suite": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+      "label": "agent10",
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+      "label": "mcp10",
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/workspace-operation-native-copy-owner-postgres-test.ts",
+      "label": "full-copy-owner",
+      "exitCode": 0,
+      "groups": 26
+    }
+  ],
+  "mainEngine": {
+    "beforeSql": 3377,
+    "afterSql": 3334,
+    "currentObservations": 229,
+    "authorizationSql": 1145,
+    "sqlPerCurrentObservation": 5
+  },
+  "nativeShadow": {
+    "actualSameTransactionReplacement": true,
+    "expectedCode": "MARKDOWN_IMPORT_INVALID_INPUT",
+    "actualReceiptInsertBeforeDenial": true,
+    "commitNotAttempted": true,
+    "rollbackAcknowledged": true,
+    "originalRelationOidRestored": true,
+    "allObservedNativeRowsAndXminRestored": true
+  },
+  "manualCoreDefault": {
+    "retiredTestOptInDoesNotDisableAcceptedCore": true,
+    "actualWebAndMobileNativeBirthAndPhysicalContent": true,
+    "retryPreservesOriginalIdentityNativeStateLineageAndRevisionCount": true,
+    "ordinaryRegistryTimestampAndRouteAuditEffectsStillOccur": true
+  },
+  "releaseTypeScriptDiagnostics": 0,
+  "scopedTestTypeScript": {
+    "roots": 24,
+    "sourceFiles": 5086,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "poolCheckoutReductionClaimed": false,
+  "controlledLatencyGainClaimed": false,
+  "nestedScopesNotAdditive": true,
+  "currentSourceLargeMatrixStillRequiredAfterBatchCompletion": true,
+  "currentSourceBuildUiAndRegularSuiteStillRequired": true,
+  "finalBudgetsMet": false,
+  "fullCentralServicePlanComplete": false,
+  "warmAgentQueryGroups": [
+    {
+      "group": "catalogue",
+      "statements": 1841,
+      "percent": 52.8
+    },
+    {
+      "group": "other",
+      "statements": 353,
+      "percent": 10.1
+    },
+    {
+      "group": "seat",
+      "statements": 317,
+      "percent": 9.1
+    },
+    {
+      "group": "agent",
+      "statements": 250,
+      "percent": 7.2
+    },
+    {
+      "group": "document-state",
+      "statements": 215,
+      "percent": 6.2
+    },
+    {
+      "group": "transaction",
+      "statements": 189,
+      "percent": 5.4
+    },
+    {
+      "group": "account",
+      "statements": 128,
+      "percent": 3.7
+    },
+    {
+      "group": "workspace",
+      "statements": 86,
+      "percent": 2.5
+    },
+    {
+      "group": "document-registry",
+      "statements": 51,
+      "percent": 1.5
+    },
+    {
+      "group": "session",
+      "statements": 48,
+      "percent": 1.4
+    },
+    {
+      "group": "document-projection",
+      "statements": 7,
+      "percent": 0.2
+    }
+  ],
+  "diagnosticGroupsAreHeuristic": true,
+  "authorizationPhaseOverlapsQueryGroups": true
+}
