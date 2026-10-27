@@ -34,6 +34,7 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
+import { resolveWorkspaceActor } from './context';
 import { seedWorkspaceStarterDocument, withObservedWorkspaceStarterDocument } from './starter-document';
 import { recordWorkspaceStarterInitializationIntent } from './starter-document-initialization-store';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
@@ -2442,6 +2443,26 @@ export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
   const row = await database.get(`${workspacePermissionSnapshotProjection}
     FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
     ${workspacePermissionSnapshotJoins}`, [workspaceId, actor.userId]) as WorkspacePermissionSnapshotRow | undefined;
+  return workspaceContextFromPermissionSnapshot(row, actor);
+}
+
+/** Fresh account identity and workspace policy on the caller's connection.
+ * Account/seat admission stays with the caller; this creates no authority,
+ * bootstrap writes, transaction, pool borrow or reusable observation. */
+export async function readPostgresWorkspaceForUserInSingleSnapshotOnConnection(
+  database: Pick<PostgresRuntimeDb, 'get'>,
+  userId: string,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const row = await database.get(`${workspacePermissionSnapshotProjection},
+      u.id AS actor_id,u.email AS actor_email,u.role AS actor_role
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
+    INNER JOIN "user" u ON u.id=$2
+    ${workspacePermissionSnapshotJoins}`, [workspaceId, userId]) as (WorkspacePermissionSnapshotRow & {
+      actor_id: string; actor_email: string | null; actor_role: string | null;
+    }) | undefined;
+  if (!row || row.actor_id !== userId) return null;
+  const actor = resolveWorkspaceActor({ id: row.actor_id, email: row.actor_email, role: row.actor_role });
   return workspaceContextFromPermissionSnapshot(row, actor);
 }
 

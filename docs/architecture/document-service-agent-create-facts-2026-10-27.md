@@ -65,3 +65,36 @@ Integrationsmerkmale einschließlich zweier Peers, Offline/Reconnect und exakter
 Rückführung der Originalinhalte. Der [aktuelle UI-Nachweis](document-service-native-path-ui-2026-10-27.md#integration-nach-gebündelten-agenten-scope-lesern)
 trennt diese Editor-Integration von den tatsächlichen registrierten Agenten-Aufrufen.
 Die genannten abschließenden Gesamtplan-Gates bleiben offen.
+
+## Aktueller Benutzer und Workspace in einem Snapshot
+
+Die nächste Bündelung liest die aktuelle Benutzer-ID, E-Mail und Rolle zusammen mit
+Workspace- und Berechtigungszeilen auf derselben Verbindung. Der vorhandene
+Workspace-Rechte-Mapper und `resolveWorkspaceActor` bleiben unverändert.
+Der gespeicherte PI-Sitzungsbezug, verlangte Berechtigungen und aktuelle Agentenrechte
+werden weiter geprüft. Es gibt keine neue Autorität, Bootstrap-Schreibvorgänge,
+Cache, Transaktion oder Pool-Ausleihe. Der [maschinenlesbare Nachweis](document-service-current-user-workspace-2026-10-27.json)
+bindet die tatsächlichen Quellbytes und abgegrenzten Messwerte.
+
+Alle 21 tatsächlichen PostgreSQL-Workspace-Varianten stimmen vollständig mit dem
+bisherigen Leser überein: Organisation, Team, Personal, Projekt, fehlende und
+gesperrte Zuordnungen, geänderte Kontorolle/E-Mail sowie fehlende Konten. Der neue
+Leser benötigt genau eine Abfrage. Alle zwölf echten MCP-Authority-Familien,
+16 gezielte Unit-Fälle, 49 normale Principal-, 26 Original-Origin-, 48 aktuelle
+Agenten-Scope-Fälle und zwölf native PI-Create-Gruppen bestehen. Release-TypeScript,
+Test-TypeScript (5.088 Quellen, 24 Wurzeln, null Diagnosen) und ESLint sind grün.
+
+Der gleiche registrierte Agent mit zehn regulär angelegten Quellen benötigt beim
+ersten Einstieg 4.344 statt 4.597, bei den beiden warmen Neuanlagen jeweils 4.239
+statt 4.492 und bei der Originalwiederholung 268 statt 284 SQL-Aufrufe. Die Ausleihen
+bleiben 92/58/7. Die 229 aktuellen Autorisierungsbeobachtungen bleiben erhalten und
+benötigen jetzt 1.832 statt 2.061 Abfragen; das Create-Engine-Fenster sinkt von
+4.307 auf 4.064. Vollständiger Originalinhalt, Birth-/Projektionsbelege, unveränderte
+vorherige Zeilen/Metadaten/xmin/Dateien und Wiederholung ohne zweite Anlage werden
+weiter im echten Werkzeuglauf geprüft. Alle eigenen Fixture-Ressourcen sind geschlossen.
+
+Diese zusätzliche Messung gilt zunächst nur für zehn Quellen. Der neue 200er-
+Vergleich folgt nach Abschluss dieses Bündelungspakets. Der oben dokumentierte
+Build/UI-Nachweis gilt für den vorherigen Produktcommit `f17b175ef`; spätere
+Produktänderungen werden dadurch nicht als UI-geprüft bezeichnet. Abschließende
+Budgets, Build/UI, reguläres `test:all` und alle übrigen Gesamtplan-Pakete bleiben offen.
