@@ -7,7 +7,6 @@
   "warning": "Shared-service operations are subsets of process windows; do not add the two. Checkouts are pool leases, not newly established TCP connections.",
   "pending": [
     "required-separate-cold-and-warm-public-rename-and-move-matrix",
-    "agent-and-MCP-create-cold-warm-size-matrix",
     "all-remaining-central-service-plan-acceptance"
   ],
   "entries": [
@@ -6221,5 +6220,13 @@
     "allOwnedCleanup": true,
     "normalUploadOnly": true,
     "separateColdWarmMatrixStillRequired": true
+  },
+  "currentCreateMatrix": {
+    "report": "document-service-create-matrix-2026-10-27.md",
+    "data": "document-service-create-matrix-2026-10-27.json",
+    "measurementToolSource": "de092c88e7d707f7b19ffc88a69fd388df56ba9b",
+    "datasets": 4,
+    "callerWindows": 16,
+    "status": "passed"
   }
 }

@@ -216,8 +216,10 @@ liefert null Diagnosen; ESLint ist grün. Aktueller Produktionsbuild, gerenderte
 Desktop-/Mobilprüfung, reguläres test:all und CI dieses neuen Standes sind noch
 nicht durch diese Backend-Abnahme belegt.
 
-Getrennte kalte/wiederholte Pfadaktionen sowie die Größen-/Wiederholungsmatrix
-für Agenten- und MCP-Neuanlagen sind weiterhin erforderlich und offen. Die bisherige vollständige Agenten-/MCP-Create-Regressionsprüfung
-ersetzt diese Messfelder nicht. Auch Verbindungsbündelung, inkrementelle Link-
+Die Größen-/Wiederholungsmatrix für registrierte Agenten- und MCP-Neuanlagen ist
+inzwischen für beide Adapter mit 10 und 200 regulär angelegten Quellen abgeschlossen;
+der [Create-Vergleich](document-service-create-matrix-2026-10-27.md) enthält die
+16 vollständigen Aufruffenster und Quellenbelege. Getrennte kalte/wiederholte
+Pfadaktionen bleiben offen. Auch Verbindungsbündelung, inkrementelle Link-
 auflösung, gemeinsame Änderungspfade, Original-Recovery, endgültige Gesamtsuite,
 Backup-/Restore-Nachweis und kontrolliertes Release bleiben Teil des Gesamtplans.
