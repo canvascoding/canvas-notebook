@@ -1,0 +1,334 @@
+{
+  "version": 1,
+  "sourceRevision": "0a40365484806ea83d1e906d99406ff1445bde6b",
+  "sourceTree": "986a43921652be76cdf611fc0871610fef2d14ac",
+  "sourceHashes": {
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "4b61903cd8f132d50bfd36e90ffccd6426e058c4d9fb9ebf4ddfe6ff73c0ac28",
+    "app/lib/files/markdown-create-birth.ts": "53f015f6f4fd8e01d2404d8bbf2873d3dc1ed55d34b2bc26ae8129425d32b2c7",
+    "app/lib/files/workspace-file-lifecycle-guard.ts": "54f1bdf28758b36213afe1b4f1133c6de0256a603ca1e6eb26ed3d829edefa4d",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "app/lib/pi/session-workspace-context.ts": "27b1377874f690a2c71e9a8e60a69d94a01b1fbf6d3ce2e8ca0e6ff7a54cbd7c",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/workspaces/request-principal.ts": "1f2cd44e10b88283a368fe11a90d08c7efed7be171f9ee0d9a1af21b93f78b73",
+    "package-lock.json": "0f08a136ef86c7217dbc23aebf9c6ddbf0d954be911e5d1ad63ef0a4994d43c5",
+    "package.json": "4bb4fc4b6be3b7d5c50b932a1af143fdd7a6adc98e6ded739e0ba5ef3d5834f4",
+    "scripts/agent-markdown-create-final-origin-postgres-test.ts": "486aa9fa2bf6201ae2ff1b4e831e7e3a780ace5be932844c60ca3b6382cf6fb4",
+    "scripts/agent-markdown-create-initial-snapshot-postgres-test.ts": "5c211dcb0d28c7f110934f3a1e17be9c732b41e5d9585495820df7402bbcd849",
+    "scripts/agent-markdown-create-principal-scope-postgres-test.ts": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79",
+    "scripts/agent-markdown-create-storage-phase-postgres-test.ts": "82af08e82dc12d13db9015216579a795d6c567d651f57f23f4b79cf8a19a71ac",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0",
+    "scripts/explicit-original-markdown-import-postgres-test.ts": "92e4f2b893e49de72b6367253aa4ac8e3e29e59d66b9e2e7922710da69f055ba",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "71646277312e400382f82135426c1f1d9a7459ce0eb40b871ac440931c14a781",
+    "scripts/session-workspace-scoped-read-test.ts": "aa5d37a3efd697a65e3145a310dc628c37e7b4c07253d1372a891c8e64536d8a",
+    "scripts/workspace-file-lifecycle-owner-snapshot-postgres-test.ts": "9e65b5b1a93fc070609f00dddc3cb690c407c41063bbba858221939273de282c",
+    "scripts/workspace-file-lifecycle-source-owner-postgres-test.ts": "3ac0471652db7b75b3cfa2840fa0464023f05ffe7898f049a8f1bdd2342dce0c",
+    "scripts/workspace-principal-maintenance-postgres-test.ts": "fbfcc295c751edf2edcc670eef8fc12af271c2bf772be5a3120e62d4696f157d",
+    "scripts/workspace-request-principal-postgres-test.ts": "1260615e80044ab67b46f80caef7cee30b71f9b7aa3112c489601af06786e169"
+  },
+  "inputArtifactHashes": {
+    "canvas-agent-initial-snapshot-accepted-20261027-agent10.json": "24ed672e248110581aa22df2050d54b56322d7e35a96000140da3301429b8709",
+    "canvas-create-matrix-large-0a4036548-20261027-agent200.json": "dec801f6ff33be3bfee2847d5960fd582f4c02f147bd6684ff093a4645b0aeac",
+    "canvas-mcp10-current-0a4036548-20261027-result.json": "bb1a7fd9b7cd31d0af7b93486037c6c3cb0076bc205ac8894902535c17ab5b99",
+    "canvas-create-matrix-large-0a4036548-20261027-mcp200.json": "10daa23a48b02f8303f53cbfa5820e26e9f8114a5b50747882fdf28a125a687a"
+  },
+  "metric": "pg driver query calls, including transaction control; multi-statement strings are not split",
+  "windows": 16,
+  "datasets": [
+    {
+      "adapter": "agent",
+      "nativeDocumentsBeforeFirstCreate": 10,
+      "normalUploadSources": true,
+      "windows": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "documentsBefore": 10,
+          "statements": 2285,
+          "checkouts": 80,
+          "wallMs": 3389.93,
+          "databaseMs": 1903.21,
+          "poolWaitMs": 4.99,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "documentsBefore": 11,
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2958.1,
+          "databaseMs": 1804.27,
+          "poolWaitMs": 4.28,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "documentsBefore": 12,
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2967.67,
+          "databaseMs": 1801.3,
+          "poolWaitMs": 4.51,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "documentsBefore": 13,
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 202.6,
+          "databaseMs": 146.73,
+          "poolWaitMs": 0.06,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "ownedFixtureClosed": true,
+      "externalFetches": 0,
+      "exclusions": [
+        "no-live-model-turn",
+        "no-production-OAuth-issuance",
+        "no-browser-or-Next-middleware",
+        "not-a-cold-PostgreSQL-buffer-cache"
+      ]
+    },
+    {
+      "adapter": "agent",
+      "nativeDocumentsBeforeFirstCreate": 200,
+      "normalUploadSources": true,
+      "windows": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "documentsBefore": 200,
+          "statements": 2285,
+          "checkouts": 80,
+          "wallMs": 3447.68,
+          "databaseMs": 1894.21,
+          "poolWaitMs": 4.95,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "documentsBefore": 201,
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 3066.55,
+          "databaseMs": 1854.88,
+          "poolWaitMs": 4.34,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "documentsBefore": 202,
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2994.43,
+          "databaseMs": 1792.48,
+          "poolWaitMs": 4.15,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "documentsBefore": 203,
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 208.16,
+          "databaseMs": 155.57,
+          "poolWaitMs": 0.07,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "ownedFixtureClosed": true,
+      "externalFetches": 0,
+      "exclusions": [
+        "no-live-model-turn",
+        "no-production-OAuth-issuance",
+        "no-browser-or-Next-middleware",
+        "not-a-cold-PostgreSQL-buffer-cache"
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "nativeDocumentsBeforeFirstCreate": 10,
+      "normalUploadSources": true,
+      "windows": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "documentsBefore": 10,
+          "statements": 2618,
+          "checkouts": 50,
+          "wallMs": 2933.57,
+          "databaseMs": 1628.47,
+          "poolWaitMs": 5.28,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "documentsBefore": 11,
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2678.37,
+          "databaseMs": 1568.81,
+          "poolWaitMs": 4.63,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "documentsBefore": 12,
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2596.57,
+          "databaseMs": 1512.64,
+          "poolWaitMs": 4.08,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "documentsBefore": 13,
+          "statements": 129,
+          "checkouts": 12,
+          "wallMs": 130.92,
+          "databaseMs": 73.78,
+          "poolWaitMs": 0.11,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "ownedFixtureClosed": true,
+      "externalFetches": 0,
+      "exclusions": [
+        "no-live-model-turn",
+        "no-production-OAuth-issuance",
+        "no-browser-or-Next-middleware",
+        "not-a-cold-PostgreSQL-buffer-cache"
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "nativeDocumentsBeforeFirstCreate": 200,
+      "normalUploadSources": true,
+      "windows": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "documentsBefore": 200,
+          "statements": 2618,
+          "checkouts": 50,
+          "wallMs": 2902.95,
+          "databaseMs": 1638.93,
+          "poolWaitMs": 4.71,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "documentsBefore": 201,
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2596.72,
+          "databaseMs": 1519.43,
+          "poolWaitMs": 4.21,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "documentsBefore": 202,
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2617.81,
+          "databaseMs": 1538.02,
+          "poolWaitMs": 4.04,
+          "peakConnections": 4,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "documentsBefore": 203,
+          "statements": 129,
+          "checkouts": 12,
+          "wallMs": 127.15,
+          "databaseMs": 70.88,
+          "poolWaitMs": 0.1,
+          "peakConnections": 2,
+          "openConnectionsAtCompletion": 0,
+          "openQueriesAtCompletion": 0
+        }
+      ],
+      "ownedFixtureClosed": true,
+      "externalFetches": 0,
+      "exclusions": [
+        "no-live-model-turn",
+        "no-production-OAuth-issuance",
+        "no-browser-or-Next-middleware",
+        "not-a-cold-PostgreSQL-buffer-cache"
+      ]
+    }
+  ],
+  "evidence": {
+    "allSourcesUseOrdinaryAuthenticatedUploadAndProjection": true,
+    "actualRegisteredAgentAndMcpTransport": true,
+    "reviewCenterDisabled": true,
+    "undoDisabled": true,
+    "exactlyOneNewDocumentForEachFreshRequest": true,
+    "threeFreshRequestsAndOneOriginalRetryPerDataset": true,
+    "birthAndProjectionFinalized": true,
+    "nativeAuthenticatedContentAndPhysicalBytesMatch": true,
+    "priorRegistryLineageNativeMetadataRowsAndXminUnchanged": true,
+    "priorPhysicalBytesUnchanged": true,
+    "allOwnedSchemasClientsAndDataClosed": true,
+    "sqlAndCheckoutsEqualBetween10And200ForEachAdapter": true,
+    "controlledLatencyImprovementClaimed": false,
+    "crossAdapterLatencyRankingClaimed": false,
+    "productionOAuthOrLiveModelAcceptanceClaimed": false,
+    "nestedScopesAreNotAdditive": true,
+    "birthAndProjectionRevisionFieldsEqual": true,
+    "originalRetryDocumentLineageOperationIdentityPreserved": true,
+    "claimAndStoredBirthFingerprintConsistencyChecked": true
+  },
+  "acceptance": {
+    "currentCreateSizeMatrixComplete": true,
+    "commonContractsComplete": false,
+    "permissionRegistryStateBatchingComplete": false,
+    "incrementalLinksComplete": false,
+    "sharedNormalWritesComplete": false,
+    "normalOpenBudget20ProvenAtCurrentSource": false,
+    "createBudgetFewHundredMet": false,
+    "currentBuildUiRegularSuiteRequired": true,
+    "fullPlanComplete": false
+  },
+  "nextRequiredWork": [
+    "measure and batch ordinary member session/account/seat/workspace reader for Editor/HTTP/MCP using actual current/final checks",
+    "complete shared link contracts and incremental extraction/target dependencies with full rebuild parity",
+    "centralize normal saves and post-commit projection notification",
+    "final query budgets and actual EXPLAIN plus latency/revocation/concurrency acceptance",
+    "final-source build/UI/test:all/CI/reviews, actual backup restore proof, original recovery, release and five-workspace deployment"
+  ]
+}

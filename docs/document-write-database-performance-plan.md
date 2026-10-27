@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 26.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 27.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -78,6 +78,24 @@ statt eine Dokumentanlage oder Inhaltsänderung doppelt auszuführen.
   je Prüfdurchlauf. Daher vorhandene Schnittstellen weiterentwickeln und die
   verbleibenden Wiederholungen messen, statt einen zusätzlichen Service daneben
   aufzubauen. Der normale Editor-Speicherpfad muss gesondert erfasst werden.
+
+## Aktueller Messstand und verbleibende Bündelung
+
+Der [aktuelle Create-Vergleich](architecture/document-service-create-matrix-current-2026-10-27.md)
+am Produktstand `0a40365484806ea83d1e906d99406ff1445bde6b` besteht in allen 16 Fenstern
+für Agent/MCP mit jeweils 10 und 200 regulär angelegten Quellen. Die warme
+Agentenanlage benötigt 2.180 SQL-Treiberaufrufe / 46 Ausleihen, MCP 2.597 / 37;
+die ursprüngliche Wiederholung 180 / 7 beziehungsweise 129 / 12. Identitäten,
+Originalinhalt und vorherige Registry-/Lineage-/Native-/Metadatenzeilen/xmin sowie
+physische Bytes bleiben geprüft; alle eigenen Ressourcen schließen vollständig.
+Diese Werte sind innerhalb der jeweils gleichen Messgrenze vergleichbar.
+
+Das ist ein abgeschlossener Messnachweis für Create, keine Abnahme von Paket 2
+oder des Gesamtplans. Der normale Benutzer-/Editor-/HTTP-Lesepfad braucht weiter
+gebündelte aktuelle Sitzungs-, Konto-, Seat- und Workspace-Daten sowie eigene
+aktuelle Messungen. Die Create-Budgets von wenigen Hundert Aufrufen, gemeinsame
+Verträge, inkrementelle Links, normale gemeinsame Schreibwege und alle finalen
+Recovery-/Build-/UI-/Suite-/Release-Gates bleiben erforderlich.
 
 ## Zielaufbau
 
