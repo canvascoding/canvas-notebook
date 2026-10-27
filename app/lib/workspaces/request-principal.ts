@@ -383,7 +383,9 @@ async function schema(phase: Phase): Promise<void> {
   const sharedTables = phase.request.kind === 'agent_tool' || phase.request.kind === 'job_agent'
     ? principalRelations(phase).filter(name => name !== 'pi_sessions') : tables;
   const policyTables = phase.request.kind === 'job_user' ? principalRelations(phase) : sharedTables;
-  await phase.database.run(`LOCK TABLE ${policyTables.map(name => table(phase,name)).join(',')} IN SHARE MODE NOWAIT`);
+  // Brief ANALYZE/VACUUM conflicts use the phase's existing 50ms lock budget.
+  // Keep the same SHARE fence; longer contention still fails the transaction.
+  await phase.database.run(`LOCK TABLE ${policyTables.map(name => table(phase,name)).join(',')} IN SHARE MODE`);
   // Keep the invitation relation/FK stable while permitting cooperating Guest
   // DML on other rows. Its actual row lock belongs after the Shared fence.
   if (phase.request.kind === 'file_guest') await phase.database.run(`LOCK TABLE ${table(phase,'file_guest_invitations')} IN ROW SHARE MODE NOWAIT`);

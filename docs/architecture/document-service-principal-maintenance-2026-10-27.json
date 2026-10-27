@@ -1,0 +1,326 @@
+{
+  "version": 1,
+  "sourceBaseCommit": "633b0cf7b22668489e888c04a8900f9ee48bf456",
+  "sourceHashes": {
+    "scripts/workspace-principal-maintenance-postgres-test.ts": "fbfcc295c751edf2edcc670eef8fc12af271c2bf772be5a3120e62d4696f157d",
+    "app/lib/files/markdown-create-birth.ts": "53f015f6f4fd8e01d2404d8bbf2873d3dc1ed55d34b2bc26ae8129425d32b2c7",
+    "scripts/agent-markdown-create-storage-phase-postgres-test.ts": "82af08e82dc12d13db9015216579a795d6c567d651f57f23f4b79cf8a19a71ac",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/agent-markdown-create-final-origin-postgres-test.ts": "486aa9fa2bf6201ae2ff1b4e831e7e3a780ace5be932844c60ca3b6382cf6fb4",
+    "scripts/workspace-request-principal-postgres-test.ts": "1260615e80044ab67b46f80caef7cee30b71f9b7aa3112c489601af06786e169",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "59c573a25b9b749d578dab981760e723f536d179f8b491da944f100651d40832",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "325b98952fea4207066b68ff7a0b02afa47d8c5e3dd34fb19369823d21b8d68e",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/agent-markdown-create-principal-scope-postgres-test.ts": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/pi/session-workspace-context.ts": "27b1377874f690a2c71e9a8e60a69d94a01b1fbf6d3ce2e8ca0e6ff7a54cbd7c",
+    "app/lib/workspaces/request-principal.ts": "8f861214d7d4dc59d3c8380652c8dc45f51f7590c0acc19131b605099945545d",
+    "scripts/direct-mcp-workspace-path-principal-postgres-test.ts": "91df021f8effd30b2d1dc5e8ef3d9b8f348b8e7b92f43b315a578acb8c03c25f",
+    "scripts/session-workspace-scoped-read-test.ts": "aa5d37a3efd697a65e3145a310dc628c37e7b4c07253d1372a891c8e64536d8a",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0"
+  },
+  "scope": "shared-Principal-foundation-SHARE-lock-waits-within-existing-lock-timeout",
+  "soleProductChangeIsOneFoundationNowaitModifierAndComment": true,
+  "sameShareLockModeAndRowsAndFkAndRelationChecks": true,
+  "sameLockTimeoutMs": 50,
+  "lockTimeoutIsPerAcquisitionNotWholeRequestLatency": true,
+  "sameTransactionTimeoutMs": 5000,
+  "noRetryAdded": true,
+  "noAuthorizationCacheAdded": true,
+  "baselineActualAnalyze": {
+    "relation": "user",
+    "mode": "short",
+    "requestSucceeded": false,
+    "waiting": false,
+    "releasedForWaiter": false,
+    "codes": [
+      "PRINCIPAL_BUSY"
+    ],
+    "maintenanceLock": "ShareUpdateExclusiveLock",
+    "principalLockTimeoutMs": 50,
+    "visibleWaitMs": null
+  },
+  "currentActualCases": [
+    {
+      "relation": "user",
+      "mode": "short",
+      "activity": "analyze",
+      "requestSucceeded": true,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 7.26
+    },
+    {
+      "relation": "user",
+      "mode": "long",
+      "activity": "analyze",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": false,
+      "codes": [
+        "PRINCIPAL_BUSY"
+      ],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 57.28
+    },
+    {
+      "relation": "team_memberships",
+      "mode": "short",
+      "activity": "analyze",
+      "requestSucceeded": true,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 2.58
+    },
+    {
+      "relation": "team_memberships",
+      "mode": "long",
+      "activity": "analyze",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": false,
+      "codes": [
+        "PRINCIPAL_BUSY"
+      ],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 61.27
+    },
+    {
+      "relation": "canvas_workspaces",
+      "mode": "short",
+      "activity": "analyze",
+      "requestSucceeded": true,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 2.38
+    },
+    {
+      "relation": "canvas_workspaces",
+      "mode": "long",
+      "activity": "analyze",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": false,
+      "codes": [
+        "PRINCIPAL_BUSY"
+      ],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 56.03
+    },
+    {
+      "relation": "canvas_organization_settings",
+      "mode": "short",
+      "activity": "analyze",
+      "requestSucceeded": true,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 2.42
+    },
+    {
+      "relation": "canvas_organization_settings",
+      "mode": "long",
+      "activity": "analyze",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": false,
+      "codes": [
+        "PRINCIPAL_BUSY"
+      ],
+      "maintenanceLock": "ShareUpdateExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 55.53
+    },
+    {
+      "relation": "user",
+      "mode": "short",
+      "activity": "ban",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [
+        "SEAT_ACCESS_INACTIVE"
+      ],
+      "maintenanceLock": "RowExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 2.66
+    },
+    {
+      "relation": "canvas_workspaces",
+      "mode": "short",
+      "activity": "disable",
+      "requestSucceeded": false,
+      "waiting": true,
+      "releasedForWaiter": true,
+      "codes": [
+        "PRINCIPAL_SCOPE_CHANGED"
+      ],
+      "maintenanceLock": "RowExclusiveLock",
+      "principalLockTimeoutMs": 50,
+      "visibleWaitMs": 2.52
+    }
+  ],
+  "maintenanceCommandIsRealAnalyze": true,
+  "analyzeShareUpdateExclusiveLockObserved": true,
+  "principalWaitingShareLockObservedOnActualBackendAndExactRelation": true,
+  "shortMaintenanceReleasedOnlyAfterWaiterObserved": true,
+  "longMaintenanceRetainedUntilOriginalRequestTerminated": true,
+  "actualBanAndWorkspaceDisableCommitDuringShortWaitAndAreRejected": true,
+  "allFailedMetadataRowsAndXminUnchanged": true,
+  "authorityAndNativeRowsAndXminUnchangedExceptControlledExternalRevocation": true,
+  "successfulMetadataTitleFavoriteAndPinVerified": true,
+  "regressions": [
+    {
+      "suite": "scripts/workspace-principal-maintenance-postgres-test.ts",
+      "label": "maintenance10",
+      "groups": 10,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/workspace-request-principal-postgres-test.ts",
+      "label": "member66",
+      "groups": 66,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/workspace-agent-tool-principal-postgres-test.ts",
+      "label": "agent49",
+      "groups": 49,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/workspace-agent-tool-principal-original-origin-postgres-test.ts",
+      "label": "origin26",
+      "groups": 26,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/file-guest-invitation-authority-postgres-test.ts",
+      "label": "guest",
+      "groups": 30,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/workspace-operation-owned-job-principal-postgres-test.ts",
+      "label": "jobs",
+      "groups": 30,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/agent-markdown-create-principal-scope-postgres-test.ts",
+      "label": "scope60",
+      "groups": 60,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/direct-mcp-workspace-path-principal-postgres-test.ts",
+      "label": "mcp12",
+      "groups": 12,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/native-document-edit-principal-postgres-test.ts",
+      "label": "native-edit",
+      "groups": 9,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/pi-markdown-create-postgres-entry.ts",
+      "label": "native12",
+      "groups": 12,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/agent-markdown-create-storage-commit-postgres-test.ts",
+      "label": "storage-commit2",
+      "groups": 2,
+      "exitCode": 0
+    },
+    {
+      "suite": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+      "label": "agent10",
+      "groups": null,
+      "exitCode": 0
+    }
+  ],
+  "agent10Windows": [
+    {
+      "label": "first-adapter-entry-and-create",
+      "sql": 2829,
+      "checkouts": 80,
+      "wallMs": 3642.12,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-1",
+      "sql": 2724,
+      "checkouts": 46,
+      "wallMs": 3046.48,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "warm-fresh-create-2",
+      "sql": 2724,
+      "checkouts": 46,
+      "wallMs": 3074.49,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "label": "same-original-idempotent-retry",
+      "sql": 198,
+      "checkouts": 7,
+      "wallMs": 208.59,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    }
+  ],
+  "agentQueryAndCheckoutCountsUnchangedFromPreviousProduct": true,
+  "controlledLatencyGainClaimed": false,
+  "releaseTypeScriptDiagnostics": 0,
+  "scopedTestTypeScript": {
+    "roots": 30,
+    "sourceFiles": 5099,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "allStrictRunnerTemporaryGraphsRemoved": true,
+  "ownedFixtureCleanupAssertionsPassed": true,
+  "historicalIntermittentMemberExactBlockerIdentified": false,
+  "vacuumSeparatelyInjected": false,
+  "officialReferences": {
+    "lockModes": "https://www.postgresql.org/docs/18/explicit-locking.html",
+    "lockTimeout": "https://www.postgresql.org/docs/18/runtime-config-client.html#GUC-LOCK-TIMEOUT"
+  },
+  "impact": {
+    "schemaRisk": "critical",
+    "directCallers": 2,
+    "modules": 6,
+    "indexedProcesses": 0,
+    "zeroIndexedProcessesDoesNotMeanNoActualFlows": true,
+    "userWarnedBeforeProductEdit": true
+  },
+  "fullGoalComplete": false,
+  "currentLargeMatrixBuildUiRegularSuiteNewHeadCiStillRequired": true,
+  "productionChanged": false,
+  "releasePublished": false
+}
