@@ -1112,23 +1112,38 @@ async function withAgentMarkdownBirthStoragePhase<T>(frame: Extract<BootstrapFra
   return withAuthenticatedMarkdownBirthStoragePhase(frame, operation);
 }
 export async function assertAuthenticatedAgentMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
-  const owner = currentAgentBirthOwner(input), consumer = agentCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
+  await assertAuthenticatedMarkdownBirthStorageBoundary(currentAgentBirthOwner(input), agentCreatePhases.getStore(), input, stage);
+  if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+}
+/** Actual owner/consumer objects come only from the fixed source wrappers.
+ * One full native proof covers a publication ACK. The proof itself refreshes
+ * policy, A owner, source and claim; no earlier duplicate adds another boundary. */
+async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirthOwner | DirectMcpBirthOwner,
+  consumer: AgentCreatePhase | DirectMcpCreatePhase | undefined, input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
+  const projection = firstProjectionPhases.getStore();
   if (consumer && (!consumer.active || consumer.frame !== owner.frame)
     || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
       || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
-  if (projection) await currentAuthenticatedMarkdownBirth(projection);
-  else if (consumer) await assertAuthenticatedCreateOriginCurrent(consumer.database,owner.frame,consumer.access);
-  else await withAuthenticatedCreatePhaseFactory(owner.frame,() => executeLifecycleTransaction({openConnection:owner.openPhase,execute:async database => {
-    await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-    return withAuthenticatedCreatePrincipalOnConnection(database,owner.frame,async access => {
-      await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-    });
-  },recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED')}));
-  if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+  if (projection) {
+    await assertFirstProjectionOwnerOrigin(owner.frame);
+    await currentAuthenticatedMarkdownBirth(projection);
+  } else {
+    await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    if (consumer) {
+      await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
+      // Preserve the MCP consumer's existing additional A/source fence.
+      if (owner.frame.kind === 'direct-mcp') { await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent(); }
+    } else await withAuthenticatedCreatePhaseFactory(owner.frame, () => executeLifecycleTransaction({ openConnection: owner.openPhase,
+      execute: async database => {
+        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+        return withAuthenticatedCreatePrincipalOnConnection(database, owner.frame, async access => {
+          await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
+        });
+      }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+  }
 }
 export function assertAuthenticatedAgentMarkdownBirthWithinTurn(input: MarkdownCreateBirthStorageInput): void {
   const owner = currentAgentBirthOwner(input), phase = firstProjectionPhases.getStore(), consumer = agentCreatePhases.getStore();
@@ -1441,32 +1456,7 @@ function currentDirectMcpBirthOwner(input: MarkdownCreateBirthStorageInput): Dir
 }
 export async function assertAuthenticatedDirectMcpMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput,
   stage: string): Promise<void> {
-  const owner = currentDirectMcpBirthOwner(input);
-  const consumer = directMcpCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
-  if (consumer && (!consumer.active || consumer.frame !== owner.frame)
-    || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
-      || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'entry') {
-    if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input;
-  } else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
-  if (projection) {
-    await currentAuthenticatedMarkdownBirth(projection);
-  } else if (consumer) {
-    // This ACK belongs to the actual native/recovery consumer. Reuse its B;
-    // opening another phase here would reenter and poison the genuine capture.
-    await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
-    await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-  } else {
-    await executeLifecycleTransaction({ openConnection: owner.openPhase,
-      execute: async database => {
-        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-        return withAuthenticatedCreatePrincipalOnConnection(database, owner.frame, async access => {
-          await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-        });
-      }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
-  }
+  await assertAuthenticatedMarkdownBirthStorageBoundary(currentDirectMcpBirthOwner(input), directMcpCreatePhases.getStore(), input, stage);
   if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
 }
 export function assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input: MarkdownCreateBirthStorageInput): void {
@@ -2305,9 +2295,9 @@ async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<
 async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
   if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const { database, frame, access, source, claim, input, result } = phase;
-  // The Agent tool policy performs genuine Current checks both before and
-  // after its config/profile read. An adjacent third read adds no boundary.
-  if (frame.kind !== 'agent-tool') await access.assertCurrent();
+  // Tool-origin policy already performs genuine Current: MCP refreshes its
+  // fixed slot; Agent checks before/after config/profile. Requests need theirs.
+  if (frame.kind === 'request') await access.assertCurrent();
   await assertAuthenticatedCreateOriginCurrent(database, frame, access);
   await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
   if (checkSource) await source.assertCurrent();
@@ -2387,7 +2377,8 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         // remint or retain a permission outside this concrete message.
         if (stage === 'before_link' || stage === 'parent_link') await currentAuthenticatedMarkdownBirth(scope);
         else {
-          await scope.access.assertCurrent(); await assertAuthenticatedCreateOriginCurrent(database, frame, scope.access);
+          if (frame.kind === 'request') await scope.access.assertCurrent();
+          await assertAuthenticatedCreateOriginCurrent(database, frame, scope.access);
           await assertBootstrapOwner(frame); await claim.assertRoot();
         }
         // This exact private first-birth phase already retains the real
@@ -2397,8 +2388,8 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         await assertBootstrapOwner(frame);
       };
       const afterStorageBoundary = async (stage?: string) => {
-        if (frame.kind !== 'agent-tool') return beforeBoundary(stage);
-        // MarkdownCreateBirthClaim invokes its fixed Agent storage guard
+        if (frame.kind === 'request') return beforeBoundary(stage);
+        // MarkdownCreateBirthClaim invokes its fixed Agent/MCP storage guard
         // immediately before this callback. That guard already performs the
         // full Current/native/source/claim checks in this exact private phase,
         // including the synchronous before-link turn guard. Keep the extra

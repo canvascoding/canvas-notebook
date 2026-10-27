@@ -117,6 +117,17 @@ auf 1871 / 33. Echte Sperren an ACKs, Rechteverlust vor der nächsten Phase und
 verlustfreie explizite Wiederaufnahme nach zwei tatsächlichen COMMIT-Antwortverlusten
 sind geprüft. Weitere Current-/Resolver- und Registry-/Zustandsbündelung bleibt nötig.
 
+Die [zugeordneten Publikationsprüfungen](architecture/document-service-publication-boundaries-2026-10-27.md)
+zeigen die dominanten Wiederholungen in MCP-Rechte-/Schema-, Lifecycle-Owner- und
+Dokumentzustandslesern. Doppelte benachbarte Vollprüfungen sind innerhalb der
+vorhandenen echten Phase entfernt; jede tatsächliche Publikationsgrenze behält
+ihre vollständige native Prüfung. Der direkte Zehn-Quellen-Vergleich reduziert
+warme MCP-Anlage von 1871 / 33 auf 1556 / 33 und
+Agentenanlage von 2180 / 46 auf 2143 / 46.
+Echte native Versionsrennen verweigern die Publikation; explizite Wiederholungen
+erhalten Originalidentitäten und vollständige Bytes. Weitere Bündelung und alle
+übrigen Abnahmen des Gesamtplans bleiben offen.
+
 ## Zielaufbau
 
 Editor / Agent / MCP / Systemauftrag

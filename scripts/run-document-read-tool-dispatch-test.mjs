@@ -12,6 +12,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/markdown-create-publication-boundaries-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/files/markdown-create-birth.ts', 'app/lib/mcp/server/document-read-principal.ts',
+    'app/lib/pi/tool-registry.ts', 'app/lib/pi/agent-file-operations.ts', 'app/lib/public-sharing/tool-policy.ts'],
   'scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
     'app/lib/files/markdown-create-birth.ts', 'app/lib/mcp/server/document-read-principal.ts',
