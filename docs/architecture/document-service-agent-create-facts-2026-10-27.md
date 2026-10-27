@@ -316,3 +316,41 @@ Release-TypeScript, Test-TypeScript (5097 Quellen, 28 Wurzeln, null Diagnosen),
 ESLint und Quellenvergleich bestehen. Weitere Adapter-/Zustandsbündelung, das
 endgültige Gesamtbudget, aktueller großer Vergleich, Build/UI/`test:all`, ungeklärter
 Member-Sperrfehler und sämtliche Architektur-/Recovery-/PR-/Release-Gates bleiben offen.
+
+## Verlorene Bestätigung der Speicheraktions-Transaktion
+
+Der [zusätzliche PostgreSQL-Nachweis](document-service-agent-storage-commit-2026-10-27.json)
+schließt die oben benannte fokussierte Prüflücke auf Produktgrundlage `ba0a5ad97`.
+Die Produktquellen bleiben unverändert. Je ein tatsächlicher Commit der neuen
+Agenten-Speicheraktion wird erfolgreich ausgeführt und verliert anschließend seine
+Antwort: `open` vor nativer Anlage und `verify` nach bestätigtem nativen Import,
+aber vor physischer Publikation. Die tatsächlich beobachtete Client-/Transaktions-ID
+und fehlende Daten-DML grenzen diese Speichertransaktion von der Importtransaktion ab.
+Weder SQL-Zeilen noch Helper-Nachrichten oder Berechtigungen werden ersetzt.
+
+Beide Aufrufe melden den Ausgang unbestätigt samt ursprünglichem Wiederholungsschlüssel.
+Die alte Backend-Sitzung wird nachweislich verworfen; keine Helper-Aktion wird
+automatisch wiederholt. Bis zum ausdrücklichen neuen Aufruf bleiben alle beobachteten
+nativen Zeilen/xmin unverändert. Der ursprüngliche Speicherbeleg bleibt mit seiner
+ID, seinem Fingerprint und vollständigen Intent erhalten.
+
+Die Wiederaufnahme erzeugt genau ein vollständiges Dokument und eine Revision.
+Beim bereits nativen Fall bleiben Dokument-ID, Lineage-ID, native Bytes, Vektor,
+Generation und Sequenz sowie der ursprüngliche Importbeleg einschließlich xmin
+erhalten. Die normale erste Versionsbindung nutzt ihren bestehenden Lineage-Upsert:
+Der tatsächliche Rückgabewert behält die alte ID anstelle der vorgeschlagenen neuen.
+Die vollständigen Lineage-Werte bleiben gleich; ihre Datenbankversion darf bei dieser
+regulären Bindung fortschreiten. Eine Lineage-Löschung ist ausgeschlossen.
+
+Authentifizierter ID-Leser und physische Datei liefern den vollständigen Originaltext.
+Die anschließende Wiederholung des abgeschlossenen Originals meldet `already_created`,
+führt null beobachtete führende INSERT-/UPDATE-/DELETE-Anweisungen aus und erhält
+alle beobachteten Dokument-, Zustands-, Lineage-, Revisions-, Birth- und Projektionszeilen
+einschließlich xmin. Die eigene Fixture schließt Schema, Pool, Clients und Dateien
+ohne externe Netzaufrufe. Test-TypeScript (5098 Quellen, 29 Wurzeln, null Diagnosen)
+und ESLint bestehen. Die Testergänzung ändert keine Produktmechanik und wiederholt
+deshalb keinen Produktbuild oder UI-Lauf.
+
+Dieser lokale Nachweis ersetzt nicht die Reparatur der ursprünglichen produktiven
+LinkedIn-Anlage. Aktueller großer Vergleich, finale Build-/UI-/Gesamtsuite, ungeklärter
+Member-Sperrfehler und die übrigen Service-/Recovery-/PR-/Release-Gates bleiben offen.

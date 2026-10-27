@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "productSourceCommit": "ba0a5ad9783efc720f555fbbf2113e6451de2447",
+  "productSourcesUnchanged": true,
+  "sourceHashes": {
+    "scripts/agent-markdown-create-storage-commit-postgres-test.ts": "e4e83d54f6c008e64b8f8a61e827178b5e5ccdde25903b4eca7b70f93eb7d730",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "2de1c588f0921b2431e03f121753dc53688c826ef5ef565d5513e5ebb7218333",
+    "app/lib/files/markdown-create-birth.ts": "53f015f6f4fd8e01d2404d8bbf2873d3dc1ed55d34b2bc26ae8129425d32b2c7",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "59c573a25b9b749d578dab981760e723f536d179f8b491da944f100651d40832",
+    "app/lib/workspaces/request-principal.ts": "10e23255788428a52e36ff59ef444662ef94983858b565b064a2d2e6620ce574",
+    "app/lib/collaboration/lifecycle-transaction.ts": "856f47f213ddbd5c5183e7df0cbf422123c96bae9d6ac2b6034ee14f8bfd673d",
+    "scripts/helpers/native-copy-metadata-owner-fixture.ts": "67d35f687268c188d84d0b995b0a6a59e00b4ffc7fffde88113864e2bc73cdc1"
+  },
+  "scope": "actual-genuine-agent-storage-action-COMMIT-acknowledgement-loss-before-native-and-after-native-before-physical",
+  "strictRunnerBundleSha256": "e29438fba6bf17c2985d9729a3d1dfd2d365ae17ac6cd86e491ba33fb85369c3",
+  "actualPostgresCommitCompletedBeforeAcknowledgementLoss": true,
+  "injectedTransactionMatchesActualHelperClientAndTransactionId": true,
+  "injectedStorageTransactionContainsNoObservedLeadingDml": true,
+  "actualHelperBytesAndNativeSqlResultsNotReplaced": true,
+  "originalRetryKeyReturnedWithUnconfirmedOutcome": true,
+  "discardedBackendExitObservedBeforeExplicitRetry": true,
+  "originalClaimIdFingerprintAndIntentPreserved": true,
+  "partialNativeIdLineageStateBytesVectorsGenerationAndSequencePreserved": true,
+  "originalImportReceiptBodyAndXminPreserved": true,
+  "singleCompletedDocumentAndRevision": true,
+  "authenticatedIdContentAndExactPhysicalBytesPassed": true,
+  "completedRetryObservedLeadingInsertUpdateDeleteStatements": 0,
+  "completedRetryAllObservedRowsAndXminUnchanged": true,
+  "ordinaryProjectionLineageBinding": {
+    "usesExistingOnConflictDoUpdate": true,
+    "actualReturnedLineageIdRetainsOriginal": true,
+    "proposedFreshIdDoesNotReplaceOriginal": true,
+    "entireLineageBodyPreserved": true,
+    "xminMayAdvanceDuringAuthorizedFirstProjection": true,
+    "noLineageDeletionAllowed": true
+  },
+  "results": [
+    {
+      "action": "open",
+      "lostAcknowledgements": 1,
+      "discardedBackendConfirmed": true,
+      "automaticHelperReplay": false,
+      "nativeDocumentsBeforeRetry": 0,
+      "completedDocuments": 1,
+      "originalIntentAndClaimPreserved": true,
+      "originalNativeAndReceiptPreserved": null,
+      "retainedOriginalLineageUpserts": 0,
+      "singleRevision": true,
+      "completedRetryDml": 0,
+      "stableCompletedRetry": true
+    },
+    {
+      "action": "verify",
+      "lostAcknowledgements": 1,
+      "discardedBackendConfirmed": true,
+      "automaticHelperReplay": false,
+      "nativeDocumentsBeforeRetry": 1,
+      "completedDocuments": 1,
+      "originalIntentAndClaimPreserved": true,
+      "originalNativeAndReceiptPreserved": true,
+      "retainedOriginalLineageUpserts": 1,
+      "singleRevision": true,
+      "completedRetryDml": 0,
+      "stableCompletedRetry": true
+    }
+  ],
+  "ownedSchemaPoolClientsFilesClosed": true,
+  "externalFetches": 0,
+  "scopedTestTypeScript": {
+    "roots": 29,
+    "sourceFiles": 5098,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "freshProductBuildUiAndRegularSuiteNotRunForTestOnlyChange": true,
+  "precedingSourceBoundPerformanceAndEightSuiteReportsStillApplyToUnchangedProduct": true,
+  "productionOriginalRepaired": false,
+  "newReleasePublished": false,
+  "fullCentralServicePlanComplete": false
+}
