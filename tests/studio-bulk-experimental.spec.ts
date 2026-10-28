@@ -229,15 +229,27 @@ test.describe('Studio Bulk experimental feature', () => {
     const deepLink = await context.newPage();
     let hold = true;
     const held: Array<{ socket: WebSocketRoute; message: string | Buffer }> = [];
-    const sockets: WebSocketRoute[] = [];
+    const bulkSockets = new Map<Page, WebSocketRoute>();
+    let firstBulkSocketOwner: 'page' | 'deep-link' | null = null;
+    let releasePageScripts: () => void = () => undefined;
+    const pageScriptsReady = new Promise<void>(resolve => { releasePageScripts = resolve; });
+    // Connection order must not decide which page the failure assertion tests.
+    await page.route('**/_next/static/**', async route => {
+      if (route.request().resourceType() === 'script') await pageScriptsReady;
+      await route.continue();
+    });
     for (const target of [page, deepLink]) {
       await target.routeWebSocket('**/ws/live-events', socket => {
-        sockets.push(socket);
         const server = socket.connectToServer();
         const bulkIds = new Set<string>();
         socket.onMessage(message => {
           const subscription = JSON.parse(message.toString());
-          if (subscription.type === 'subscribe' && subscription.channel === 'studioBulk') bulkIds.add(subscription.id);
+          if (subscription.type === 'subscribe' && subscription.channel === 'studioBulk') {
+            bulkIds.add(subscription.id);
+            bulkSockets.set(target, socket);
+            firstBulkSocketOwner ||= target === page ? 'page' : 'deep-link';
+            if (target === deepLink) releasePageScripts();
+          }
           server.send(message);
         });
         server.onMessage(message => {
@@ -254,9 +266,10 @@ test.describe('Studio Bulk experimental feature', () => {
 
     try {
       await setStudioBulkEnabled(context.request, true);
-      await page.goto('/studio', { waitUntil: 'domcontentloaded' });
+      await page.goto('/studio', { waitUntil: 'commit' });
       await deepLink.goto('/studio/bulk', { waitUntil: 'domcontentloaded' });
       await expect.poll(() => held.length, { message: 'The real server Bulk snapshot is held' }).toBeGreaterThanOrEqual(2);
+      expect(firstBulkSocketOwner).toBe('deep-link');
       await expect(page.getByRole('navigation', { name: 'Studio', exact: true })).toBeVisible();
       await expect(page.locator('a[href$="/studio/bulk"]')).toHaveCount(0);
       await assertLauncherBulk(page, false);
@@ -271,7 +284,9 @@ test.describe('Studio Bulk experimental feature', () => {
       // Close the real connection, then hold its reconnect snapshot. Any old
       // enabled state must disappear while the transport is unavailable.
       hold = true;
-      await sockets[0].close({ code: 1011, reason: 'Experimental availability reconnect E2E' });
+      const pageBulkSocket = bulkSockets.get(page);
+      expect(pageBulkSocket, 'Close the Bulk connection belonging to the page being asserted').toBeDefined();
+      await pageBulkSocket!.close({ code: 1011, reason: 'Experimental availability reconnect E2E' });
       await expect(page.locator('a[href$="/studio/bulk"]')).toHaveCount(0);
       await assertLauncherBulk(page, false);
       await expect.poll(() => held.length, { message: 'Reconnect gets another real server snapshot' }).toBeGreaterThan(0);
@@ -279,6 +294,7 @@ test.describe('Studio Bulk experimental feature', () => {
       await expect(page.getByRole('navigation', { name: 'Studio', exact: true })
         .getByRole('link', { name: 'Bulk', exact: true })).toBeVisible();
     } finally {
+      releasePageScripts();
       try {
         release();
         await setStudioBulkEnabled(context.request, initial.studioBulkEnabled);
