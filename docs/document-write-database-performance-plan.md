@@ -181,6 +181,13 @@ PostgreSQL-Suiten bestehen. Der direkte Zehn-Quellen-Vergleich senkt warm Agent
 nicht über Stage-Strings oder Eingabekopien auswählen. Die Gesamtbudgets und
 übrigen Pakete bleiben offen.
 
+Die [rein lesende private Belegverifikation](architecture/document-service-readonly-birth-verification-2026-10-28.md)
+ist als Voraussetzung der strukturellen Phasenbündelung geprüft: Verifizieren
+initialisiert oder repariert keine Stores, Anker oder Claims mehr. Alle sechs
+bisherigen und neun neuen tatsächlichen IO-Fälle bestehen auf macOS und Linux;
+acht PostgreSQL-Suiten erhalten Originaldaten und Wiederaufnahme. SQL-Phasen und
+Rechteprüfungen sind an diesem vorbereitenden Schritt noch nicht entfernt.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

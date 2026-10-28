@@ -168,7 +168,7 @@ def record(parent, name, value):
     os.fsync(parent)
 
 
-def store_anchor(data):
+def store_anchor(data, settle=True):
     """Resolve only a published private pointer; never search/adopt orphans."""
     try:
         info = os.stat(ANCHOR, dir_fd=data, follow_symlinks=False)
@@ -207,6 +207,8 @@ def store_anchor(data):
                 if pending not in directory_entries(store) or twin != raw or profile != observed \
                         or {key: profile[key] for key in ['dev', 'ino', 'uid', 'mode']} != value['pointerFile']:
                     fail('RECORD_CHANGED')
+                if not settle:
+                    fail('RECOVERY_REQUIRED')
                 # Only this exact private 0600 two-link twin may be removed.
                 named(data, name, store)
                 current, current_profile = read_file(data, ANCHOR, RECORD_LIMIT, 2)
@@ -225,8 +227,9 @@ def store_anchor(data):
                     fail('RECORD_CHANGED')
             # Also settle an observed link/unlink whose caller died before
             # acknowledging directory durability. The pointer itself is fixed.
-            os.fsync(store)
-            os.fsync(data)
+            if settle:
+                os.fsync(store)
+                os.fsync(data)
             settled, profile = read_file(data, ANCHOR, RECORD_LIMIT, 1)
             if settled != raw or profile != observed:
                 fail('NAMESPACE_CHANGED')
@@ -298,6 +301,28 @@ def claim_store(data):
             return selected
         finally:
             os.close(store)
+    finally:
+        os.close(lock)
+
+
+def existing_claim_store(data):
+    """Observe an existing settled store without initializing or repairing it."""
+    try:
+        lock = os.open(STORE + '.lock', READ, dir_fd=data)
+    except FileNotFoundError:
+        fail('RECORD_CHANGED')
+    try:
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
+            fail('NAMESPACE_CHANGED')
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        named_lock = os.stat(STORE + '.lock', dir_fd=data, follow_symlinks=False)
+        if identity(named_lock) != identity(info) or named_lock.st_nlink != 1:
+            fail('NAMESPACE_CHANGED')
+        existing = store_anchor(data, settle=False)
+        if existing is None:
+            fail('RECORD_CHANGED')
+        return existing
     finally:
         os.close(lock)
 
@@ -550,15 +575,24 @@ def run(message):
         # Validate them before even initializing the private claim namespace.
         current_source(intent)
     file_limit = 8 * 1024 * 1024 if intent['source'].get('kind') == 'agent-markdown-v1' else LIMIT
-    store_name, store = claim_store(3)
+    verification = message['action'] == 'verify'
+    store_name, store = existing_claim_store(3) if verification else claim_store(3)
     claim = None
     try:
-        try:
-            os.mkdir(key, 0o700, dir_fd=store)
-            created = True
-        except FileExistsError:
+        if verification:
             created = False
-        claim = open_dir(store, key, True)
+        else:
+            try:
+                os.mkdir(key, 0o700, dir_fd=store)
+                created = True
+            except FileExistsError:
+                created = False
+        try:
+            claim = open_dir(store, key, True)
+        except FileNotFoundError:
+            if verification:
+                fail('RECORD_CHANGED')
+            raise
         before = optional_record(claim, 'intent.json')
         if created:
             if message['action'] != 'open' or before is not None:
