@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { BrowserContextOptions } from '@playwright/test';
 
 import {
   authenticateManagedTestPage,
@@ -131,6 +132,8 @@ async function authCacheRenewalCase(): Promise<void> {
   const credentialHash = createHash('sha256').update(password).digest('hex');
   const cacheDir = path.join(os.tmpdir(), 'canvas-playwright-auth');
   const cachePath = path.join(cacheDir, `${createHash('sha256').update(`${baseURL}\0${email}\0${credentialHash}`).digest('hex').slice(0, 24)}.json`);
+  const inheritedStatePath = `${cachePath}.inherited-not-yet-created.json`;
+  assert.equal(await fs.access(inheritedStatePath).then(() => true, () => false), false);
   const wrongPassword = 'incorrect-fixture-password';
   const wrongCredentialHash = createHash('sha256').update(wrongPassword).digest('hex');
   const wrongCachePath = path.join(cacheDir, `${createHash('sha256').update(`${baseURL}\0${email}\0${wrongCredentialHash}`).digest('hex').slice(0, 24)}.json`);
@@ -140,6 +143,7 @@ async function authCacheRenewalCase(): Promise<void> {
   let stateWrites = 0;
   let closedContexts = 0;
   let createdContexts = 0;
+  let emptyStateContexts = 0;
   let tamperContext = -1;
   let signInStatuses: number[] = [];
   let sessionStatuses: number[] = [];
@@ -153,10 +157,17 @@ async function authCacheRenewalCase(): Promise<void> {
   const sessionTimeouts: number[] = [];
   let retryAfter = '0';
   const browser = {
-    newContext: async (options: { storageState?: string }) => {
+    newContext: async (options: BrowserContextOptions) => {
       const contextNumber = ++createdContexts;
-      let currentUser = options.storageState
-        ? JSON.parse(await fs.readFile(options.storageState, 'utf8')).user
+      // Like Playwright, omitted state inherits the project's file, which a cold
+      // caller may still be creating. Explicit empty state must bypass that file.
+      const storageState = options.storageState ?? inheritedStatePath;
+      if (typeof storageState !== 'string') {
+        assert.deepEqual(storageState, { cookies: [], origins: [] }, 'sign-in must start without inherited credentials');
+        emptyStateContexts += 1;
+      }
+      let currentUser = typeof storageState === 'string'
+        ? JSON.parse(await fs.readFile(storageState, 'utf8')).user
         : null;
       const request = {
         get: async (_url: string, input: { timeout: number }) => {
@@ -200,6 +211,7 @@ async function authCacheRenewalCase(): Promise<void> {
     const context = await createAuthenticatedContext(browser, {}, { email, password });
     assert.equal(signIns, 1, 'corrupt cache must trigger exactly one sign-in');
     assert.equal(stateWrites, 1, 'renewed state must be written atomically');
+    assert.equal(emptyStateContexts, 1, 'cold sign-in must explicitly bypass the missing inherited state');
     await context.close();
 
     const reused = await createAuthenticatedContext(browser, {}, { email, password });
