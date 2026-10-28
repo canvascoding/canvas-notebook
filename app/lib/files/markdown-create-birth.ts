@@ -274,8 +274,22 @@ type Frame = { active: boolean; configuredData: string; resolvedData: string; co
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
   readonly input?: MarkdownCreateBirthStorageInput;
   fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
-type StorageInvocation = { active: boolean; verificationEntry: boolean; frame: Frame };
+type StorageInvocation = { active: boolean; verificationEntry: boolean; readonly verification: boolean;
+  readonly frame: Frame; readonly operation: () => Promise<Observation> };
 const storageInvocationContext = new AsyncLocalStorage<StorageInvocation>();
+
+/** Describes only the live private message. Historical verification is not
+ * write authority, and an earlier or copied invocation cannot select it. */
+export function isMarkdownCreateBirthVerification(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.verification === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
+}
+export function isMarkdownCreateBirthVerificationOperation(input: MarkdownCreateBirthStorageInput,
+  operation: () => Promise<unknown>): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return isMarkdownCreateBirthVerification(input) && invocation?.operation === operation;
+}
 
 /** A data-only predicate for the actual private verify-entry callback. Copied
  * inputs, caller stage strings and retained async contexts cannot select it.
@@ -330,7 +344,6 @@ async function root(frame: Frame): Promise<void> {
 async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'observe' | 'complete',
   boundary: (stage?: string) => Promise<void>, fields: Record<string, unknown> = {}): Promise<Observation> {
   const phase = { open: 'birth_open', verify: 'birth_verify', prepare: 'birth_prepare', observe: 'birth_observe', complete: 'birth_complete' } as const;
-  const invocation: StorageInvocation = { active: true, verificationEntry: false, frame };
   const operation = async () => {
     const agentSource = !!frame.intent.source && typeof frame.intent.source === 'object' && Reflect.get(frame.intent.source,'kind') === 'agent-markdown-v1';
     if (agentSource) agentMarkdownCreateAttribution(frame.intent);
@@ -386,12 +399,11 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     if (frame.storePin) readStorePointer(frame);
     return observed;
   };
-  const run = async () => {
-    try { return await storageInvocationContext.run(invocation, operation); }
-    finally { invocation.verificationEntry = false; invocation.active = false; }
-  };
-  return inCollaborationProjectionPhase(phase[action], () =>
-    frame.withStoragePhase ? frame.withStoragePhase(run) : run());
+  const invocation: StorageInvocation = { active: true, verificationEntry: false, verification: action === 'verify', frame, operation };
+  try {
+    return await storageInvocationContext.run(invocation, () => inCollaborationProjectionPhase(phase[action], () =>
+      frame.withStoragePhase ? frame.withStoragePhase(operation) : operation()));
+  } finally { invocation.verificationEntry = false; invocation.active = false; }
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };

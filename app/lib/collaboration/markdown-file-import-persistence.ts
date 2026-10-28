@@ -27,6 +27,7 @@ import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
 import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth, isMarkdownCreateBirthVerificationEntry,
+  isMarkdownCreateBirthVerification, isMarkdownCreateBirthVerificationOperation,
   directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
   type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
   type MarkdownCreateBirthStorageInput, type MarkdownCreateBirthClaim } from '../files/markdown-create-birth';
@@ -1104,9 +1105,9 @@ function currentAgentBirthOwner(input: MarkdownCreateBirthStorageInput): AgentBi
     || !isDeepStrictEqual(input.origin,owner.frame.originalOrigin) || !isDeepStrictEqual(input.source,binding)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   currentAgentCreateInvocation(owner.frame); agentMarkdownCreateAttribution(input as unknown as Record<string,unknown>); return owner;
 }
-/** One actual Principal/transaction owns a complete storage helper action,
- * including its ACK callbacks and close. Existing publication/native phases
- * retain their own connection. No Current or fixed storage guard is skipped. */
+/** Mutating actions retain their actual Principal through ACKs and close.
+ * Historical verification outside a held phase is strictly read-only; it
+ * cannot initialize/repair a claim or confirm a successful public result. */
 async function withAuthenticatedMarkdownBirthStoragePhase<T>(frame: Extract<BootstrapFrame, { kind: 'agent-tool' | 'direct-mcp' }>,
   operation: () => Promise<T>): Promise<T> {
   const owner = frame.kind === 'agent-tool' ? agentBirthOwners.getStore() : directMcpBirthOwners.getStore();
@@ -1126,6 +1127,7 @@ async function withAuthenticatedMarkdownBirthStoragePhase<T>(frame: Extract<Boot
     return operation();
   }
   if (projection) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (isMarkdownCreateBirthVerificationOperation(owner.invocation, operation)) return operation();
   return withAuthenticatedCreatePhaseFactory(frame, () => executeLifecycleTransaction({ openConnection: owner.openPhase,
     execute: async database => {
       await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
@@ -1168,6 +1170,10 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
     await currentAuthenticatedMarkdownBirth(projection);
   } else {
     await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    // The exact private read cannot write or grant authority. The next native
+    // or publication phase reauthenticates; the final result has its own real
+    // Principal. Keep current owner/source/namespace checks at both read ends.
+    if (!consumer && isMarkdownCreateBirthVerification(input)) return;
     if (consumer) {
       await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
       // Preserve the MCP consumer's existing additional A/source fence.
@@ -2573,7 +2579,11 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
     }),true),
   })),true);
-  await assertBootstrapOwner(frame); await source.assertCurrent(); await claim.verify();
+  await assertBootstrapOwner(frame); await source.assertCurrent();
+  // This wrapper begins outside a private verification message, so it always
+  // opens a fresh real Principal. The inner read reuses that held connection.
+  if (frame.kind === 'request') await claim.verify();
+  else await withAuthenticatedMarkdownBirthStoragePhase(frame, () => claim.verify());
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
 

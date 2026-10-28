@@ -107,9 +107,13 @@ async function agentMarkdownCreateStorageCommitPostgresTest(): Promise<void> {
           assert.equal(current.documents.length, wanted === 'open' ? 0 : 1);
           assert.equal(current.receipts.length, wanted === 'open' ? 0 : 1);
           assert.equal(current.births.length, wanted === 'open' ? 0 : 1);
-          assert.equal(current.revisions.length, 0);
-          if (wanted === 'verify') assert.equal(Number(current.births[0].body.finalized), 0);
-          await assert.rejects(fs.lstat(path.join(h.source.rootPath, target)), { code: 'ENOENT' });
+          assert.equal(current.revisions.length, wanted === 'open' ? 0 : 1);
+          if (wanted === 'verify') {
+            // Historical reads have no COMMIT. Lose the real final current-
+            // rights confirmation after publication, preserving its bytes.
+            assert.equal(Number(current.births[0].body.finalized), 1);
+            assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, target)), Buffer.from(content));
+          } else await assert.rejects(fs.lstat(path.join(h.source.rootPath, target)), { code: 'ENOENT' });
           partial = current; lostIdentity = helper.identity; lost++; helperCountAtLoss = helpers.length;
           // PostgreSQL has really completed this exact read-only helper-action
           // COMMIT. Lose its acknowledgement only; never replace any SQL row.
@@ -141,7 +145,7 @@ async function agentMarkdownCreateStorageCommitPostgresTest(): Promise<void> {
       assert.equal(remaining, 0, 'Unconfirmed B must be discarded before a new attempt.');
       assert.deepEqual(await observe(target), partial);
       const original = await observeMarkdownCreateBirth({ workspaceRoot: h.source.rootPath, workspaceId: h.source.workspaceId, operationId });
-      assert.equal(original.complete, false);
+      assert.equal(original.complete, wanted === 'verify');
       const originalLineageId: unknown = partial.lineages[0]?.body.id; let retainedLineageUpserts = 0;
       const created = await h.withProbe(async event => {
         if (wanted !== 'verify') return;
@@ -165,6 +169,7 @@ async function agentMarkdownCreateStorageCommitPostgresTest(): Promise<void> {
       assert.equal(Number(completed.states[0].body.lifecycle_generation), 1); assert.equal(Number(completed.states[0].body.document_sequence), 0);
       assert.equal(Number(completed.states[0].body.checkpoint_sequence), 0); assert.notEqual(completed.states[0].body.checkpointed_at, null);
       if (wanted === 'verify') {
+        assert.deepEqual(completed, partial, 'A final-confirmation retry retains every completed row and xmin.');
         assert.equal(document.id, partial.documents[0].body.id); assert.equal(document.lineage_id, partial.documents[0].body.lineage_id);
         assert.deepEqual(completed.receipts, partial.receipts, 'The committed original import receipt/xmin cannot be recreated.');
         // Normal first projection binds its revision using the established

@@ -188,6 +188,15 @@ bisherigen und neun neuen tatsächlichen IO-Fälle bestehen auf macOS und Linux;
 acht PostgreSQL-Suiten erhalten Originaldaten und Wiederaufnahme. SQL-Phasen und
 Rechteprüfungen sind an diesem vorbereitenden Schritt noch nicht entfernt.
 
+Die [historische Verifikation ohne eigene SQL-Phase](architecture/document-service-readonly-sql-phase-2026-10-28.md)
+entfernt nun die zusätzliche Principal-Transaktion zwischen nativer Anlage und
+erster Veröffentlichung. Die abschließende aktuelle Bestätigung nach COMMIT
+behält ausdrücklich einen neuen echten Principal. Sechs tatsächliche Agent-/MCP-
+Kontrollen/Widerrufe, zehn PostgreSQL-Suiten und TypeScript/Lint bestehen.
+Vier frische Zehn-Quellen-Fixtures schließen 16 Vergleichsfenster: warm Agent
+1599 → 1523 SQL / 46 → 43 Ausleihen, MCP 1192 → 1152 / 33 → 32. Ursprüngliche
+Wiederholungen bleiben gleich. Die Budgets und übrigen Pakete bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-
@@ -318,7 +327,9 @@ Nach der Bündelung verbleibende langsame Abfragen anhand tatsächlicher
 Erst daraus zusätzliche Indizes ableiten. Vorläufige Entwurfsziele: höchstens fünf
 SQL-Lesezugriffe pro aktueller Berechtigungsbeobachtung, höchstens zwanzig für ein
 normales Dokumentöffnen und wenige Hundert für eine Neuanlage. Die endgültigen
-Grenzen anhand des vollständigen Ablaufs festlegen, mit deutlichem Abstand zu den
+Grenzen sind noch nicht abgenommen; 200–500 Anweisungen für die vollständige
+Neuanlage sind zunächst ein Arbeitsbereich. Endgültige Grenzen anhand des
+vollständigen Ablaufs festlegen, mit deutlichem Abstand zu den
 bestehenden Zeitlimits und begrenzter Abhängigkeit von der Verzeichnistiefe.
 
 Korrektheits- und Leistungstests umfassen echte PostgreSQL-Antwortlatenz, entzogene

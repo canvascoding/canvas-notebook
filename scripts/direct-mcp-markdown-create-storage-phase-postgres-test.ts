@@ -184,19 +184,23 @@ async function directMcpMarkdownCreateStoragePhasePostgresTest(): Promise<void> 
         assert.equal(failed.isError, true); assert.equal((failed.structuredContent as Record<string, unknown>).code, 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
         assert(lost); assert.equal(actions.length, helpersAtLoss, 'An unconfirmed storage action must not replay automatically.');
         const partial = await targetRows(partialTarget); assert.equal(partial.length, action === 'open' ? 0 : 1);
-        await assert.rejects(fs.lstat(path.join(h.workspaceRoot, partialTarget)), { code: 'ENOENT' });
+        if (action === 'open') await assert.rejects(fs.lstat(path.join(h.workspaceRoot, partialTarget)), { code: 'ENOENT' });
+        else {
+          assert.equal(partial[0].birth.finalized, 1, 'The retained final confirmation follows the real publication COMMIT.');
+          assert.deepEqual(await fs.readFile(path.join(h.workspaceRoot, partialTarget)), Buffer.from(content));
+        }
         const lostBackend = lost as Identity & { operationId: string };
         assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM pg_stat_activity WHERE pid=$1 AND extract(epoch FROM backend_start)::text=$2',
           [lostBackend.backend, lostBackend.start])).rows[0].n, 0, 'Discard uncertain B before retry.');
         assert.deepEqual(await targetRows(partialTarget), partial);
         const retained = await observeMarkdownCreateBirth({ workspaceRoot: h.workspaceRoot, workspaceId: h.workspaceId,
           operationId: lostBackend.operationId });
-        assert.equal(retained.complete, false);
+        assert.equal(retained.complete, action === 'verify');
         lose = undefined;
         const resumed = await call(partialTarget, retryKey); assert.notEqual(resumed.isError, true);
         assert.equal((resumed.structuredContent as Record<string, unknown>).operation_id, lostBackend.operationId);
         const complete = await targetRows(partialTarget); assert.equal(complete.length, 1);
-        if (partial.length) { assert.equal(complete[0].id, partial[0].id); assert.equal(complete[0].lineage_id, partial[0].lineage_id); }
+        if (partial.length) assert.deepEqual(complete, partial, 'Final-confirmation recovery retains every original row and xmin.');
         assert.deepEqual(await fs.readFile(path.join(h.workspaceRoot, partialTarget)), Buffer.from(content));
         const finalBirth = await observeMarkdownCreateBirth({ workspaceRoot: h.workspaceRoot, workspaceId: h.workspaceId,
           operationId: lostBackend.operationId });
