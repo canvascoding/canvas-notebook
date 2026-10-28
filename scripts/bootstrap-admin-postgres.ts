@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 
 import { hashPassword } from 'better-auth/crypto';
 import type { PoolClient } from 'pg';
+import { adoptActiveTeamMembership } from '../app/lib/organization/team-membership';
 
 import {
   createPostgresPool,
@@ -118,7 +119,22 @@ async function main() {
 
     const userId = await insertPostgresAuthUser(database, { email, name });
     await ensurePostgresCredentialPassword(database, { userId, passwordHash });
-    await ensurePostgresOrganizationBootstrapForUser(database, userId);
+    const bootstrap = await ensurePostgresOrganizationBootstrapForUser(database, userId);
+    if (!bootstrap.organizationId || bootstrap.ownerUserId !== userId) {
+      throw new Error('The initial bootstrap administrator must own the organization.');
+    }
+    // Match interactive first-owner setup in this same transaction. Existing
+    // accounts above retain their current membership, including suspension.
+    await adoptActiveTeamMembership(database, {
+      organizationId: bootstrap.organizationId,
+      userId,
+      role: 'owner',
+      source: 'first_owner',
+      actorUserId: userId,
+      seatOperationType: 'reconcile',
+      transactionMode: 'existing',
+      now: Date.now(),
+    });
     await database.run('COMMIT');
     console.log(`[bootstrap-admin] Created admin user: ${email}`);
   } catch (error) {
