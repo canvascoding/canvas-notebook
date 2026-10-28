@@ -164,6 +164,14 @@ warme Agentenanlage von 1919 / 46 auf 1735 / 46 SQL-Aufrufe / Ausleihen;
 Beobachtung vor und nach der Policy-Entscheidung bleibt erhalten. Die
 Leistungsbudgets und sämtliche übrigen Abnahmen bleiben offen.
 
+Die [gemeinsame frische Bereichs-/Anlagebeleg-Beobachtung](architecture/document-service-birth-realm-observation-2026-10-28.md)
+bündelt die beiden benachbarten Abfragen auf derselben gehaltenen Verbindung.
+Zwölf neue echte Fälle, darunter zehn tatsächliche Fehleränderungen, und neun
+bestehende PostgreSQL-Suiten bestehen. Der direkte Vergleich mit zehn regulär
+angelegten Quellen spart je Neuanlage 40 Aufrufe: warm Agent 1735 → 1695 / 46
+Ausleihen und MCP 1312 → 1272 / 33. Originalbelege und Wiederholungen bleiben
+erhalten; die Budgets und übrigen Pakete bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

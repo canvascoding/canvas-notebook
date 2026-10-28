@@ -2266,25 +2266,54 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
   });
 }
 
-async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
-  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
-  if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+const markdownBirthRealmSql = `SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
     current_setting('search_path') AS search_path,quote_ident($1)||', pg_catalog, pg_temp' AS phase_search_path,
     (SELECT bool_and(coalesce(to_regclass(name)::oid=to_regclass(quote_ident($1)||'.'||quote_ident(name))::oid,false))
-      FROM unnest($2::text[]) names(name)) AS same`,
-  [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections']]) as Record<string, unknown> | undefined;
+      FROM unnest($2::text[]) names(name)) AS same`;
+function assertMarkdownBirthRealmObservation(frame: BootstrapFrame, row: Record<string, unknown> | undefined): void {
+  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
+  if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (!row || row.same !== true || row.schema !== expected.schema
     || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
     || row.search_path !== expected.searchPath && row.search_path !== row.phase_search_path) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
+async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
+  const row = await database.get(markdownBirthRealmSql,
+    [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections']]) as Record<string, unknown> | undefined;
+  assertMarkdownBirthRealmObservation(frame, row);
+}
 async function assertAuthenticatedMarkdownBirth(database: SqlConnection, frame: BootstrapFrame, input: Captured,
   result: MarkdownFileImportResult, claim: MarkdownCreateBirthClaim): Promise<Record<string, unknown>> {
-  await assertMarkdownBirthRealm(database, frame);
-  const row = await database.get(`SELECT * FROM collaboration_markdown_create_births WHERE workspace_id=$1 AND operation_id=$2`,
-  [input.workspace.workspaceId, input.operationId]) as Record<string, unknown> | undefined;
-  if (!row || row.document_id !== result.receipt.target.documentId || Number(row.lifecycle_generation) !== result.receipt.target.lifecycleGeneration
+  if (!(frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const fields = ['schema', 'schema_oid', 'database_oid', 'search_path', 'phase_search_path', 'same'] as const;
+  let observed: Record<string, unknown> | undefined;
+  try {
+    // The realm and original birth row were adjacent reads with no intervening
+    // callback or mutation. Keep raw row scalars and read both facts freshly on
+    // this actual held connection. Trusted aliases are selected last.
+    observed = await database.get(`SELECT birth.*,
+      ${fields.map(field => `realm.${quoteBootstrap(field)} AS ${quoteBootstrap(`__canvas_birth_realm_${field}`)}`).join(',')},
+      (birth.workspace_id IS NOT NULL) AS __canvas_birth_row_present
+      FROM (${markdownBirthRealmSql}) realm
+      LEFT JOIN LATERAL (SELECT * FROM collaboration_markdown_create_births
+        WHERE workspace_id=$3 AND operation_id=$4) birth ON true`,
+    [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections'],
+      input.workspace.workspaceId, input.operationId]) as Record<string, unknown> | undefined;
+  } catch (error) {
+    // Missing/shadowed relations previously failed the preceding realm check.
+    // Do not retry a transaction whose joined query could not be planned.
+    const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+    if (code === '42P01' || code === '3F000') return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    throw error;
+  }
+  const realm = observed ? Object.fromEntries(fields.map(field => [field, observed[`__canvas_birth_realm_${field}`]])) : undefined;
+  assertMarkdownBirthRealmObservation(frame, realm);
+  if (!observed || observed.__canvas_birth_row_present !== true) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  const row = { ...observed };
+  for (const field of fields) delete row[`__canvas_birth_realm_${field}`];
+  delete row.__canvas_birth_row_present;
+  if (row.document_id !== result.receipt.target.documentId || Number(row.lifecycle_generation) !== result.receipt.target.lifecycleGeneration
     || row.claim_id !== claim.id || row.claim_fingerprint !== claim.fingerprint || row.request_fingerprint !== input.fingerprint
     || ![0, 1].includes(Number(row.finalized))) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   return row;
