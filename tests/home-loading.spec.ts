@@ -31,7 +31,17 @@ for (const count of [0, 1, 5]) {
       const items = Array.from({ length: count }, (_, index) => ({ id: `notice-${index}`, type: 'studio.completed', title: `Entwurf ${index + 1} ist bereit`, detail: 'Prüfe den neuen Entwurf.', occurredAt: new Date().toISOString(), unread: true, priority: 'normal', workspaceId: 'fixture', workspaceName: 'Marketing', target: { kind: 'studio', generationId: `image-${index}` } }));
       await route.fulfill({ json: { success: true, data: { unreadCount: count, counts: { unread: count, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0, studio: count, automation: 0 }, items, sections: { notifications: items, todos: [], todoUnread: [], todoAttention: [], emailAttention: [] } } } });
     });
-    await page.goto('/de');
+    // Private Home content waits for the browser's current session, separately
+    // from the deliberately held workspace and file responses.
+    const [clientSessionResponse] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'GET'
+        && new URL(response.url()).pathname === '/api/auth/get-session'),
+      page.goto('/de'),
+    ]);
+    expect(clientSessionResponse.status(), 'Fresh client session before private loading checks').toBe(200);
+    const clientSession = await clientSessionResponse.json();
+    expect(clientSession?.user?.email).toBe(process.env.BOOTSTRAP_ADMIN_EMAIL);
+    expect(Boolean(clientSession?.session?.id)).toBe(true);
     const files = page.getByTestId('home-files');
     await expect(files.getByRole('status')).toBeVisible();
     const beforeWorkspace = await files.boundingBox();
