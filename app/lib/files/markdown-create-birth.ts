@@ -37,7 +37,8 @@ export type MarkdownCreateBirthClaim = Readonly<{
   complete(serializedHash: string, revisionId: string, beforeBoundary: (stage?: string) => Promise<void>): Promise<void>;
 }>;
 /** The coordinator may own one genuine database phase around a whole helper
- * action. This callback supplies no authority; fixed source guards still run. */
+ * action or terminal close sequence. This callback supplies no authority;
+ * fixed source guards still run. */
 export type MarkdownCreateBirthStoragePhase = <T>(operation: () => Promise<T>) => Promise<T>;
 export class MarkdownCreateBirthError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'MarkdownCreateBirthError'; }
@@ -717,7 +718,6 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     if (unfinished) errors.push(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_UNAWAITED_IO'));
     for (const settlement of settlements) if (settlement.status === 'rejected') errors.push(settlement.reason);
   } catch (error) { errors.push(error); }
-  if (frame) { try { await root(frame); await boundary(); } catch (error) { errors.push(error); } }
   const close = async (handle: FileHandle) => {
     try { await handle.close(); } catch (error) {
       errors.push(error);
@@ -725,9 +725,35 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       try { await handle.close(); } catch (retryError) { errors.push(retryError); }
     }
   };
-  if (workspace) await close(workspace);
-  await close(data);
-  if (frame) { try { await named(frame); await boundary(); } catch (error) { errors.push(error); } frame.active = false; }
+  const closeHandles = async () => { if (workspace) await close(workspace); await close(data); };
+  const closing = frame;
+  let settled = false;
+  const settle = async () => {
+    settled = true;
+    // Tools keep one fresh actual Principal around final verification, both
+    // real descriptor closes and the final named-root/source observation.
+    // Public claim methods are already closed; only this private frame can
+    // perform its last read, with its descriptors still pinned and open.
+    if (closing?.withStoragePhase && errors.length === 0) {
+      try { await invoke(closing, 'verify', boundary); } catch (error) { errors.push(error); }
+    }
+    if (closing) { try { await root(closing); await boundary(); } catch (error) { errors.push(error); } }
+    await closeHandles();
+    if (closing) { try { await named(closing); await boundary(); } catch (error) { errors.push(error); } }
+  };
+  try {
+    if (closing?.withStoragePhase) await closing.withStoragePhase(settle);
+    else await settle();
+  } catch (error) { errors.push(error); }
+  // Authorization can fail before settle is entered. Closing our own handles
+  // must still happen, and that failure can never become a successful result.
+  if (!settled) {
+    if (!errors.length) errors.push(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
+    if (closing) { try { await root(closing); } catch (error) { errors.push(error); } }
+    await closeHandles();
+    if (closing) { try { await named(closing); } catch (error) { errors.push(error); } }
+  }
+  if (closing) closing.active = false;
   try { await fixedSourceGuard?.('closed'); } catch (error) { errors.push(error); }
   if (errors.length === 1) throw errors[0];
   if (errors.length) throw new AggregateError(errors, 'MARKDOWN_CREATE_BIRTH_CLOSURE_FAILED');

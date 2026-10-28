@@ -207,6 +207,16 @@ schließen 16 Fenster: warm Agent 1523 → 1347 SQL / 43 Ausleihen, MCP 1152 →
 Ursprüngliche Wiederholungen und Ausleihen bleiben unverändert. Die Gesamtbudgets,
 übrigen Servicepakete und finalen Release-Gates sind weiterhin offen.
 
+Die [gemeinsame tatsächliche Abschlussphase](architecture/document-service-close-phase-2026-10-29.md)
+fasst finale Verifikation, beide Deskriptor-Schließungen und die abschließenden
+Quellen-/Namensraumprüfungen unter einem frischen Principal bis nach dem Close
+zusammen. Verweigerter Eintritt schließt die Deskriptoren weiterhin; Fehler oder
+verlorene Close-Antwort liefern keinen Erfolg. Acht neue tatsächliche Fälle,
+dreizehn PostgreSQL-Suiten und Typ-/Lint-Prüfungen bestehen. Vier frische Fixtures
+schließen 16 Fenster: warm Agent 1347 → 1219 SQL / 43 → 37 Ausleihen,
+MCP 973 → 919 / 32 → 30. Originalwiederholungen bleiben gleich. Gesamtbudgets,
+übrige Servicepakete und alle finalen Release-Gates bleiben weiterhin offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

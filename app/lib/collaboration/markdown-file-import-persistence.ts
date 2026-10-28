@@ -1165,7 +1165,10 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
       else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
     }
     await assertFirstProjectionOwnerOrigin(owner.frame);
-    await owner.source.assertCurrent(); await claim.assertRoot();
+    // The exact private invoke has already checked its own pinned roots and
+    // checks them again after IO. Public claim methods are intentionally
+    // closed during terminal verification; no retained handle is reopened.
+    await owner.source.assertCurrent();
     return;
   }
   if (projection) {
@@ -2583,10 +2586,10 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
     }),true),
   })),true);
   await assertBootstrapOwner(frame); await source.assertCurrent();
-  // This wrapper begins outside a private verification message, so it always
-  // opens a fresh real Principal. The inner read reuses that held connection.
+  // Tool claims finish under one fresh real Principal through verification,
+  // both actual descriptor closes and the final source/named-root checks.
+  // Request claims retain their existing verification and close protocol.
   if (frame.kind === 'request') await claim.verify();
-  else await withAuthenticatedMarkdownBirthStoragePhase(frame, () => claim.verify());
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
 
