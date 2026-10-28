@@ -59,15 +59,37 @@ Anzahl tatsächlicher Verzeichnisscans; der vollständige Workspace-Snapshot mus
 weiterhin Verzeichnisse enthalten. Alle neun Fälle dieses Runners bestehen.
 Am Dateisystem-Cache selbst wurde dafür nichts geändert.
 
-Am vorherigen gebauten Produkt `ca7da2dc1`, mit Teststand `62db6eb50`, bestehen
-sechs der sieben gezielten Browserfälle. Beide Create-Wiederaufnahmen, die
-erste unterbrochene Browsersitzung, mobiles Speichern samt Wiederholung und
-späteren Änderungen sowie beide normalen Link-Lifecycle-Fälle sind grün. Der
-Vorschau-/Navigationstest ist noch rot und wird mit unveränderten Assertions,
-Timeouts und null Retries gegen den neu gebauten Produktstand geprüft. Die
-geschützten Zeilen samt `xmin`, Originalbytes, Inodes und drei Speicheranker des
-ursprünglichen lokalen Uploads bleiben exakt erhalten.
+Am vorherigen gebauten Produkt `ca7da2dc1`, mit Teststand `62db6eb50`, bestanden
+sechs der sieben gezielten Browserfälle; Vorschau/Navigation war noch rot.
+Am vollständig neu gebauten Produkt- und Teststand
+`193685510b293c8aa6a49e9f6a62cb658c38183e` bestehen nun **alle sieben Fälle** mit
+unveränderten Assertions und Timeouts, null Retries, null Skips und null Flakes.
+Beide Create-Wiederaufnahmen, die erste unterbrochene Browsersitzung, mobiles
+Speichern samt Wiederholung und späteren Änderungen sowie die Link-Lifecycle-
+und Vorschau-/Navigationsprüfungen sind grün. Die Collaboration-Recovery-Fälle
+sind in diesem Lauf ausdrücklich aktiviert.
 
-Build und echte Browserabnahme dieser jüngsten Client-Korrektur stehen zum
-Dokumentationszeitpunkt noch aus. Dieser Bericht ist keine Gesamtabnahme oder
-Produktionsfreigabe. Review Center und Undo werden nicht weiterentwickelt.
+Host-Produktionsbuild, Linux-Image-Build und echter Containerstart bestehen.
+Das geprüfte Image ist
+`sha256:58947764dd21f0a05484fc20b42d1ae754438a25531ff34b4da820ed68411159`.
+Die Browserprüfung lief am 28.10.2026 von 20:19:17 bis 20:22:52 UTC im einzigen
+verwalteten Notebook mit denselben eigenen Datenbank- und Datenvolumes.
+Produktquellen wurden nicht in das Image kopiert. Das Browser-Artefaktarchiv hat
+SHA-256 `e440cf438461e72910c1eeb2bc4905221c958012a7a216540bf65a87867e17dc`.
+Die geschützten Zeilen samt `xmin`, Originalbytes, Inodes und drei Speicherankern
+des ursprünglichen lokalen Uploads bleiben auch nach diesem Lauf exakt erhalten.
+
+Die erweiterte Linux-CI deckte daneben eine Plattformannahme im bestehenden
+Staging-Watcher-Test auf: Alle drei normalen Benutzer-`.tmp`-Dateien lieferten
+aktuelle versionierte `change`-Ereignisse, die Assertion verlangte aber `add`.
+Der tatsächliche Linux-Gegenvergleich erhält die ursprünglichen Assertions und
+Wartezeiten und scheitert genau daran. Der native Watcher bündelt Ereignisse nach
+Pfad; der Client aktualisiert den Verzeichnisstand sowohl bei `add` als auch bei
+`change`. Der Test prüft deshalb einen positiven Projektionshinweis mit exakt
+der tatsächlichen Dateiversion und zusätzlich die unveränderten Dateiinhalte.
+Die bisherigen Prüfungen auf verborgene Staging-Dateien, sichtbare Nutzerdaten und
+echte Löschungen bleiben bestehen. Der Produkt-Watcher wird dafür nicht geändert.
+
+Die endgültige reguläre Gesamtsuite und die aktuellen CI-Gates bleiben eigene
+Abnahmen. Dieser Bericht ist keine Gesamtabnahme oder Produktionsfreigabe.
+Review Center und Undo werden nicht weiterentwickelt.

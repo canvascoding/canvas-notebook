@@ -169,7 +169,11 @@ behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-
 Hintergrundfrist. Ein gemeinsamer Abruf, aktuelle Invalidierungsgrenzen und echte
 Server-Wartefristen bleiben erhalten. Die kontrollierten Client- und bestehenden
-Hintergrundtests bestehen; Build und echte Browserabnahme der Korrektur folgen.
+Hintergrundtests, vollständiger Host-/Linux-Build und echter Containerstart
+bestehen. Am Produkt- und Teststand `193685510b` bestehen alle sieben gezielten
+Browserfälle einschließlich aktivierter Recovery-Prüfungen ohne Retries, Skips
+oder Flakes. Die endgültige Gesamtsuite, aktuellen CI-Gates und die übrigen
+Pakete bleiben offen.
 
 ## Zielaufbau
 

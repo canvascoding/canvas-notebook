@@ -5,6 +5,7 @@ import path from 'node:path';
 import { FileWatcherService, type FileEvent } from '../app/lib/filesystem/file-watcher';
 import { buildFileTree, listDirectory, writeFile, writeFileIfAbsent } from '../app/lib/filesystem/workspace-files';
 import { isInternalWorkspaceStagingPath } from '../app/lib/files/internal-staging-path';
+import { filesystemFileVersion } from '../app/lib/filesystem/file-version';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,7 +51,16 @@ async function main() {
     const ordinary = ['user.tmp', 'notes.canvas-write-draft.tmp', 'notes.canvas-create-not-a-uuid.tmp'];
     for (const name of ordinary) await fs.writeFile(path.join(workspace.rootPath, name), 'user-owned');
     await delay(400);
-    for (const name of ordinary) assert.ok(events.some((event) => event.relativePath === name && event.type === 'add'));
+    for (const name of ordinary) {
+      const filePath = path.join(workspace.rootPath, name);
+      const version = filesystemFileVersion(await fs.stat(filePath));
+      // Native watchers can emit rename followed by change for a new file.
+      // Debouncing retains the latest projection hint, not a semantic birth.
+      assert.ok(events.some((event) => event.relativePath === name
+        && (event.type === 'add' || event.type === 'change') && event.fileVersion === version),
+      'normal user .tmp files must deliver a current versioned projection hint');
+      assert.equal(await fs.readFile(filePath, 'utf8'), 'user-owned');
+    }
     for (const includeMetadata of [true, false]) {
       const visibleNames = (await listDirectory('.', { workspace, includeMetadata })).map((entry) => entry.name);
       for (const name of [...ordinary, 'live.md', 'created.md']) assert.ok(visibleNames.includes(name),
