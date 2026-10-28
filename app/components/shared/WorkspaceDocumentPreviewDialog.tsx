@@ -59,7 +59,7 @@ export function WorkspaceDocumentPreviewDialog({
     if (!open || !reference || !workspaceId) return undefined;
     let cancelled = false;
     const target = buildWorkspaceDocumentPreviewTarget(reference);
-    void loadWorkspaceMarkdownEmbed(workspaceId, target)
+    void loadWorkspaceMarkdownEmbed(workspaceId, target, null, { priority: 'interactive' })
       .then((document) => {
         if (cancelled) return;
         setState({

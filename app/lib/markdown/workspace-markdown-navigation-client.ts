@@ -89,7 +89,7 @@ export async function openWorkspaceMarkdownTarget(input: {
   }
 
   try {
-    const index = await loadWorkspaceLinkIndex(input.workspaceId);
+    const index = await loadWorkspaceLinkIndex(input.workspaceId, { priority: 'interactive' });
     const resolution = input.syntax === 'markdown' && input.sourcePath
       ? resolveWorkspaceMarkdownHrefFromIndex(input.target, index, input.sourcePath)
       : resolveWorkspaceLinkFromIndex(input.target, index, input.sourcePath);
