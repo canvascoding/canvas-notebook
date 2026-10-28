@@ -21,8 +21,13 @@ export async function placeComposerCaret(input: Locator, boundary: 'start' | 'en
     const range = document.createRange();
     range.selectNodeContents(element);
     range.collapse(position === 'start');
-    selection.removeAllRanges();
-    selection.addRange(range);
+    // The editor observes browser selections asynchronously. Deliver that
+    // notification before the caller sends its next keyboard event.
+    return new Promise<void>(resolve => {
+      element.ownerDocument.addEventListener('selectionchange', () => resolve(), { once: true });
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
   }, boundary);
 }
 
