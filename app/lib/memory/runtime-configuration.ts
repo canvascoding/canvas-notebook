@@ -104,6 +104,9 @@ export async function verifyAndConfigureMemoryReviewRuntime(input: {
     actorUserId: input.actorUserId,
     providerInstallationId,
     modelId,
+    // This selection owns its verification. Updating the shared provider
+    // would invalidate the app-default proof in the same onboarding flow.
+    probeOnly: true,
     signal: input.signal,
   });
   if (!verification.success) {
