@@ -36,6 +36,7 @@ export default defineConfig({
   use: {
     baseURL: e2eBaseUrl,
     viewport: { width: 1280, height: 720 },
+    trace: 'retain-on-failure',
   },
   webServer: useExternalServer
     ? undefined
