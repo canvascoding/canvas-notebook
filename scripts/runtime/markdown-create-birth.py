@@ -87,6 +87,17 @@ def open_dir(parent, name, private=False):
         raise
 
 
+def directory_entries(parent):
+    # A fresh description of the pinned directory avoids stale enumeration
+    # state on Linux and never consumes the caller's directory cursor. A dup
+    # would share that description; resolving a pathname could select a peer.
+    fd = os.open('.', DIRECTORY | os.O_CLOEXEC, dir_fd=parent)
+    try:
+        return os.listdir(fd)
+    finally:
+        os.close(fd)
+
+
 def read_file(parent, name, limit=RECORD_LIMIT, links=1):
     fd = os.open(name, READ, dir_fd=parent)
     try:
@@ -164,7 +175,7 @@ def store_anchor(data):
     except FileNotFoundError:
         return None
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 \
-            or info.st_nlink not in (1, 2) or ANCHOR not in os.listdir(data):
+            or info.st_nlink not in (1, 2) or ANCHOR not in directory_entries(data):
         fail('NAMESPACE_CHANGED')
     raw, observed = read_file(data, ANCHOR, RECORD_LIMIT, info.st_nlink)
     value = decode(raw)
@@ -187,13 +198,13 @@ def store_anchor(data):
         fail('NAMESPACE_CHANGED')
     store = open_dir(data, name, True)
     try:
-        if name not in os.listdir(data) or directory(store, True) != value['store']:
+        if name not in directory_entries(data) or directory(store, True) != value['store']:
             fail('NAMESPACE_CHANGED')
         if value['version'] == 2:
             pending = value['pendingName']
             if info.st_nlink == 2:
                 twin, profile = read_file(store, pending, RECORD_LIMIT, 2)
-                if pending not in os.listdir(store) or twin != raw or profile != observed \
+                if pending not in directory_entries(store) or twin != raw or profile != observed \
                         or {key: profile[key] for key in ['dev', 'ino', 'uid', 'mode']} != value['pointerFile']:
                     fail('RECORD_CHANGED')
                 # Only this exact private 0600 two-link twin may be removed.
@@ -311,7 +322,7 @@ def parent_for(root, target, initial, parents):
                 if directory(child) != expected:
                     fail('TARGET_CHANGED')
             # Exact case/name matters even on a case-insensitive filesystem.
-            if segment not in os.listdir(parent):
+            if segment not in directory_entries(parent):
                 fail('TARGET_CHANGED')
             parent = child
         return parent, opened
@@ -337,7 +348,7 @@ def capture_absence(root, target, manual_new=False):
                 continue
             if manual_new and relative == target:
                 fail('MANUAL_PATH_EXISTS')
-            if relative == target or not stat.S_ISDIR(value.st_mode) or segment not in os.listdir(parent):
+            if relative == target or not stat.S_ISDIR(value.st_mode) or segment not in directory_entries(parent):
                 fail('TARGET_CHANGED')
             child = open_dir(parent, segment)
             opened.append(child)
@@ -353,7 +364,7 @@ def assert_parents(root, target, opened):
     parent = root
     for segment, child in zip(target.split('/')[:-1], opened):
         named(parent, segment, child)
-        if segment not in os.listdir(parent):
+        if segment not in directory_entries(parent):
             fail('TARGET_CHANGED')
         parent = child
 
@@ -567,7 +578,7 @@ def run(message):
         if not isinstance(initial, dict):
             fail('RECORD_CHANGED')
         parents = {}
-        for name in os.listdir(claim):
+        for name in directory_entries(claim):
             if name.startswith('parent-') and name.endswith('.json'):
                 value = optional_record(claim, name)
                 if set(value) != {'path', 'identity'} or name != 'parent-' + digest(value['path'].encode()) + '.json':

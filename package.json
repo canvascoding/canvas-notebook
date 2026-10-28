@@ -67,6 +67,7 @@
     "build:fd-publication": "node scripts/build-fd-publication.mjs",
     "verify:fd-publication": "node scripts/build-fd-publication.mjs verify",
     "test:fd-publication": "node --conditions=react-server scripts/fd-publication-test.mjs",
+    "test:markdown:create-birth:storage": "python3 scripts/markdown-create-birth-storage-test.py",
     "test:fd-path-move": "node --conditions=react-server scripts/fd-path-move-test.mjs",
     "test:fd-directory-inventory": "node --conditions=react-server scripts/fd-directory-inventory-test.mjs",
     "test:files:prepared-path-move": "tsx --conditions react-server scripts/prepared-workspace-path-move-test.ts",
