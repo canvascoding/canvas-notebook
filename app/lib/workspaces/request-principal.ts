@@ -120,7 +120,7 @@ export type WorkspaceAgentToolHistoricalOrigin = Readonly<{
 export type WorkspaceAgentToolHistoricalOriginObserver = (origin: WorkspaceAgentToolHistoricalOrigin) => void;
 type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture | AgentCapture | JobUserCapture | JobAgentCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>>;
-  accepting: boolean; nativeEditSessionExpiresAt?: number; agentCreateRealm?: string };
+  accepting: boolean; nativeEditSessionExpiresAt?: number; agentCreateRealm?: string; textUserIdLocks?: boolean };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
 const invitationAuthorities = new WeakMap<FileGuestInvitationAuthority, InvitationCapture>();
 const agentToolPrincipals = new WeakMap<WorkspaceAgentToolPrincipal, AgentCapture>();
@@ -401,7 +401,7 @@ async function schema(phase: Phase): Promise<void> {
   if (phase.request.kind === 'agent_tool' || phase.request.kind === 'job_agent') await phase.database.run(`LOCK TABLE ${table(phase,'pi_sessions')} IN ROW EXCLUSIVE MODE NOWAIT`);
   await checkIdentity(phase);
   const rows = await phase.database.all(`SELECT child.relname AS child,parent.relname AS parent,ca.attname AS column,
-    pa.attname AS parent_column,c.convalidated,c.condeferrable,c.conenforced,
+    pa.attname AS parent_column,pa.atttypid::text AS parent_type_oid,c.convalidated,c.condeferrable,c.conenforced,
     (SELECT count(*)=2 AND bool_and(t.tgenabled IN('O','A')) FROM pg_trigger t
       WHERE t.tgconstraint=c.oid AND t.tgrelid=c.conrelid) AS enforced_trigger
     FROM pg_constraint c JOIN pg_class child ON child.oid=c.conrelid JOIN pg_class parent ON parent.oid=c.confrelid
@@ -420,6 +420,10 @@ async function schema(phase: Phase): Promise<void> {
     if (matched.length !== 1 || matched[0].convalidated !== true || matched[0].condeferrable !== false
       || matched[0].conenforced !== true || matched[0].enforced_trigger !== true) fail('PRINCIPAL_SCHEMA_INVALID');
   }
+  // Static type metadata belongs only to this actual table-SHARE-held phase.
+  // Other ID types keep their original driver parameter/coercion semantics.
+  const userKeyTypes = rows.filter(row => row.parent === 'user' && row.parent_column === 'id');
+  phase.textUserIdLocks = userKeyTypes.length > 0 && userKeyTypes.every(row => row.parent_type_oid === '25');
 }
 function bounded(rows: Row[], max = MAX_ROWS): Row[] {
   if (rows.length > max) fail('PRINCIPAL_TOO_LARGE'); return rows;
@@ -468,7 +472,18 @@ async function locks(phase: Phase): Promise<void> {
   // All current members, including ineligible/inactive ones, contribute user
   // rows. The table SHARE locks also freeze new/retargeted predicate rows.
   if (users.size > MAX_ROWS * MAX_ORGANIZATIONS + 1) fail('PRINCIPAL_TOO_LARGE');
-  for (const userId of [...users].sort((a,b) => Buffer.compare(Buffer.from(a,'utf8'),Buffer.from(b,'utf8')))) {
+  const userIds = [...users].sort((a,b) => Buffer.compare(Buffer.from(a,'utf8'),Buffer.from(b,'utf8')));
+  if (phase.textUserIdLocks) {
+    // Raw driver scalars, including exact NUMERIC strings. Each original
+    // selector retains its own genuine FOR SHARE NOWAIT lookup and result.
+    const locked = await db.all(`SELECT requested.user_id AS requested_user_id,locked.lock_user_found,locked.banned
+      FROM unnest($1::text[]) WITH ORDINALITY requested(user_id,ordinal)
+      LEFT JOIN LATERAL (SELECT true AS lock_user_found,banned FROM ${table(phase,'user')}
+        WHERE id=requested.user_id FOR SHARE NOWAIT) locked ON true
+      ORDER BY requested.ordinal LIMIT $2`, [userIds,userIds.length+1]) as Row[];
+    if (locked.length !== userIds.length || locked.some((row,index) => row.requested_user_id !== userIds[index]
+      || row.lock_user_found !== true || !flag(row.banned))) fail('PRINCIPAL_SCOPE_CHANGED');
+  } else for (const userId of userIds) {
     const user = await db.get(`SELECT id,banned FROM ${table(phase,'user')} WHERE id=$1 FOR SHARE NOWAIT`, [userId]) as Row | undefined;
     if (!user || !flag(user.banned)) fail('PRINCIPAL_SCOPE_CHANGED');
   }
