@@ -155,6 +155,17 @@ test('email quick selection waits for the target account before opening its mess
   });
   let foldersRequested = false;
   const detailRequests: string[] = [];
+  const listRequests: unknown[] = [];
+  let releaseMailboxCatalogue: () => void = () => undefined;
+  const mailboxListReady = new Promise<void>((resolve) => {
+    releaseMailboxCatalogue = resolve;
+  });
+
+  // Exercise the mailbox list before the aggregate catalogue becomes ready.
+  await page.route('**/api/email/classification/mailboxes', async route => {
+    await mailboxListReady;
+    await route.fulfill({ json: { success: true, data: { mailboxes: [] } } });
+  });
 
   await page.route('**/api/email/mailboxes', route => route.fulfill({ json: {
     success: true,
@@ -200,10 +211,14 @@ test('email quick selection waits for the target account before opening its mess
       } },
     } });
   });
-  await page.route('**/api/email/accounts/sales/messages?*', route => route.fulfill({ json: {
-    success: true,
-    data: { messages: [], total: 0 },
-  } }));
+  await page.route('**/api/email/messages/list', async route => {
+    expect(route.request().method()).toBe('POST');
+    const body = route.request().postDataJSON();
+    expect(body).toMatchObject({ accountId: 'sales', folder: 'INBOX' });
+    listRequests.push(body);
+    await route.fulfill({ json: { success: true, data: { messages: [], total: 0 } } });
+    releaseMailboxCatalogue();
+  });
   await page.route('**/api/user-preferences', route => route.fulfill({ json: {
     success: true,
     data: { emailAllowRemoteImages: false, emailRemoteImageAllowedSenders: [] },
@@ -211,6 +226,10 @@ test('email quick selection waits for the target account before opening its mess
 
   await page.goto('/de');
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+  await expect.poll(async () => Math.abs(
+    (await page.locator('#home-workspace').boundingBox())!.y
+    - (await page.locator('[data-home-scroll]').boundingBox())!.y,
+  )).toBeLessThan(2);
   await page.getByTestId('workspace-widget-email').getByRole('link', { name: /Launch-Freigabe/ }).click();
 
   await expect.poll(() => foldersRequested).toBe(true);
@@ -219,6 +238,7 @@ test('email quick selection waits for the target account before opening its mess
 
   await expect(page).toHaveURL(/\/de\/emails\?accountId=sales&messageId=mail-sales&folder=INBOX/);
   await expect(page.getByText('Die angeklickte Nachricht ist im Preview geöffnet.')).toBeVisible();
+  expect(listRequests).toHaveLength(1);
   expect(detailRequests).toHaveLength(1);
 });
 

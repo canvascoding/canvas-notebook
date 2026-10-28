@@ -22,6 +22,7 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
 
 type ListRequest = { accountId: string; folder: string; query: string; offset: number };
 const listRequests: ListRequest[] = [];
+const detailRequests: string[] = [];
 const feedRequests: URL[] = [];
 const preferenceWrites: string[] = [];
 const unexpectedRequests: string[] = [];
@@ -85,6 +86,7 @@ globalThis.fetch = (async (input, init) => {
   else if (path === '/api/email/outbox') data = [];
   else if (path === '/api/email/folders') data = { folders };
   else if (/^\/api\/email\/accounts\/[^/]+\/messages\/message-a$/u.test(path)) {
+    detailRequests.push(url.toString());
     data = { message: {
       id: 'message-a', folder: url.searchParams.get('folder'),
       from: 'sender@example.com', subject: 'Test message', date: '2026-09-09T10:00:00Z',
@@ -244,8 +246,18 @@ async function main() {
     await clickButton(translations.emails.refresh);
     assert.equal(searchInput().value, 'standalone search', 'standalone email search must stay editable');
     assert.equal(listRequests.at(-1)?.query, 'standalone search');
+    holdNextListResponse = true;
+    const detailReadsBeforeDeepLink = detailRequests.length;
     await render({ kind: 'email', toolCallId: null, toolName: 'email_read', status: 'complete', accountId: 'account-a', folder: 'INBOX', messageId: 'message-a' }, false);
     assert.ok(container.textContent?.includes('Persistent reader body'), 'standalone message deep links must still open their target');
+    assert.ok(releaseListResponse, 'the initial target mailbox list must still be pending');
+    assert.equal(detailRequests.length, detailReadsBeforeDeepLink + 1, 'the deep link opens its detail once');
+    await act(async () => { releaseListResponse!(); });
+    releaseListResponse = null;
+    await flush();
+    assert.equal(detailRequests.length, detailReadsBeforeDeepLink + 1, 'a list started before the selection must not reread the newly opened detail');
+    await clickButton(translations.emails.refresh);
+    assert.equal(detailRequests.length, detailReadsBeforeDeepLink + 2, 'refreshing an already selected message must still update its detail');
     assert.deepEqual(unexpectedRequests, [], 'all component requests must be covered by the fixtures');
     console.log('email-client-context-intent-test: ok');
   } finally {
