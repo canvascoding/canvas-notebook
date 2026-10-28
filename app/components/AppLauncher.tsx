@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getPathname, usePathname, Link } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -48,6 +48,8 @@ interface AppItem {
   icon: React.ComponentType<{ className?: string }>;
   hasQuickActions: boolean;
 }
+
+const subscribeToHydration = () => () => {};
 
 const APPS: AppItem[] = [
   { id: 'notebook', href: '/notebook', icon: NotebookPen, hasQuickActions: false },
@@ -138,6 +140,8 @@ function getQuickActions(
 }
 
 export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
+  // The server-rendered trigger must wait for its client event handlers.
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const { terminalEnabled } = useTerminalAvailability();
   const { studioBulkEnabled } = useStudioBulkAvailability();
   const [showMoreApps, setShowMoreApps] = useState(false);
@@ -241,7 +245,8 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
           <button
             ref={triggerRef}
             type="button"
-            className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            disabled={!hydrated}
+            className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-50"
             aria-label={tNav('openAppLauncher')}
           >
             <LayoutGrid className="h-4 w-4" />
