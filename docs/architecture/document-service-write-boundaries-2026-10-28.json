@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "baseline": "c2a37547391c0ff7d88801a5c6505d49934f30a1",
+  "candidateSourceHashes": {
+    "app/lib/files/markdown-create-birth.ts": "183f3708ec216a1e751feef9604909929401a238e7195e517ef2518744ba1638",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "209643ddde21b1db4e26f2b8de38379c70c7ee5e290276a15ec9642e2cd93bf3"
+  },
+  "documentsPerFixture": 10,
+  "normalUploadSources": true,
+  "freshFixtures": 4,
+  "measurementWindows": 16,
+  "pairs": [
+    {
+      "actor": "agent",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 1628,
+      "afterSql": 1452,
+      "saved": 176,
+      "beforeCheckouts": 77,
+      "afterCheckouts": 77
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 1523,
+      "afterSql": 1347,
+      "saved": 176,
+      "beforeCheckouts": 43,
+      "afterCheckouts": 43
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 1523,
+      "afterSql": 1347,
+      "saved": 176,
+      "beforeCheckouts": 43,
+      "afterCheckouts": 43
+    },
+    {
+      "actor": "agent",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 168,
+      "afterSql": 168,
+      "saved": 0,
+      "beforeCheckouts": 7,
+      "afterCheckouts": 7
+    },
+    {
+      "actor": "mcp",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 1173,
+      "afterSql": 994,
+      "saved": 179,
+      "beforeCheckouts": 45,
+      "afterCheckouts": 45
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 1152,
+      "afterSql": 973,
+      "saved": 179,
+      "beforeCheckouts": 32,
+      "afterCheckouts": 32
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 1152,
+      "afterSql": 973,
+      "saved": 179,
+      "beforeCheckouts": 32,
+      "afterCheckouts": 32
+    },
+    {
+      "actor": "mcp",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 102,
+      "afterSql": 102,
+      "saved": 0,
+      "beforeCheckouts": 12,
+      "afterCheckouts": 12
+    }
+  ],
+  "passed": true,
+  "allOwnResourcesClosed": true,
+  "baselineSourceRemoved": true,
+  "originalIdentityRowsXminAndBytesPreserved": true,
+  "callsiteCountsExactlyMatchAllWindows": true,
+  "callsiteStackFailures": 0,
+  "timingsAreDiagnosticOnly": true,
+  "finalSizeLatencyAndConcurrencyAcceptanceComplete": false,
+  "focused": {
+    "cases": 9,
+    "realHeldCloseMutations": 7,
+    "authorizationSqlInsidePureVerify": 0,
+    "actualWriteBoundaryDeniesDrift": true,
+    "freshFinalPrincipalExitRetained": true,
+    "originalAuthorityRowsXminRetained": true,
+    "originalClaimAndIntentRetainedOnExplicitRetry": true,
+    "allOriginalBytesPreserved": true
+  },
+  "beforeContractExtraAuthorizationSqlInPureVerify": 88,
+  "regressionSuites": [
+    "markdown-create-write-boundary-postgres-test.ts",
+    "agent-markdown-create-policy-profile-postgres-test.ts",
+    "markdown-create-readonly-phase-postgres-test.ts",
+    "agent-markdown-create-storage-commit-postgres-test.ts",
+    "direct-mcp-markdown-create-storage-phase-postgres-test.ts",
+    "markdown-create-verification-phase-postgres-test.ts",
+    "markdown-create-birth-realm-observation-postgres-test.ts",
+    "markdown-create-native-observation-postgres-test.ts",
+    "markdown-create-owner-observation-postgres-test.ts",
+    "direct-mcp-native-markdown-create-postgres-test.ts",
+    "authenticated-manual-markdown-create-postgres-test.ts",
+    "authenticated-markdown-upload-postgres-test.ts"
+  ],
+  "releaseTypesPassed": true,
+  "scopedTypes": {
+    "roots": 31,
+    "sourceFiles": 5117,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "changedExistingProductFunctions": 5,
+  "newProductFunctions": 0,
+  "unchangedTopLevelProductFunctions": 134,
+  "evaluationCorrection": "The previous phase-removal comparator incorrectly required fewer checkouts for this held-connection change. All original fixture runs and observations are retained. This audit requires strictly fewer warm SQL statements, exactly unchanged checkouts, unchanged original retries, exact driver/callsite-count parity and all source/cleanup invariants.",
+  "originalComparisonReportSha256": "c9d71b5a352aed2692c6a4760cb5c46bff75f49abcb158304b922f027ec0fc9f",
+  "performanceBudgetsMet": false,
+  "fullGoalComplete": false,
+  "productionChanged": false
+}

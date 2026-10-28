@@ -197,6 +197,16 @@ Vier frische Zehn-Quellen-Fixtures schließen 16 Vergleichsfenster: warm Agent
 1599 → 1523 SQL / 46 → 43 Ausleihen, MCP 1192 → 1152 / 33 → 32. Ursprüngliche
 Wiederholungen bleiben gleich. Die Budgets und übrigen Pakete bleiben offen.
 
+Die [Prüfungen an Schreib- und Ergebnisgrenzen](architecture/document-service-write-boundaries-2026-10-28.md)
+ersetzen nun die nochmals verschachtelten Rechteprüfungen innerhalb reiner
+Dateiverifikation durch den tatsächlichen aktuellen Nachweis nach dem Lesen und
+vor nativer DML oder Ergebnisbestätigung. Die vollständige native Prüfung nach
+der letzten Publikationsverifikation bleibt erhalten. Neun gezielte echte Fälle,
+zwölf PostgreSQL-Suiten und Typ-/Lint-Prüfungen bestehen. Vier frische Fixtures
+schließen 16 Fenster: warm Agent 1523 → 1347 SQL / 43 Ausleihen, MCP 1152 → 973 / 32.
+Ursprüngliche Wiederholungen und Ausleihen bleiben unverändert. Die Gesamtbudgets,
+übrigen Servicepakete und finalen Release-Gates sind weiterhin offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

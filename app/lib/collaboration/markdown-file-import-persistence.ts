@@ -26,7 +26,7 @@ import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource,
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
-import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth, isMarkdownCreateBirthVerificationEntry,
+import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth,
   isMarkdownCreateBirthVerification, isMarkdownCreateBirthVerificationOperation,
   directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
   type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
@@ -1154,26 +1154,25 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
   if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
-  if (projection) {
-    if (isMarkdownCreateBirthVerificationEntry(input)) {
-      // Only a real queued verify action can enter here, on this exact held
-      // Principal/claim/source. The helper does not publish or finalize here.
-      // Keep current owner/source/root and the stricter private time bound;
-      // its exit retains the complete fresh rights/native/birth observation.
+  if (isMarkdownCreateBirthVerification(input)) {
+    // Pure historical IO never grants authority, even under a held Principal.
+    // Its enclosing native/publication/result boundary performs fresh Current
+    // after the read. Real mutating actions retain their full guards below.
+    const claim = owner.claim;
+    if (!claim) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    if (projection) {
       if (owner.frame.kind === 'agent-tool') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
       else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
-      await assertFirstProjectionOwnerOrigin(owner.frame);
-      await owner.source.assertCurrent(); await projection.claim.assertRoot();
-      return;
     }
+    await assertFirstProjectionOwnerOrigin(owner.frame);
+    await owner.source.assertCurrent(); await claim.assertRoot();
+    return;
+  }
+  if (projection) {
     await assertFirstProjectionOwnerOrigin(owner.frame);
     await currentAuthenticatedMarkdownBirth(projection);
   } else {
     await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
-    // The exact private read cannot write or grant authority. The next native
-    // or publication phase reauthenticates; the final result has its own real
-    // Principal. Keep current owner/source/namespace checks at both read ends.
-    if (!consumer && isMarkdownCreateBirthVerification(input)) return;
     if (consumer) {
       await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
       // Preserve the MCP consumer's existing additional A/source fence.
@@ -1793,9 +1792,12 @@ async function assertAuthenticatedUploadScope(database: SqlConnection, input: Ca
     || !createSources.has(scope.source) || scope.access.userId !== input.actorUserId
     || (scope.frame.kind === 'request' ? !('sessionId' in scope.access) || scope.access.sessionId !== input.actorSessionId
       : input.actorSessionId !== (scope.frame.kind === 'agent-tool' ? scope.frame.originalOrigin.piSessionId : scope.frame.originalOrigin.sessionId))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
-  await assertAuthenticatedCreateOriginCurrent(database, scope.frame, scope.access);
   await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
+  // The helper only observes private evidence. Refresh authority after its
+  // actual close, immediately before this boundary can permit native DML.
+  if (scope.frame.kind === 'request') await scope.access.assertCurrent();
+  await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
+  await assertAuthenticatedCreateOriginCurrent(database, scope.frame, scope.access);
 }
 /** Validate the exact real row delivered to the mapper, including orphan raw
  * error flags. No earlier metadata SELECT can certify a later RC row. */
@@ -1840,8 +1842,9 @@ async function confirmedAuthenticatedUploadRetry(database: SqlConnection, input:
 async function captureAuthenticatedUpload(database: SqlConnection, frame: BootstrapFrame, access: AuthenticatedCreateAccess,
   source: AuthenticatedCreateSource, absence: UploadTargetAbsence): Promise<Captured> {
   if (!createSources.has(source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
+  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
   await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
+  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
   const bytes = await source.readSource();
   if (bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
@@ -2453,10 +2456,10 @@ export async function assertAuthenticatedMarkdownBirthProjectionAllowed(database
     || phase.input.fingerprint !== binding.request_fingerprint || phase.result.receipt.target.documentId !== state.documentId
     || phase.result.receipt.target.lifecycleGeneration !== state.lifecycleGeneration) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
   await assertMarkdownBirthRealm(database, phase.frame);
+  await phase.claim.verify();
   const stateNow = await currentAuthenticatedMarkdownBirth(phase, false);
   if (identityKeys.some(key => stateNow[key] !== state[key]) || stateNow.documentSequence !== state.documentSequence
     || !Buffer.from(stateNow.yjsState).equals(Buffer.from(state.yjsState)) || !Buffer.from(stateNow.stateVector).equals(Buffer.from(state.stateVector))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  await phase.claim.verify();
 }
 
 async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: AuthenticatedCreateSource, input: Captured,
@@ -2478,7 +2481,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         return firstProjectionPhases.run(scope, async () => {
           try {
             const state = await currentAuthenticatedMarkdownBirth(scope), value = await operation(scope, state);
-            await currentAuthenticatedMarkdownBirth(scope); await claim.verify(); return value;
+            await claim.verify(); await currentAuthenticatedMarkdownBirth(scope); return value;
           } finally { scope.active = false; }
         });
       });
