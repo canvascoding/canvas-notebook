@@ -12,6 +12,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/agent-markdown-create-policy-profile-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/workspaces/request-principal.ts',
+    'app/lib/public-sharing/tool-policy.ts', 'app/lib/agents/registry.ts', 'app/lib/agents/access.ts'],
   'scripts/workspace-principal-user-locks-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/workspaces/request-principal.ts',
     'app/lib/workspaces/postgres-runtime.ts', 'app/lib/db/index.ts', 'app/lib/license/seat-limit.ts'],

@@ -92,9 +92,10 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       revoked = true;
     }
     const row: unknown = Array.isArray(event.result.rows) ? event.result.rows[0] : undefined;
-    if (!row || typeof row !== 'object' || Reflect.get(row, 'schema') !== h.schema
-      || !Array.isArray(Reflect.get(row, 'relations')) || typeof Reflect.get(row, 'transaction') !== 'string') return;
-    latestTransaction = `${String(Reflect.get(row, 'backend'))}:${String(Reflect.get(row, 'transaction'))}`;
+    const prefix = event.text.includes('AS __canvas_policy_profile_present') ? '__canvas_origin_' : '';
+    if (!row || typeof row !== 'object' || Reflect.get(row, `${prefix}schema`) !== h.schema
+      || !Array.isArray(Reflect.get(row, `${prefix}relations`)) || typeof Reflect.get(row, `${prefix}transaction`) !== 'string') return;
+    latestTransaction = `${String(Reflect.get(row, `${prefix}backend`))}:${String(Reflect.get(row, `${prefix}transaction`))}`;
     if (live) { live.transactions.add(latestTransaction); live.observations++; }
   };
   const deniedPath = 'storage-phase/revoked-after-open.md';

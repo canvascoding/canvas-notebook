@@ -156,6 +156,14 @@ zehn Quellen reduziert warme MCP-Anlage von 1404 / 33 auf
 1931 / 46. Weitere Bündelung und sämtliche übrigen Abnahmen des
 Gesamtplans bleiben offen.
 
+Die [frische Agentenprofil- und Rechtebeobachtung](architecture/document-service-agent-policy-profile-2026-10-28.md)
+bündelt nun das vollständige Policy-Profil mit der bestehenden abschließenden
+Workspace-/Verbindungskontextbeobachtung. Im direkten Zehn-Quellen-Vergleich sinkt
+warme Agentenanlage von 1919 / 46 auf 1735 / 46 SQL-Aufrufe / Ausleihen;
+15 neue Testgruppen und 29 bestehende PostgreSQL-Suiten bestehen. Die aktuelle
+Beobachtung vor und nach der Policy-Entscheidung bleibt erhalten. Die
+Leistungsbudgets und sämtliche übrigen Abnahmen bleiben offen.
+
 ## Zielaufbau
 
 Editor / Agent / MCP / Systemauftrag

@@ -11,7 +11,8 @@ import { captureCurrentAgentToolInvocation, withCapturedAgentToolInvocation } fr
 import { DISABLED_ALL_TOOLS_SENTINEL, getDefaultEnabledToolNames, isDefaultToolsConfig,
   normalizeEnabledToolsConfig, resolveEnabledToolNames } from '../pi/enabled-tools';
 import { resolveLegacySettingsStoragePath } from '../settings-storage';
-import type { WorkspaceAgentToolPrincipalAccess } from '../workspaces/request-principal';
+import { getWorkspaceAgentMarkdownCreatePolicyProfileReader,
+  type WorkspaceAgentToolPrincipalAccess } from '../workspaces/request-principal';
 
 export class PublicShareToolPolicyError extends Error {
   constructor(readonly code: 'TOOL_POLICY_DENIED' | 'TOOL_POLICY_CHANGED' | 'TOOL_POLICY_UNAVAILABLE') {
@@ -145,8 +146,10 @@ async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_fi
             if (origin.toolName !== toolName || access.toolName !== toolName || access.toolCallId !== origin.toolCallId
               || access.userId !== origin.userId || access.agentId !== normalizeManagedAgentId(origin.agentId)
               || access.piSessionId !== origin.sessionId || access.workspace.workspaceId !== origin.workspaceId) fail('TOOL_POLICY_DENIED');
-            await access.assertCurrent(); await assertConfig(captures); assertInvocation();
-            const before = await readAgentProfileOnConnection(database,access.agentId);
+            const profileReader = getWorkspaceAgentMarkdownCreatePolicyProfileReader(database, access);
+            if (!profileReader) await access.assertCurrent();
+            await assertConfig(captures); assertInvocation();
+            const before = profileReader ? await profileReader() : await readAgentProfileOnConnection(database,access.agentId);
             if (!before || before.agentId !== access.agentId) fail('TOOL_POLICY_DENIED');
             const configured = normalizeEnabledToolsConfig(resolveEffectiveProviderConfig(preparedMainConfig,before,
               access.agentId === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special').providerConfig.enabledTools);
@@ -155,9 +158,10 @@ async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_fi
             const enabled = isDefaultToolsConfig(configured) ? getDefaultEnabledToolNames(names) : resolveEnabledToolNames(names,configured);
             if (!enabled.has(toolName)) fail('TOOL_POLICY_DENIED');
             await assertConfig(captures);
-            const after = await readAgentProfileOnConnection(database,access.agentId);
+            const after = profileReader ? await profileReader() : await readAgentProfileOnConnection(database,access.agentId);
             if (!after || JSON.stringify(before) !== JSON.stringify(after)) fail('TOOL_POLICY_CHANGED');
-            await access.assertCurrent(); await assertConfig(captures); assertInvocation();
+            if (!profileReader) await access.assertCurrent();
+            await assertConfig(captures); assertInvocation();
             if (!active || failure) fail('TOOL_POLICY_CHANGED');
           } catch (error) { failure ??= {error}; throw error; }
           finally { checking = false; }

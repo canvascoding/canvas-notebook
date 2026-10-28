@@ -15,7 +15,7 @@ import { getSchema } from '@tiptap/core';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
-import { withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin, withWorkspaceAgentMarkdownCreatePrincipalOnConnection,
+import { withWorkspaceAgentMarkdownCreatePrincipal, withWorkspaceAgentMarkdownCreatePrincipalOnConnection,
   type WorkspaceAgentToolHistoricalOrigin, type WorkspaceAgentToolPrincipalAccess,
   type WorkspaceAgentMarkdownCreatePrincipal } from '../workspaces/request-principal';
 import { captureCurrentAgentToolInvocation, withCapturedAgentToolInvocation } from '../pi/agent-tool-invocation';
@@ -1050,7 +1050,7 @@ type AgentCreatePhase = { active: boolean; database: SqlConnection; access: Work
   frame: Extract<BootstrapFrame, { kind: 'agent-tool' }> };
 const agentCreatePhases = new AsyncLocalStorage<AgentCreatePhase>();
 const agentCreateFactories = new AsyncLocalStorage<{active:boolean;frame:Extract<BootstrapFrame,{kind:'agent-tool'}>;
-  principal:WorkspaceAgentMarkdownCreatePrincipal}>();
+  principal:WorkspaceAgentMarkdownCreatePrincipal; historicalOrigin:()=>WorkspaceAgentToolHistoricalOrigin|undefined}>();
 type AgentBirthOwner = { active: boolean; accepting: boolean; frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>;
   source: AuthenticatedCreateSource; openPhase: () => Promise<SqlConnection>;
   invocation?: MarkdownCreateBirthStorageInput; claim?: MarkdownCreateBirthClaim };
@@ -1074,6 +1074,11 @@ function currentAgentCreateInvocation(frame: Extract<BootstrapFrame, { kind: 'ag
   const actual = frame.invocation;
   if (!actual.active || !agentCreateInvocations.has(actual) || actual.original !== frame.originalOrigin) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   actual.assertInvocation();
+  const factory = agentCreateFactories.getStore();
+  if (factory?.active && factory.frame === frame) {
+    const observed = factory.historicalOrigin();
+    if (observed) actual.current = observed;
+  }
   const before = actual.original, current = actual.current;
   if (['userId','agentId','toolName','workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId',
     'rootPath','rootRelativePath','legacy','status','schema','schemaOid','searchPath','databaseOid']
@@ -1200,14 +1205,18 @@ export async function persistAndProjectAgentMarkdownCreate(selection: AgentCreat
       if (typeof callerKey !== 'string' || !callerKey || callerKey.length > 500 || /[\u0000-\u001f\u007f]/u.test(callerKey)
         || Buffer.from(callerKey,'utf8').toString('utf8') !== callerKey) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       let current: WorkspaceAgentToolHistoricalOrigin | undefined;
-      const workspace = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({ workspaceId: selected.workspaceId },
-        observed => { current = observed; }, principal => executeLifecycleTransaction({ openConnection: openDb,
+      const workspace = await withWorkspaceAgentMarkdownCreatePrincipal({ workspaceId: selected.workspaceId },
+        async (principal, historicalOrigin) => {
+          const selectedWorkspace = await executeLifecycleTransaction({ openConnection: openDb,
           execute: async database => {
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
             return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
               await policy.assertCurrent(database,access); return access.workspace;
             });
-          }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+          }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
+          current = historicalOrigin();
+          return selectedWorkspace;
+        });
       if (!current) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       const original = current;
       const operationId = hash(JSON.stringify(['canvas-agent-markdown-create-key-v1',original.userId,original.agentId,selected.workspaceId,callerKey]));
@@ -1224,8 +1233,8 @@ export async function persistAndProjectAgentMarkdownCreate(selection: AgentCreat
       if (birth) bindAgentBirthOriginal(actual,birth);
       // Historical original lookup precedes any present-day target observation.
       if (!birth) {
-        const documents = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:selected.workspaceId},
-          () => undefined, principal => executeLifecycleTransaction({ openConnection:openDb,
+        const documents = await withWorkspaceAgentMarkdownCreatePrincipal({workspaceId:selected.workspaceId},
+          principal => executeLifecycleTransaction({ openConnection:openDb,
             execute:async database => {
               await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
               return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
@@ -1385,10 +1394,10 @@ async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConn
 async function withAuthenticatedCreatePhaseFactory<T>(frame: BootstrapFrame,
   operation: (requestPrincipal?: WorkspaceRequestPrincipal) => Promise<T>, agentOnly = false): Promise<T> {
   if (frame.kind === 'agent-tool') {
-    const actual = currentAgentCreateInvocation(frame);
-    return withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:frame.selection.workspaceId},
-      observed => { actual.current = observed; }, async principal => {
-        const factory = {active:true,frame,principal};
+    currentAgentCreateInvocation(frame);
+    return withWorkspaceAgentMarkdownCreatePrincipal({workspaceId:frame.selection.workspaceId},
+      async (principal, historicalOrigin) => {
+        const factory = {active:true,frame,principal,historicalOrigin};
         try { return await agentCreateFactories.run(factory,() => operation()); }
         finally { factory.active = false; }
       });

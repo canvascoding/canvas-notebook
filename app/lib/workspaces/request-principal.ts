@@ -17,7 +17,7 @@ import type { LicenseStatus } from '../license/types';
 import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, withCapturedAgentToolInvocation,
   type AgentToolInvocation, type AgentToolInvocationOrigin } from '../pi/agent-tool-invocation';
 import { readStoredAgentWorkspaceOnConnection } from '../pi/session-workspace-context';
-import { normalizeManagedAgentId } from '../agents/registry';
+import { agentProfileFromSqlRow, normalizeManagedAgentId, type AgentProfile } from '../agents/registry';
 import { getAgentAccessOnConnection } from '../agents/access';
 import { resolveVerifiedAgentActorContextOnConnection } from '../agents/actor-context';
 import { resolveWorkspaceActor } from './context';
@@ -62,6 +62,7 @@ type AgentCapture = AuthorizationCapture & {
   kind: 'agent_tool'; invocation: AgentToolInvocation; origin: AgentToolInvocationOrigin;
   agentId: string; piSessionDbId: number; profile: AgentProfilePin;
   originalOrigin?: { observe: WorkspaceAgentToolHistoricalOriginObserver; realm: Readonly<{ schemaOid: number; searchPath: string }> };
+  historicalCapture?: { value?: WorkspaceAgentToolHistoricalOrigin };
 };
 type AgentWorkspaceOrigin = Pick<AgentToolInvocationOrigin, 'userId' | 'sessionId' | 'workspaceId' | 'workspaceType'
   | 'organizationId' | 'customerId' | 'projectId' | 'workspaceRoot' | 'workspaceRootRelativePath' | 'legacy'>;
@@ -128,6 +129,8 @@ declare const agentMarkdownCreateBrand: unique symbol;
 export type WorkspaceAgentMarkdownCreatePrincipal = WorkspaceAgentToolPrincipal & Readonly<{ [agentMarkdownCreateBrand]: never }>;
 const agentMarkdownCreatePrincipals = new WeakMap<WorkspaceAgentMarkdownCreatePrincipal, AgentCapture>();
 const agentMarkdownCreateCaptures = new WeakSet<AgentCapture>();
+// Provenance only: no observed permission or profile row survives a check.
+const agentCreatePolicyPhases = new WeakMap<object, Phase>();
 const jobPolicies = new WeakMap<WorkspaceOperationJobPolicy, JobPolicyCapture>();
 const phases = new WeakMap<SqlConnection, Phase>();
 const MAX_ORGANIZATIONS = 16, MAX_ROWS = 1024, MAX_PHASE_MS = 5000;
@@ -637,6 +640,21 @@ function assertNativeEditPhaseActive(database: SqlConnection, captured: RequestC
   }
 }
 
+function observePrincipalPhase<T>(phase: Phase, readCurrent: () => Promise<T>): Promise<T> {
+  if (phase.checking) {
+    phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT');
+    phase.request.failure ??= phase.failure;
+    return Promise.reject(phase.failure);
+  }
+  phase.checking = true;
+  const checked = measureDocumentPhase('authorization', readCurrent)
+    .catch(error => { phase.failure ??= reason(error); phase.request.failure ??= phase.failure; throw phase.failure; })
+    .finally(() => { phase.checking = false; });
+  phase.pending.add(checked);
+  void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
+  return checked;
+}
+
 /** Shared phase mechanics only. Each private adapter supplies its actual
  * captured origin and fixed authorization reader; callers never supply either. */
 function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, request: Phase['request'] | undefined,
@@ -671,19 +689,13 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
       await schema(phase); await locks(phase);
       if (request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request)) await pinAgentCreateReceiptRealm(phase);
       const workspace = await measureDocumentPhase('authorization', () => readCurrent(phase));
-      const assertCurrent = (): Promise<void> => {
-        if (phase.checking) {
-          phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'); request.failure ??= phase.failure;
-          return Promise.reject(phase.failure);
-        }
-        phase.checking = true;
-        const checked = measureDocumentPhase('authorization', () => readCurrent(phase)).then(() => undefined).catch(error => { phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure; })
-          .finally(() => { phase.checking = false; });
-        phase.pending.add(checked);
-        void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
-        return checked;
-      };
-      const result = await operation(makeAccess(workspace, assertCurrent));
+      const assertCurrent = (): Promise<void> => observePrincipalPhase(phase, async () => { await readCurrent(phase); });
+      const access = makeAccess(workspace, assertCurrent);
+      if (request.kind === 'agent_tool' && request.historicalCapture) {
+        if (!access || typeof access !== 'object') fail('PRINCIPAL_INVALID');
+        agentCreatePolicyPhases.set(access, phase);
+      }
+      const result = await operation(access);
       phase.accepting = false;
       if (phase.pending.size) {
         phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
@@ -1039,9 +1051,11 @@ async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   return workspace;
 }
 
-async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceContext> {
+async function currentAgentWithOriginalOrigin(phase: Phase,
+  policyProfile?: { value: AgentProfile | null }): Promise<WorkspaceContext> {
   const request = phase.request;
   const create = request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request);
+  if (policyProfile && (!create || !request.historicalCapture)) fail('PRINCIPAL_REQUIRED');
   let workspace: WorkspaceContext;
   if (create) {
     workspace = await readCurrentAgentWorkspace(phase);
@@ -1062,17 +1076,34 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
     rootPath: original.rootPath, rootRelativePath: original.rootRelativePath, legacy: original.legacy, status: original.status });
   active(phase);
   let row: Row | undefined;
+  let profileRow: Row | undefined;
   if (create) {
     const requiredTables = principalRelations(phase);
     // The three adjacent context/origin/context reads contain no intervening
     // callback or mutation. Observe their complete facts together, including a
     // context row when the Workspace row is absent. No earlier proof is cached.
     try {
-      row = await phase.database.get(`SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
+      const originSql = `SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
         w.project_id,w.owner_user_id,w.root_relative_path,w.status,header.*,header.database AS database_oid
         FROM (${principalIdentitySnapshotSql}) header
-        LEFT JOIN ${table(phase,'canvas_workspaces')} w ON w.id=$3`,
-      [quote(request.schema), requiredTables, expected.workspaceId]) as Row | undefined;
+        LEFT JOIN ${table(phase,'canvas_workspaces')} w ON w.id=$3`;
+      if (policyProfile) {
+        const fields = ['workspace_id','workspace_type','organization_id','customer_id','project_id','owner_user_id',
+          'root_relative_path','status','schema','search_path','backend','start','transaction','database','isolation',
+          'read_only','replication','schema_oid','relations','database_oid'] as const;
+        // Preserve raw profile scalars and sparse columns. Trusted aliases are
+        // selected last and separately named, including the two distinct owners
+        // and organizations; user-added profile columns cannot replace them.
+        const observed = await phase.database.get(`SELECT policy_profile.*,
+          ${fields.map(field => `origin.${quote(field)} AS ${quote(`__canvas_origin_${field}`)}`).join(',')},
+          (policy_profile.agent_id IS NOT NULL) AS __canvas_policy_profile_present
+          FROM (${originSql}) origin
+          LEFT JOIN LATERAL (SELECT * FROM ${table(phase,'agents')} WHERE agent_id=$4 LIMIT 1) policy_profile ON true`,
+        [quote(request.schema), requiredTables, expected.workspaceId, request.agentId]) as Row | undefined;
+        row = observed ? Object.fromEntries(fields.map(field => [field, observed[`__canvas_origin_${field}`]])) : undefined;
+        profileRow = observed?.__canvas_policy_profile_present === true ? observed : undefined;
+      } else row = await phase.database.get(originSql,
+        [quote(request.schema), requiredTables, expected.workspaceId]) as Row | undefined;
     } catch (error) {
       // A same-B rename/removal used to be rejected by the preceding standalone
       // relation check. Preserve that typed denial if lookup cannot be planned.
@@ -1103,13 +1134,38 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
   const historical: WorkspaceAgentToolHistoricalOrigin = Object.freeze({ ...expected,
     rootRelativePath: expected.rootRelativePath, legacy: false, status: 'active', schema: request.schema,
     schemaOid: Number(row.schema_oid), searchPath: optin.realm.searchPath, databaseOid: request.database });
-  const returned: unknown = optin.observe(historical);
-  if (returned !== undefined) {
-    if (returned instanceof Promise) void returned.catch(() => undefined);
-    fail('PRINCIPAL_DETACHED');
+  if (policyProfile && profileRow && !sameAgentProfile(request.profile, parseAgentProfilePin(profileRow))) {
+    fail('PRINCIPAL_SCOPE_CHANGED');
+  }
+  if (request.historicalCapture) request.historicalCapture.value = historical;
+  else {
+    const returned: unknown = optin.observe(historical);
+    if (returned !== undefined) {
+      if (returned instanceof Promise) void returned.catch(() => undefined);
+      fail('PRINCIPAL_DETACHED');
+    }
   }
   active(phase);
+  if (policyProfile) policyProfile.value = profileRow ? agentProfileFromSqlRow(profileRow) : null;
   return workspace;
+}
+
+/** Fixed fresh reader for the actual callback-free Create phase. Other callers
+ * retain their existing policy path. A retained reader keeps the same lifetime,
+ * connection, pending-work and poisoning checks as ordinary assertCurrent. */
+export function getWorkspaceAgentMarkdownCreatePolicyProfileReader(database: SqlConnection,
+  access: WorkspaceAgentToolPrincipalAccess): (() => Promise<AgentProfile | null>) | undefined {
+  const phase = agentCreatePolicyPhases.get(access);
+  if (!phase) return undefined;
+  return () => observePrincipalPhase(phase, async () => {
+    active(phase);
+    if (!phase.accepting) fail('PRINCIPAL_DETACHED');
+    if (phase.database !== database || phase.request.kind !== 'agent_tool'
+      || !phase.request.historicalCapture || !agentMarkdownCreateCaptures.has(phase.request)) fail('PRINCIPAL_REQUIRED');
+    const profile = { value: null as AgentProfile | null };
+    await currentAgentWithOriginalOrigin(phase, profile);
+    return profile.value;
+  });
 }
 
 /** Actual wrapped Agent invocation only. No caller context, user/session ID,
@@ -1131,7 +1187,7 @@ export async function withWorkspaceAgentToolPrincipalOriginalOrigin<T>(input: { 
 
 async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
   operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>, observe?: WorkspaceAgentToolHistoricalOriginObserver,
-  markdownCreate = false): Promise<T> {
+  markdownCreate = false, historicalCapture?: { value?: WorkspaceAgentToolHistoricalOrigin }): Promise<T> {
   const selected = agentOptions(input);
   if (typeof operation !== 'function') return Promise.reject(new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'));
   const invocation = captureCurrentAgentToolInvocation();
@@ -1164,6 +1220,7 @@ async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWr
       captured = { kind: 'agent_tool', invocation, origin, agentId, piSessionDbId, profile, active: true, accepting: true,
         pending: new Set(), userId: origin.userId, workspace, permission: selected.permission, license,
         database: Number(realm.database), schema: realm.schema, enterBefore: 0,
+        ...(historicalCapture ? { historicalCapture } : {}),
         ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(realm.schema_oid), searchPath: String(realm.search_path) }) } } : {}) };
     } finally { await database.close(); }
     assertInvocation();
@@ -1200,6 +1257,19 @@ export function withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin<T>(input
   if (typeof observe !== 'function' || typeof operation !== 'function') fail('PRINCIPAL_INVALID');
   return withAgentToolPrincipal({ permission: 'canWrite', workspaceId: input.workspaceId },
     principal => operation(principal as WorkspaceAgentMarkdownCreatePrincipal), observe, true);
+}
+
+/** Genuine Create source with owner-controlled historical scalars. Its fixed
+ * Current checks invoke no consumer callback between SQL and the returned data.
+ * The history getter conveys no permission, phase or database authority. */
+export function withWorkspaceAgentMarkdownCreatePrincipal<T>(input: { workspaceId: string },
+  operation: (principal: WorkspaceAgentMarkdownCreatePrincipal,
+    historicalOrigin: () => WorkspaceAgentToolHistoricalOrigin | undefined) => Promise<T>): Promise<T> {
+  if (typeof operation !== 'function') fail('PRINCIPAL_INVALID');
+  const captured: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
+  return withAgentToolPrincipal({ permission: 'canWrite', workspaceId: input.workspaceId },
+    principal => operation(principal as WorkspaceAgentMarkdownCreatePrincipal, () => captured.value),
+    observed => { captured.value = observed; }, true, captured);
 }
 
 /** Caller owns the genuine short transaction and its COMMIT/close. */
