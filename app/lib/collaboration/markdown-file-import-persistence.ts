@@ -26,7 +26,7 @@ import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource,
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
-import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth,
+import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth, isMarkdownCreateBirthVerificationEntry,
   directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
   type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
   type MarkdownCreateBirthStorageInput, type MarkdownCreateBirthClaim } from '../files/markdown-create-birth';
@@ -1153,6 +1153,17 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
   if (projection) {
+    if (isMarkdownCreateBirthVerificationEntry(input)) {
+      // Only a real queued verify action can enter here, on this exact held
+      // Principal/claim/source. The helper does not publish or finalize here.
+      // Keep current owner/source/root and the stricter private time bound;
+      // its exit retains the complete fresh rights/native/birth observation.
+      if (owner.frame.kind === 'agent-tool') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+      else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
+      await assertFirstProjectionOwnerOrigin(owner.frame);
+      await owner.source.assertCurrent(); await projection.claim.assertRoot();
+      return;
+    }
     await assertFirstProjectionOwnerOrigin(owner.frame);
     await currentAuthenticatedMarkdownBirth(projection);
   } else {

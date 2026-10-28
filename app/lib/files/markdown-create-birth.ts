@@ -2,6 +2,7 @@ import 'server-only';
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import syncFs, { constants, promises as fs, type Stats, type BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
@@ -271,7 +272,19 @@ type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
+  readonly input?: MarkdownCreateBirthStorageInput;
   fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
+type StorageInvocation = { active: boolean; verificationEntry: boolean; frame: Frame };
+const storageInvocationContext = new AsyncLocalStorage<StorageInvocation>();
+
+/** A data-only predicate for the actual private verify-entry callback. Copied
+ * inputs, caller stage strings and retained async contexts cannot select it.
+ * It grants no write, Principal or native-state authority. */
+export function isMarkdownCreateBirthVerificationEntry(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.verificationEntry === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
+}
 function manualEmptyAttribution(intent: Record<string, unknown>): Record<string, unknown> {
   const selected = intent.source as Record<string, unknown>, origin = intent.origin as Record<string, unknown>;
   const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'];
@@ -317,6 +330,7 @@ async function root(frame: Frame): Promise<void> {
 async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'observe' | 'complete',
   boundary: (stage?: string) => Promise<void>, fields: Record<string, unknown> = {}): Promise<Observation> {
   const phase = { open: 'birth_open', verify: 'birth_verify', prepare: 'birth_prepare', observe: 'birth_observe', complete: 'birth_complete' } as const;
+  const invocation: StorageInvocation = { active: true, verificationEntry: false, frame };
   const operation = async () => {
     const agentSource = !!frame.intent.source && typeof frame.intent.source === 'object' && Reflect.get(frame.intent.source,'kind') === 'agent-markdown-v1';
     if (agentSource) agentMarkdownCreateAttribution(frame.intent);
@@ -324,7 +338,9 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     // Agent content is already bounded to 8 MiB before B. The existing wire
     // uses base64; 64 MiB also bounds worst-case JSON escaping plus metadata.
     if (agentSource ? Buffer.byteLength(message,'utf8') > 64 * 1024 * 1024 : message.length > 8 * 1024 * 1024) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
-    await root(frame); await boundary();
+    await root(frame);
+    invocation.verificationEntry = action === 'verify';
+    try { await boundary(); } finally { invocation.verificationEntry = false; }
     if (frame.storePin) readStorePointer(frame);
     const helper = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts/runtime/markdown-create-birth.py');
     const observed = await new Promise<Observation>((resolve, reject) => {
@@ -370,8 +386,12 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     if (frame.storePin) readStorePointer(frame);
     return observed;
   };
+  const run = async () => {
+    try { return await storageInvocationContext.run(invocation, operation); }
+    finally { invocation.verificationEntry = false; invocation.active = false; }
+  };
   return inCollaborationProjectionPhase(phase[action], () =>
-    frame.withStoragePhase ? frame.withStoragePhase(operation) : operation());
+    frame.withStoragePhase ? frame.withStoragePhase(run) : run());
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -639,7 +659,7 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
+      intent, input: captured, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
       ...(withStoragePhase ? { withStoragePhase } : {}) };
     frame = current;
     const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;

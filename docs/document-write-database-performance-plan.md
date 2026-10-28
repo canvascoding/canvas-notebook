@@ -172,6 +172,15 @@ angelegten Quellen spart je Neuanlage 40 Aufrufe: warm Agent 1735 → 1695 / 46
 Ausleihen und MCP 1312 → 1272 / 33. Originalbelege und Wiederholungen bleiben
 erhalten; die Budgets und übrigen Pakete bleiben offen.
 
+Der [echte private Verifikationseintritt](architecture/document-service-verification-entry-2026-10-28.md)
+verwendet innerhalb der bereits gehaltenen Publikationsphase deren bestehenden
+Kontext; der vollständige frische Verifikationsausgang und sämtliche Schreib-/
+Publikationsgrenzen bleiben erhalten. Acht neue reale Fälle und zehn bestehende
+PostgreSQL-Suiten bestehen. Der direkte Zehn-Quellen-Vergleich senkt warm Agent
+1695 → 1599 / 46 Ausleihen und MCP 1272 → 1192 / 33. Aufrufer können diesen Weg
+nicht über Stage-Strings oder Eingabekopien auswählen. Die Gesamtbudgets und
+übrigen Pakete bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-
