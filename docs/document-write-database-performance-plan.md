@@ -5,6 +5,12 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+Die [reguläre Linux-Gesamtsuite](architecture/document-service-regular-suite-2026-10-28.md)
+ist inzwischen als Regressionstest-Grundlage bestanden (329/0/268, neun erfolgreiche
+CI-Prüfungen am dokumentierten Teststand). Die Leistungsbudgets und die übrigen
+Abnahmen der folgenden Pakete bleiben offen; dieser Meilenstein ist keine
+Gesamtabnahme oder Produktionsfreigabe.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
