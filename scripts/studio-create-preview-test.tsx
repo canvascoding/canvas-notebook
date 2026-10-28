@@ -108,7 +108,7 @@ async function main() {
     cleanup();
 
     searchParams = new URLSearchParams({ generation: generation.id, output: good.id });
-    const validUrl = render(tree());
+    const validUrl = render(<React.StrictMode>{tree()}</React.StrictMode>);
     await waitFor(() => assert.ok(validUrl.queryByAltText('Selected preview asset')));
     assert.ok(lastPreview);
     assert.equal(lastPreview.open, true);
@@ -120,6 +120,22 @@ async function main() {
     assert.equal(selectedContext.studioContext.currentOutputId, good.id);
     assert.equal(selectedContext.studioContext.outputFilePath, good.filePath);
     assert.equal(selectedContext.studioContext.outputMediaUrl, good.mediaUrl);
+
+    generationHook.generations = [];
+    validUrl.rerender(<React.StrictMode>{tree()}</React.StrictMode>);
+    await waitFor(() => assert.equal(lastPreview?.open, true,
+      'a later first gallery page must not discard an already loaded deep-link preview'));
+    assert.equal(lastPreview.generation, generation);
+    assert.equal(lastPreview.output, good);
+    assert.equal(JSON.parse(validUrl.getByTestId('chat-context').textContent || 'null').studioContext.currentOutputId, good.id);
+    workspaceState.activeWorkspaceId = 'another-preview-workspace';
+    validUrl.rerender(<React.StrictMode>{tree()}</React.StrictMode>);
+    await waitFor(() => assert.equal(lastPreview?.open, false,
+      'retained route data must never be shown in another workspace'));
+    assert.deepEqual(JSON.parse(validUrl.getByTestId('chat-context').textContent || 'null'), { currentPage: '/studio' });
+    workspaceState.activeWorkspaceId = 'preview-fixture-workspace';
+    generationHook.generations = [generation];
+    validUrl.rerender(<React.StrictMode>{tree()}</React.StrictMode>);
 
     await act(async () => fireEvent.click(validUrl.getByRole('button', { name: 'Navigate to placeholder' })));
     assert.equal(lastPreview.open, false, 'Invalid child navigation must not bypass parent media validation.');

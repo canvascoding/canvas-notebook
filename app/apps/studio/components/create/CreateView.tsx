@@ -403,6 +403,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   });
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
+  const [loadedRouteGeneration, setLoadedRouteGeneration] = useState<{
+    workspaceId: string | null;
+    generation: StudioGeneration;
+  } | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
   const [selectionEnabled, setSelectionEnabled] = useState(false);
   const [mediaFilter, setMediaFilter] = useState<OutputMediaFilter>('all');
@@ -471,7 +475,9 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   }, [store]);
 
   const resolvedSelectedGeneration = selectedGenerationId
-    ? generations.find((g) => g.id === selectedGenerationId) ?? null
+    ? generations.find((g) => g.id === selectedGenerationId)
+      ?? (loadedRouteGeneration?.workspaceId === activeWorkspaceId && loadedRouteGeneration.generation.id === selectedGenerationId
+        ? loadedRouteGeneration.generation : null)
     : null;
   const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
     ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId && hasStudioOutputMedia(o)) ?? null
@@ -816,17 +822,18 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
   useEffect(() => {
     if (!initialGenerationId || !initialOutputId) return;
-    const routePreviewKey = `${initialGenerationId}:${initialOutputId}`;
+    const routePreviewKey = JSON.stringify([activeWorkspaceId, initialGenerationId, initialOutputId]);
     if (openedRoutePreviewRef.current === routePreviewKey) return;
 
     const matchingGeneration = generations.find((generation) => generation.id === initialGenerationId);
     const matchingOutput = matchingGeneration?.outputs.find((output) => output.id === initialOutputId && hasStudioOutputMedia(output));
 
     if (matchingGeneration && matchingOutput) {
-      openedRoutePreviewRef.current = routePreviewKey;
       let cancelled = false;
       queueMicrotask(() => {
         if (cancelled) return;
+        openedRoutePreviewRef.current = routePreviewKey;
+        setLoadedRouteGeneration({ workspaceId: activeWorkspaceId, generation: matchingGeneration });
         setSelectedGenerationId(matchingGeneration.id);
         setSelectedOutputId(matchingOutput.id);
       });
@@ -836,7 +843,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     }
 
     void fetchGeneration(initialGenerationId, { silent: true });
-  }, [fetchGeneration, generations, initialGenerationId, initialOutputId]);
+  }, [activeWorkspaceId, fetchGeneration, generations, initialGenerationId, initialOutputId]);
 
   useEffect(() => {
     const node = promptOverlayRef.current;
