@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Editor } from '@tiptap/core';
+import { uploadWorkspaceTextFile } from './helpers/managed-test-context';
 
 test('mobile HTTP edit survives export failure and retries without replacing later peer edits', async ({ browser }) => {
   test.skip(process.env.COLLABORATION_E2E !== '1' || !process.env.DATA, 'Requires the managed local stack.');
@@ -27,13 +28,13 @@ test('mobile HTTP edit survives export failure and retries without replacing lat
     expect((await page.request.post('/api/files/create', { headers, data: { path: folder, type: 'directory' } })).ok()).toBe(true);
     directory = path.resolve(process.env.DATA!, workspace.rootRelativePath, folder);
     originalMode = (await stat(directory)).mode & 0o777;
-    expect((await page.request.post('/api/files/upload', { headers, multipart: { path: folder,
-      files: { name: 'document.md', mimeType: 'text/markdown', buffer: Buffer.from('First\n\nKeep\n') } } })).ok()).toBe(true);
+    await uploadWorkspaceTextFile({ request: page.request, workspaceId: workspace.id,
+      filePath, content: 'First\n\nKeep\n' });
     await context.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
     await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`);
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toHaveAttribute('contenteditable', 'true');
+    await expect(editor).toContainText('First');
     const read = async () => {
       const response = await page.request.get(`/api/mobile/v1/notebook/document?path=${encodeURIComponent(filePath)}`, { headers });
       expect(response.ok(), await response.text()).toBe(true);
