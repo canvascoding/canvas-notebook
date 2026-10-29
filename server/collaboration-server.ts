@@ -603,7 +603,11 @@ export function createCollaborationServer(server: http.Server, options: {
     const revalidateRead = () => revalidate(assertCurrentCollaborationRoomAdmissionOpen);
     try {
       return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidateRead }, async () => {
-        await revalidateWrite();
+        // Entry pins activity and freshly verifies the user's write rights,
+        // identity, owner and reservations. It grants no mutation authority.
+        // A durable receipt can finish under a reader; both the public facade
+        // and the actual native apply still require strict writer admission.
+        await revalidateRead();
         const result = await operation(Object.freeze({ assertOpen: revalidateWrite }));
         // No mutation follows this fixed completion observation. Keep fresh
         // identity, user access, owner and reservation checks while allowing a

@@ -35,6 +35,7 @@ import {
 import {
   loadCollaborationState,
   sha256Text,
+  type PersistedCollaborationState,
 } from '@/app/lib/collaboration/persistence';
 import {
   resolveTextCollaborationState,
@@ -379,6 +380,15 @@ function mobileOperationIncluded(doc: YDoc, expected: Uint8Array): boolean {
     || persistedUpdateIncludesAgentSnapshot(Y.encodeStateAsUpdate(doc), expected, Y);
 }
 
+function mobileOperationPersisted(state: Pick<PersistedCollaborationState, 'yjsState'>,
+  operation: Pick<MobileNotebookOperation, 'resulting_state_snapshot'>): boolean {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, state.yjsState);
+    return mobileOperationIncluded(doc, operation.resulting_state_snapshot);
+  } finally { doc.destroy(); }
+}
+
 async function waitForMobileCollaborationDurability(operation: MobileNotebookOperation) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const state = await loadCollaborationState(operation.document_id);
@@ -387,11 +397,7 @@ async function waitForMobileCollaborationDurability(operation: MobileNotebookOpe
       || state.representation !== operation.representation) {
       throw new MobileNotebookError('The collaborative document lifecycle changed. Reload the note.', 409, 'COLLABORATION_STATE_STALE');
     }
-    const doc = new Y.Doc();
-    try {
-      Y.applyUpdate(doc, state.yjsState);
-      if (mobileOperationIncluded(doc, operation.resulting_state_snapshot)) return state;
-    } finally { doc.destroy(); }
+    if (mobileOperationPersisted(state, operation)) return state;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new MobileNotebookError(
@@ -482,21 +488,26 @@ async function saveMobileCollaborativeNotebookDocument(input: {
           });
           await prepareMobileNotebookOperation(operation);
         }
-        // A lifecycle drain or revoked session may have appeared during SQL prepare.
-        // The pin prevents idle unload only; it grants no permission to apply.
-        await session.assertOpen();
-        const prepared = operation;
-        await runCollaborationDirectConnection(connection, (doc) => {
-          if (mobileOperationIncluded(doc, prepared.resulting_state_snapshot)) return;
-          if (!prepared.yjs_update || collaborationStateProof(doc, Y) !== prepared.base_state_proof) {
-            const content = isRichTextCollaborationRepresentation(persistedState.representation)
-              ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
-            throw new MobileCollaborationRevisionConflict(sha256Text(content));
-          }
-          // Replaying the exact server-prepared delta is idempotent, including
-          // after response loss and subsequent peer changes to its text.
-          doc.transact(() => Y.applyUpdate(doc, prepared.yjs_update!, origin), origin);
-        });
+        // A confirmed original receipt is observation only, including after a
+        // later peer deletes its text. Never reenter the writer just to no-op.
+        // Completion below still rereads durability and fresh bound access.
+        if (!mobileOperationPersisted(persistedState, operation)) {
+          // A lifecycle drain or revoked session may have appeared during SQL prepare.
+          // The pin prevents idle unload only; it grants no permission to apply.
+          await session.assertOpen();
+          const prepared = operation;
+          await runCollaborationDirectConnection(connection, (doc) => {
+            if (mobileOperationIncluded(doc, prepared.resulting_state_snapshot)) return;
+            if (!prepared.yjs_update || collaborationStateProof(doc, Y) !== prepared.base_state_proof) {
+              const content = isRichTextCollaborationRepresentation(persistedState.representation)
+                ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+              throw new MobileCollaborationRevisionConflict(sha256Text(content));
+            }
+            // Replaying the exact server-prepared delta is idempotent, including
+            // after response loss and subsequent peer changes to its text.
+            doc.transact(() => Y.applyUpdate(doc, prepared.yjs_update!, origin), origin);
+          });
+        }
       } catch (error) {
         if (error instanceof MobileCollaborationRevisionConflict) {
           throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409,
@@ -508,8 +519,7 @@ async function saveMobileCollaborativeNotebookDocument(input: {
       }
       const durable = await waitForMobileCollaborationDurability(operation);
       // This is only compaction; the retained prepared delta remains safe if it fails.
-      await compactMobileNotebookOperation(operation.operation_id).catch(() => undefined);
-      await session.assertOpen();
+      if (operation.yjs_update) await compactMobileNotebookOperation(operation.operation_id).catch(() => undefined);
       return { ...await readMobileNotebookDocument(input), saveReceipt: {
         operationId: operation.operation_id, applied: true, durable: true,
         projectionPending: durable.checkpointSequence < durable.documentSequence,

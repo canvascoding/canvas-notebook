@@ -15,6 +15,13 @@ export const mobileNotebookResponseHeaders = {
 };
 
 export function mobileNotebookErrorResponse(error: unknown, logContext: string) {
+  // The custom server and Next routes may hold different constructor copies.
+  // This bounded denial maps no success, receipt or mutation authorization.
+  if (error instanceof Error && Reflect.get(error, 'code') === 'ADMISSION_CONFLICT') {
+    return NextResponse.json({ success: false, code: 'COLLABORATION_BUSY',
+      error: 'The document is temporarily busy. Retry the same request.' },
+    { status: 503, headers: mobileNotebookResponseHeaders });
+  }
   if (error instanceof MobileNotebookError) {
     return NextResponse.json(
       { success: false, error: error.message, code: error.code },

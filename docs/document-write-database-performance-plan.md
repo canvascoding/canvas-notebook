@@ -510,3 +510,13 @@ PostgreSQL-Fälle bestehen. Ein Statuscheck sinkt von 94 SQL / 18 Ausleihen auf
 6,1-Sekunden-Fenster nach dem Öffnen von 1220 / 233 auf 782 / 151; beide Saves
 benötigen ebenfalls weniger Abfragen. Der Laufzeitgewinn beim Speichern ist klein.
 Die finalen Budgets, übrigen Pakete und Prüfungen vor dem Release bleiben offen.
+
+Die [mobile Originalwiederholung unter einem echten Leser](architecture/document-service-mobile-replay-2026-10-29.md)
+behebt einen weiteren im Linux-UI-Lauf gefundenen HTTP-500-Pfad. Ein bereits
+dauerhaft angewendeter Beleg wird anhand seines ursprünglichen Yjs-Snapshots
+lesend bestätigt, ohne noch einmal in den nativen Schreiber einzutreten. Die
+Aktivität bleibt eine aktuelle Benutzer-/Owner-/Identitätsprüfung; öffentliche
+Schreibfreigabe und tatsächlicher Apply behalten den strengen Schreibzaun.
+Unangewendete Änderungen und echte Fremdschreiber bleiben abgewiesen. Eine neue
+echte PG-Suite und die bisherigen 15 Grenzfälle bestehen. Die erneute vollständige
+Build-/Linux-/UI-Abnahme dieser Korrektur und alle übrigen Pakete bleiben offen.
