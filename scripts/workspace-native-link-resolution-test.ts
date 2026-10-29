@@ -193,8 +193,8 @@ test('historical native parser1 facts remain unchanged but fresh graph/planner/c
   assert.equal(JSON.stringify(historical), frozen); assert(states.every(source => inspectPersistedDocumentLinks(source).parserVersion === 2));
 });
 
-test('historical physical envelope proofs stay verifiable while the corrected preview refuses their old parser basis', () => {
-  const historical = stage([state('Target', 'target.bin')], '[[Target]]');
+test('historical physical proofs retain the legacy parser contract without granting execution authority', () => {
+  const historical = stage([state('Target', 'target.bin')], '[[target.bin]]');
   const physical = historical.sources.find(source => source.kind === 'physical')!;
   assert.equal(physical.kind, 'physical'); if (physical.kind !== 'physical') assert.fail('physical inventory expected');
   assert.equal(physical.inventory.physicalSourceVersion, 1); assert.equal(physical.inventory.parserVersion, 2);
@@ -204,7 +204,21 @@ test('historical physical envelope proofs stay verifiable while the corrected pr
   const proof = physical.inventory.physicalSourceProof, stageProof = historical.stageProof;
   assert.equal(originalPhysicalSourceProof(physical.inventory), proof);
   const preview = previewStagedWorkspaceLinkEffects(historical, { kind: 'delete', sourcePath: 'target.bin' });
-  assert.equal(preview.coverage.complete, false); assert.equal(preview.readiness, 'blocked');
-  assert(preview.coverage.gaps.some(gap => gap.code === 'stale-source-parser'));
+  // Parser-3 support explicitly retained omitted historical parser-2 tags.
+  // Their verified preview still requires fresh import/rebinding before write.
+  assert.equal(preview.coverage.complete, true); assert.equal(preview.readiness, 'requires-import-and-rebinding');
+  assert.equal(preview.executionReady, false); assert.equal(preview.effects.length, 1);
+  assert.equal(preview.effects[0].sourceEvidence.kind, 'physical');
+  for (const parserVersion of [1, 4, null] as const) {
+    const unsupported = structuredClone(historical), source = unsupported.sources.find(source => source.kind === 'physical')!;
+    assert.equal(source.kind, 'physical'); if (source.kind !== 'physical') assert.fail('physical source expected');
+    assert.equal(Reflect.set(source.inventory, 'parserVersion', parserVersion), true);
+    source.inventory.physicalSourceProof = originalPhysicalSourceProof(source.inventory);
+    unsupported.stageProof = workspaceSourceAuthorityStageProof(unsupported);
+    const blocked = previewStagedWorkspaceLinkEffects(unsupported, { kind: 'delete', sourcePath: 'target.bin' });
+    assert.equal(blocked.coverage.complete, false); assert.equal(blocked.readiness, 'blocked');
+    assert.equal(blocked.executionReady, false);
+    assert(blocked.coverage.gaps.some(gap => gap.code === 'stale-source-parser'));
+  }
   assert.equal(physical.inventory.parserVersion, undefined); assert.equal(physical.inventory.physicalSourceProof, proof); assert.equal(historical.stageProof, stageProof);
 });

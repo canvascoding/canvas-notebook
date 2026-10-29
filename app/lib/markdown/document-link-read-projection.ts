@@ -63,6 +63,11 @@ export function withFreshDocumentLinkReadProjection<T>(operation: () => Promise<
   return freshReads.run(true, operation);
 }
 
+/** Data-only recomputation policy shared by extraction and target resolution. */
+export function documentLinkReadProjectionRequiresFreshRead(): boolean {
+  return freshReads.getStore() === true;
+}
+
 /** Bounded diagnostic counts only, no document identity, content or references. */
 export function documentLinkReadProjectionStatistics() {
   return Object.freeze({ entries: entries.size, retainedBytes, hits, inspections, maxEntries: MAX_ENTRIES, maxBytes: MAX_BYTES });
