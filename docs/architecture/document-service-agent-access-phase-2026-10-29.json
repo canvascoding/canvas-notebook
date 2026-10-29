@@ -1,0 +1,423 @@
+{
+  "version": 1,
+  "backendMeasurementPassed": true,
+  "baseHead": "acca7ef98b0410eedf7ea18a6971af57430779fd",
+  "priorBuiltProduct": "0e088417588b780ccc3ea24e36e9c3c0eb63869b",
+  "sourceHashes": {
+    "app/lib/agents/access.ts": "fb8a6bafe8e3c81e87aa8cd89e66bc1d5b0763e7953df9ffe6f12b8d0eaf5adb",
+    "app/lib/agents/actor-context.ts": "d01b42e62d0cbeb7e8afb597242650b2c57b489d1c0b5edab9f4e1c5724213fd",
+    "app/lib/capabilities/scope-authority.ts": "5d719036f3b11a6a3710049de8a1e66e205a9c368dfac66224f88cb813c92637",
+    "app/lib/workspaces/request-principal.ts": "04f3e08a0c46fec84ce836574e83c17017bd31f1dff630609b53836f32f2bcdc",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "ad1681db14e07f455ed120b0902d71655bae477c68290faed6f93eca6877091f",
+    "scripts/agent-markdown-create-access-snapshot-postgres-test.ts": "51744d5c2df29d1cd65447d223e1dc29893c91428edd96f93395d1fa0a002c7f"
+  },
+  "measurementColumns": [
+    "SQL driver calls",
+    "pool checkouts",
+    "wall milliseconds"
+  ],
+  "scope": "Complete actual registered Agent write / MCP Web Request create; genuine PostgreSQL, normal upload-created sources, original retry and preserved original rows/xmin/bytes. No live LLM turn, production OAuth issuance, browser/Next middleware or cold database-buffer claim.",
+  "normal": [
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "sources": 10,
+      "profiles": {
+        "first-adapter-entry-and-create": [
+          1336,
+          68,
+          2959.92
+        ],
+        "warm-fresh-create-1": [
+          1220,
+          34,
+          2314.25
+        ],
+        "warm-fresh-create-2": [
+          1220,
+          34,
+          2052.99
+        ],
+        "same-original-idempotent-retry": [
+          194,
+          7,
+          231.56
+        ]
+      },
+      "raw": "agent-organization-member-10-callsite.json",
+      "sha256": "e9d4f55d6de9721fe23d9e3354a0565fb5794c6c8649ca4dbd5a24a3e2e7f54f"
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "sources": 10,
+      "profiles": {
+        "first-adapter-entry-and-create": [
+          1163,
+          68,
+          2499.04
+        ],
+        "warm-fresh-create-1": [
+          1058,
+          34,
+          2076.11
+        ],
+        "warm-fresh-create-2": [
+          1058,
+          34,
+          2197.42
+        ],
+        "same-original-idempotent-retry": [
+          168,
+          7,
+          196.27
+        ]
+      },
+      "raw": "agent-main-10.json",
+      "sha256": "5ea1338d2797e19d9121de1199688cd3fc363cae2b69f1ef42697d89d31f5d77"
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "sources": 10,
+      "profiles": {
+        "first-adapter-entry-and-create": [
+          723,
+          42,
+          1643.05
+        ],
+        "warm-fresh-create-1": [
+          702,
+          29,
+          1480.04
+        ],
+        "warm-fresh-create-2": [
+          702,
+          29,
+          1455.1
+        ],
+        "same-original-idempotent-retry": [
+          91,
+          12,
+          126.83
+        ]
+      },
+      "raw": "mcp-main-10.json",
+      "sha256": "ce9255660b12f53bbcc7c1427b004571e60382e31b6d8207b2a497343d214005"
+    }
+  ],
+  "largeCurrent": {
+    "sources": 200,
+    "profiles": {
+      "first-adapter-entry-and-create": [
+        1336,
+        68,
+        2418.69
+      ],
+      "warm-fresh-create-1": [
+        1220,
+        34,
+        2031.44
+      ],
+      "warm-fresh-create-2": [
+        1220,
+        34,
+        1994.14
+      ],
+      "same-original-idempotent-retry": [
+        194,
+        7,
+        215.25
+      ]
+    },
+    "raw": "after-organization-agent-200.json",
+    "sha256": "ec6179d714fad5caae83d845e625955b1821566fa4ac25e87d85342f0fb00496"
+  },
+  "controlledLatency": {
+    "scope": "two alternating before/after pairs, same 2ms actual PostgreSQL reply delay, four warm samples per version; not production percentiles",
+    "beforeWarmMs": [
+      6952.08,
+      6984.25,
+      7104.44,
+      7180.57
+    ],
+    "afterWarmMs": [
+      5211.4,
+      5226.64,
+      5269.2,
+      5291.63
+    ],
+    "beforeMedianMs": 7044.344999999999,
+    "afterMedianMs": 5247.92,
+    "beforeMeanMs": 7055.335,
+    "afterMeanMs": 5249.717500000001,
+    "raw": [
+      {
+        "name": "before-a",
+        "before": true,
+        "sources": 10,
+        "delayMs": 2,
+        "profiles": {
+          "first-adapter-entry-and-create": [
+            1906,
+            68,
+            8534.1
+          ],
+          "warm-fresh-create-1": [
+            1790,
+            34,
+            6952.08
+          ],
+          "warm-fresh-create-2": [
+            1790,
+            34,
+            6984.25
+          ],
+          "same-original-idempotent-retry": [
+            264,
+            7,
+            971.13
+          ]
+        },
+        "raw": "before-a.json",
+        "sha256": "e3081b9070213fe1c4377c6037313588b9e7466e3902f1c248b3ecc7c771ea45",
+        "delayedReplies": 21013,
+        "helperSha256": "5a43781e6b5836e443cfd44251a85db6f73cfc1101aa3df8de989c2935eb662c"
+      },
+      {
+        "name": "after-b",
+        "before": false,
+        "sources": 10,
+        "delayMs": 2,
+        "profiles": {
+          "first-adapter-entry-and-create": [
+            1336,
+            68,
+            6014.18
+          ],
+          "warm-fresh-create-1": [
+            1220,
+            34,
+            5291.63
+          ],
+          "warm-fresh-create-2": [
+            1220,
+            34,
+            5226.64
+          ],
+          "same-original-idempotent-retry": [
+            194,
+            7,
+            743.59
+          ]
+        },
+        "raw": "after-b.json",
+        "sha256": "ec921cf06fe8268159ffd7977f949bddf444e564f03d441126b9f399b3aca956",
+        "delayedReplies": 19233,
+        "helperSha256": "5a43781e6b5836e443cfd44251a85db6f73cfc1101aa3df8de989c2935eb662c"
+      },
+      {
+        "name": "after-c",
+        "before": false,
+        "sources": 10,
+        "delayMs": 2,
+        "profiles": {
+          "first-adapter-entry-and-create": [
+            1336,
+            68,
+            5963.41
+          ],
+          "warm-fresh-create-1": [
+            1220,
+            34,
+            5211.4
+          ],
+          "warm-fresh-create-2": [
+            1220,
+            34,
+            5269.2
+          ],
+          "same-original-idempotent-retry": [
+            194,
+            7,
+            740.43
+          ]
+        },
+        "raw": "after-c.json",
+        "sha256": "ddc6696b870abae87012dc1dead3d3db8e96fde159873528ffd0292629940885",
+        "delayedReplies": 19233,
+        "helperSha256": "5a43781e6b5836e443cfd44251a85db6f73cfc1101aa3df8de989c2935eb662c"
+      },
+      {
+        "name": "before-d",
+        "before": true,
+        "sources": 10,
+        "delayMs": 2,
+        "profiles": {
+          "first-adapter-entry-and-create": [
+            1906,
+            68,
+            7831.04
+          ],
+          "warm-fresh-create-1": [
+            1790,
+            34,
+            7180.57
+          ],
+          "warm-fresh-create-2": [
+            1790,
+            34,
+            7104.44
+          ],
+          "same-original-idempotent-retry": [
+            264,
+            7,
+            966.27
+          ]
+        },
+        "raw": "before-d.json",
+        "sha256": "8390f855856362a4cfbaab0031bdf88abdc1141326c5fc158f701bfd220c5b4b",
+        "delayedReplies": 21013,
+        "helperSha256": "5a43781e6b5836e443cfd44251a85db6f73cfc1101aa3df8de989c2935eb662c"
+      }
+    ]
+  },
+  "baseline": {
+    "head": "acca7ef98b0410eedf7ea18a6971af57430779fd",
+    "applicationSourceUnmodified": true,
+    "testOnlyOverlay": {
+      "scripts/run-document-read-tool-dispatch-test.mjs": "ad1681db14e07f455ed120b0902d71655bae477c68290faed6f93eca6877091f",
+      "scripts/agent-markdown-create-access-snapshot-postgres-test.ts": "51744d5c2df29d1cd65447d223e1dc29893c91428edd96f93395d1fa0a002c7f"
+    },
+    "nativeSourceAndRuntimeVerified": true,
+    "nativeArtifacts": {
+      "manifest.json": "ea5bafcd62ed68a4b033930435f4dea840d908cb67cf27cb9005184ecd7a795f",
+      "source.c": "73826d8a428dd1aacb9259b409da2fe3e85f87a397eaedc4abecca98bc1dcfed",
+      "fd-publication.node": "a8db6db7d2f0390da59470e58c4b9a7fc38140554ce9474ab3d8d6571b6623f2"
+    },
+    "ownedSourceArchivesRemoved": true,
+    "unchanged72CasesPassed": true
+  },
+  "currentChecks": [
+    {
+      "name": "agent-markdown-create-access-snapshot-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-access-snapshot-postgres-test.log",
+      "sha256": "72e8bfa5e354ddd4d335695fd66e2b5ed8df66c8ab4c2d95d5832084cdb517c1"
+    },
+    {
+      "name": "agent-markdown-create-principal-scope-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-principal-scope-postgres-test.log",
+      "sha256": "38508bd69bc7d05dfea7af7c407ed5818853a0dde057b869f030f1c5192a1900"
+    },
+    {
+      "name": "agent-markdown-create-final-origin-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-final-origin-postgres-test.log",
+      "sha256": "7bcddfc3982c4c3f081aca46f154d0cb9b4194e29b77a5ab81b7d5bc85a01fba"
+    },
+    {
+      "name": "agent-markdown-create-scalar-snapshot-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-scalar-snapshot-postgres-test.log",
+      "sha256": "c216077c0e86699591066ab9c529b7cbd0ad043847d61da1382acdea1c5c972a"
+    },
+    {
+      "name": "agent-markdown-create-policy-profile-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-policy-profile-postgres-test.log",
+      "sha256": "f434c1d288d39155c7e49102057a11dae1ccf6044519e252487103e155c513ad"
+    },
+    {
+      "name": "agent-markdown-create-storage-phase-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-storage-phase-postgres-test.log",
+      "sha256": "5ab9cbb8545bf50e4a6a4bf3b9ad4982a4a020ff497b4b684145a476bdc184f3"
+    },
+    {
+      "name": "agent-markdown-create-storage-commit-postgres-test",
+      "exitCode": 0,
+      "log": "agent-markdown-create-storage-commit-postgres-test.log",
+      "sha256": "4436e2187145448a4c5d626b452d7a78f3da009bb96a2a8e99d53071cf8ad8d9"
+    },
+    {
+      "name": "markdown-create-publication-boundaries-postgres-test",
+      "exitCode": 0,
+      "log": "markdown-create-publication-boundaries-postgres-test.log",
+      "sha256": "3684227e78e35d44f740b2b792d9993bf360361419e225a70b878d9239f520ca"
+    },
+    {
+      "name": "markdown-create-birth-realm-observation-postgres-test",
+      "exitCode": 0,
+      "log": "markdown-create-birth-realm-observation-postgres-test.log",
+      "sha256": "04cf2b7836c2dcab9810fa25c1c6612f7149867813b41d3baf17f3ebff24913e"
+    },
+    {
+      "name": "document-read-tool-dispatch-postgres-test",
+      "exitCode": 0,
+      "log": "document-read-tool-dispatch-postgres-test.log",
+      "sha256": "69bc74b62956a34865a2d606e0c652b84a9351c3a36c7f0be2ddaa74ce9d19c3"
+    },
+    {
+      "name": "native-document-edit-tool-dispatch-postgres-test",
+      "exitCode": 0,
+      "log": "native-document-edit-tool-dispatch-postgres-test.log",
+      "sha256": "e1974cacaaadd743e47243f08e288ea434d1bcb93b8de3f9ece873d24451178a"
+    },
+    {
+      "name": "document-search-tool-dispatch-postgres-test",
+      "exitCode": 0,
+      "log": "document-search-tool-dispatch-postgres-test.log",
+      "sha256": "8775258ec2ec6e7e922929d547beb4f1962bc41977af74e6af254e9617c7c1ec"
+    }
+  ],
+  "typecheck": {
+    "config": "canonical release plus changed fixture, create benchmark and actual default read/edit/search dispatch entries",
+    "roots": 3624,
+    "sources": 8867,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "unchangedOrdinarySqlStatements": true,
+  "unchangedOriginalFunctions": 98,
+  "changedOriginalFunctions": [
+    {
+      "file": "app/lib/agents/access.ts",
+      "name": "getAgentAccessForNormalizedId"
+    },
+    {
+      "file": "app/lib/agents/actor-context.ts",
+      "name": "resolveVerifiedAgentActorContextOnConnection"
+    },
+    {
+      "file": "app/lib/workspaces/request-principal.ts",
+      "name": "readAgentWorkspace"
+    }
+  ],
+  "mechanism": "The six normal-Agent access reads become one fresh complete access snapshot at the existing later held-Create access boundary. Existing pure policy decisions are shared. Early scope, later original-origin, lock order and independent native/owner/commit boundaries remain unchanged. Unsupported scalar types use the actual unchanged raw resolver.",
+  "importantBoundaryRegression": {
+    "earlyAuthorityFoldRejected": true,
+    "newAccessCases": 72,
+    "oldAndNewBothPass": true,
+    "lateBoundaryCasesIncluded": 9,
+    "lateRevocationCasesIncluded": 8,
+    "lateDomainPositiveCasesIncluded": 1
+  },
+  "reports": {
+    "backend": {
+      "file": "agent-access-phase-20261029-resume/validation.json",
+      "sha256": "e1056bea5adb5cc356f7ccf82c9627878ac689ca9896918e90519bc0154f6322"
+    },
+    "latencyAndSize": {
+      "file": "agent-access-phase-latency-20261029/validation.json",
+      "sha256": "e4ff3f54548aad9571ce1ec78508fb1655b4fdb139e2fbf2b49b242be0aed90b"
+    }
+  },
+  "reviewCenterAndUndoFeatureDevelopmentExcluded": true,
+  "hostBuildCurrentSource": false,
+  "linuxBuildCurrentSource": false,
+  "uiCurrentSource": false,
+  "fullPlanComplete": false,
+  "noProductionDeployment": true
+}

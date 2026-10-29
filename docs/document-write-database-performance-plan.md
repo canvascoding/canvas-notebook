@@ -117,6 +117,20 @@ statt eine Dokumentanlage oder Inhaltsänderung doppelt auszuführen.
 
 ## Aktueller Messstand und verbleibende Bündelung
 
+Die [frische spätere Agentenrechte-Beobachtung](architecture/document-service-agent-access-phase-2026-10-29.md)
+reduziert die tatsächliche Organisations-Agent-Anlage bei 10 und 200 regulären
+Quellen von 1790 auf 1220 SQL-Treiberaufrufe; die 34 Ausleihen bleiben erhalten.
+Der Original-Retry sinkt von 264 auf 194 Aufrufe bei sieben Ausleihen. Hauptagent
+und MCP bleiben im 10-Quellen-Kontrolllauf bei 1058 / 34 beziehungsweise 702 / 29.
+Die vollständige registrierte Anlage wird bei identischen 2 ms zusätzlicher
+echter PostgreSQL-Antwortlatenz im Median von 7044,345 auf 5247,92 ms schneller.
+72 neue Rechte-/Datenerhaltfälle bestehen vor und nach der Änderung, einschließlich
+echtem Widerruf nach der frühen Scope-Antwort. Die gebündelte Abfrage bleibt an
+der späteren tatsächlichen Rechtegrenze; Original-Origin-, native/Owner- und
+COMMIT-Prüfungen bleiben erhalten. Zwölf gezielte Suiten, Typprüfung
+und Lint bestehen. Build/Linux-Start/UI für diesen neuen Produktstand sowie die
+Gesamtbudgets und übrigen Pakete sind weiterhin offen.
+
 Die [Nachmessung mit einem normalen Organisations-Agenten](architecture/document-service-configured-agent-baseline-2026-10-29.md)
 am unveränderten Produktstand `0e088417588b780ccc3ea24e36e9c3c0eb63869b` ergänzt
 die bisher vorwiegend am eingebauten Hauptagenten gemessene Anlage. Sie benötigt

@@ -28,6 +28,9 @@ function membershipAuthority(userId: string, configured: Row | undefined | null,
       role: String(row.role), status: String(row.status), canShare: flag(row.can_share_plugins_and_skills) }])) };
 }
 
+/** Pure interpretation of current SQL rows; it creates no execution authority. */
+export { membershipAuthority as actorMembershipAuthorityFromSnapshot };
+
 /** Current account and memberships only, never workspace or execution authority.
  * Unlocked reads use one real SQL snapshot. Locked reads retain the established
  * organization -> user -> memberships row-lock order on the caller connection. */

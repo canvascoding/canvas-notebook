@@ -18,8 +18,12 @@ import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, wi
   type AgentToolInvocation, type AgentToolInvocationOrigin } from '../pi/agent-tool-invocation';
 import { readStoredAgentWorkspaceOnConnection } from '../pi/session-workspace-context';
 import { agentProfileFromSqlRow, normalizeManagedAgentId, type AgentProfile } from '../agents/registry';
-import { getAgentAccessOnConnection } from '../agents/access';
-import { resolveVerifiedAgentActorContextOnConnection } from '../agents/actor-context';
+import { getAgentAccessOnConnection, agentAccessFromWorkspaceSnapshot, type AgentAccess, type AgentAccessContext,
+  type AgentAccessSnapshotRow, type AgentGrantSnapshotRow, type AgentOrganizationPermissionSnapshotRow } from '../agents/access';
+import { resolveVerifiedAgentActorContextOnConnection, agentWorkspaceActorContextFromSnapshot,
+  isAgentActorContextError } from '../agents/actor-context';
+import { SYSTEM_MANAGED_AGENT_IDS } from '../agents/storage';
+import { actorMembershipAuthorityFromSnapshot } from '../capabilities/scope-authority';
 import { resolveWorkspaceActor } from './context';
 import { assertWorkspacePermission } from './permissions';
 import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationBatchClaimBinding,
@@ -902,6 +906,90 @@ type AgentCreateScopeFacts = Readonly<{
   seat?: CurrentSeatSnapshotRow; seatPolicy: EffectiveSeatPolicy;
 }>;
 
+type AgentCreateAccessFacts = Readonly<{
+  configured: Row | null; memberships: Row[]; project: Row | null;
+  account: Row | null; workspace: WorkspacePermissionSnapshotRow | null;
+  agent: (AgentAccessSnapshotRow & Row) | null;
+  permission: (AgentOrganizationPermissionSnapshotRow & Row) | null;
+  grants: Array<AgentGrantSnapshotRow & Row>;
+}>;
+
+// Same unqualified relations as the ordinary resolver: a temporary shadow must
+// not silently turn into a successful lookup of a different, qualified table.
+// All facts are fresh at the held Create's actual access boundary, after its
+// preceding scope reply and before the independently later original-origin read.
+const agentCreateAccessSnapshotSql = `WITH current_agent AS MATERIALIZED (
+    SELECT a.access_policy,a.scope_type,a.organization_id,a.owner_user_id,m.can_use,m.can_edit,m.can_manage
+    FROM agents a LEFT JOIN agent_members m ON m.agent_id=a.agent_id AND m.user_id=$2 AND m.status='active'
+    WHERE a.agent_id=$3 LIMIT 1
+  ) SELECT jsonb_build_object(
+    'account',(SELECT u.facts FROM (${postgresScalarSnapshotSql(`
+      SELECT id,banned,role FROM "user" WHERE id=$2 LIMIT 1`, ['id', 'banned', 'role'])}) u),
+    'workspace',(SELECT w.facts FROM (${workspacePermissionSnapshotJsonSql}) w),
+    'configured',(SELECT c.facts FROM (${postgresScalarSnapshotSql(`
+      SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1`, ['organization_id'])}) c),
+    'memberships',(SELECT COALESCE(jsonb_agg(m.facts),'[]'::jsonb) FROM (${postgresScalarSnapshotSql(`
+      SELECT organization_id,role,status,can_share_plugins_and_skills FROM organization_user_permissions WHERE user_id=$2`,
+    ['organization_id', 'role', 'status', 'can_share_plugins_and_skills'])}) m),
+    'agent',(SELECT a.facts FROM (${postgresScalarSnapshotSql('SELECT * FROM current_agent',
+    ['access_policy', 'scope_type', 'organization_id', 'owner_user_id', 'can_use', 'can_edit', 'can_manage'])}) a),
+    'permission',(SELECT p.facts FROM (${postgresScalarSnapshotSql(`
+      SELECT role,status FROM organization_user_permissions WHERE user_id=$2
+        AND organization_id=(SELECT organization_id FROM current_agent) LIMIT 1`, ['role', 'status'])}) p),
+    'grants',(SELECT COALESCE(jsonb_agg(g.facts),'[]'::jsonb) FROM (${postgresScalarSnapshotSql(`
+      SELECT target_type,target_id,can_use,can_edit,can_manage FROM agent_grants
+      WHERE agent_id=$3 AND organization_id=(SELECT organization_id FROM current_agent)`,
+    ['target_type', 'target_id', 'can_use', 'can_edit', 'can_manage'])}) g),
+    'project',(SELECT p.facts FROM (${postgresScalarSnapshotSql(`
+      SELECT p.id FROM canvas_workspaces w JOIN canvas_projects p ON p.id=w.project_id
+        AND p.organization_id=w.organization_id AND p.status='active' WHERE w.id=$1 AND w.status='active' LIMIT 1`, ['id'])}) p)
+  ) AS facts`;
+
+function agentAccessFromCreateFacts(observed: AgentCreateAccessFacts, userId: string,
+  context: AgentAccessContext & { workspaceId: string }): AgentAccess | null {
+  // Unsupported scalar/domain types use the genuine raw resolver below. Never
+  // turn a rounded or otherwise unsupported JSON value into a positive right.
+  if ([observed.configured, observed.account, observed.workspace, observed.agent, observed.permission, observed.project,
+    ...observed.memberships, ...observed.grants]
+    .some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) return null;
+  try {
+    const membership = actorMembershipAuthorityFromSnapshot(userId, observed.configured, observed.account, observed.memberships);
+    const verified = agentWorkspaceActorContextFromSnapshot({ userId, ...context }, membership,
+      observed.workspace ?? undefined, observed.account?.role, observed.project ?? undefined);
+    return agentAccessFromWorkspaceSnapshot(userId, verified, observed.agent ?? undefined,
+      observed.permission ?? undefined, observed.grants);
+  } catch (error) {
+    if (isAgentActorContextError(error)) return { canUse: false, canEdit: false, canManage: false };
+    throw error;
+  }
+}
+
+async function readAgentAccessInCreatePhase(phase: Phase, userId: string, agentId: string,
+  context: AgentAccessContext & { workspaceId: string }): Promise<AgentAccess> {
+  active(phase);
+  const request = phase.request;
+  if (request.kind !== 'agent_tool' || !agentMarkdownCreateCaptures.has(request) || !phase.agentCreateRealm
+    || !phase.identity || phase.identity.schema !== request.schema || request.origin.userId !== userId
+    || request.agentId !== agentId || request.origin.workspaceId !== context.workspaceId) fail('PRINCIPAL_REQUIRED');
+  const selected = Object.freeze({ organizationId: context.organizationId, workspaceId: context.workspaceId,
+    projectId: context.projectId });
+  const normalized = normalizeManagedAgentId(agentId);
+  if ((SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(normalized)) {
+    return getAgentAccessOnConnection(phase.database, userId, agentId, selected);
+  }
+  // This is deliberately a later genuine SQL read. Moving it into the earlier
+  // scope statement misses a revocation made after that statement's reply.
+  const prepared = Object.getOwnPropertyDescriptor(phase.database, 'getPrepared');
+  const read = prepared && typeof prepared.value === 'function' ? prepared.value as SqlConnection['get'] : phase.database.get;
+  const result = await read.call(phase.database, agentCreateAccessSnapshotSql,
+    [selected.workspaceId, userId, normalized]) as { facts?: AgentCreateAccessFacts } | undefined;
+  active(phase);
+  const observed = result?.facts;
+  if (!observed || !Array.isArray(observed.memberships) || !Array.isArray(observed.grants)) fail('PRINCIPAL_SCHEMA_INVALID');
+  return agentAccessFromCreateFacts(observed, userId, selected)
+    ?? getAgentAccessOnConnection(phase.database, userId, agentId, selected);
+}
+
 /** Reuses the ordinary account, seat, Workspace and Agent decisions. Genuine
  * Create facts are read together for this exact Current invocation, never cached. */
 async function readAgentWorkspace(database: SqlConnection, schemaName: string, origin: AgentWorkspaceOrigin,
@@ -934,9 +1022,10 @@ async function readAgentWorkspace(database: SqlConnection, schemaName: string, o
     const selected = workspaceContextFromPermissionSnapshot(createFacts!.workspace, actor);
     if (!selected || selected.legacy || selected.workspaceId !== origin.workspaceId) throw new Error('Workspace not found or inaccessible.');
     for (const requirement of ['canRead', 'canRunAgent', permission] as const) assertWorkspacePermission(selected.permissions, requirement);
-    const access = await getAgentAccessOnConnection(database, origin.userId, agentId, {
+    const context = {
       organizationId: selected.organizationId, workspaceId: selected.workspaceId, projectId: selected.projectId,
-    });
+    };
+    const access = await readAgentAccessInCreatePhase(createPhase, origin.userId, agentId, context);
     assertAlive();
     if (!access.canUse) throw new Error('Agent access is no longer available in this workspace.');
     workspace = selected;
