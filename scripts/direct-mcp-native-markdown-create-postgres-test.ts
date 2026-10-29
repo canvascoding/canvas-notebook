@@ -208,6 +208,20 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
       ({ workspace_id: workspaceId, path: target, content, idempotency_key: key });
     const create = async (target: string, content: string, key = crypto.randomUUID(), actualToken = token): Promise<DirectMcpFileReceipt> =>
       receipt(await call(actualToken, 'create_knowledge_source', args(target, content, key)));
+    // Arrange an actual old-format original using its retained writer. The
+    // productive native path is permanently enabled; a test env flag cannot
+    // turn it into a legacy writer or manufacture a legacy receipt.
+    const createLegacyOriginal = async (target: string, source: string, key: string): Promise<DirectMcpFileReceipt> => {
+      const { createDirectMcpIngestAuthority } = await import('../app/lib/mcp/server/ingest-authority');
+      const { createDirectMcpWorkspaceFile, directMcpIngestFingerprint } = await import('../app/lib/mcp/server/file-ingest');
+      const { encodeDirectMcpTextContent, validateDirectMcpIngestContent } = await import('../app/lib/mcp/server/ingest-validation');
+      const authority = await createDirectMcpIngestAuthority({ token, tool: 'create_knowledge_source', workspaceId });
+      return createDirectMcpWorkspaceFile({ ...authority, path: target, idempotencyKey: key,
+        fingerprint: directMcpIngestFingerprint(['create_knowledge_source', target, source]), loadContent: async () => {
+          const content = encodeDirectMcpTextContent(source); return { content,
+            validation: await validateDirectMcpIngestContent({ path: target, content, source: 'generated' }) };
+        } });
+    };
     const observe = (operationId: string) => observeOptionalMarkdownCreateBirth({ workspaceRoot, workspaceId, operationId });
     const nativeRows = async (operationId: string) => ({
       receipt: (await admin.query(`SELECT *,xmin::text AS original_xmin FROM collaboration_markdown_file_import_receipts
@@ -439,18 +453,8 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         }
       });
       await check('genuine existing Legacy Markdown uses explicit sentinel without fabricated Native origin', async () => {
-        const { createDirectMcpIngestAuthority } = await import('../app/lib/mcp/server/ingest-authority');
-        const { createDirectMcpWorkspaceFile, directMcpIngestFingerprint } = await import('../app/lib/mcp/server/file-ingest');
-        const { encodeDirectMcpTextContent, validateDirectMcpIngestContent } = await import('../app/lib/mcp/server/ingest-validation');
         const target = 'legacy-existing.md', source = '# Actual old legacy writer\n', key = crypto.randomUUID();
-        const authority = await createDirectMcpIngestAuthority({ token, tool: 'create_knowledge_source', workspaceId });
-        process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0';
-        let legacy: DirectMcpFileReceipt;
-        try { legacy = await createDirectMcpWorkspaceFile({ ...authority, path: target, idempotencyKey: key,
-          fingerprint: directMcpIngestFingerprint(['create_knowledge_source', target, source]), loadContent: async () => {
-            const content = encodeDirectMcpTextContent(source); return { content,
-              validation: await validateDirectMcpIngestContent({ path: target, content, source: 'generated' }) };
-          } }); } finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+        const legacy = await createLegacyOriginal(target, source, key);
         const before = await fs.readFile(journal(legacy.operation_id));
         assert.deepEqual(await persistAndProjectDirectMcpMarkdownCreate(authInfo(),
           { workspaceId, path: target, idempotencyKey: key, tool: 'create_knowledge_source', content: source }), { kind: 'legacy-original' });
@@ -852,21 +856,24 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         const current = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }));
         assert.equal(current.document.title, actualMetadata[0].title); assert.equal(current.document.version, absent.document.version); await mutationRead(current);
       });
-      await check('V1 requires an enabled native Markdown result and never upgrades a retained physical original', async () => {
-        for (const gate of ['off', 'non-markdown'] as const) {
-          const target = gate === 'off' ? 'result-v1/gate-off.md' : 'result-v1/not-native.txt', key = crypto.randomUUID();
-          const before = await fixture.snapshot();
-          try {
-            if (gate === 'off') process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0';
-            failure(await call(token, 'create_knowledge_source', { ...args(target, 'No physical fallback\n', key), api_version: 1 }), 'MCP_INGEST_NATIVE_DOCUMENT_REQUIRED');
-          } finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+      await check('V1 uses the permanently enabled native Markdown path and never upgrades a retained physical original', async () => {
+        const { authenticatedNativeTextSessionEnabled } = await import('../app/lib/collaboration/native-text-session-activation');
+        try {
+          process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0';
+          assert.equal(authenticatedNativeTextSessionEnabled(), true);
+          const created = mutationV1(await call(token, 'create_knowledge_source', {
+            ...args('result-v1/native-remains-enabled.md', '# Native remains enabled\n'), api_version: 1 }));
+          assert.equal(created.outcome, 'created'); await mutationRead(created);
+          assert.equal((await nativeRows(created.operationId)).birth.length, 1);
+        } finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+        {
+          const target = 'result-v1/not-native.txt', key = crypto.randomUUID(), before = await fixture.snapshot();
+          failure(await call(token, 'create_knowledge_source', { ...args(target, 'No physical fallback\n', key), api_version: 1 }), 'MCP_INGEST_NATIVE_DOCUMENT_REQUIRED');
           await noTarget(target); assert.equal(await observe(keyFor(key)), null); assert.deepEqual(await nativeRows(keyFor(key)), { receipt: [], birth: [], history: [] });
           assert.deepEqual(await fixture.snapshot(), before);
         }
         const key = crypto.randomUUID(), target = 'result-v1/retained-legacy.md', source = '# Actual retained legacy\n';
-        let legacy: DirectMcpFileReceipt;
-        try { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0'; legacy = await create(target, source, key); }
-        finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+        const legacy = await createLegacyOriginal(target, source, key);
         assert.equal(legacy.status, 'created'); assert.equal(await observe(legacy.operation_id), null);
         assert.deepEqual(await nativeRows(legacy.operation_id), { receipt: [], birth: [], history: [] });
         const before = { domain: await fixture.snapshot(), rows: await nativeRows(legacy.operation_id),

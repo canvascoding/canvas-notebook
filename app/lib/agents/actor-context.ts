@@ -1,10 +1,11 @@
 import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
-import { authority } from '@/app/lib/capabilities/scope-authority';
-import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
+import { readActorMembershipAuthorityOnConnection, type ActorMembershipAuthority } from '@/app/lib/capabilities/scope-authority';
+import { readPostgresWorkspaceForActorInSingleSnapshotOnConnection, workspaceContextFromPermissionSnapshot,
+  type WorkspacePermissionSnapshotRow } from '@/app/lib/workspaces/postgres-runtime';
 import { normalizeWorkspaceRole, resolveWorkspacePermissions } from '@/app/lib/workspaces/permissions';
-import type { WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
+import type { WorkspaceContext, WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
 import type { AgentAccessContext } from './access';
 
 export type AgentActorContextInput = AgentAccessContext & { userId: string };
@@ -44,6 +45,57 @@ function suppliedId(value: unknown): string | null {
 }
 function enabled(value: unknown): boolean { return value === true || value === 1 || value === '1'; }
 
+function actorMembershipContext(userId: string, requestedOrg: string | null,
+  current: ActorMembershipAuthority): VerifiedAgentActorContext {
+  const organizationId = current.organizationId;
+  if (!current.valid) deny();
+  const membership = organizationId ? current.memberships.get(organizationId) : null;
+  if (organizationId && membership?.status !== 'active') deny();
+  if (requestedOrg && requestedOrg !== organizationId) deny();
+  const role = membership ? normalizeWorkspaceRole(membership.role) : null;
+  const result: VerifiedAgentActorContext = {
+    userId, context: {}, organizationId, organizationRole: role, workspacePermissions: null,
+  };
+  if (requestedOrg) result.context.organizationId = organizationId;
+  return result;
+}
+
+function actorWorkspaceProject(row: Row | undefined, organizationId: string | null,
+  role: WorkspaceUserRole | null, requestedProject: string | null): string | null {
+  if (!row || row.organization_id !== organizationId || !role) deny();
+  const projectId = typeof row.project_id === 'string' ? row.project_id : null;
+  if (requestedProject && requestedProject !== projectId) deny();
+  return projectId;
+}
+
+function actorWorkspaceContext(result: VerifiedAgentActorContext, workspace: WorkspaceContext | null): VerifiedAgentActorContext {
+  if (!workspace?.permissions.canRead || workspace.organizationId !== result.organizationId) deny();
+  result.context = { organizationId: result.organizationId, workspaceId: workspace.workspaceId, projectId: workspace.projectId ?? null };
+  result.workspacePermissions = { ...workspace.permissions };
+  return result;
+}
+
+/** Pure decisions for one current workspace snapshot. These data do not grant a
+ * Principal, SQL connection or reusable authorization; their caller owns the
+ * actual observation and must retain its later I/O and publication fences. */
+export function agentWorkspaceActorContextFromSnapshot(input: AgentActorContextInput,
+  current: ActorMembershipAuthority, row: WorkspacePermissionSnapshotRow | undefined,
+  accountRole: unknown, project: Row | undefined): VerifiedAgentActorContext {
+  const userId = suppliedId(input.userId);
+  if (!userId) deny();
+  const requestedOrg = suppliedId(input.organizationId);
+  const requestedWorkspace = suppliedId(input.workspaceId);
+  const requestedProject = suppliedId(input.projectId);
+  if (!requestedWorkspace) deny();
+  const result = actorMembershipContext(userId, requestedOrg, current);
+  if (!row || row.id !== requestedWorkspace || row.status !== 'active') deny();
+  const projectId = actorWorkspaceProject(row, result.organizationId, result.organizationRole, requestedProject);
+  if (projectId && project?.id !== projectId) deny();
+  const role = row.type === 'personal'
+    ? normalizeWorkspaceRole(typeof accountRole === 'string' ? accountRole : null) : result.organizationRole!;
+  return actorWorkspaceContext(result, workspaceContextFromPermissionSnapshot(row, { userId, role }));
+}
+
 /** Uses the caller's connection/transaction; it never bootstraps or chooses a default workspace. */
 export async function resolveVerifiedAgentActorContextOnConnection(
   input: AgentActorContextInput,
@@ -58,32 +110,19 @@ export async function resolveVerifiedAgentActorContextOnConnection(
   const requestedProject = suppliedId(input.projectId);
   const lock = options.lock === true;
   const suffix = lock ? ' FOR SHARE' : '';
-  const organization = await database.get(
-    `SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1${suffix}`,
-  ) as Row | undefined;
-  const organizationId = organization ? String(organization.organization_id) : null;
   // Both reused read helpers use only get/all. No connection borrowing or transaction
   // operation is exposed by this service's deliberately narrower interface.
   const connection = database as SqlConnection;
-  const current = await authority(connection, { userId }, lock);
-  if (!current.valid) deny();
-  const membership = organizationId ? current.memberships.get(organizationId) : null;
-  if (organizationId && membership?.status !== 'active') deny();
-  if (requestedOrg && requestedOrg !== organizationId) deny();
-  const role = membership ? normalizeWorkspaceRole(membership.role) : null;
-  const result: VerifiedAgentActorContext = {
-    userId, context: {}, organizationId, organizationRole: role, workspacePermissions: null,
-  };
-  if (requestedOrg) result.context.organizationId = organizationId;
+  const current = await readActorMembershipAuthorityOnConnection(database, userId, lock);
+  const result = actorMembershipContext(userId, requestedOrg, current);
+  const { organizationId, organizationRole: role } = result;
 
   if (requestedWorkspace) {
     const row = await database.get(
       `SELECT id, organization_id, type, project_id FROM canvas_workspaces WHERE id = $1 AND status = 'active'${suffix}`,
       [requestedWorkspace],
     ) as Row | undefined;
-    if (!row || row.organization_id !== organizationId || !role) deny();
-    const projectId = typeof row.project_id === 'string' ? row.project_id : null;
-    if (requestedProject && requestedProject !== projectId) deny();
+    const projectId = actorWorkspaceProject(row, organizationId, role, requestedProject);
     if (lock) await database.get(
       'SELECT user_id FROM canvas_workspace_members WHERE workspace_id = $1 AND user_id = $2 FOR SHARE',
       [requestedWorkspace, userId],
@@ -103,16 +142,13 @@ export async function resolveVerifiedAgentActorContextOnConnection(
     // ownership. An external organization role does not remove their own private
     // workspace; shared scopes still use the current organization role.
     let workspaceRole = role;
-    if (row.type === 'personal') {
+    if (row!.type === 'personal') {
       const currentUser = await database.get('SELECT role FROM "user" WHERE id = $1', [userId]) as Row | undefined;
       if (!currentUser) deny();
       workspaceRole = normalizeWorkspaceRole(typeof currentUser.role === 'string' ? currentUser.role : null);
     }
-    const workspace = await readPostgresWorkspaceForActorOnConnection(connection, { userId, role: workspaceRole }, requestedWorkspace);
-    if (!workspace?.permissions.canRead || workspace.organizationId !== organizationId) deny();
-    result.context = { organizationId, workspaceId: workspace.workspaceId, projectId: workspace.projectId ?? null };
-    result.workspacePermissions = { ...workspace.permissions };
-    return result;
+    const workspace = await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(connection, { userId, role: workspaceRole! }, requestedWorkspace);
+    return actorWorkspaceContext(result, workspace);
   }
 
   if (requestedProject) {

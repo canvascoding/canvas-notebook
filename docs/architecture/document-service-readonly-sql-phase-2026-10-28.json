@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "baseline": "26c95690d4ef485a32b724249a6370e973f7e41e",
+  "candidateSourceHashes": {
+    "app/lib/files/markdown-create-birth.ts": "183f3708ec216a1e751feef9604909929401a238e7195e517ef2518744ba1638",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "a6f2cb39851d95036a8eb2bfcd3b5c07632d5f32866351976090677cdc05fc35"
+  },
+  "documentsPerFixture": 10,
+  "normalUploadSources": true,
+  "freshFixtures": 4,
+  "measurementWindows": 16,
+  "pairs": [
+    {
+      "actor": "agent",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 1704,
+      "afterSql": 1628,
+      "saved": 76,
+      "beforeCheckouts": 80,
+      "afterCheckouts": 77
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 1599,
+      "afterSql": 1523,
+      "saved": 76,
+      "beforeCheckouts": 46,
+      "afterCheckouts": 43
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 1599,
+      "afterSql": 1523,
+      "saved": 76,
+      "beforeCheckouts": 46,
+      "afterCheckouts": 43
+    },
+    {
+      "actor": "agent",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 168,
+      "afterSql": 168,
+      "saved": 0,
+      "beforeCheckouts": 7,
+      "afterCheckouts": 7
+    },
+    {
+      "actor": "mcp",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 1213,
+      "afterSql": 1173,
+      "saved": 40,
+      "beforeCheckouts": 46,
+      "afterCheckouts": 45
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 1192,
+      "afterSql": 1152,
+      "saved": 40,
+      "beforeCheckouts": 33,
+      "afterCheckouts": 32
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 1192,
+      "afterSql": 1152,
+      "saved": 40,
+      "beforeCheckouts": 33,
+      "afterCheckouts": 32
+    },
+    {
+      "actor": "mcp",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 102,
+      "afterSql": 102,
+      "saved": 0,
+      "beforeCheckouts": 12,
+      "afterCheckouts": 12
+    }
+  ],
+  "passed": true,
+  "allOwnResourcesClosed": true,
+  "baselineSourceRemoved": true,
+  "originalIdentityRowsXminAndBytesPreserved": true,
+  "sqlIncludesTransactionsLocksAndCatalogue": true,
+  "timingsAreDiagnosticOnly": true,
+  "finalSizeLatencyAndConcurrencyAcceptanceComplete": false,
+  "focused": {
+    "cases": 6,
+    "historicalVerifyStartsSqlPhase": false,
+    "foreignSelectionsRejected": 8603,
+    "realPrepublicationRevocations": 2,
+    "realPostCommitRevocations": 2,
+    "freshFinalConfirmation": true,
+    "originalIdentityBytesAndReceiptPreserved": true,
+    "explicitRetrySameIdentity": true
+  },
+  "regressionSuites": [
+    "markdown-create-readonly-phase-postgres-test.ts",
+    "agent-markdown-create-storage-commit-postgres-test.ts",
+    "direct-mcp-markdown-create-storage-phase-postgres-test.ts",
+    "markdown-create-verification-phase-postgres-test.ts",
+    "markdown-create-birth-realm-observation-postgres-test.ts",
+    "markdown-create-native-observation-postgres-test.ts",
+    "markdown-create-owner-observation-postgres-test.ts",
+    "direct-mcp-native-markdown-create-postgres-test.ts",
+    "authenticated-manual-markdown-create-postgres-test.ts",
+    "authenticated-markdown-upload-postgres-test.ts"
+  ],
+  "releaseTypesPassed": true,
+  "scopedTypes": {
+    "roots": 27,
+    "sourceFiles": 5111,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "performanceBudgetsMet": false,
+  "fullGoalComplete": false,
+  "productionChanged": false
+}

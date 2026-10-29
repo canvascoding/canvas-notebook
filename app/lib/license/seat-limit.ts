@@ -322,25 +322,21 @@ async function assertTeamUserAccess(
   return decideTeamSeatAccess(userId, policy, organization, observedQuantity, eligibleRows);
 }
 
-type CurrentSeatSnapshotRow = {
+export type CurrentSeatSnapshotRow = {
   account_present: boolean; account_id: string; account_banned: SeatAccountRow['banned'];
   organization_present: boolean; organization_id: string; owner_user_id: string;
   reconciliation_seat_limit: number | string | null; fallback_owner_id: string | null;
   team_quantity: number | string; solo_quantity: number | string; eligible_user_ids: string[];
 };
 
-/** Internal actual-B read for an already captured signed license. This owns no
- * transaction, pool, authority or cache; every call reads all current seat facts
- * anew and returns only the ordinary seat decision. Other callers keep their
- * existing read path and share the exact same decision bodies above. */
-export async function assertUserSeatAccessInSingleSnapshotOnConnection(
-  database: Pick<SqlConnection, 'get'>,
-  userId: string,
-  licenseStatus: LicenseStatus,
-): Promise<UserSeatAccess> {
-  const basePolicy = resolveEffectiveSeatPolicy(licenseStatus);
-  const row = await database.get(`WITH seat_account AS MATERIALIZED (
-    SELECT id, banned FROM "user" WHERE id=$1 LIMIT 1
+/** Fixed SQL with parameter ordinals only; values remain bound by the caller. */
+export function userSeatAccessSnapshotSql(userParameter = 1, modeParameter = 2): string {
+  if (![userParameter, modeParameter].every(value => Number.isInteger(value) && value >= 1 && value <= 32)) {
+    throw new RangeError('Invalid seat snapshot parameter ordinal.');
+  }
+  const user = '$' + userParameter, mode = '$' + modeParameter;
+  return `WITH seat_account AS MATERIALIZED (
+    SELECT id, banned FROM "user" WHERE id=${user} LIMIT 1
   ), primary_organization AS MATERIALIZED (
     SELECT organization_id, owner_user_id FROM canvas_organization_settings
     ORDER BY created_at ASC LIMIT 1
@@ -349,13 +345,13 @@ export async function assertUserSeatAccessInSingleSnapshotOnConnection(
     FROM team_membership_sync_state sync
     INNER JOIN canvas_organization_settings organization
       ON organization.organization_id=sync.organization_id
-    WHERE $2='team' ORDER BY organization.created_at ASC LIMIT 1
+    WHERE ${mode}='team' ORDER BY organization.created_at ASC LIMIT 1
   ), team_quantity AS MATERIALIZED (
     SELECT COUNT(*) AS count FROM team_memberships
-    WHERE $2='team' AND organization_id=(SELECT organization_id FROM primary_organization)
+    WHERE ${mode}='team' AND organization_id=(SELECT organization_id FROM primary_organization)
       AND status='active' AND user_id IS NOT NULL AND accepted_at IS NOT NULL
   ), solo_quantity AS MATERIALIZED (
-    SELECT COUNT(*) AS count FROM "user" WHERE $2='solo' AND COALESCE(banned, 0)=0
+    SELECT COUNT(*) AS count FROM "user" WHERE ${mode}='solo' AND COALESCE(banned, 0)=0
   ) SELECT
     EXISTS(SELECT 1 FROM seat_account) AS account_present,
     (SELECT id FROM seat_account) AS account_id,
@@ -364,7 +360,7 @@ export async function assertUserSeatAccessInSingleSnapshotOnConnection(
     (SELECT organization_id FROM primary_organization) AS organization_id,
     (SELECT owner_user_id FROM primary_organization) AS owner_user_id,
     (SELECT reconciliation_seat_limit FROM reconciliation) AS reconciliation_seat_limit,
-    (SELECT id FROM "user" WHERE $2='solo' AND NOT EXISTS(SELECT 1 FROM primary_organization)
+    (SELECT id FROM "user" WHERE ${mode}='solo' AND NOT EXISTS(SELECT 1 FROM primary_organization)
       AND COALESCE(banned, 0)=0 ORDER BY created_at ASC, id ASC LIMIT 1) AS fallback_owner_id,
     (SELECT count FROM team_quantity) AS team_quantity,
     (SELECT count FROM solo_quantity) AS solo_quantity,
@@ -372,13 +368,17 @@ export async function assertUserSeatAccessInSingleSnapshotOnConnection(
       INNER JOIN "user" user_account ON user_account.id=membership.user_id
       INNER JOIN organization_user_permissions permission
         ON permission.organization_id=membership.organization_id AND permission.user_id=membership.user_id
-      WHERE $2='team' AND membership.organization_id=(SELECT organization_id FROM primary_organization)
+      WHERE ${mode}='team' AND membership.organization_id=(SELECT organization_id FROM primary_organization)
         AND membership.status='active' AND membership.user_id IS NOT NULL
         AND membership.accepted_at IS NOT NULL AND COALESCE(user_account.banned, 0)=0 AND permission.status='active'
       ORDER BY CASE WHEN membership.user_id=(SELECT owner_user_id FROM primary_organization) THEN 0 ELSE 1 END,
         CASE membership.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'member' THEN 2 WHEN 'external' THEN 3 ELSE 4 END,
-        membership.activated_at ASC, membership.candidate_email ASC, membership.id ASC) AS eligible_user_ids`,
-  [userId, basePolicy.mode]) as CurrentSeatSnapshotRow | undefined;
+        membership.activated_at ASC, membership.candidate_email ASC, membership.id ASC) AS eligible_user_ids`;
+}
+
+/** Pure ordinary seat decision from one actual snapshot, never a Principal. */
+export function evaluateUserSeatAccessSnapshot(userId: string, basePolicy: EffectiveSeatPolicy,
+  row: CurrentSeatSnapshotRow | undefined): UserSeatAccess {
   assertActiveSeatAccount(row?.account_present === true ? { id: row.account_id, banned: row.account_banned } : undefined);
   const organization = row?.organization_present === true
     ? { organization_id: row.organization_id, owner_user_id: row.owner_user_id } : undefined;
@@ -391,6 +391,17 @@ export async function assertUserSeatAccessInSingleSnapshotOnConnection(
   const fallbackOwner = row?.fallback_owner_id == null ? undefined : { id: row.fallback_owner_id };
   const allowedUserId = organization?.owner_user_id ?? fallbackOwner?.id ?? null;
   return decideSoloSeatAccess(userId, policy, organization, allowedUserId, Number(row?.solo_quantity || 0));
+}
+
+/** Actual-B read: fresh facts and the existing decision, no authority or cache. */
+export async function assertUserSeatAccessInSingleSnapshotOnConnection(
+  database: Pick<SqlConnection, 'get'>,
+  userId: string,
+  licenseStatus: LicenseStatus,
+): Promise<UserSeatAccess> {
+  const basePolicy = resolveEffectiveSeatPolicy(licenseStatus);
+  const row = await database.get(userSeatAccessSnapshotSql(), [userId, basePolicy.mode]) as CurrentSeatSnapshotRow | undefined;
+  return evaluateUserSeatAccessSnapshot(userId, basePolicy, row);
 }
 
 export async function assertUserSeatAccess(input: {

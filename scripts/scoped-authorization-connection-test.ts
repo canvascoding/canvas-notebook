@@ -78,6 +78,19 @@ test('agent access on an existing connection preserves policy and observes revoc
   let grants = [{ target_type: 'role', target_id: 'member', can_use: 1, can_edit: 0, can_manage: 0 }];
   const database = {
     async get(sql: string) {
+      if (sql.includes('AS permission_present')) return {
+        id: 'workspace-1', organization_id: 'organization-1', type: 'project', owner_user_id: null,
+        customer_id: null, project_id: 'project-1', root_relative_path: 'workspaces/project-1/files',
+        display_name: 'Project', description: '', workspace_icon: 'folder', workspace_color: null,
+        status: 'active', is_default: 0, created_at: 1, updated_at: 1,
+        permission_present: true, permission_role: organizationPermission.role, permission_status: organizationPermission.status,
+        project_present: true, project_role: 'member', project_status: 'active', project_can_read: 1, project_can_write: 1, project_can_manage: 0,
+        team_present: null,
+      };
+      if (sql.includes('FROM canvas_workspaces')) return {
+        id: 'workspace-1', organization_id: 'organization-1', type: 'project', project_id: 'project-1',
+      };
+      if (sql.includes('FROM canvas_projects')) return { id: 'project-1' };
       if (sql.includes('FROM agents a')) {
         if (failAgentRead) throw new Error('injected agent query failure');
         return agentRow ? { ...agentRow } : undefined;
@@ -85,7 +98,15 @@ test('agent access on an existing connection preserves policy and observes revoc
       if (sql.includes('FROM organization_user_permissions')) return { ...organizationPermission };
       throw new Error(`Unexpected get query: ${sql}`);
     },
-    async all(sql: string) {
+    async all(sql: string, values: unknown[] = []) {
+      // This isolated lease/policy fixture supplies the same current rows.
+      // Real typed SQL, locks and authority parity are covered by PG fixtures.
+      if (sql.includes('AS configured_present') && sql.includes('AS account_present')) return [{
+        configured_present: true, configured_organization_id: 'organization-1',
+        account_present: true, account_id: values[0], account_banned: 0,
+        membership_present: true, organization_id: 'organization-1',
+        ...organizationPermission, can_share_plugins_and_skills: 0,
+      }];
       if (sql.includes('FROM agent_grants')) return grants.map((grant) => ({ ...grant }));
       throw new Error(`Unexpected all query: ${sql}`);
     },

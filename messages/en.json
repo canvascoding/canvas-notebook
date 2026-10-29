@@ -1,4 +1,12 @@
 {
+  "documentLinkIndex": {
+    "incomplete": "Some document sources could not be fully read. Documents or connections may be missing.",
+    "workspaceSource": "Workspace sources could not be fully checked.",
+    "metadata": "Check the metadata in {count, plural, one {# document} other {# documents}}.",
+    "html": "HTML links in {count, plural, one {# file were} other {# files were}} not evaluated.",
+    "targets": "{count, plural, one {# link has} other {# links have}} no unambiguous target in this workspace.",
+    "more": "{count} more entries."
+  },
   "notFound": {
     "eyebrow": "Page not found · 404",
     "title": "This page seems to have wandered off.",

@@ -50,6 +50,36 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
       localStorage.setItem('canvas-browser-mode', 'tree');
     }, id);
     page = await context.newPage();
+    await page.addInitScript(() => {
+      const key = '__canvasOwnedMarkdownLinkClicks';
+      Reflect.set(globalThis, key, []);
+      document.addEventListener('click', event => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const anchor = target.closest('a[href]');
+        const root = anchor?.closest('.ProseMirror');
+        if (!anchor || !root) return;
+        const row: Record<string, unknown> = {
+          href: anchor.getAttribute('href'), ctrlKey: event.ctrlKey, metaKey: event.metaKey,
+          activeTab: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+          at: performance.now(),
+        };
+        try {
+          const editor = Reflect.get(root, 'editor') as {
+            options?: { element?: HTMLElement }; view?: { dom?: HTMLElement };
+          } | undefined;
+          row.optionsRootConnected = editor?.options?.element?.isConnected;
+          row.optionsRootContainsEditor = editor?.options?.element?.contains(root);
+          row.viewDomMatches = editor?.view?.dom === root;
+        } catch { row.editorObservationUnavailable = true; }
+        queueMicrotask(() => {
+          row.defaultPrevented = event.defaultPrevented;
+          const rows = Reflect.get(globalThis, key) as Array<Record<string, unknown>>;
+          rows.push(row);
+          if (rows.length > 12) rows.shift();
+        });
+      }, true);
+    });
     page.setDefaultTimeout(30_000);
     let sourceRepresentation: string | undefined;
     page.on('response', response => {
@@ -266,7 +296,11 @@ test('rich emoji YAML Wiki and Markdown links navigate after managed UI rename a
       navigatedAfterUndo: ['wiki', 'markdown'], persistedUndo: true, undoStatus: undone.status, coverageComplete: true,
     }, null, 2)) });
   } catch (error) {
-    if (page && !page.isClosed()) await page.screenshot({ path: info.outputPath('emoji-links-failure.png'), animations: 'disabled' });
+    if (page && !page.isClosed()) {
+      await info.attach('owned-markdown-link-clicks.json', { contentType: 'application/json', body: Buffer.from(JSON.stringify(
+        await page.evaluate(() => Reflect.get(globalThis, '__canvasOwnedMarkdownLinkClicks') ?? []), null, 2)) });
+      await page.screenshot({ path: info.outputPath('emoji-links-failure.png'), animations: 'disabled' });
+    }
     throw error;
   } finally {
     await page?.close();

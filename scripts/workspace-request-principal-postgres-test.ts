@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   assert.equal(url.port,'55433'); assert.equal(url.pathname,'/canvas_notebook'); assert.equal(url.search,'');
   const schema = `request_principal_${crypto.randomUUID().replaceAll('-','')}`;
   assert.match(schema,/^request_principal_[a-f0-9]{32}$/u);
-  const dataRoot = await mkdtemp(path.join(tmpdir(),'canvas-request-principal-'));
+  const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(),'canvas-request-principal-')));
   const environment = { ...process.env }; const originalFetch = globalThis.fetch;
   const control = new Client({ connectionString, options:'-c statement_timeout=15000', connectionTimeoutMillis:5000 });
   const clients = new Set<Client>(); let created = false; let pool: { end:()=>Promise<void> } | undefined;
@@ -438,10 +438,12 @@ async function main(): Promise<void> {
             const values=Array.isArray(args[1])?args[1]:[];
             if(readerPid&&/^UPDATE canvas_organization_settings SET deployment_mode =/u.test(sql))writerPid=Number(Reflect.get(this,'processID'));
             const original=Reflect.apply(originalQuery,this,args);
-            if(!sql.startsWith('SELECT role, status, can_write_team_workspace, can_create_public_links,')
-              || values[0]!=='principal-org'||values[1]!=='member'||++permissionReads!==(mode==='selected'?1:2))return original;
+            if(!sql.includes('AS permission_can_create_public_links')
+              || values[0]!== (mode==='selected'?team.workspaceId:'principal-org') || values[1]!=='member'||++permissionReads!==1)return original;
             return Promise.resolve(original).then(async result=>{
-              assert.equal(result.rows[0]?.can_create_public_links,1);
+              const teamRow=result.rows.find((row:{id:string})=>row.id===team.workspaceId);assert(teamRow);
+              assert.equal(teamRow.permission_can_create_public_links,1);
+              assert.equal(teamRow.team_present,null,'The same SQL snapshot must still observe the absent team membership.');
               readerPid=Number(Reflect.get(this,'processID'));assert(Number.isSafeInteger(readerPid));
               await releaseRead.promise;return result;
             });
@@ -629,13 +631,17 @@ async function main(): Promise<void> {
       })),expected('PRINCIPAL_SCOPE_CHANGED'));
       await assert.rejects(captured(p=>transaction(async(db)=>{await db.run('SET LOCAL search_path=pg_catalog');await phase(db,p,async()=>assert.fail());})),expected('PRINCIPAL_SCOPE_CHANGED'));
     });
-    await check('final expiry response cannot hide changed backend',async()=>{
+    await check('final fresh observation cannot hide a backend change after the actual session reply',async()=>{
       await assert.rejects(captured(p=>transaction(async(_db,client)=>{
-        const peer=await ownClient();await peer.query('BEGIN');let active=client,armed=false;
+        const peer=await ownClient();await peer.query('BEGIN');let active=client,armed=false,switched=false;
         const wrapper:SqlConnection={get:async(sql,args)=>{const row=(await active.query(sql,args)).rows[0];
-          if(armed && sql.startsWith('SELECT expires_at')) active=peer;return row;},
+          // The session expiry now arrives with the complete context/policy
+          // snapshot. Change only the real backend after its first reply.
+          if(armed && !switched && row?.token_hash && row.workspace && row.seat && Array.isArray(row.relations)) {
+            active=peer;switched=true;
+          }return row;},
         all:async(sql,args)=>(await active.query(sql,args)).rows,run:async(sql,args)=>({changes:(await active.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
-        try{await phase(wrapper,p,async()=>{armed=true;});}finally{await peer.query('ROLLBACK');await endClient(peer);}
+        try{await phase(wrapper,p,async()=>{armed=true;});}finally{assert(switched);await peer.query('ROLLBACK');await endClient(peer);}
       })),expected('PRINCIPAL_SCOPE_CHANGED'));
     });
     await check('fresh locked role follows DB, not the captured session user',async()=>{
@@ -1105,6 +1111,10 @@ async function main(): Promise<void> {
     });
     await check('metadata disjoint favorite and pin patches preserve both commits for missing and existing rows',async()=>{
       const diagnosticOriginalQuery=Client.prototype.query;
+      const diagnosticReads:Promise<void>[]=[];
+      const foundationTables=['canvas_organization_settings','team_memberships','team_membership_sync_state','user','session',
+        'organization_user_permissions','canvas_workspaces','canvas_projects','canvas_workspace_members','canvas_project_members'];
+      const lastFoundationDml=new Map<number,{table:string;command:string;phase:string}>();
       let diagnosticSubcase='not-started',diagnosticPhase='fixture-setup';
       const queryCategory=(sql:string):string=>{
         const normalized=sql.trim().replace(/\s+/gu,' ');
@@ -1126,6 +1136,8 @@ async function main(): Promise<void> {
         const sql=typeof args[0]==='string'?args[0]:args[0]&&typeof args[0]==='object'?String(Reflect.get(args[0],'text')??''):'';
         const category=queryCategory(sql),subcase=diagnosticSubcase,startedInPhase=diagnosticPhase,startedAt=performance.now();
         const backendPid=Number(Reflect.get(this,'processID'));
+        const dml=/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]+"\.)?"?([a-z_]+)"?/iu.exec(sql);
+        if(dml&&foundationTables.includes(dml[2]))lastFoundationDml.set(backendPid,{table:dml[2],command:dml[1].toUpperCase(),phase:startedInPhase});
         const observeLockFailure=(error:unknown):void=>{
           // Observe the original query rejection only. Never print SQL, values,
           // credentials, or replace the original result/error with this witness.
@@ -1136,6 +1148,24 @@ async function main(): Promise<void> {
               elapsedMs:Math.round((performance.now()-startedAt)*100)/100,
               backendPid:Number.isSafeInteger(backendPid)&&backendPid>0?backendPid:null,
             }));
+            const message=typeof Reflect.get(error,'message')==='string'?String(Reflect.get(error,'message')):'';
+            const blockedRelation=foundationTables.find(name=>message.includes('"'+name+'"'))??null;
+            const diagnostic=(async()=>{
+              const locks=(await admin.query(`SELECT c.relname AS relation,l.mode,a.pid,a.backend_type,a.state,
+                a.wait_event_type,a.wait_event FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+                JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_stat_activity a ON a.pid=l.pid
+                WHERE n.nspname=$1 AND c.relname=ANY($2::text[]) AND l.granted AND l.pid<>$3
+                  AND l.mode IN('RowExclusiveLock','ShareUpdateExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')
+                ORDER BY c.relname,a.pid`,[schema,foundationTables,backendPid])).rows;
+              const maintenance=(await admin.query(`SELECT relname,
+                extract(epoch FROM last_autovacuum)*1000 AS last_autovacuum_ms,
+                extract(epoch FROM last_autoanalyze)*1000 AS last_autoanalyze_ms
+                FROM pg_stat_all_tables WHERE schemaname=$1 AND relname=ANY($2::text[]) ORDER BY relname`,[schema,foundationTables])).rows;
+              console.error('Actual metadata foundation lock details:',JSON.stringify({subcase,blockedRelation,
+                locks:locks.map(row=>({...row,lastObservedFoundationDml:lastFoundationDml.get(Number(row.pid))??null})),maintenance}));
+            })();
+            diagnosticReads.push(diagnostic);
+            void diagnostic.catch(()=>undefined);
           }catch{/* Diagnostic output must not change the original query outcome. */}
         };
         try{
@@ -1195,7 +1225,7 @@ async function main(): Promise<void> {
         }finally{diagnosticPhase='draining-original-fixture-promises';release.release();await first.done;if(second)await second.done;Client.prototype.query=originalQuery;}
         });
       }
-      }finally{Client.prototype.query=diagnosticOriginalQuery;}
+      }finally{Client.prototype.query=diagnosticOriginalQuery;await Promise.allSettled(diagnosticReads);}
     });
     await check('metadata genuine SQL failure rolls back title and personal changes together',async()=>{
       const target=await nativeTarget('metadata-rollback.md');await metadataWrite(target.expectedTarget,{title:'Before rollback'});

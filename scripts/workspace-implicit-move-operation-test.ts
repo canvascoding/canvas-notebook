@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../app/lib/db';
 import { executeLifecycleTransaction } from '../app/lib/collaboration/lifecycle-transaction';
+import { withNativeInspectionSchema } from '../app/lib/collaboration/native-inspection-schema';
 import * as Admission from '../app/lib/collaboration/room-admission-contract';
 import * as Selection from '../app/lib/files/workspace-implicit-move-selection';
 import { captureWorkspaceOperationNativePlanData } from '../app/lib/files/workspace-operation-native-plan-data';
@@ -19,7 +20,8 @@ type Options = { mode?: Mode; error?: Error; closeError?: Error; duplicateKeys?:
   advanceFault?: 'principal' | 'admission' | 'raw-sql' | 'public-lookalike' | 'admission-lookalike' | 'auth' | 'schema';
   advanceAlways?: boolean; advanceCleanupFault?: 'rollback' | 'close'; advanceMutexFault?: boolean;
   afterAdvanceBusy?: 'auth' | 'schema' | 'selection'; nonAdvanceBusy?: boolean;
-  advanceCommitObserveBusy?: boolean; handoffImmediate?: boolean };
+  advanceCommitObserveBusy?: boolean; handoffImmediate?: boolean;
+  documents?: number; revokeAfterProof?: number };
 
 /** Real public prepare/resume and their private runPhase/finish/continueSaved,
  * real immutable selection codecs and lifecycle unwind, with declared SQL,
@@ -40,7 +42,10 @@ async function fixture(options: Options = {}) {
   }).outputText)(principalExports);
   const PrincipalError = principalExports.WorkspaceRequestPrincipalError;
   assert.equal(typeof PrincipalError, 'function');
-  const base = workspacePathImportPreparationFixture({ native: [['folder/note.md', '# Note\n'], ['backlink.md', '# Other\n']], raw: [] });
+  const documentCount = options.documents ?? 2;
+  assert(Number.isSafeInteger(documentCount) && documentCount >= 2 && documentCount <= 200);
+  const base = workspacePathImportPreparationFixture({ native: [['folder/note.md', '# Note\n'], ['backlink.md', '# Other\n'],
+    ...Array.from({ length: documentCount - 2 }, (_, index) => [`extra/${index}.md`, '# Extra\n'] as const)], raw: [] });
   const origin: WorkspaceRequestHistoricalOrigin = { userId: base.scope.ownerUserId!, sessionId: 'fixture-session', impersonatedBy: null,
     workspaceId: base.scope.workspaceId, workspaceType: base.scope.workspaceType, organizationId: base.scope.organizationId,
     customerId: base.scope.customerId, projectId: base.scope.projectId, ownerUserId: base.scope.ownerUserId,
@@ -70,7 +75,8 @@ async function fixture(options: Options = {}) {
     principalDepth: 0, kernelDepth: 0, handoffDepth: 0, phaseDepth: 0, authCalls: 0, attempts: 0, mutations: 0,
     proofs: 0, sleeps: [] as number[], events: [] as string[], requests: [] as Admission.CollaborationAdmissionRequest[],
     advanceAttempts: 0, advanceFailures: 0, advanceRequestIds: [] as string[], advanceAuthCalls: [] as number[],
-    commitFaultFired: false, nonAdvanceFaultFired: false, schemaRevoked: false };
+    commitFaultFired: false, nonAdvanceFaultFired: false, schemaRevoked: false, currentChecks: 0,
+    proofDocuments: [] as Array<{ documentId: string; advanceAttempt: number }> };
   const connections = new Set<SqlConnection>(), handoffGets = new WeakSet<SqlConnection['get']>();
   const advanceConnections = new WeakSet<SqlConnection>();
   const advanceFailure = options.advanceFault === 'admission' ? new Admission.CollaborationAdmissionError('ADMISSION_CONFLICT')
@@ -156,13 +162,20 @@ async function fixture(options: Options = {}) {
     'node:util': { isDeepStrictEqual: (await import('node:util')).isDeepStrictEqual }, '../db': { openDb },
     '../collaboration/lifecycle-transaction': { executeLifecycleTransaction },
     '../collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => true },
+    '../collaboration/native-inspection-schema': { withNativeInspectionSchema },
     '../collaboration/room-admission-contract': Admission,
     '../collaboration/room-owner': { lockIdentity: (documentId: string) => ({ key: options.duplicateKeys ? '42' : documentId }) },
     '../collaboration/room-admission': { reserveCollaborationAdmissionOnConnection: unexpected, startCollaborationAdmissionDrainOnConnection: unexpected,
       tryLockCollaborationAdmissionWorkspace: async (query: (sql: string, values: unknown[]) => Promise<unknown>, workspaceId: string) => query('fixture-admission', [workspaceId]),
       decodeCollaborationAdmissionTarget: () => ({ ownerToken: null }) },
-    '../collaboration/room-admission-quiescence': { proveCollaborationAdmissionQuiescenceOnConnection: async () => {
-      state.proofs++; state.now += options.proofCost ?? 0; return { proofText: 'declared-proof' }; } },
+    '../collaboration/room-admission-quiescence': { proveCollaborationAdmissionQuiescenceOnConnection: async (
+      _database: SqlConnection, request: Admission.CollaborationAdmissionRequest, documentId: string) => {
+      assert.equal(request.requestId, captured.request.requestId);
+      assert(captured.request.expectedDocuments.some(document => document.documentId === documentId));
+      state.proofDocuments.push({ documentId, advanceAttempt: state.advanceAttempts });
+      state.proofs++; state.now += options.proofCost ?? 0;
+      if (state.proofs === options.revokeAfterProof) state.revoked = true;
+      return { proofText: 'declared-proof' }; } },
     '../collaboration/room-admission-outcome': { readHistoricalCollaborationAdmissionOutcomeOnConnection: async () => state.outcome },
     '../collaboration/room-admission-handoff': { createCollaborationAdmissionHandoffService: (mechanics: {
       openConnection: () => Promise<SqlConnection>; withMutationLocks: (ids: string[], run: () => Promise<unknown>) => Promise<unknown>;
@@ -206,7 +219,10 @@ async function fixture(options: Options = {}) {
         try { return await run({}); } finally { state.principalDepth--; }
       },
       withWorkspaceRequestPrincipalOnConnection: async (_database: SqlConnection, _principal: object, run: (access: unknown) => Promise<unknown>) =>
-        run({ userId: origin.userId, sessionId: origin.sessionId, workspace, assertCurrent: async () => { assert.equal(state.revoked, false); } }),
+        run({ userId: origin.userId, sessionId: origin.sessionId, workspace, assertCurrent: async () => {
+          state.currentChecks++;
+          if (state.revoked) throw new PrincipalError('PRINCIPAL_ACCESS_DENIED');
+        } }),
     },
     '../markdown/workspace-source-authority-stage': { readWorkspaceLinkSourceAuthorityOnConnection: unexpected },
     './workspace-operation-native-plan-data': { captureWorkspaceOperationNativePlanData },
@@ -402,4 +418,36 @@ for (const afterAdvanceBusy of ['auth', 'schema', 'selection'] as const) test(`f
   assert.equal(h.state.advanceFailures, 1); assert.equal(h.state.advanceAttempts, 1);
   assert.equal(h.state.attempts, 0); assert.equal(h.state.mutations, 0); assert.deepEqual(h.state.sleeps, [100]);
   h.assertUnwound();
+});
+
+test('twenty retained native targets use three bounded phases and still prove every original target in order', async () => {
+  const h = await fixture({ mode: 'success', handoffImmediate: true, documents: 20 });
+  assert.equal((await h.invoke('resume')).state, 'batch');
+  assert.equal(h.state.advanceAttempts, 3); assert.equal(h.state.proofs, 20);
+  assert.deepEqual(h.state.proofDocuments.map(item => item.documentId),
+    h.captured.request.expectedDocuments.map(item => item.documentId));
+  assert.deepEqual([1, 2, 3].map(attempt => h.state.proofDocuments.filter(item => item.advanceAttempt === attempt).length), [8, 8, 4]);
+  assert(h.state.currentChecks >= h.state.proofs, 'Every target still has a current-policy check.');
+  assert.equal(h.state.mutations, 1); h.assertUnwound();
+});
+
+test('a bounded group stops before starting another target at the original deadline', async () => {
+  const h = await fixture({ documents: 20, proofCost: 25 });
+  assert.equal((await h.invoke('resume', 50)).state, 'pending');
+  assert.equal(h.state.proofs, 2); assert.equal(h.state.advanceAttempts, 1); assert.equal(h.state.now, 50);
+  assert.equal(h.state.attempts, 0); assert.equal(h.state.mutations, 0); h.assertUnwound();
+});
+
+test('current access denial after a target proof stops the same group before the next target or Handoff', async () => {
+  const h = await fixture({ mode: 'success', handoffImmediate: true, documents: 20, revokeAfterProof: 3 });
+  await assert.rejects(h.invoke('resume'), { code: 'IMPLICIT_MOVE_ACCESS_DENIED', status: 403 });
+  assert.equal(h.state.proofs, 3); assert.equal(h.state.advanceAttempts, 1);
+  assert.equal(h.state.attempts, 0); assert.equal(h.state.mutations, 0); h.assertUnwound();
+});
+
+test('an unknown group COMMIT and failed fresh observation cannot authorize another group or final Handoff', async () => {
+  const h = await fixture({ mode: 'success', handoffImmediate: true, documents: 20, advanceCommitObserveBusy: true });
+  await assert.rejects(h.invoke('resume'), { code: 'IMPLICIT_MOVE_BUSY', status: 503 });
+  assert.equal(h.state.proofs, 8); assert.equal(h.state.advanceAttempts, 1);
+  assert.equal(h.state.attempts, 0); assert.equal(h.state.mutations, 0); h.assertUnwound();
 });

@@ -1,0 +1,328 @@
+{
+  "version": 1,
+  "passed": true,
+  "productSource": "0e088417588b780ccc3ea24e36e9c3c0eb63869b",
+  "sourceBase": "3d403e483bf096eae0887ddef728691bdbed4e55",
+  "scope": "Actual registered Agent write / MCP Web Request transport with real PostgreSQL and normal upload-created sources; no live LLM turn, production OAuth issuance, browser/Next middleware or cold PostgreSQL buffers.",
+  "reviewCenterAndUndoDisabled": true,
+  "sources": {
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "6571a9dd2864f8c41ebe292436a23b51a80042b43e2b59b8d03aa3b088c8d340",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "d9cfc0bc75eaa2396eb416069712ec2250cadea90fb69254a84831d3b13b572d"
+  },
+  "runtimeEquivalentTestTypeFix": {
+    "file": "scripts/document-create-matrix-baseline-postgres-entry.ts",
+    "beforeHash": "d5434f04f6694a9a80665e0f16d9bab3767987bdbc469a76f22e6e05446e8842",
+    "afterHash": "d9cfc0bc75eaa2396eb416069712ec2250cadea90fb69254a84831d3b13b572d",
+    "typescriptJavaScriptIdentical": true,
+    "esbuildJavaScriptIdentical": true,
+    "runtimeEnumAssertionRetained": true
+  },
+  "rawMatrix": {
+    "file": "validation.json",
+    "sha256": "7cb751781d05b050b0f89d2aaaf03ee2c2166149255d6894645ea831eed7fe81"
+  },
+  "completion": {
+    "file": "fixture-completion.json",
+    "sha256": "72c46e911a59c5946eee9527f56b4d8de324f78db2e9459534bbcbc2ae0f80e2"
+  },
+  "runs": [
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "sources": 10,
+      "rawResult": "agent-main-10.json",
+      "rawResultSha256": "0f4836ae3b5f53728516974d2ad6ce6c4aea2b1d33db7d44d89115e417f6a642",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 1163,
+          "leases": 68,
+          "wallMs": 2274.32,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 1058,
+          "leases": 34,
+          "wallMs": 1849.47,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 1058,
+          "leases": 34,
+          "wallMs": 1843.92,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 168,
+          "leases": 7,
+          "wallMs": 187.87,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "sources": 10,
+      "rawResult": "mcp-main-10.json",
+      "rawResultSha256": "0bbad1be50656c00ee5a3d06095810889a09d112e266dd229b04e2d21952eaff",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 723,
+          "leases": 42,
+          "wallMs": 1629.65,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 702,
+          "leases": 29,
+          "wallMs": 1490.96,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 702,
+          "leases": 29,
+          "wallMs": 1454.64,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 91,
+          "leases": 12,
+          "wallMs": 125.69,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "sources": 10,
+      "rawResult": "agent-organization-member-10-callsite.json",
+      "rawResultSha256": "b88143abb66ced21dddeb9563939f27a0a07a5dd312f8fae131aefaf2f5bdcbb",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 1906,
+          "leases": 68,
+          "wallMs": 3198.81,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 1790,
+          "leases": 34,
+          "wallMs": 2281.86,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 1790,
+          "leases": 34,
+          "wallMs": 2265.61,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 264,
+          "leases": 7,
+          "wallMs": 257.37,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "sources": 200,
+      "rawResult": "agent-organization-member-200.json",
+      "rawResultSha256": "fd83dcc5e5c74169fb5096031f7f862d3a189db4a4a680368785be4472c36e64",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 1906,
+          "leases": 68,
+          "wallMs": 2606.48,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 1790,
+          "leases": 34,
+          "wallMs": 2197.97,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 1790,
+          "leases": 34,
+          "wallMs": 2214.4,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 264,
+          "leases": 7,
+          "wallMs": 231.19,
+          "failedSql": 0,
+          "openQueries": 0,
+          "openConnections": 0
+        }
+      ]
+    }
+  ],
+  "attribution": {
+    "file": "agent-organization-member-10-callsite.json.callers.json",
+    "sha256": "bc5d3303c59e8058a3d1a0f7f18eac1434f552573b1ed1a22bcfa38f6439bab7",
+    "exactAllCounts": true,
+    "stackFailures": 0,
+    "topOwners": [
+      {
+        "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+        "calls": 366,
+        "catalogue": 0,
+        "lines": [
+          171,
+          206,
+          214
+        ]
+      },
+      {
+        "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+        "calls": 130,
+        "catalogue": 0,
+        "lines": [
+          45
+        ]
+      },
+      {
+        "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+        "calls": 130,
+        "catalogue": 0,
+        "lines": [
+          77
+        ]
+      },
+      {
+        "owner": "workspaces/postgres-runtime.ts:readPostgresWorkspaceForActorInSingleSnapshotOnConnection",
+        "calls": 130,
+        "catalogue": 0,
+        "lines": [
+          2461
+        ]
+      },
+      {
+        "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+        "calls": 114,
+        "catalogue": 114,
+        "lines": [
+          1001
+        ]
+      },
+      {
+        "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+        "calls": 114,
+        "catalogue": 114,
+        "lines": [
+          1097,
+          1105
+        ]
+      },
+      {
+        "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+        "calls": 106,
+        "catalogue": 106,
+        "lines": [
+          80
+        ]
+      },
+      {
+        "owner": "workspaces/request-principal.ts:schema",
+        "calls": 72,
+        "catalogue": 24,
+        "lines": [
+          398,
+          404,
+          406
+        ]
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "canonical-release-and-affected-entry-types",
+      "exitCode": 0,
+      "log": "canonical-release-and-affected-entry-types.log",
+      "logSha256": "12031289a0edc08175d324485a4dbde94409df32d8e2d4a418208c3999961b25"
+    },
+    {
+      "name": "changed-fixture-eslint",
+      "exitCode": 0,
+      "log": "changed-fixture-eslint.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "default-registered-read-regression",
+      "exitCode": 0,
+      "log": "default-registered-read-regression.log",
+      "logSha256": "be656ed1c68af7eb3e2ac12a5b8204e082bc56d1385dcbc11f6b03f6f2b11673"
+    },
+    {
+      "name": "default-registered-edit-regression",
+      "exitCode": 0,
+      "log": "default-registered-edit-regression.log",
+      "logSha256": "11021788d1f18f17f694c53ea16119569f111955c2de8db90eeba076e64d88ea"
+    },
+    {
+      "name": "default-registered-search-regression",
+      "exitCode": 0,
+      "log": "default-registered-search-regression.log",
+      "logSha256": "8b90763a9e8e17f64c44d898ca069aab31cb7db3e9d58245796f2743aade9a83"
+    }
+  ],
+  "retainedInvariants": [
+    "three fresh creates have complete native and projection receipts",
+    "original idempotent retry preserves document, lineage, operation and persisted fingerprints",
+    "all original registry/lineage/native/metadata rows including xmin and physical bytes unchanged",
+    "zero open own PostgreSQL backends before schema cleanup",
+    "default main fixture real read/edit/search regressions unchanged"
+  ],
+  "fullPlanAccepted": false,
+  "noProductionChange": true
+}

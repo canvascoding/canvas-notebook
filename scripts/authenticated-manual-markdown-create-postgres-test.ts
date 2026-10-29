@@ -272,13 +272,27 @@ async function main(): Promise<void> {
       };
     };
     process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='0';
-    await check('missing/invalid UUID, false gate and contradictory template never create',async()=>{
+    await check('missing/invalid UUID and contradictory template never create',async()=>{
       const missing=await post({path:'missing.md',type:'file'});assert.equal(missing.status,400);
       assert.equal((await create('invalid.md','not-a-uuid')).response.status,400);
-      for(const useMobile of[false,true]){const filePath=`gate-${useMobile}.md`,value=await create(filePath,crypto.randomUUID(),useMobile);
-        assert.equal(value.response.status,409,JSON.stringify(value.json));assert.equal(value.json.success,false);assert.equal(value.json.completion.status,'unavailable');assert.equal(await exists(filePath),null);assert.equal(await count('collaboration_documents',filePath),0);}
       assert.equal((await create('drawing-bypass.md',crypto.randomUUID(),false,{template:'excalidraw'})).response.status,400);
       assert.equal(await exists('drawing-bypass.md'),null);
+    });
+    await check('core Web and Mobile native creation stays enabled without the retired test opt-in',async()=>{
+      for(const useMobile of[false,true]){
+        const filePath=`core-default-${useMobile}.md`,requestId=crypto.randomUUID(),value=await create(filePath,requestId,useMobile);
+        assert.equal(value.response.status,200,JSON.stringify(value.json));
+        assert.deepEqual(value.json,{success:true,completion:{status:'completed',requestId,workspaceId,targetPath:filePath}});
+        assert.deepEqual(await fs.readFile(path.join(root,filePath)),Buffer.alloc(0));
+        const document=(await admin.query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',[workspaceId,filePath])).rows[0];
+        const state=await loadCollaborationState(document.id);assert(state);
+        assert.equal(state.representation,'tiptap_blocks');assert.equal(state.documentSequence,0);
+        assert.equal(authoritativeCollaborationSnapshot(state).canonicalContent,'');
+        assert.equal(await count('collaboration_documents',filePath),1);assert.equal(await count('file_revisions',filePath),1);
+        const retry=await create(filePath,requestId,useMobile);assert.equal(retry.response.status,200,JSON.stringify(retry.json));
+        assert.deepEqual(retry.json.completion,value.json.completion);
+        assert.equal(await count('collaboration_documents',filePath),1);assert.equal(await count('file_revisions',filePath),1);
+      }
     });
     process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='1';
     await check('real Web Cookie and reexported Mobile Bearer direct200, Empty native and Initialhistory',async()=>{
@@ -476,16 +490,26 @@ async function main(): Promise<void> {
       try{const value=await create(filePath,requestId);assert(effects);assert(failed);assert.equal(value.response.status,409,JSON.stringify(value.json));assert.equal(value.json.success,false);assert.equal(value.json.completion.status,'recovery_required');}
       finally{runtime.connect=connect;fileVersionHistoryService.capture=capture;}
     },'effects-close');
-    await check('false gate only observes an own native birth and performs no route effects',async()=>{
+    await check('retired test opt-in keeps original completion and ordinary route effects available',async()=>{
       const filePath='confirmed-before-gate.md',requestId=crypto.randomUUID();assert.equal((await create(filePath,requestId)).response.status,200);
       const audits=await count('audit_events',filePath),revisions=await count('file_revisions',filePath),capture=fileVersionHistoryService.capture;let captures=0;
+      // Ordinary route effects refresh the registry timestamp. Document identity,
+      // complete native state and lineage still belong to the original birth.
+      const originalRows=async()=>(await admin.query(`SELECT to_jsonb(d)-'updated_at' AS document,
+        to_jsonb(s) AS state,to_jsonb(l) AS lineage
+        FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+        JOIN file_collaboration_lineages l ON l.id=d.lineage_id WHERE d.workspace_id=$1 AND d.path=$2`,[workspaceId,filePath])).rows;
+      const before=await originalRows();assert.equal(before.length,1);
       fileVersionHistoryService.capture=async input=>{captures++;return capture(input);};process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='0';
-      try{const retry=await create(filePath,requestId);assert.equal(retry.response.status,409,JSON.stringify(retry.json));assert.equal(retry.json.completion.status,'recovery_required');
-        assert.equal(captures,0);assert.equal(await count('audit_events',filePath),audits);assert.equal(await count('file_revisions',filePath),revisions);assert.deepEqual(await fs.readFile(path.join(root,filePath)),Buffer.alloc(0));}
+      try{const retry=await create(filePath,requestId);assert.equal(retry.response.status,200,JSON.stringify(retry.json));
+        assert.deepEqual(retry.json,{success:true,completion:{status:'completed',requestId,workspaceId,targetPath:filePath}});
+        assert.equal(captures,1);assert.equal(await count('audit_events',filePath),audits+1);
+        assert.equal(await count('file_revisions',filePath),revisions);assert.deepEqual(await originalRows(),before);
+        assert.deepEqual(await fs.readFile(path.join(root,filePath)),Buffer.alloc(0));}
       finally{fileVersionHistoryService.capture=capture;process.env.CANVAS_TEST_NATIVE_TEXT_SESSION='1';}
     },'gatefalse');
-    assert.equal(cases,selected?.length??14);assert.equal(fetches,0);
-    console.log(`Authenticated manual Markdown Create PG18: ${cases} genuine route/Auth/SQL/FS/process families; no app/browser/host activation.`,{mode:selected?'selected':'full',selected:selected??null,selectedCount:cases,requestedCount:selected?.length??14});
+    assert.equal(cases,selected?.length??15);assert.equal(fetches,0);
+    console.log(`Authenticated manual Markdown Create PG18: ${cases} genuine route/Auth/SQL/FS/process families; no app/browser/host activation.`,{mode:selected?'selected':'full',selected:selected??null,selectedCount:cases,requestedCount:selected?.length??15});
   } finally {
     Client.prototype.query=originalQuery;childModule.spawn=originalSpawn;syncBuiltinESMExports();globalThis.fetch=originalFetch;
     const closureErrors:unknown[]=[];

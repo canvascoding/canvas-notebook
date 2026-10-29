@@ -87,6 +87,17 @@ def open_dir(parent, name, private=False):
         raise
 
 
+def directory_entries(parent):
+    # A fresh description of the pinned directory avoids stale enumeration
+    # state on Linux and never consumes the caller's directory cursor. A dup
+    # would share that description; resolving a pathname could select a peer.
+    fd = os.open('.', DIRECTORY | os.O_CLOEXEC, dir_fd=parent)
+    try:
+        return os.listdir(fd)
+    finally:
+        os.close(fd)
+
+
 def read_file(parent, name, limit=RECORD_LIMIT, links=1):
     fd = os.open(name, READ, dir_fd=parent)
     try:
@@ -157,14 +168,14 @@ def record(parent, name, value):
     os.fsync(parent)
 
 
-def store_anchor(data):
+def store_anchor(data, settle=True):
     """Resolve only a published private pointer; never search/adopt orphans."""
     try:
         info = os.stat(ANCHOR, dir_fd=data, follow_symlinks=False)
     except FileNotFoundError:
         return None
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 \
-            or info.st_nlink not in (1, 2) or ANCHOR not in os.listdir(data):
+            or info.st_nlink not in (1, 2) or ANCHOR not in directory_entries(data):
         fail('NAMESPACE_CHANGED')
     raw, observed = read_file(data, ANCHOR, RECORD_LIMIT, info.st_nlink)
     value = decode(raw)
@@ -187,15 +198,17 @@ def store_anchor(data):
         fail('NAMESPACE_CHANGED')
     store = open_dir(data, name, True)
     try:
-        if name not in os.listdir(data) or directory(store, True) != value['store']:
+        if name not in directory_entries(data) or directory(store, True) != value['store']:
             fail('NAMESPACE_CHANGED')
         if value['version'] == 2:
             pending = value['pendingName']
             if info.st_nlink == 2:
                 twin, profile = read_file(store, pending, RECORD_LIMIT, 2)
-                if pending not in os.listdir(store) or twin != raw or profile != observed \
+                if pending not in directory_entries(store) or twin != raw or profile != observed \
                         or {key: profile[key] for key in ['dev', 'ino', 'uid', 'mode']} != value['pointerFile']:
                     fail('RECORD_CHANGED')
+                if not settle:
+                    fail('RECOVERY_REQUIRED')
                 # Only this exact private 0600 two-link twin may be removed.
                 named(data, name, store)
                 current, current_profile = read_file(data, ANCHOR, RECORD_LIMIT, 2)
@@ -214,8 +227,9 @@ def store_anchor(data):
                     fail('RECORD_CHANGED')
             # Also settle an observed link/unlink whose caller died before
             # acknowledging directory durability. The pointer itself is fixed.
-            os.fsync(store)
-            os.fsync(data)
+            if settle:
+                os.fsync(store)
+                os.fsync(data)
             settled, profile = read_file(data, ANCHOR, RECORD_LIMIT, 1)
             if settled != raw or profile != observed:
                 fail('NAMESPACE_CHANGED')
@@ -291,6 +305,28 @@ def claim_store(data):
         os.close(lock)
 
 
+def existing_claim_store(data):
+    """Observe an existing settled store without initializing or repairing it."""
+    try:
+        lock = os.open(STORE + '.lock', READ, dir_fd=data)
+    except FileNotFoundError:
+        fail('RECORD_CHANGED')
+    try:
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
+            fail('NAMESPACE_CHANGED')
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        named_lock = os.stat(STORE + '.lock', dir_fd=data, follow_symlinks=False)
+        if identity(named_lock) != identity(info) or named_lock.st_nlink != 1:
+            fail('NAMESPACE_CHANGED')
+        existing = store_anchor(data, settle=False)
+        if existing is None:
+            fail('RECORD_CHANGED')
+        return existing
+    finally:
+        os.close(lock)
+
+
 def parent_for(root, target, initial, parents):
     opened, parent, relative = [], root, ''
     try:
@@ -311,7 +347,7 @@ def parent_for(root, target, initial, parents):
                 if directory(child) != expected:
                     fail('TARGET_CHANGED')
             # Exact case/name matters even on a case-insensitive filesystem.
-            if segment not in os.listdir(parent):
+            if segment not in directory_entries(parent):
                 fail('TARGET_CHANGED')
             parent = child
         return parent, opened
@@ -337,7 +373,7 @@ def capture_absence(root, target, manual_new=False):
                 continue
             if manual_new and relative == target:
                 fail('MANUAL_PATH_EXISTS')
-            if relative == target or not stat.S_ISDIR(value.st_mode) or segment not in os.listdir(parent):
+            if relative == target or not stat.S_ISDIR(value.st_mode) or segment not in directory_entries(parent):
                 fail('TARGET_CHANGED')
             child = open_dir(parent, segment)
             opened.append(child)
@@ -353,7 +389,7 @@ def assert_parents(root, target, opened):
     parent = root
     for segment, child in zip(target.split('/')[:-1], opened):
         named(parent, segment, child)
-        if segment not in os.listdir(parent):
+        if segment not in directory_entries(parent):
             fail('TARGET_CHANGED')
         parent = child
 
@@ -539,15 +575,24 @@ def run(message):
         # Validate them before even initializing the private claim namespace.
         current_source(intent)
     file_limit = 8 * 1024 * 1024 if intent['source'].get('kind') == 'agent-markdown-v1' else LIMIT
-    store_name, store = claim_store(3)
+    verification = message['action'] == 'verify'
+    store_name, store = existing_claim_store(3) if verification else claim_store(3)
     claim = None
     try:
-        try:
-            os.mkdir(key, 0o700, dir_fd=store)
-            created = True
-        except FileExistsError:
+        if verification:
             created = False
-        claim = open_dir(store, key, True)
+        else:
+            try:
+                os.mkdir(key, 0o700, dir_fd=store)
+                created = True
+            except FileExistsError:
+                created = False
+        try:
+            claim = open_dir(store, key, True)
+        except FileNotFoundError:
+            if verification:
+                fail('RECORD_CHANGED')
+            raise
         before = optional_record(claim, 'intent.json')
         if created:
             if message['action'] != 'open' or before is not None:
@@ -567,7 +612,7 @@ def run(message):
         if not isinstance(initial, dict):
             fail('RECORD_CHANGED')
         parents = {}
-        for name in os.listdir(claim):
+        for name in directory_entries(claim):
             if name.startswith('parent-') and name.endswith('.json'):
                 value = optional_record(claim, name)
                 if set(value) != {'path', 'identity'} or name != 'parent-' + digest(value['path'].encode()) + '.json':

@@ -1,0 +1,427 @@
+{
+  "version": 1,
+  "date": "2026-10-28",
+  "baselineHead": "547cd1ab136b249bcc38af53ff70676c021c0a43",
+  "sources": {
+    "app/lib/workspaces/request-principal.ts": "85f141872f7ebe6958bb95c9f59000eebc4d209100a09fc842acc1f0f78607ca",
+    "scripts/workspace-principal-user-locks-postgres-test.ts": "74c50514d423630e2c81b5b924b3b58efed9deb951aa944fd6effdf566d80754",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "8cb19087fe1710a379575f60debd678649e92ab70bef03b3405c401760e65dd1"
+  },
+  "sourceProof": {
+    "sourceBeforeSha256": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "sourceAfterSha256": "85f141872f7ebe6958bb95c9f59000eebc4d209100a09fc842acc1f0f78607ca",
+    "changed": [
+      "locks",
+      "schema"
+    ],
+    "unchanged": [
+      "fail",
+      "reason",
+      "poison",
+      "freeze",
+      "scope",
+      "withWorkspaceRequestPrincipal",
+      "withWorkspaceRequestPrincipalOriginalOrigin",
+      "withRequestPrincipal",
+      "active",
+      "principalIdentitySnapshotQuery",
+      "parseIdentity",
+      "identity",
+      "checkIdentity",
+      "validatePrincipalIdentitySnapshot",
+      "principalRelations",
+      "observeOriginalOrigin",
+      "bounded",
+      "assertWorkspaceRow",
+      "lockMemberSession",
+      "currentUserWorkspace",
+      "readMemberScopeSnapshot",
+      "memberSnapshotWorkspace",
+      "current",
+      "withWorkspaceRequestPrincipalOnConnection",
+      "assertWorkspaceNativeEditRequestPrincipalActiveOnConnection",
+      "assertWorkspaceNativeEditAgentPrincipalActiveOnConnection",
+      "assertNativeEditPhaseActive",
+      "withCapturedPrincipalOnConnection",
+      "pinAgentCreateReceiptRealm",
+      "guestFail",
+      "invitationTarget",
+      "withFileGuestInvitationAuthority",
+      "currentInvitation",
+      "withFileGuestInvitationAuthorityOnConnection",
+      "agentOptions",
+      "readAgentSession",
+      "parseAgentSession",
+      "readAgentProfilePin",
+      "parseAgentProfilePin",
+      "sameAgentProfile",
+      "matchesAgentWorkspace",
+      "readAgentWorkspace",
+      "lockAgentOrigin",
+      "readAgentCreateScopeFacts",
+      "readCurrentAgentWorkspace",
+      "currentAgent",
+      "currentAgentWithOriginalOrigin",
+      "withWorkspaceAgentToolPrincipal",
+      "withWorkspaceAgentToolPrincipalOriginalOrigin",
+      "withAgentToolPrincipal",
+      "withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin",
+      "withWorkspaceAgentMarkdownCreatePrincipalOnConnection",
+      "withWorkspaceAgentToolPrincipalOnConnection",
+      "captureWorkspaceOperationJobPolicy",
+      "jobRequest",
+      "assertJobClaim",
+      "assertJobWorkspace",
+      "initializeJobCapture",
+      "currentJob",
+      "captureJobRequest",
+      "withWorkspaceOperationJobPolicyOnConnection"
+    ],
+    "originalIdEnumerationAndByteOrderUnchanged": true,
+    "originalOtherIdTypeLookupAndFlagGuardByteIdentical": true,
+    "otherOrganizationMembershipPermissionSyncWorkspaceProjectSessionAgentAndIdentityLockCodeByteIdentical": true,
+    "schemaOnlyAddsStaticParentTypeOidAndPrivatePhaseMetadata": true,
+    "allOtherPrincipalPolicyCurrentFactoryLifetimeFailureAndDisposalSourceBytesUnchanged": true
+  },
+  "focused": {
+    "assertions": {
+      "principalUserLocks": true,
+      "baselineOnly": false,
+      "groups": 16,
+      "actualPeerRowLockDenials": 468,
+      "unrelatedPeerRowLocksAllowed": 6,
+      "originalRowsTypesAndConstraintOidsPreserved": true,
+      "evidence": [
+        {
+          "permission": "canRead",
+          "kind": "text",
+          "users": 2,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "text",
+          "users": 2,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "text",
+          "users": 32,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "text",
+          "users": 32,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "text",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "text",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "domain-id",
+          "users": 200,
+          "legacyReads": 200,
+          "batchReads": 0,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "numeric-zero",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "numeric-tiny",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": false,
+          "denied": true,
+          "peerUser": null
+        },
+        {
+          "permission": "canRead",
+          "kind": "peer-lock",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 0,
+          "entered": false,
+          "denied": true,
+          "peerUser": "lock-account-0000"
+        },
+        {
+          "permission": "canRead",
+          "kind": "peer-lock",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 0,
+          "entered": false,
+          "denied": true,
+          "peerUser": "lock-account-0001"
+        },
+        {
+          "permission": "canWrite",
+          "kind": "domain-id",
+          "users": 200,
+          "legacyReads": 200,
+          "batchReads": 0,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "numeric-zero",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": true,
+          "denied": false,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "numeric-tiny",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 1,
+          "entered": false,
+          "denied": true,
+          "peerUser": null
+        },
+        {
+          "permission": "canWrite",
+          "kind": "peer-lock",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 0,
+          "entered": false,
+          "denied": true,
+          "peerUser": "lock-account-0000"
+        },
+        {
+          "permission": "canWrite",
+          "kind": "peer-lock",
+          "users": 200,
+          "legacyReads": 0,
+          "batchReads": 0,
+          "entered": false,
+          "denied": true,
+          "peerUser": "lock-account-0001"
+        }
+      ]
+    },
+    "logSha256": "b67c2462019b13921fc74b583dcf929d9b69a95ccb87abfb90ece847af9085ef",
+    "originalProcessHandleExpired": true,
+    "assertionsAndFullCleanupObserved": true
+  },
+  "existingPostgresSuites": [
+    {
+      "entry": "workspace-request-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "0d9f1a0cb6587203d05d6f248dfe0e96d16d725052b1537e4ab178da83c1b723"
+    },
+    {
+      "entry": "workspace-member-current-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7aad20c454d0798d80bbc30af9c789bae5ba0181b963ba654083af3b9f112e6c"
+    },
+    {
+      "entry": "workspace-principal-maintenance-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "2fb0a86979b44d0331fa0e5c3dbae309ec51224e8068341499d4bd99ec2c4ff1"
+    },
+    {
+      "entry": "file-guest-invitation-authority-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "c47e2b2ab0c8f061ae37d9b742554d4badec0889100578deda8aa3be620c5e5b"
+    },
+    {
+      "entry": "actor-membership-authority-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "385b674f09bc33d4c376777919f6a39ed7c616091d837da2a2628c4c171c7708"
+    },
+    {
+      "entry": "agent-markdown-create-principal-scope-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "f3e459da19001ad9275add5dcb5f8f85d3755330589b02a453f8cbd1cfb12159"
+    },
+    {
+      "entry": "agent-markdown-create-scalar-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7e0df7f0d15ea930a0cad503ce0443a16c0003e565b4982baf4e8c9be10f5304"
+    },
+    {
+      "entry": "agent-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "48ce73c1860ac9208f1c27142ebe699288048e149053f5caeb011995db406e0c"
+    },
+    {
+      "entry": "agent-markdown-create-storage-commit-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "32b552c00ed2ad33d80d69360e7a27258b638d285e1bb25cf11720b3bc072783"
+    },
+    {
+      "entry": "agent-markdown-create-final-origin-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7cee96e4aaaad80b98f63a4e0df0b3efd9c967f5820049d6ed94d1a18dbd32f3"
+    },
+    {
+      "entry": "authenticated-native-session-transport-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "80fe723fab2902f76035eaabf6331b137fd9a77fc560e16b6628d12ee0f57e51"
+    },
+    {
+      "entry": "document-read-binding-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "420397bbe54aff16b0e6dcfe319ac973b10ab11d944ffb902f46ca0aaeab34ca"
+    },
+    {
+      "entry": "document-read-service-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "ad5e9532df182a7c28432d22d03e67bc0e52b9939810639ea1c649834ade7b2d"
+    },
+    {
+      "entry": "document-read-tool-dispatch-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "13591bd794e5eabb6c5b3ac038a0ae040ad95e7ca64d8bf6ef629ce1c5c23a9d"
+    },
+    {
+      "entry": "native-document-read-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "ffebc15cac175e8c1e887d7f56af257dc648fdd6c6a17577d820c4c5d9ece493"
+    },
+    {
+      "entry": "native-document-search-service-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7569ac93e4621b3b1b32d9b74c6ca31df3b0d206200c390c967947b8c1ba4cbd"
+    },
+    {
+      "entry": "native-document-search-room-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "1b3da564a3d3756e495988000e8cbbfc2374899a9949695a5ee932ed18c7187f"
+    },
+    {
+      "entry": "document-search-tool-dispatch-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "0f1c3da0b2e7e0e45cefd3dd0ab8c154851fbe90263f3aec0cef0cd7176631f7"
+    },
+    {
+      "entry": "direct-mcp-document-read-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "c79988b192ab5538379fa953c45712f173d88d31c83de57b62e79389b351dab8"
+    },
+    {
+      "entry": "direct-mcp-slot-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "773e67814de7edf69e30cf9eb45a39450c3b85c56fedf1ca35c50546e35b0dc2"
+    },
+    {
+      "entry": "native-document-edit-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "3cf4378b64aaf7afb3669529fd4b97e5dc94c2e219d8c868c6fadad41d9adfd1"
+    },
+    {
+      "entry": "native-document-edit-owner-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "aa5411ff65ef2fcee2a85505d3dea91104b69bac3e01cf8007b993d25b9eb6a8"
+    },
+    {
+      "entry": "native-document-edit-tool-dispatch-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "94508cbfebfe63a28c07608b2ccd1f65f8ff381ae51162d8e9b33d60f1512476"
+    },
+    {
+      "entry": "public-share-native-read-postgres-test.ts",
+      "exitCode": 0,
+      "groups": 29,
+      "logSha256": "6d8263e209ca7eacf79f609122abf3dac1662f34a48d6b35491965fe30f9d90b",
+      "runner": "actual source TSX standalone"
+    },
+    {
+      "entry": "public-share-read-only-postgres-test.ts",
+      "exitCode": 0,
+      "groups": 12,
+      "logSha256": "c5040486e2d4db5df0073acc8496bf295623489026be46f41396102a3d6a6ce0",
+      "runner": "actual source TSX standalone"
+    }
+  ],
+  "static": [
+    {
+      "name": "focused TypeScript",
+      "exitCode": 0,
+      "logSha256": "6416d5884779d9fb98e17519b0588aa14a986b44b0517f66e16cb81ee0dc114e"
+    },
+    {
+      "name": "ESLint",
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "release TypeScript",
+      "exitCode": 0,
+      "logSha256": "97979d9ee02bd53c64ef3eb9d8bb769943e6af29838451351f53ac0dbedf26f1"
+    }
+  ],
+  "gitnexus": {
+    "staged": {
+      "changed_count": 6,
+      "affected_count": 0,
+      "changed_files": 3,
+      "risk_level": "low"
+    },
+    "compare": {
+      "changed_count": 580,
+      "affected_count": 13,
+      "changed_files": 148,
+      "risk_level": "high"
+    },
+    "staleIndex": true,
+    "sourceProofDisambiguatesStaleSymbolOffsets": true
+  },
+  "largeComparisonComplete": false,
+  "fullGoalComplete": false
+}

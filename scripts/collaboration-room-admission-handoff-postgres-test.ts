@@ -853,14 +853,96 @@ async function run(databaseUrl: URL): Promise<void> {
     }), admissionError('ADMISSION_INVALID_REQUEST'));
     assert.equal(forbiddenMutations, 0);
 
+    // A multi-document outcome preserves every original target and its bytes,
+    // although only one path changes. The returned completion set is exact.
+    const bulkDocuments = ['a', 'b', 'c'].map(suffix => document(`handoff-bulk-${suffix}`, `bulk/${suffix}.md`));
+    for (const expected of bulkDocuments) await seed(expected);
+    const bulkOriginals = await Promise.all(bulkDocuments.map(expected => readState(expected.documentId)));
+    const bulkRequest = request(bulkDocuments, 'bulk', { destinationPath: 'bulk/new-a.md' });
+    await reserveAndProve(bulkRequest);
+    const bulkOutcome = await defaultHandoff.execute(bulkRequest, {
+      authorize: async () => undefined, prepare: async () => undefined,
+      mutate: async database => {
+        await database.run('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1',
+          [bulkDocuments[0].documentId, 'bulk/new-a.md']);
+        return { destinationPath: 'bulk/new-a.md' };
+      },
+    });
+    assert.deepEqual(bulkOutcome.targets.map(target => target.documentId), bulkDocuments.map(expected => expected.documentId));
+    for (const [index, expected] of bulkDocuments.entries()) {
+      assert.deepEqual(await readState(expected.documentId), { ...bulkOriginals[index],
+        ...(index === 0 ? { path: 'bulk/new-a.md' } : {}) });
+    }
+    assert.deepEqual((await controlPool.query(`SELECT document_id,status,active,outcome_snapshot_text,outcome_snapshot_digest
+      FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1 ORDER BY document_id`, [bulkRequest.requestId])).rows,
+    bulkOutcome.targets.map(target => ({ document_id: target.documentId, status: 'completed', active: false,
+      outcome_snapshot_text: target.snapshotText, outcome_snapshot_digest: target.snapshotDigest })));
+
+    // A real BEFORE trigger suppresses one target completion. Every other
+    // completion and the domain mutation must roll back with the failed set.
+    const rejectedBulkDocuments = ['a', 'b', 'c'].map(suffix =>
+      document(`handoff-bulk-rejected-${suffix}`, `bulk-rejected/${suffix}.md`));
+    for (const expected of rejectedBulkDocuments) await seed(expected);
+    const rejectedBulkOriginals = await Promise.all(rejectedBulkDocuments.map(expected => readState(expected.documentId)));
+    const rejectedBulkRequest = request(rejectedBulkDocuments, 'bulk-rejected', { destinationPath: 'bulk-rejected/new-a.md' });
+    await reserveAndProve(rejectedBulkRequest);
+    const readRejectedTargets = async () => (await controlPool.query(`SELECT *
+      FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1 ORDER BY document_id`, [rejectedBulkRequest.requestId])).rows;
+    const rejectedTargetsBefore = await readRejectedTargets();
+    await controlPool.query(`CREATE FUNCTION ${schemaSql}.suppress_test_completion() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.document_id='handoff-bulk-rejected-c' AND NEW.status='completed' THEN RETURN NULL; END IF;
+      RETURN NEW; END $$`);
+    await controlPool.query(`CREATE TRIGGER suppress_test_completion BEFORE UPDATE
+      ON ${schemaSql}.collaboration_admission_targets FOR EACH ROW EXECUTE FUNCTION ${schemaSql}.suppress_test_completion()`);
+    try {
+      await assert.rejects(defaultHandoff.execute(rejectedBulkRequest, {
+        authorize: async () => undefined, prepare: async () => undefined,
+        mutate: async database => {
+          await database.run('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1',
+            [rejectedBulkDocuments[0].documentId, 'bulk-rejected/new-a.md']);
+          return { destinationPath: 'bulk-rejected/new-a.md' };
+        },
+      }), admissionError('ADMISSION_SCOPE_CHANGED'));
+    } finally {
+      await controlPool.query(`DROP TRIGGER suppress_test_completion ON ${schemaSql}.collaboration_admission_targets`);
+      await controlPool.query(`DROP FUNCTION ${schemaSql}.suppress_test_completion()`);
+    }
+    for (const [index, expected] of rejectedBulkDocuments.entries()) {
+      assert.deepEqual(await readState(expected.documentId), rejectedBulkOriginals[index]);
+    }
+    assert.deepEqual(await readRejectedTargets(), rejectedTargetsBefore);
+    assert.equal((await controlPool.query(`SELECT outcome_text FROM ${schemaSql}.collaboration_admission_requests
+      WHERE request_id=$1`, [rejectedBulkRequest.requestId])).rows[0].outcome_text, null);
+
+    // The last target changes valid native bytes without advancing its clock.
+    // A fresh set read must reject that drift before any domain mutation.
+    const driftDocuments = ['a', 'b', 'c'].map(suffix => document(`handoff-bulk-drift-${suffix}`, `bulk-drift/${suffix}.md`));
+    for (const expected of driftDocuments) await seed(expected);
+    const driftRequest = request(driftDocuments, 'bulk-drift', { destinationPath: 'bulk-drift/new-a.md' });
+    await reserveAndProve(driftRequest);
+    const changedState = encode('Different valid bytes at the same sequence.');
+    await controlPool.query(`UPDATE ${stateTable} SET yjs_state=$2,state_vector=$3 WHERE document_id=$1`,
+      [driftDocuments[2].documentId, changedState.yjsState, changedState.stateVector]);
+    const driftBefore = await Promise.all(driftDocuments.map(expected => readState(expected.documentId)));
+    let driftMutations = 0;
+    await assert.rejects(defaultHandoff.execute(driftRequest, {
+      authorize: async () => undefined, prepare: async () => undefined,
+      mutate: async () => { driftMutations++; return {}; },
+    }), admissionError('ADMISSION_SCOPE_CHANGED'));
+    assert.equal(driftMutations, 0);
+    for (const [index, expected] of driftDocuments.entries()) {
+      assert.deepEqual(await readState(expected.documentId), driftBefore[index]);
+    }
+
     assert.equal(backgroundErrors.length, 0, 'admission-handoff pools must not emit background errors');
     console.log(
-      'Collaboration admission handoff PostgreSQL: 21 bounded cases passed—legacy CHECK upgrade and idempotent migration, guard-before-workspace ordering, paused claim '
+      'Collaboration admission handoff PostgreSQL: 24 bounded cases passed—legacy CHECK upgrade and idempotent migration, guard-before-workspace ordering, paused claim '
       + 'fencing, real SQL move, immutable/authenticated retry, canonical fresh-service resume, same-epoch lifecycle chaining, '
       + 'positive archive/restore generation transitions and subsequent owner claim, '
       + 'lost- and rejected-COMMIT handling, scope-phantom and callback rollback, epoch/generation/sequence regression guards, '
       + 'failed-discard recovery suppression, stale/receipt-less callback fencing, multi-target guard cleanup, terminal '
-      + 'owner-drain handoff/replacement/recovery, and legacy request rejection—in one isolated generated schema.',
+      + 'owner-drain handoff/replacement/recovery, legacy request rejection, exact multi-target outcomes and atomic rollback '
+      + 'after a real suppressed completion, and same-clock raw drift on the last target—in one isolated generated schema.',
     );
   } finally {
     for (const session of ownerSessions) {

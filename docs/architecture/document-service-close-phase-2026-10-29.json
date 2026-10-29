@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "baseline": "852046e37f4f1cd64e38b5858e6c22ddecdd7326",
+  "candidateSourceHashes": {
+    "app/lib/files/markdown-create-birth.ts": "3dbad4601a2edc60fd30721c9df9ca4664a3a60af21f9e5ca658a7954de6d0a9",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "f58f2e11731744d0c066fceb950c8071d96547c443bde37df86025ce05bf95f4"
+  },
+  "documentsPerFixture": 10,
+  "normalUploadSources": true,
+  "freshFixtures": 4,
+  "measurementWindows": 16,
+  "pairs": [
+    {
+      "actor": "agent",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 1452,
+      "afterSql": 1324,
+      "saved": 128,
+      "beforeCheckouts": 77,
+      "afterCheckouts": 71
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 1347,
+      "afterSql": 1219,
+      "saved": 128,
+      "beforeCheckouts": 43,
+      "afterCheckouts": 37
+    },
+    {
+      "actor": "agent",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 1347,
+      "afterSql": 1219,
+      "saved": 128,
+      "beforeCheckouts": 43,
+      "afterCheckouts": 37
+    },
+    {
+      "actor": "agent",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 168,
+      "afterSql": 168,
+      "saved": 0,
+      "beforeCheckouts": 7,
+      "afterCheckouts": 7
+    },
+    {
+      "actor": "mcp",
+      "label": "first-adapter-entry-and-create",
+      "beforeSql": 994,
+      "afterSql": 940,
+      "saved": 54,
+      "beforeCheckouts": 45,
+      "afterCheckouts": 43
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-1",
+      "beforeSql": 973,
+      "afterSql": 919,
+      "saved": 54,
+      "beforeCheckouts": 32,
+      "afterCheckouts": 30
+    },
+    {
+      "actor": "mcp",
+      "label": "warm-fresh-create-2",
+      "beforeSql": 973,
+      "afterSql": 919,
+      "saved": 54,
+      "beforeCheckouts": 32,
+      "afterCheckouts": 30
+    },
+    {
+      "actor": "mcp",
+      "label": "same-original-idempotent-retry",
+      "beforeSql": 102,
+      "afterSql": 102,
+      "saved": 0,
+      "beforeCheckouts": 12,
+      "afterCheckouts": 12
+    }
+  ],
+  "passed": true,
+  "allOwnResourcesClosed": true,
+  "baselineSourceRemoved": true,
+  "originalIdentityRowsXminAndBytesPreserved": true,
+  "callsiteCountsExactlyMatchAllWindows": true,
+  "callsiteStackFailures": 0,
+  "timingsAreDiagnosticOnly": true,
+  "finalSizeLatencyAndConcurrencyAcceptanceComplete": false,
+  "focused": {
+    "cases": 8,
+    "lockedActualCloses": 12,
+    "deniedEntryFallbackCloses": 4,
+    "actualCloseAcknowledgementLossCases": 2,
+    "finalVerificationAndClosesSharePrincipal": true,
+    "finalConfirmationAfterActualClose": true,
+    "originalRowsXminIdentityReceiptAndBytesRetained": true
+  },
+  "regressionSuites": [
+    "markdown-create-close-phase-postgres-test.ts",
+    "markdown-create-write-boundary-postgres-test.ts",
+    "agent-markdown-create-policy-profile-postgres-test.ts",
+    "markdown-create-readonly-phase-postgres-test.ts",
+    "agent-markdown-create-storage-commit-postgres-test.ts",
+    "direct-mcp-markdown-create-storage-phase-postgres-test.ts",
+    "markdown-create-verification-phase-postgres-test.ts",
+    "markdown-create-birth-realm-observation-postgres-test.ts",
+    "markdown-create-native-observation-postgres-test.ts",
+    "markdown-create-owner-observation-postgres-test.ts",
+    "direct-mcp-native-markdown-create-postgres-test.ts",
+    "authenticated-manual-markdown-create-postgres-test.ts",
+    "authenticated-markdown-upload-postgres-test.ts"
+  ],
+  "releaseTypesPassed": true,
+  "scopedTypes": {
+    "roots": 32,
+    "sourceFiles": 5118,
+    "diagnostics": 0
+  },
+  "eslintPassed": true,
+  "changedExistingTopLevelProductFunctions": 3,
+  "newTopLevelProductFunctions": 0,
+  "newLocalCleanupHelpers": 2,
+  "unchangedTopLevelProductFunctions": 136,
+  "originalCloseRetryHelperByteIdentical": true,
+  "regularWholeSuiteSelectionUnchanged": true,
+  "finalWholeSuiteRepeated": false,
+  "performanceBudgetsMet": false,
+  "fullGoalComplete": false,
+  "productionChanged": false
+}

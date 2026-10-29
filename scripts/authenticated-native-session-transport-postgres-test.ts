@@ -175,6 +175,107 @@ async function main(): Promise<void> {
     const bounded=async(promise:Promise<void>)=>{let timer!:ReturnType<typeof setTimeout>;try{
       await Promise.race([promise,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>reject(new Error('Fixture phase did not enter within eight seconds.')),8000);})]);
     }finally{clearTimeout(timer);}};
+    const ownedTransport = await import('../app/lib/collaboration/authenticated-native-session-transport');
+    const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+    const withOwned = async (operation: (held: { cap: AuthenticatedNativeSessionTransport;
+      identity: ExistingNativeSessionIdentity; fence: import('../app/lib/collaboration/room-owner').CollaborationRoomOwnerFence }) => Promise<void>, userId: 'owner' | 'member' = 'owner') => {
+      if (userId === 'member') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=1 WHERE user_id='member'");
+      const target = await seed(`fixed-owned-observation-${crypto.randomUUID()}`), cap = await captured(userId), ownerClient = await ownClient();
+      const owner = await createCollaborationRoomOwnerSession(ownerClient);
+      try {
+        const { lineageId: _lineage, ...ownerScope } = target.identity;
+        const fence = await owner.acquire(ownerScope);
+        await operation({ cap, identity: target.identity, fence });
+      } finally {
+        await dispose(cap); await owner.close(); clients.delete(ownerClient);
+        if (userId === 'member') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+      }
+    };
+    await check('fixed owned read/write observations match borrowed results without retaining a facade and use fewer SQL statements', async () => {
+      await withOwned(async ({ cap, identity, fence }) => {
+        const before = await stored(identity);
+        for (const permission of ['canRead', 'canWrite'] as const) {
+          let fixedCount = 0, borrowedCount = 0;
+          const counted = (db: SqlConnection, tick: () => void): SqlConnection => ({ ...db,
+            get: (sql, args) => { tick(); return db.get(sql, args); },
+            all: (sql, args) => { tick(); return db.all(sql, args); },
+            run: (sql, args) => { tick(); return db.run(sql, args); } });
+          const options = { permission, identity, ownerFence: fence };
+          const fixed = await transaction(db => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection(
+            counted(db, () => fixedCount++), cap, options));
+          const borrowed = await transaction(db => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection(
+            counted(db, () => borrowedCount++), cap, options, async access => ({ workspace: access.workspace,
+              userId: access.userId, sessionId: access.sessionId, identity: access.identity,
+              quarantined: access.quarantined, documentSequence: access.documentSequence })));
+          assert.deepEqual(fixed, { ...borrowed, originalPermission: 'canWrite' }); assert(Object.isFrozen(fixed)); assert(Object.isFrozen(fixed.workspace));
+          assert.equal('assertCurrent' in fixed, false);
+          console.log(JSON.stringify({ scope: 'fixed-owned-observation', permission, fixedCount, borrowedCount }));
+          // Shared Member batching improves both variants. Keep absolute query
+          // budgets and the actual saved Current work instead of their ratio.
+          assert(fixedCount <= 31 && borrowedCount <= 43, 'both owned observation variants must stay within their query budgets');
+          assert(borrowedCount - fixedCount >= 12, 'the no-callback observation must remove redundant Current queries');
+        }
+        assert.deepEqual(await stored(identity), before);
+      });
+    });
+    await check('fixed owned final Current rejects actual self-revocation of account session seat and realm', async () => {
+      for (const mutation of [
+        'UPDATE "user" SET banned=1 WHERE id=\'owner\'',
+        'UPDATE session SET expires_at=1 WHERE id=\'session-owner\'',
+        'UPDATE session SET token=\'rotated-fixture-token\' WHERE id=\'session-owner\'',
+        'UPDATE team_memberships SET status=\'suspended\' WHERE user_id=\'member\'',
+        'SET LOCAL search_path=pg_catalog',
+      ]) await withOwned(async ({ cap, identity, fence }) => {
+        stage = `fixed owned self-revocation: ${mutation.startsWith('UPDATE team_') ? 'seat' : mutation.startsWith('SET ') ? 'realm' : mutation.includes('banned=') ? 'account' : mutation.includes('expires_at=') ? 'expiry' : 'token'}`;
+        const before = await stored(identity); let changed = false;
+        await assert.rejects(transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) { changed = true; await client.query(mutation); }
+            return rows;
+          },
+        }, cap, { permission: 'canRead', identity, ownerFence: fence })), error => {
+          const value = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+          return ['PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'PRINCIPAL_SCOPE_CHANGED',
+            'NATIVE_TRANSPORT_SCOPE_CHANGED', 'SEAT_ACCESS_INACTIVE', 'SEAT_MEMBERSHIP_REQUIRED'].includes(value);
+        });
+        assert(changed); assert.deepEqual(await stored(identity), before);
+      }, mutation.includes('team_memberships') ? 'member' : 'owner');
+    });
+    await check('fixed owned member read remains diagnostic after write loss while write final authorization rejects', async () => {
+      for (const permission of ['canRead', 'canWrite'] as const) await withOwned(async ({ cap, identity, fence }) => {
+        let changed = false;
+        const pending = transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) {
+              changed = true; await client.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+            }
+            return rows;
+          },
+        }, cap, { permission, identity, ownerFence: fence }));
+        if (permission === 'canWrite') await assert.rejects(pending, code('PRINCIPAL_ACCESS_DENIED'));
+        else assert.equal((await pending).quarantined, false);
+        assert(changed);
+      }, 'member');
+    });
+    await check('fixed owned final native observation returns current quarantine for readers and rejects writers', async () => {
+      for (const permission of ['canRead', 'canWrite'] as const) await withOwned(async ({ cap, identity, fence }) => {
+        const before = await stored(identity); let changed = false;
+        const pending = transaction((db, client) => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection({ ...db,
+          all: async (sql, args) => {
+            const rows = await db.all(sql, args);
+            if (!changed && sql.startsWith('SELECT s.document_id,s.workspace_id')) {
+              changed = true; await client.query('UPDATE collaboration_yjs_states SET degraded=1 WHERE document_id=$1', [identity.documentId]);
+            }
+            return rows;
+          },
+        }, cap, { permission, identity, ownerFence: fence }));
+        if (permission === 'canWrite') await assert.rejects(pending, code('NATIVE_TRANSPORT_QUARANTINED'));
+        else assert.equal((await pending).quarantined, true);
+        assert(changed); assert.deepEqual(await stored(identity), before);
+      });
+    });
     await check('actual Cookie/Bearer Team enrollment and fresh native sole-B read/write phases',async()=>{
       for(const cookie of [true,false])for(const userId of ['owner','member']){
         assert.equal((await auth.api.getSession({headers:(await request(userId,cookie)).headers}))?.session.id,`session-${userId}`);
@@ -404,7 +505,10 @@ async function main(): Promise<void> {
         await assert.rejects(transaction(async(db,client)=>{
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{const row=(await client.query(sql,args)).rows[0];
             if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-            if(armed&&reads===baseline+3&&sql.includes('SELECT expires_at FROM')&&++checks===window){attempted=true;assert.throws(()=>old.userId,code('NATIVE_TRANSPORT_REQUIRED'));}return row;}};
+            // Each retained Current now has two complete actual replies. Keep
+            // the same second/third completion boundary, after its final reply.
+            if(armed&&reads===baseline+3&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
+              &&++checks===window*2){attempted=true;assert.throws(()=>old.userId,code('NATIVE_TRANSPORT_REQUIRED'));}return row;}};
           await phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async(_doc,access)=>{old=access;baseline=reads;armed=true;});
         }),code('NATIVE_TRANSPORT_REQUIRED'));assert(attempted);await dispose(cap);
       }
@@ -437,7 +541,8 @@ async function main(): Promise<void> {
       const pending=transaction(async(db,client)=>{
         const wrapped:SqlConnection={...db,get:async(sql,args)=>{const row=(await client.query(sql,args)).rows[0];
           if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-          if(armed&&reads===baseline+3&&sql.includes('SELECT expires_at FROM')&&++checks===3){entered.resolve();await release.promise;}return row;}};
+          if(armed&&reads===baseline+3&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
+            &&++checks===6){entered.resolve();await release.promise;}return row;}};
         return phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async()=>{baseline=reads;armed=true;return 'not-published';});
       });const rejected=assert.rejects(pending,code('NATIVE_TRANSPORT_DISPOSED'));
       let closing!:Promise<void>;try{await bounded(entered.promise);closing=dispose(cap).then(()=>{finished=true;});await new Promise<void>(done=>setImmediate(done));assert.equal(finished,false);}
@@ -448,7 +553,10 @@ async function main(): Promise<void> {
         const cap=await captured('member','canWrite');let reads=0,baseline=0,checks=0,armed=false,changed=false;
         await assert.rejects(transaction(async(db,client)=>{
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{
-            if(armed&&reads===baseline+3&&sql.includes('SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path')&&++checks===window){
+            // Revoke before the first full snapshot of the same retained
+            // second/third Current, rather than its removed workspace-only read.
+            if(armed&&reads===baseline+3&&sql.includes('AS token_hash')&&sql.includes('AS workspace')&&sql.includes('AS seat')
+              &&++checks===window*2-1){
               changed=true;await client.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");}
             const row=(await client.query(sql,args)).rows[0];if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;return row;}};
           await phase(wrapped,cap,{permission:'canWrite',...input(native.identity)},async()=>{baseline=reads;armed=true;return 'not-published';});

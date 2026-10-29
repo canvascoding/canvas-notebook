@@ -6,6 +6,7 @@ import type { CollaborationTicketClaims } from './types';
 import type { ExistingNativeSessionIdentity } from './native-session-state-reader';
 import type { CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { WorkspaceRequestPrincipalError } from '../workspaces/request-principal';
 import { AuthenticatedNativeSessionTransportError, disposeAuthenticatedNativeSessionTransport,
   isAuthenticatedNativeSessionTransportBusy, withAuthenticatedOwnedNativeSessionTransportOnConnection,
   type AuthenticatedNativeSessionTransport, type AuthenticatedOwnedNativeSessionAccess } from './authenticated-native-session-transport';
@@ -41,14 +42,14 @@ export function createAuthenticatedNativePeer(input: {
     tail = pending.catch(() => undefined);
     return pending;
   };
-  const phase = <T>(permission: 'canRead' | 'canWrite', ownerFence: CollaborationRoomOwnerFence,
-    consume: (access: AuthenticatedOwnedNativeSessionAccess) => Promise<T>) => executeLifecycleTransaction({
+  const phase = (permission: 'canRead' | 'canWrite', ownerFence: CollaborationRoomOwnerFence) => executeLifecycleTransaction({
     openConnection: openDb,
-    execute: database => withAuthenticatedOwnedNativeSessionTransportOnConnection(database, transport,
-      { permission, identity, ownerFence }, async access => {
-        assertOpen(); assertAuthenticatedNativePeerClaims(claims, identity, access);
-        return consume(access);
-      }),
+    execute: async database => {
+      const observation = await withAuthenticatedOwnedNativeSessionTransportOnConnection(database, transport,
+        { permission, identity, ownerFence });
+      assertOpen(); assertAuthenticatedNativePeerClaims(claims, identity, observation);
+      return observation;
+    },
     // A lost COMMIT reply destroys B. It proves no fresh permission or accepted
     // publication and cannot replay an already applied Yjs update on a new B.
     recoverCommitted: async () => { throw new Error('Native peer authorization commit could not be confirmed.'); },
@@ -56,11 +57,17 @@ export function createAuthenticatedNativePeer(input: {
   return {
     check(ownerFence: CollaborationRoomOwnerFence): Promise<{ workspace: WorkspaceContext; quarantined: boolean }> {
       return enqueue(async () => {
-        const read = await phase('canRead', ownerFence, async access => ({ workspace: access.workspace, quarantined: access.quarantined }));
+        const read = await phase('canRead', ownerFence);
         if (!read.quarantined && claims.permission === 'write') {
-          return phase('canWrite', ownerFence, async access => ({ workspace: access.workspace, quarantined: access.quarantined }));
+          // This fixed observation has no consumer callback or mutable work.
+          // Its genuine Principal holds the policy rows through final Current
+          // and COMMIT. Use those freshly resolved rights for status, together
+          // with the actual original transport ceiling. Never retain a grant:
+          // authorizeWrite still owns a distinct fresh canWrite phase before apply.
+          if (read.originalPermission !== 'canWrite') throw new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_ACCESS_DENIED');
+          if (!read.workspace.permissions.canWrite) throw new WorkspaceRequestPrincipalError('PRINCIPAL_ACCESS_DENIED');
         }
-        return read;
+        return { workspace: read.workspace, quarantined: read.quarantined };
       });
     },
     /** Called after the concrete room mutation queue, before any live apply.
@@ -70,7 +77,7 @@ export function createAuthenticatedNativePeer(input: {
     authorizeWrite(ownerFence: CollaborationRoomOwnerFence): Promise<void> {
       if (claims.permission !== 'write') return Promise.reject(new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_ACCESS_DENIED'));
       return enqueue(async () => {
-        await phase('canWrite', ownerFence, async () => undefined);
+        await phase('canWrite', ownerFence);
         assertOpen();
       });
     },

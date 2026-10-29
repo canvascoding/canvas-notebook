@@ -68,7 +68,7 @@ export type WorkspaceSourceAuthorityStage = {
   namespace: NativeNamespaceEntry[];
   sources: Array<{ kind: 'physical'; inventory: OriginalPhysicalLinkInventory }
     | { kind: 'native'; inventory: NativeDocumentLinkInventory }>;
-  scope: { kind: 'visible-workspace'; excludedPaths: string[] };
+  scope: { kind: 'visible-workspace' | 'document-index'; excludedPaths: string[] };
   coverage: { complete: boolean; gaps: PhysicalSourceGap[] };
   readiness: 'requires-import-and-rebinding' | 'native-coordinator-required' | 'blocked';
   executionReady: false;
@@ -115,6 +115,12 @@ export function inspectOriginalPhysicalLinks(input: {
   authority: PhysicalLinkSourceAuthority; bytes: Uint8Array; filesystemIdentity: string; maxLinks?: number;
 }): OriginalPhysicalLinkInventory {
   return inspectOriginalPhysicalLinksForParser(input, 2);
+}
+
+/** Read-only index profile. Invalid, structurally closed YAML cannot erase
+ * otherwise readable body links. Its gap still forbids mutation certification. */
+export function inspectOriginalPhysicalDocumentLinksForRead(input: Parameters<typeof inspectOriginalPhysicalLinks>[0]): OriginalPhysicalLinkInventory {
+  return inspectOriginalPhysicalLinksForParser(input, 2, true);
 }
 
 /** Explicit parser-3 capture keeps source bytes and original UTF-16/UTF-8
@@ -190,25 +196,27 @@ export function inspectOriginalPhysicalHtmlV4(input: Parameters<typeof inspectOr
 }
 
 function inspectOriginalPhysicalLinksForParser<Parser extends 2 | 3 | 4>(input: Parameters<typeof inspectOriginalPhysicalLinks>[0],
-  parserVersion: Parser): Omit<OriginalPhysicalLinkInventory, 'parserVersion'> & { parserVersion: Parser } {
+  parserVersion: Parser, documentIndexRead = false): Omit<OriginalPhysicalLinkInventory, 'parserVersion'> & { parserVersion: Parser } {
   const { originalBytes, originalBuffer, text, lineEndings } = readOriginalPhysicalText(input.bytes);
   const gaps: PhysicalSourceGap[] = []; const links: OriginalPhysicalLink[] = [];
   const parsedDocument = parseCanvasMarkdownDocument(text);
   if (parsedDocument.error) gaps.push({ code: 'invalid-frontmatter', path: input.path });
+  const readableBody = !parsedDocument.error || documentIndexRead && parsedDocument.frontmatter !== null;
+  if (documentIndexRead && !readableBody) gaps.push({ code: 'uninspected-source', path: input.path });
   const metadataBody = parserVersion !== 2 && !parsedDocument.frontmatter && text.charCodeAt(0) === 0xfeff
     ? parsedDocument.body.slice(1) : parsedDocument.body;
-  const headings = parsedDocument.error ? [] : extractWorkspaceMarkdownHeadings(metadataBody);
+  const headings = readableBody ? extractWorkspaceMarkdownHeadings(metadataBody) : [];
   const metadata = { path: input.path, aliases: parsedDocument.frontmatter?.aliases ?? [], tags: parsedDocument.frontmatter?.tags ?? [],
     title: parsedDocument.frontmatter?.title || headings[0]?.text || path.posix.basename(input.path).replace(/\.(?:md|markdown)$/iu, ''),
     hasExplicitTitle: Boolean(parsedDocument.frontmatter?.title), headings,
-    blockIds: parsedDocument.error ? [] : parseObsidianBlockIds(metadataBody).map((entry) => entry.id) };
+    blockIds: readableBody ? parseObsidianBlockIds(metadataBody).map((entry) => entry.id) : [] };
   const physical = { filesystemIdentity: input.filesystemIdentity, byteHash: originalPhysicalByteHash(originalBytes), byteLength: originalBytes.length };
   if (/\.mdx$/iu.test(input.path)) gaps.push({ code: 'unsupported-mdx-source', path: input.path });
   else if (/\.html?$/iu.test(input.path)) {
     const html = evaluateWorkspaceHtmlLinks(text);
     gaps.push({ code: 'uninspected-html', path: input.path, ...(html.explicitLocalTargets ? { htmlTargets: html.explicitLocalTargets } : {}) });
   } else if (!/\.(?:md|markdown)$/iu.test(input.path)) gaps.push({ code: 'unsupported-physical-source', path: input.path });
-  else if (!parsedDocument.error) {
+  else if (readableBody) {
     const parsed = (parserVersion === 4 ? parseWorkspaceLocalLinksV4 : parserVersion === 3 ? parseWorkspaceLocalLinksV3 : parseWorkspaceLocalLinks)(text, input.path, { notebookPaths: 'exact' });
     for (const unevaluated of parsed.unevaluated) gaps.push({ code: unevaluated.reason === 'html' ? 'uninspected-html' : `unevaluated-${unevaluated.reason}`,
       path: input.path, startUtf16: unevaluated.start, ...(unevaluated.htmlTargets ? { htmlTargets: unevaluated.htmlTargets } : {}) });
@@ -254,6 +262,11 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
   kind: 'rename' | 'move' | 'delete'; sourcePath: string; destinationPath?: string;
 }): StagedWorkspaceLinkEffectPreview {
   const gaps = structuredClone(stage.coverage.gaps); const effects: StagedWorkspaceLinkEffectPreview['effects'] = [];
+  if (stage.scope.kind !== 'visible-workspace') {
+    gaps.push({ code: 'read-only-source-scope', path: '' });
+    return { previewVersion: 1, stageProof: stage.stageProof, executionReady: false, readiness: 'blocked',
+      coverage: { complete: false, gaps }, effects };
+  }
   for (const source of stage.sources) if (source.kind === 'native' ? source.inventory.parserVersion !== 2
     : source.inventory.parserVersion !== undefined && source.inventory.parserVersion !== 2 && source.inventory.parserVersion !== 3) gaps.push({ code: 'stale-source-parser',
     path: source.kind === 'physical' ? source.inventory.path : source.inventory.document.path });

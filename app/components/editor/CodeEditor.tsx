@@ -53,6 +53,7 @@ import {
   useCollaborationDocument,
   useTextCollaborationSession,
   type CollaborationDocument,
+  type TextCollaborationSessionResolution,
 } from '@/app/lib/collaboration/client';
 import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
 import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
@@ -73,6 +74,7 @@ export interface CodeEditorProps {
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
+  collaborationResolution?: TextCollaborationSessionResolution;
   collaborationDocument?: CollaborationDocument | null;
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
   agentTargets?: CollaborationAgentTargetAnchor[];
@@ -372,6 +374,7 @@ export function CodeEditor({
   markdownNavigationTarget,
   collaborationEnabled,
   collaborationSession,
+  collaborationResolution,
   collaborationDocument,
   onCollaborationChange,
   agentTargets = [],
@@ -387,12 +390,13 @@ export function CodeEditor({
   const extension = languagePath?.split('.').pop()?.toLowerCase();
   const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
   const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
-  const sessionResolution = useTextCollaborationSession({
-    enabled: shouldCollaborate && !collaborationDocument && !collaborationSession,
+  const internalSessionResolution = useTextCollaborationSession({
+    enabled: shouldCollaborate && collaborationDocument === undefined && !collaborationSession && !collaborationResolution,
     workspaceId: activeWorkspaceId,
     path: languagePath,
     expectedDocumentId: expectedCollaborationDocumentId,
   });
+  const sessionResolution = collaborationResolution ?? internalSessionResolution;
   const internalCollaboration = useCollaborationDocument({
     enabled: shouldCollaborate && collaborationDocument === undefined,
     documentKey,

@@ -87,7 +87,7 @@ async function sourceContractTests() {
   const detailSource = source.slice(detailStart, effectsStart);
 
   assert.match(listSource, /scheduleListFollowUp\(scopeKey, payload\.data\?\.cache, requestEpoch\)/u);
-  assert.match(listSource, /if \(!options\?\.swrFollowUp\) void refreshSelectedMessage\(\)/u,
+  assert.match(listSource, /if \(!options\?\.swrFollowUp[^\n]+\) \{\s+void refreshSelectedMessage\(\)/u,
     'the stale-list follow-up must not cascade into a detail refresh');
   assert.match(listSource, /shouldApplyEmailRefresh/u);
   assert.match(refreshSource, /scheduleDetailFollowUp/u);

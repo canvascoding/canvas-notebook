@@ -15,7 +15,7 @@ import { getSchema } from '@tiptap/core';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
-import { withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin, withWorkspaceAgentMarkdownCreatePrincipalOnConnection,
+import { withWorkspaceAgentMarkdownCreatePrincipal, withWorkspaceAgentMarkdownCreatePrincipalOnConnection,
   type WorkspaceAgentToolHistoricalOrigin, type WorkspaceAgentToolPrincipalAccess,
   type WorkspaceAgentMarkdownCreatePrincipal } from '../workspaces/request-principal';
 import { captureCurrentAgentToolInvocation, withCapturedAgentToolInvocation } from '../pi/agent-tool-invocation';
@@ -27,6 +27,7 @@ import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
 import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth,
+  isMarkdownCreateBirthVerification, isMarkdownCreateBirthVerificationOperation, isMarkdownCreateBirthPrivateStorageBoundary,
   directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
   type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
   type MarkdownCreateBirthStorageInput, type MarkdownCreateBirthClaim } from '../files/markdown-create-birth';
@@ -43,7 +44,9 @@ import { withDirectMcpDocumentCreatePrincipal, withDirectMcpDocumentCreatePrinci
   type DirectMcpDocumentCreatePrincipal, type DirectMcpDocumentCreateCurrentOrigin,
   type DirectMcpDocumentCreatePrincipalAccess } from '../mcp/server/document-read-principal';
 import { filesystemFileVersion } from '../filesystem/file-version';
-import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard } from '../files/workspace-file-lifecycle-guard';
+import { assertWorkspaceFileLifecycleSqlAvailable, withWorkspaceFileLifecycleGuard, readWorkspaceFileLifecycleOwnerSnapshot,
+  readWorkspaceFileLifecycleOwnerWorkspaceSnapshot,
+  workspaceFileLifecycleOwnerIdentitySql as bootstrapConnectionRealmSql } from '../files/workspace-file-lifecycle-guard';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
 import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleCollaborationWrite } from './file-lifecycle-admission-context';
@@ -59,15 +62,16 @@ import { readMarkdownOriginalImportRecordOnConnection } from './markdown-origina
 import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import { authenticatedNativeTextSessionEnabled } from './native-text-session-activation';
-import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
+import { loadCollaborationStateOnConnection, mapPersistedCollaborationStateRow, type PersistedCollaborationState } from './persistence';
 import { inCollaborationProjectionPhase } from './projection-errors';
+import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { assertCollaborationAdmissionOpen } from './room-admission';
-import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
+import { isCanonicalAdmissionPath } from './room-admission-contract';
 import { lockIdentity } from './room-owner';
 import { getCollaborationRoomConnectionCount } from './runtime-state';
 import { Y } from './server-runtime';
 import { isCollaborationStateProof } from './state-proof';
-import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
+import { readWorkspaceDocumentCatalogue, WorkspaceDocumentCatalogueError } from './workspace-document-catalogue';
 import type { TextCollaborationRepresentation } from './types';
 import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
 import type { WorkspaceOperationRawHtmlCopyStageV8 } from '../files/workspace-operation-raw-html-copy-stage';
@@ -171,13 +175,10 @@ function capture(input: MarkdownFileImportRequest): Captured {
     actorUserId: input.actorUserId, actorSessionId: input.actorSessionId, expectedTarget, prepared, fingerprint };
 }
 
-async function observedState(database: SqlConnection, input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt): Promise<PersistedCollaborationState> {
-  const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
+function assertObservedMarkdownImportState(documents: Awaited<ReturnType<typeof readWorkspaceDocumentCatalogue>>,
+  input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt, state: PersistedCollaborationState | null,
+  lineage: boolean): PersistedCollaborationState {
   const document = documents.find(document => document.path === input.path);
-  const state = await loadCollaborationStateOnConnection(database, receipt.target.documentId, true);
-  const lineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
-    AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
-  [receipt.target.lineageId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path]);
   if (documents.length !== 1 || !document || document.id !== receipt.target.documentId
     || document.authority !== 'initialized' || document.yjs_state_lifecycle !== 'initialized'
     || document.lineage_id !== receipt.target.lineageId || !lineage || !state
@@ -187,10 +188,16 @@ async function observedState(database: SqlConnection, input: Pick<Captured, 'wor
   authoritativeNativeCollaborationSnapshot(state);
   return state;
 }
-async function confirmedRetry(database: SqlConnection, input: RetryExpectation): Promise<Omit<MarkdownFileImportResult, 'disposition'> | null> {
-  const rows = await database.all(`SELECT * FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1
-    AND (operation_id=$2 OR (actor_user_id=$3 AND actor_session_id IS NOT DISTINCT FROM $4 AND request_id=$5))`,
-  [input.workspace.workspaceId, input.operationId, input.actorUserId, input.actorSessionId, input.requestId]) as Array<Record<string, unknown>>;
+async function observedState(database: SqlConnection, input: Pick<Captured, 'workspace' | 'path'>, receipt: MarkdownFileImportReceipt): Promise<PersistedCollaborationState> {
+  const documents = await readWorkspaceDocumentCatalogue(database, input.workspace, { paths: [input.path] });
+  const state = await loadCollaborationStateOnConnection(database, receipt.target.documentId, true);
+  const lineage = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
+    AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active'`,
+  [receipt.target.lineageId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path]);
+  return assertObservedMarkdownImportState(documents, input, receipt, state, !!lineage);
+}
+function decodeMarkdownImportRetryRows(rows: Array<Record<string, unknown>>, input: RetryExpectation):
+  { row: Record<string, unknown> & { after_state_snapshot: Uint8Array }; receipt: MarkdownFileImportReceipt } | null {
   if (!rows.length) return null;
   if (rows.length !== 1) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
   const row = rows[0], receipt = row.private_result as MarkdownFileImportReceipt;
@@ -214,13 +221,25 @@ async function confirmedRetry(database: SqlConnection, input: RetryExpectation):
       || receipt.target.initialSequence !== expected.documentSequence + 1) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
   } else if (receipt.target.initialSequence !== 0 || receipt.target.lifecycleGeneration !== 1
     || input.expectedTarget.kind === 'pristine' && receipt.target.documentId !== input.expectedTarget.documentId) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
-  const state = await observedState(database, input, receipt);
+  return { row: row as Record<string, unknown> & { after_state_snapshot: Uint8Array }, receipt };
+}
+function confirmMarkdownImportRetryState(row: Record<string, unknown> & { after_state_snapshot: Uint8Array }, receipt: MarkdownFileImportReceipt,
+  state: PersistedCollaborationState): Omit<MarkdownFileImportResult, 'disposition'> {
   // The empty initial Plain snapshot is a legitimate subset with no client items.
   const empty = Y.encodeSnapshot(Y.createSnapshot(Y.createDeleteSet(), new Map()));
   if (state.documentSequence < receipt.target.initialSequence || !Buffer.from(row.after_state_snapshot).equals(Buffer.from(empty))
     && !persistedUpdateIncludesAgentSnapshot(state.yjsState, row.after_state_snapshot, Y)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   const native = authoritativeNativeCollaborationSnapshot(state);
   return { receipt, currentObservation: { documentSequence: state.documentSequence, stateProof: native.version.stateProof, persistedAt: state.persistedAt } };
+}
+async function confirmedRetry(database: SqlConnection, input: RetryExpectation): Promise<Omit<MarkdownFileImportResult, 'disposition'> | null> {
+  const rows = await database.all(`SELECT * FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1
+    AND (operation_id=$2 OR (actor_user_id=$3 AND actor_session_id IS NOT DISTINCT FROM $4 AND request_id=$5))`,
+  [input.workspace.workspaceId, input.operationId, input.actorUserId, input.actorSessionId, input.requestId]) as Array<Record<string, unknown>>;
+  const decoded = decodeMarkdownImportRetryRows(rows, input);
+  if (!decoded) return null;
+  const state = await observedState(database, input, decoded.receipt);
+  return confirmMarkdownImportRetryState(decoded.row, decoded.receipt, state);
 }
 
 function importedState(input: Captured, documentId: string, now: number): PersistedCollaborationState {
@@ -325,39 +344,48 @@ const bootstrapRelations = ['collaboration_documents', 'collaboration_yjs_states
   'collaboration_admission_scopes', 'collaboration_markdown_file_import_receipts'];
 const quoteBootstrap = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
-async function bootstrapConnectionRealm(database: SqlConnection): Promise<BootstrapOwner> {
-  const row = await database.get(`SELECT current_schema() AS schema,current_setting('search_path') AS "searchPath",
-    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,pg_backend_pid() AS backend,
-    extract(epoch FROM a.backend_start)::text AS start FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as BootstrapOwner | undefined;
+const bootstrapRelationSql = `SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
+    FROM unnest($2::text[]) names(name)`;
+function parseBootstrapConnectionRealm(row: BootstrapOwner | undefined): BootstrapOwner {
   if (!row || typeof row.schema !== 'string' || !row.schema || row.schema.length > 256 || typeof row.searchPath !== 'string'
     || !Number.isSafeInteger(Number(row.database)) || Number(row.database) < 1 || !Number.isSafeInteger(Number(row.backend))
     || Number(row.backend) < 1 || typeof row.start !== 'string' || !row.start) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   return { ...row, database: Number(row.database), backend: Number(row.backend) };
 }
-async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
-  const current = await bootstrapConnectionRealm(frame.owner);
+async function bootstrapConnectionRealm(database: SqlConnection): Promise<BootstrapOwner> {
+  return parseBootstrapConnectionRealm(await database.get(bootstrapConnectionRealmSql) as BootstrapOwner | undefined);
+}
+function assertBootstrapOwnerObservation(frame: BootstrapFrame,
+  observed: Awaited<ReturnType<typeof readWorkspaceFileLifecycleOwnerSnapshot>>): Record<string, unknown> {
+  if (!observed) return fail('MARKDOWN_IMPORT_BUSY');
+  const row = observed.snapshot, current = parseBootstrapConnectionRealm(row as BootstrapOwner | undefined);
   if (Object.keys(frame.identity).some(key => Reflect.get(current, key) !== Reflect.get(frame.identity, key))) return fail('MARKDOWN_IMPORT_BUSY');
-  const lease = getWorkspaceFileLifecycleLeases()?.get(frame.selection.workspaceId);
-  if (!lease?.active || !await lease.verify()) return fail('MARKDOWN_IMPORT_BUSY');
-  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(frame.selection.workspaceId)));
-  const held = await frame.owner.get(`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted
-    AND mode='ExclusiveLock' AND pid=pg_backend_pid() AND database=$1 AND classid::bigint=$2 AND objid::bigint=$3 AND objsubid=1) AS held`,
-  [frame.realm.database, Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff'))]) as { held?: boolean } | undefined;
-  if (held?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
+  if (row?.held !== true) return fail('MARKDOWN_IMPORT_BUSY');
+  return row;
+}
+async function assertBootstrapOwner(frame: BootstrapFrame): Promise<void> {
+  assertBootstrapOwnerObservation(frame, await readWorkspaceFileLifecycleOwnerSnapshot(frame.owner, frame.selection.workspaceId));
 }
 async function assertBootstrapNativeRealm(database: SqlConnection, frame: BootstrapFrame, lock = false): Promise<void> {
-  const current = await bootstrapConnectionRealm(database);
-  if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
-    return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  }
   const relations = [...bootstrapRelations,
     ...(frame.kind === 'direct-mcp' && frame.invocation.apiVersion === 1 ? ['workspace_file_metadata'] : []),
     ...(frame.explicitOriginal ? ['collaboration_original_markdown_imports'] : [])];
+  // One fresh read for the ordinary observation. The locking path keeps its
+  // pre-lock identity check, actual LOCK and post-lock relation read in order.
+  const snapshot = lock ? undefined : await database.get(`SELECT realm.*,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(relation)),'[]'::jsonb)
+      FROM (${bootstrapRelationSql}) relation) AS relations
+    FROM (${bootstrapConnectionRealmSql}) realm`, [quoteBootstrap(frame.realm.schema), relations]) as
+      (BootstrapOwner & { relations: Array<{ same: boolean }> }) | undefined;
+  const current = lock ? await bootstrapConnectionRealm(database) : parseBootstrapConnectionRealm(snapshot);
+  if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
+    return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  }
   if (lock) await database.run(`LOCK TABLE ${relations.map(name => `${quoteBootstrap(frame.realm.schema)}.${quoteBootstrap(name)}`).join(',')}
     IN ROW EXCLUSIVE MODE NOWAIT`);
-  const rows = await database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-    FROM unnest($2::text[]) names(name)`, [quoteBootstrap(frame.realm.schema), relations]) as Array<{ same: boolean }>;
-  if (rows.length !== relations.length || rows.some(row => row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const rows = lock ? await database.all(bootstrapRelationSql, [quoteBootstrap(frame.realm.schema), relations]) as Array<{ same: boolean }>
+    : snapshot!.relations;
+  if (!Array.isArray(rows) || rows.length !== relations.length || rows.some(row => !row || row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
 }
 async function assertBootstrapScope(database: SqlConnection, input: Captured, scope: OriginalBootstrapScope): Promise<void> {
   if (!scope.active || scope.database !== database || originalBootstrapScopes.get(input) !== scope
@@ -990,7 +1018,7 @@ export async function assertAuthenticatedManualMarkdownBirthStorageAllowed(input
     if (!isDeepStrictEqual(origin, owner.frame.expectedScope)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   } else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+  await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
   if (stage === 'before_link' || stage === 'parent_link') {
     assertAuthenticatedManualMarkdownBirthWithinTurn(input);
     await currentAuthenticatedMarkdownBirth(firstProjectionPhases.getStore()!);
@@ -1023,7 +1051,7 @@ type AgentCreatePhase = { active: boolean; database: SqlConnection; access: Work
   frame: Extract<BootstrapFrame, { kind: 'agent-tool' }> };
 const agentCreatePhases = new AsyncLocalStorage<AgentCreatePhase>();
 const agentCreateFactories = new AsyncLocalStorage<{active:boolean;frame:Extract<BootstrapFrame,{kind:'agent-tool'}>;
-  principal:WorkspaceAgentMarkdownCreatePrincipal}>();
+  principal:WorkspaceAgentMarkdownCreatePrincipal; historicalOrigin:()=>WorkspaceAgentToolHistoricalOrigin|undefined}>();
 type AgentBirthOwner = { active: boolean; accepting: boolean; frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>;
   source: AuthenticatedCreateSource; openPhase: () => Promise<SqlConnection>;
   invocation?: MarkdownCreateBirthStorageInput; claim?: MarkdownCreateBirthClaim };
@@ -1047,6 +1075,11 @@ function currentAgentCreateInvocation(frame: Extract<BootstrapFrame, { kind: 'ag
   const actual = frame.invocation;
   if (!actual.active || !agentCreateInvocations.has(actual) || actual.original !== frame.originalOrigin) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   actual.assertInvocation();
+  const factory = agentCreateFactories.getStore();
+  if (factory?.active && factory.frame === frame) {
+    const observed = factory.historicalOrigin();
+    if (observed) actual.current = observed;
+  }
   const before = actual.original, current = actual.current;
   if (['userId','agentId','toolName','workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId',
     'rootPath','rootRelativePath','legacy','status','schema','schemaOid','searchPath','databaseOid']
@@ -1072,24 +1105,110 @@ function currentAgentBirthOwner(input: MarkdownCreateBirthStorageInput): AgentBi
     || !isDeepStrictEqual(input.origin,owner.frame.originalOrigin) || !isDeepStrictEqual(input.source,binding)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   currentAgentCreateInvocation(owner.frame); agentMarkdownCreateAttribution(input as unknown as Record<string,unknown>); return owner;
 }
+/** Mutating actions retain their actual Principal through ACKs and close.
+ * Historical verification outside a held phase is strictly read-only; it
+ * cannot initialize/repair a claim or confirm a successful public result. */
+async function withAuthenticatedMarkdownBirthStoragePhase<T>(frame: Extract<BootstrapFrame, { kind: 'agent-tool' | 'direct-mcp' }>,
+  operation: () => Promise<T>): Promise<T> {
+  const owner = frame.kind === 'agent-tool' ? agentBirthOwners.getStore() : directMcpBirthOwners.getStore();
+  if (!owner?.active || !owner.accepting || owner.frame !== frame || !owner.invocation
+    || typeof operation !== 'function') return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (frame.kind === 'agent-tool') currentAgentBirthOwner(owner.invocation);
+  else currentDirectMcpBirthOwner(owner.invocation);
+  const consumer = frame.kind === 'agent-tool' ? agentCreatePhases.getStore() : directMcpCreatePhases.getStore();
+  const other = frame.kind === 'agent-tool' ? directMcpCreatePhases.getStore() : agentCreatePhases.getStore();
+  const projection = firstProjectionPhases.getStore();
+  if (other) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (consumer) {
+    if (!consumer.active || consumer.frame !== frame || projection && (!projection.active || projection.frame !== frame
+      || projection.source !== owner.source || projection.database !== consumer.database || projection.access !== consumer.access)) {
+      return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    }
+    return operation();
+  }
+  if (projection) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (isMarkdownCreateBirthVerificationOperation(owner.invocation, operation)) return operation();
+  return withAuthenticatedCreatePhaseFactory(frame, () => executeLifecycleTransaction({ openConnection: owner.openPhase,
+    execute: async database => {
+      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+      return withAuthenticatedCreatePrincipalOnConnection(database, frame, () => operation());
+    }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+}
+async function withAgentMarkdownBirthStoragePhase<T>(frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>,
+  operation: () => Promise<T>): Promise<T> {
+  return withAuthenticatedMarkdownBirthStoragePhase(frame, operation);
+}
 export async function assertAuthenticatedAgentMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
-  const owner = currentAgentBirthOwner(input), consumer = agentCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
+  await assertAuthenticatedMarkdownBirthStorageBoundary(currentAgentBirthOwner(input), agentCreatePhases.getStore(), input, stage);
+  if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+}
+/** Actual owner/consumer objects come only from the fixed source wrappers.
+ * One full native proof covers a publication ACK. The proof itself refreshes
+ * policy, A owner, source and claim; no earlier duplicate adds another boundary. */
+async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirthOwner | DirectMcpBirthOwner,
+  consumer: AgentCreatePhase | DirectMcpCreatePhase | undefined, input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
+  const projection = firstProjectionPhases.getStore();
   if (consumer && (!consumer.active || consumer.frame !== owner.frame)
     || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
       || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
+  if (stage === 'entry') {
+    if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    owner.invocation = input;
+    if (!consumer && !projection) {
+      // Binding reserves only this input under the genuine A/source lifetime.
+      // Before any mutating helper can spawn, its actual open phase acquires a
+      // fresh Principal and runs the full boundary below. Read-only root opens
+      // between binding and that phase convey no publication authority.
+      await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+      return;
+    }
+  }
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
-  if (projection) await currentAuthenticatedMarkdownBirth(projection);
-  else if (consumer) await assertAuthenticatedCreateOriginCurrent(consumer.database,owner.frame,consumer.access);
-  else await withAuthenticatedCreatePhaseFactory(owner.frame,() => executeLifecycleTransaction({openConnection:owner.openPhase,execute:async database => {
-    await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-    return withAuthenticatedCreatePrincipalOnConnection(database,owner.frame,async access => {
-      await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-    });
-  },recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED')}));
-  if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+  if (projection && isMarkdownCreateBirthPrivateStorageBoundary(input)) {
+    // The same genuine Principal still holds its actual rights/Workspace locks.
+    // Only this private message can select staging/receipt boundaries. Public
+    // before-link turns and the real helper close retain full fresh native and
+    // policy proofs. A/source/root and the negative phase lifetime stay current.
+    if (owner.frame.kind === 'agent-tool') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+    else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
+    await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    return;
+  }
+  if (isMarkdownCreateBirthVerification(input)) {
+    // Pure historical IO never grants authority, even under a held Principal.
+    // Its enclosing native/publication/result boundary performs fresh Current
+    // after the read. Real mutating actions retain their full guards below.
+    const claim = owner.claim;
+    if (!claim) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    if (projection) {
+      if (owner.frame.kind === 'agent-tool') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+      else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
+    }
+    await assertFirstProjectionOwnerOrigin(owner.frame);
+    // The exact private invoke has already checked its own pinned roots and
+    // checks them again after IO. Public claim methods are intentionally
+    // closed during terminal verification; no retained handle is reopened.
+    await owner.source.assertCurrent();
+    return;
+  }
+  if (projection) {
+    await assertFirstProjectionOwnerOrigin(owner.frame);
+    await currentAuthenticatedMarkdownBirth(projection);
+  } else {
+    await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    if (consumer) {
+      await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
+      // Preserve the MCP consumer's existing additional A/source fence.
+      if (owner.frame.kind === 'direct-mcp') { await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent(); }
+    } else await withAuthenticatedCreatePhaseFactory(owner.frame, () => executeLifecycleTransaction({ openConnection: owner.openPhase,
+      execute: async database => {
+        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+        return withAuthenticatedCreatePrincipalOnConnection(database, owner.frame, async access => {
+          await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
+        });
+      }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+  }
 }
 export function assertAuthenticatedAgentMarkdownBirthWithinTurn(input: MarkdownCreateBirthStorageInput): void {
   const owner = currentAgentBirthOwner(input), phase = firstProjectionPhases.getStore(), consumer = agentCreatePhases.getStore();
@@ -1126,14 +1245,18 @@ export async function persistAndProjectAgentMarkdownCreate(selection: AgentCreat
       if (typeof callerKey !== 'string' || !callerKey || callerKey.length > 500 || /[\u0000-\u001f\u007f]/u.test(callerKey)
         || Buffer.from(callerKey,'utf8').toString('utf8') !== callerKey) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       let current: WorkspaceAgentToolHistoricalOrigin | undefined;
-      const workspace = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({ workspaceId: selected.workspaceId },
-        observed => { current = observed; }, principal => executeLifecycleTransaction({ openConnection: openDb,
+      const workspace = await withWorkspaceAgentMarkdownCreatePrincipal({ workspaceId: selected.workspaceId },
+        async (principal, historicalOrigin) => {
+          const selectedWorkspace = await executeLifecycleTransaction({ openConnection: openDb,
           execute: async database => {
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
             return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
               await policy.assertCurrent(database,access); return access.workspace;
             });
-          }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+          }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
+          current = historicalOrigin();
+          return selectedWorkspace;
+        });
       if (!current) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       const original = current;
       const operationId = hash(JSON.stringify(['canvas-agent-markdown-create-key-v1',original.userId,original.agentId,selected.workspaceId,callerKey]));
@@ -1150,8 +1273,8 @@ export async function persistAndProjectAgentMarkdownCreate(selection: AgentCreat
       if (birth) bindAgentBirthOriginal(actual,birth);
       // Historical original lookup precedes any present-day target observation.
       if (!birth) {
-        const documents = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:selected.workspaceId},
-          () => undefined, principal => executeLifecycleTransaction({ openConnection:openDb,
+        const documents = await withWorkspaceAgentMarkdownCreatePrincipal({workspaceId:selected.workspaceId},
+          principal => executeLifecycleTransaction({ openConnection:openDb,
             execute:async database => {
               await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
               return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
@@ -1273,6 +1396,20 @@ function currentMcpInvocation(frame: Extract<BootstrapFrame, { kind: 'direct-mcp
     || !isDeepStrictEqual(actual.original, frame.originalOrigin)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   assertMcpOriginalCurrent(frame.originalOrigin, actual.current); actual.signal?.throwIfAborted(); return actual;
 }
+/** Origin data only. The genuine enclosing Principal owns fresh entry/exit
+ * Current and its actual locks. No copied access or retained consumer can
+ * select this comparison, and it never replaces an IO/native write guard. */
+function assertDirectMcpCreateConsumerOrigin(database: SqlConnection,
+  frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>, access: AuthenticatedCreateAccess): void {
+  const phase = directMcpCreatePhases.getStore();
+  if (!phase?.active || phase.database !== database || phase.frame !== frame || phase.access !== access) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const actual = currentMcpInvocation(frame), expected = frame.originalOrigin, current = actual.current!;
+  if (!('clientId' in access) || !('tool' in access) || access.userId !== current.userId || access.clientId !== current.clientId
+    || access.sessionId !== current.sessionId || access.tool !== current.tool
+    || !access.workspace.permissions.canRead || !access.workspace.permissions.canWrite || !access.workspace.permissions.canRunAgent
+    || ['workspaceId', 'workspaceType', 'organizationId', 'customerId', 'projectId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status']
+      .some(key => (Reflect.get(access.workspace, key) ?? null) !== Reflect.get(expected, key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
 async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConnection, frame: BootstrapFrame,
   operation: (access: AuthenticatedCreateAccess) => Promise<T>, requestPrincipal?: WorkspaceRequestPrincipal): Promise<T> {
   if (frame.kind === 'agent-tool') {
@@ -1297,8 +1434,12 @@ async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConn
       const phase: DirectMcpCreatePhase = { active: true, database, access, frame };
       return directMcpCreatePhases.run(phase, async () => {
         try {
-          await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-          const value = await operation(access); await assertAuthenticatedCreateOriginCurrent(database, frame, access); return value;
+          // The enclosing genuine Principal has just completed Current and
+          // will repeat it after this whole consumer settles. Its private
+          // origin observer is synchronous data comparison only. Native/IO
+          // boundaries inside operation retain their full fresh guards.
+          assertDirectMcpCreateConsumerOrigin(database, frame, access);
+          const value = await operation(access); assertDirectMcpCreateConsumerOrigin(database, frame, access); return value;
         } finally { phase.active = false; }
       });
     });
@@ -1311,10 +1452,10 @@ async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConn
 async function withAuthenticatedCreatePhaseFactory<T>(frame: BootstrapFrame,
   operation: (requestPrincipal?: WorkspaceRequestPrincipal) => Promise<T>, agentOnly = false): Promise<T> {
   if (frame.kind === 'agent-tool') {
-    const actual = currentAgentCreateInvocation(frame);
-    return withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:frame.selection.workspaceId},
-      observed => { actual.current = observed; }, async principal => {
-        const factory = {active:true,frame,principal};
+    currentAgentCreateInvocation(frame);
+    return withWorkspaceAgentMarkdownCreatePrincipal({workspaceId:frame.selection.workspaceId},
+      async (principal, historicalOrigin) => {
+        const factory = {active:true,frame,principal,historicalOrigin};
         try { return await agentCreateFactories.run(factory,() => operation()); }
         finally { factory.active = false; }
       });
@@ -1339,12 +1480,8 @@ async function assertAuthenticatedCreateOriginCurrent(database: SqlConnection, f
         .some(key => (Reflect.get(access.workspace,key) ?? null) !== Reflect.get(expected,key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
     await actual.policy.assertCurrent(database,access); await assertMarkdownBirthRealm(database,frame); return;
   }
-  const actual = currentMcpInvocation(frame), expected = frame.originalOrigin, current = actual.current!;
-  if (!('clientId' in access) || !('tool' in access) || access.userId !== current.userId || access.clientId !== current.clientId
-    || access.sessionId !== current.sessionId || access.tool !== current.tool
-    || !access.workspace.permissions.canRead || !access.workspace.permissions.canWrite || !access.workspace.permissions.canRunAgent
-    || ['workspaceId', 'workspaceType', 'organizationId', 'customerId', 'projectId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status']
-      .some(key => (Reflect.get(access.workspace, key) ?? null) !== Reflect.get(expected, key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  assertDirectMcpCreateConsumerOrigin(database, frame, access);
+  const expected = frame.originalOrigin;
   await access.assertCurrent();
   const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
@@ -1377,7 +1514,9 @@ async function loadDirectMcpCreateSource(frame: Extract<BootstrapFrame, { kind: 
     assertCurrent: async () => {
       currentMcpInvocation(frame);
       if (!createSources.has(source) || hash(bytes) !== binding.sourceHash || bytes.byteLength !== binding.sourceBytes) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-      await assertBootstrapOwner(frame);
+      // This capsule proves the live invocation and immutable source bytes.
+      // The concrete storage/native coordinator owns the fresh A proof, as it
+      // does for Agent sources; checking provenance never grants write rights.
     }, readSource: async () => { await source.assertCurrent(); return new Uint8Array(bytes); } });
   createSources.add(source); actual.liveSource = source; return source;
 }
@@ -1402,32 +1541,7 @@ function currentDirectMcpBirthOwner(input: MarkdownCreateBirthStorageInput): Dir
 }
 export async function assertAuthenticatedDirectMcpMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput,
   stage: string): Promise<void> {
-  const owner = currentDirectMcpBirthOwner(input);
-  const consumer = directMcpCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
-  if (consumer && (!consumer.active || consumer.frame !== owner.frame)
-    || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
-      || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'entry') {
-    if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input;
-  } else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'closed') { owner.accepting = false; return; }
-  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
-  if (projection) {
-    await currentAuthenticatedMarkdownBirth(projection);
-  } else if (consumer) {
-    // This ACK belongs to the actual native/recovery consumer. Reuse its B;
-    // opening another phase here would reenter and poison the genuine capture.
-    await assertAuthenticatedCreateOriginCurrent(consumer.database, owner.frame, consumer.access);
-    await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-  } else {
-    await executeLifecycleTransaction({ openConnection: owner.openPhase,
-      execute: async database => {
-        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-        return withAuthenticatedCreatePrincipalOnConnection(database, owner.frame, async access => {
-          await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
-        });
-      }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
-  }
+  await assertAuthenticatedMarkdownBirthStorageBoundary(currentDirectMcpBirthOwner(input), directMcpCreatePhases.getStore(), input, stage);
   if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
 }
 export function assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input: MarkdownCreateBirthStorageInput): void {
@@ -1597,9 +1711,9 @@ export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInf
         const workspace = await executeLifecycleTransaction({ openConnection: openDb,
           execute: async database => {
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-            return withDirectMcpDocumentCreatePrincipalOnConnection(database, principal, async access => {
-              await access.assertCurrent(); return access.workspace;
-            });
+            // This callback only returns constructor-owned data. The genuine
+            // Principal checks Current before and after this whole callback.
+            return withDirectMcpDocumentCreatePrincipalOnConnection(database, principal, async access => access.workspace);
           }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
         if (!current) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
         const operationId = directMcpIngestFingerprint([current.clientId, current.userId, selected.workspaceId, selected.idempotencyKey]);
@@ -1718,23 +1832,29 @@ async function assertAuthenticatedUploadScope(database: SqlConnection, input: Ca
     || !createSources.has(scope.source) || scope.access.userId !== input.actorUserId
     || (scope.frame.kind === 'request' ? !('sessionId' in scope.access) || scope.access.sessionId !== input.actorSessionId
       : input.actorSessionId !== (scope.frame.kind === 'agent-tool' ? scope.frame.originalOrigin.piSessionId : scope.frame.originalOrigin.sessionId))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
+  await scope.source.assertCurrent();
+  if (scope.frame.kind === 'direct-mcp') await assertBootstrapOwner(scope.frame);
+  await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
+  // The helper only observes private evidence. Refresh authority after its
+  // actual close, immediately before this boundary can permit native DML.
+  if (scope.frame.kind === 'request') await scope.access.assertCurrent();
+  await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
   await assertAuthenticatedCreateOriginCurrent(database, scope.frame, scope.access);
-  await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
 }
 /** Validate the exact real row delivered to the mapper, including orphan raw
  * error flags. No earlier metadata SELECT can certify a later RC row. */
+function normalizeAuthenticatedMarkdownStateRow(value: Record<string, unknown>): Record<string, unknown> {
+  const row = normalizeBootstrapStateRow(value);
+  if (!(row.yjs_state instanceof Uint8Array) || row.yjs_state.byteLength < 1 || row.yjs_state.byteLength > BOOTSTRAP_STATE_LIMIT
+    || !(row.state_vector instanceof Uint8Array) || row.state_vector.byteLength < 1 || row.state_vector.byteLength > BOOTSTRAP_VECTOR_LIMIT
+    || row.degraded !== 0 || row.projection_error_permanent === 1 && row.projection_error_generation !== null
+      && Number(row.projection_error_generation) === Number(row.lifecycle_generation)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  return row;
+}
 function authenticatedUploadReads(database: SqlConnection): SqlConnection {
   const read = async (sql: string, values?: unknown[]) => {
     const rows = await database.all(sql, values);
-    if (/^SELECT \* FROM collaboration_yjs_states\s+WHERE document_id = \$1(?:\s|$)/u.test(sql)) return rows.map(value => {
-      const row = normalizeBootstrapStateRow(value as Record<string, unknown>);
-      if (!(row.yjs_state instanceof Uint8Array) || row.yjs_state.byteLength < 1 || row.yjs_state.byteLength > BOOTSTRAP_STATE_LIMIT
-        || !(row.state_vector instanceof Uint8Array) || row.state_vector.byteLength < 1 || row.state_vector.byteLength > BOOTSTRAP_VECTOR_LIMIT
-        || row.degraded !== 0 || row.projection_error_permanent === 1 && row.projection_error_generation !== null
-          && Number(row.projection_error_generation) === Number(row.lifecycle_generation)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-      return row;
-    });
+    if (/^SELECT \* FROM collaboration_yjs_states\s+WHERE document_id = \$1(?:\s|$)/u.test(sql)) return rows.map(value => normalizeAuthenticatedMarkdownStateRow(value as Record<string, unknown>));
     return rows;
   };
   return { all: read, get: async (sql, values) => (await read(sql, values))[0],
@@ -1764,10 +1884,14 @@ async function confirmedAuthenticatedUploadRetry(database: SqlConnection, input:
 async function captureAuthenticatedUpload(database: SqlConnection, frame: BootstrapFrame, access: AuthenticatedCreateAccess,
   source: AuthenticatedCreateSource, absence: UploadTargetAbsence): Promise<Captured> {
   if (!createSources.has(source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
-  await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
+  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
+  await source.assertCurrent();
+  if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
+  await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
+  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
   const bytes = await source.readSource();
+  if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
   if (bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   const input = capture({ workspace: access.workspace, path: source.binding.targetPath, operationId: source.binding.operationId,
     requestId: source.binding.requestId, actorUserId: source.binding.actorUserId, actorSessionId: source.binding.actorSessionId,
@@ -2000,6 +2124,8 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
 async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMcpCreateInvocation | AgentCreateInvocation, intent: CreateIntent,
   expectedScope: PristineOriginalRequestScopeExpectation | WorkspaceAgentToolHistoricalOrigin, providedSource: AuthenticatedCreateSource | null,
   dependencies: { openConnection: () => Promise<SqlConnection> }, project: boolean): Promise<MarkdownFileImportResult | AuthenticatedMarkdownFirstProjectionResult> {
+  return measureDocumentOperation('create', original instanceof NextRequest ? 'request'
+    : agentCreateInvocations.has(original as AgentCreateInvocation) ? 'agent' : 'mcp', async () => {
   const agent = !(original instanceof NextRequest) && agentCreateInvocations.has(original as AgentCreateInvocation) ? original as AgentCreateInvocation : null;
   const mcp = original instanceof NextRequest || agent ? null : original as DirectMcpCreateInvocation;
   if (agent ? !agent.active || !providedSource || !createSources.has(providedSource)
@@ -2142,11 +2268,16 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
       const publish = () => withMarkdownCreateBirthClaim({ workspaceRoot: expectedScope.rootPath, targetPath: intent.targetPath,
         origin: expectedScope, source: source.binding, operationId: intent.operationId },
       async () => {
-        // Storage's read-only inode observations are NOT authority checks.
-        // Original source/auth is checked by the native/publication phase;
-        // A and the physical/SQL origin remain pinned during every IO/close.
-        await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
-      }, persist);
+        const owner = frame.kind === 'agent-tool' ? agentBirthOwners.getStore()
+          : frame.kind === 'direct-mcp' ? directMcpBirthOwners.getStore() : undefined;
+        // Only pure private verification has no intervening B observation
+        // after the fixed guard's fresh A/Workspace proof. Ordinary helper and
+        // close boundaries retain this late fence after asynchronous Current.
+        if (owner?.active && owner.accepting && owner.frame === frame && owner.source === source
+          && owner.invocation && isMarkdownCreateBirthVerification(owner.invocation)) return;
+        await assertFirstProjectionOwnerOrigin(frame);
+      }, persist, frame.kind === 'agent-tool' ? operation => withAgentMarkdownBirthStoragePhase(frame, operation)
+        : frame.kind === 'direct-mcp' ? operation => withAuthenticatedMarkdownBirthStoragePhase(frame, operation) : undefined);
       let projected: AuthenticatedMarkdownFirstProjectionResult;
       if ('kind' in source.binding && source.binding.kind === 'manual-empty-v1') {
         const manualOwner: ManualBirthOwner = { active: true, accepting: true, frame, source };
@@ -2163,7 +2294,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         try { projected = await agentBirthOwners.run(agentOwner,publish) as AuthenticatedMarkdownFirstProjectionResult; }
         finally { agentOwner.accepting = false; agentOwner.active = false; }
       } else projected = await publish() as AuthenticatedMarkdownFirstProjectionResult;
-      await source.assertCurrent(); await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
+      await source.assertCurrent(); await assertFirstProjectionOwnerOrigin(frame);
       if (frame.kind === 'direct-mcp') {
         const freshBirth = await observeOptionalMarkdownCreateBirth({ workspaceRoot: frame.originalOrigin.rootPath,
           workspaceId: intent.workspaceId, operationId: intent.operationId });
@@ -2201,27 +2332,57 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
       }
       if (hasFailure) throw failure; return value!;
     })();
+  });
 }
 
-async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
-  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
-  if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+const markdownBirthRealmSql = `SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
     current_setting('search_path') AS search_path,quote_ident($1)||', pg_catalog, pg_temp' AS phase_search_path,
     (SELECT bool_and(coalesce(to_regclass(name)::oid=to_regclass(quote_ident($1)||'.'||quote_ident(name))::oid,false))
-      FROM unnest($2::text[]) names(name)) AS same`,
-  [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections']]) as Record<string, unknown> | undefined;
+      FROM unnest($2::text[]) names(name)) AS same`;
+function assertMarkdownBirthRealmObservation(frame: BootstrapFrame, row: Record<string, unknown> | undefined): void {
+  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
+  if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (!row || row.same !== true || row.schema !== expected.schema
     || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
     || row.search_path !== expected.searchPath && row.search_path !== row.phase_search_path) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
+async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
+  const row = await database.get(markdownBirthRealmSql,
+    [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections']]) as Record<string, unknown> | undefined;
+  assertMarkdownBirthRealmObservation(frame, row);
+}
 async function assertAuthenticatedMarkdownBirth(database: SqlConnection, frame: BootstrapFrame, input: Captured,
   result: MarkdownFileImportResult, claim: MarkdownCreateBirthClaim): Promise<Record<string, unknown>> {
-  await assertMarkdownBirthRealm(database, frame);
-  const row = await database.get(`SELECT * FROM collaboration_markdown_create_births WHERE workspace_id=$1 AND operation_id=$2`,
-  [input.workspace.workspaceId, input.operationId]) as Record<string, unknown> | undefined;
-  if (!row || row.document_id !== result.receipt.target.documentId || Number(row.lifecycle_generation) !== result.receipt.target.lifecycleGeneration
+  if (!(frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const fields = ['schema', 'schema_oid', 'database_oid', 'search_path', 'phase_search_path', 'same'] as const;
+  let observed: Record<string, unknown> | undefined;
+  try {
+    // The realm and original birth row were adjacent reads with no intervening
+    // callback or mutation. Keep raw row scalars and read both facts freshly on
+    // this actual held connection. Trusted aliases are selected last.
+    observed = await database.get(`SELECT birth.*,
+      ${fields.map(field => `realm.${quoteBootstrap(field)} AS ${quoteBootstrap(`__canvas_birth_realm_${field}`)}`).join(',')},
+      (birth.workspace_id IS NOT NULL) AS __canvas_birth_row_present
+      FROM (${markdownBirthRealmSql}) realm
+      LEFT JOIN LATERAL (SELECT * FROM collaboration_markdown_create_births
+        WHERE workspace_id=$3 AND operation_id=$4) birth ON true`,
+    [frame.realm.schema, [...bootstrapRelations, 'collaboration_markdown_create_births', 'collaboration_file_projections'],
+      input.workspace.workspaceId, input.operationId]) as Record<string, unknown> | undefined;
+  } catch (error) {
+    // Missing/shadowed relations previously failed the preceding realm check.
+    // Do not retry a transaction whose joined query could not be planned.
+    const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+    if (code === '42P01' || code === '3F000') return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    throw error;
+  }
+  const realm = observed ? Object.fromEntries(fields.map(field => [field, observed[`__canvas_birth_realm_${field}`]])) : undefined;
+  assertMarkdownBirthRealmObservation(frame, realm);
+  if (!observed || observed.__canvas_birth_row_present !== true) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  const row = { ...observed };
+  for (const field of fields) delete row[`__canvas_birth_realm_${field}`];
+  delete row.__canvas_birth_row_present;
+  if (row.document_id !== result.receipt.target.documentId || Number(row.lifecycle_generation) !== result.receipt.target.lifecycleGeneration
     || row.claim_id !== claim.id || row.claim_fingerprint !== claim.fingerprint || row.request_fingerprint !== input.fingerprint
     || ![0, 1].includes(Number(row.finalized))) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   return row;
@@ -2250,24 +2411,43 @@ function firstProjectionReads(database: SqlConnection): SqlConnection {
 async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<void> {
   const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
   if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const row = await frame.owner.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
-    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,current_setting('search_path') AS search_path,
-    type,organization_id,project_id,customer_id,owner_user_id,root_relative_path,status FROM canvas_workspaces WHERE id=$1`,
-  [expected.workspaceId]) as Record<string, unknown> | undefined;
-  if (!row || row.schema !== expected.schema || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
+  let observed: Awaited<ReturnType<typeof readWorkspaceFileLifecycleOwnerWorkspaceSnapshot>>;
+  try { observed = await readWorkspaceFileLifecycleOwnerWorkspaceSnapshot(frame.owner, frame.selection.workspaceId); }
+  catch (error) {
+    // A joined lookup can fail before yielding its realm. Preserve the former
+    // owner-first failure for schema/lookup errors; this is a fresh read, not a replay.
+    const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+    if (typeof code === 'string' && /^42[A-Z0-9]{3}$/u.test(code)) await assertBootstrapOwner(frame);
+    throw error;
+  }
+  const row = assertBootstrapOwnerObservation(frame, observed);
+  if (row.workspace_id !== expected.workspaceId || row.schema !== expected.schema || Number(row.schema_oid) !== expected.schemaOid || Number(row.database_oid) !== expected.databaseOid
     || row.search_path !== expected.searchPath || row.type !== expected.workspaceType || row.organization_id !== expected.organizationId
     || row.project_id !== expected.projectId || row.customer_id !== expected.customerId || row.owner_user_id !== expected.ownerUserId
     || row.root_relative_path !== expected.rootRelativePath || row.status !== expected.status) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
 }
-async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
-  if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  const { database, frame, access, source, claim, input, result } = phase;
-  await access.assertCurrent(); await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-  await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
-  if (checkSource) await source.assertCurrent();
-  await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
-  await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
-  const row = await database.get(`SELECT d.id FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+/** A fresh native/receipt row on the actual held publication connection.
+ * Catalogue identity failures retain their old precedence after the complete native and
+ * receipt checks. No earlier RC state certifies a later row and no row is cached. */
+async function readAuthenticatedMarkdownBirthSnapshot(phase: FirstProjectionPhase): Promise<PersistedCollaborationState> {
+  const { database, input, result } = phase;
+  const reads = firstProjectionReads(database);
+  let documents: Awaited<ReturnType<typeof readWorkspaceDocumentCatalogue>> = [], catalogueFailed = false, catalogueError: unknown;
+  try { documents = await readWorkspaceDocumentCatalogue(reads, input.workspace, { paths: [input.path] }); }
+  catch (error) {
+    if (!(error instanceof WorkspaceDocumentCatalogueError)) throw error;
+    catalogueFailed = true; catalogueError = error;
+  }
+  const row = await database.get(`SELECT y.*,l.id AS observed_lineage_id,
+    r.workspace_id AS import_workspace_id,r.operation_id AS import_operation_id,r.organization_id AS import_organization_id,
+    r.actor_user_id AS import_actor_user_id,r.actor_session_id AS import_actor_session_id,r.request_id AS import_request_id,
+    r.version AS import_version,r.request_fingerprint AS import_request_fingerprint,r.private_result AS import_private_result,
+    r.after_state_snapshot AS import_after_state_snapshot,r.created_at AS import_created_at,
+    r.live_yjs_state_sha256 AS import_live_yjs_state_sha256,r.live_state_vector_sha256 AS import_live_state_vector_sha256,
+    (SELECT count(*) FROM (SELECT 1 FROM collaboration_markdown_file_import_receipts retry
+      WHERE retry.workspace_id=$2 AND (retry.operation_id=$9 OR (retry.actor_user_id=$11
+        AND retry.actor_session_id IS NOT DISTINCT FROM $12 AND retry.request_id=$13)) LIMIT 2) matches) AS import_receipt_count
+    FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
     JOIN collaboration_yjs_states y ON y.document_id=d.id JOIN collaboration_markdown_file_import_receipts r
       ON r.workspace_id=d.workspace_id AND r.operation_id=$9
     WHERE d.id=$1 AND d.workspace_id=$2 AND d.organization_id IS NOT DISTINCT FROM $3 AND d.path=$4
@@ -2280,16 +2460,42 @@ async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, ch
       AND r.live_state_vector_sha256=encode(sha256(y.state_vector),'hex')`,
   [result.receipt.target.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path,
     input.workspace.workspaceType, input.workspace.customerId ?? null, input.workspace.projectId ?? null,
-    result.receipt.target.lineageId, input.operationId, input.fingerprint]);
+    result.receipt.target.lineageId, input.operationId, input.fingerprint, input.actorUserId, input.actorSessionId, input.requestId]) as Record<string, unknown> | undefined;
   if (!row) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const reads = firstProjectionReads(database), prior = await confirmedRetry(reads, input);
-  if (!prior || !isDeepStrictEqual(prior.receipt, result.receipt)
+  if (row.import_receipt_count !== 1 && row.import_receipt_count !== '1') return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  const receiptFields = ['workspace_id', 'operation_id', 'organization_id', 'actor_user_id', 'actor_session_id', 'request_id',
+    'version', 'request_fingerprint', 'private_result', 'after_state_snapshot', 'created_at', 'live_yjs_state_sha256', 'live_state_vector_sha256'];
+  const receiptRow = Object.fromEntries(receiptFields.map(field => [field, row[`import_${field}`]]));
+  const decoded = decodeMarkdownImportRetryRows([receiptRow], input);
+  if (!decoded) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  if (catalogueFailed) throw catalogueError;
+  const state = mapPersistedCollaborationStateRow(normalizeAuthenticatedMarkdownStateRow(row) as Parameters<typeof mapPersistedCollaborationStateRow>[0]);
+  assertObservedMarkdownImportState(documents, input, decoded.receipt, state, row.observed_lineage_id === decoded.receipt.target.lineageId);
+  const prior = confirmMarkdownImportRetryState(decoded.row, decoded.receipt, state);
+  if (!isDeepStrictEqual(prior.receipt, result.receipt)
     || prior.currentObservation.documentSequence !== result.receipt.target.initialSequence
     || prior.currentObservation.stateProof !== result.receipt.target.initialStateProof) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const state = await loadCollaborationStateOnConnection(reads, result.receipt.target.documentId);
-  if (!state) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   inspectPersistedNativeCollaborationSnapshot(state, doc => assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions())));
   return state;
+}
+async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, checkSource = true): Promise<PersistedCollaborationState> {
+  if (!phase.active || firstProjectionPhases.getStore() !== phase || !createSources.has(phase.source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const { database, frame, access, source, claim, input, result } = phase;
+  // Tool-origin policy already performs genuine Current: MCP refreshes its
+  // fixed slot; Agent checks before/after config/profile. Requests need theirs.
+  if (frame.kind === 'request') await access.assertCurrent();
+  await assertAuthenticatedCreateOriginCurrent(database, frame, access);
+  // Preserve MCP's fresh A proof after the realm and source observations.
+  // All tool-source capsules now validate provenance without granting rights.
+  if (frame.kind !== 'direct-mcp' || !checkSource) await assertBootstrapOwner(frame);
+  await assertBootstrapNativeRealm(database, frame);
+  if (checkSource) {
+    await source.assertCurrent();
+    if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
+  }
+  await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
+  await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
+  return readAuthenticatedMarkdownBirthSnapshot(phase);
 }
 
 /** Read-only generic-guard entry. No public API can install this module-private
@@ -2302,10 +2508,10 @@ export async function assertAuthenticatedMarkdownBirthProjectionAllowed(database
     || phase.input.fingerprint !== binding.request_fingerprint || phase.result.receipt.target.documentId !== state.documentId
     || phase.result.receipt.target.lifecycleGeneration !== state.lifecycleGeneration) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
   await assertMarkdownBirthRealm(database, phase.frame);
+  await phase.claim.verify();
   const stateNow = await currentAuthenticatedMarkdownBirth(phase, false);
   if (identityKeys.some(key => stateNow[key] !== state[key]) || stateNow.documentSequence !== state.documentSequence
     || !Buffer.from(stateNow.yjsState).equals(Buffer.from(state.yjsState)) || !Buffer.from(stateNow.stateVector).equals(Buffer.from(state.stateVector))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  await phase.claim.verify();
 }
 
 async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: AuthenticatedCreateSource, input: Captured,
@@ -2327,7 +2533,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         return firstProjectionPhases.run(scope, async () => {
           try {
             const state = await currentAuthenticatedMarkdownBirth(scope), value = await operation(scope, state);
-            await currentAuthenticatedMarkdownBirth(scope); await claim.verify(); return value;
+            await claim.verify(); await currentAuthenticatedMarkdownBirth(scope); return value;
           } finally { scope.active = false; }
         });
       });
@@ -2341,12 +2547,24 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         // remint or retain a permission outside this concrete message.
         if (stage === 'before_link' || stage === 'parent_link') await currentAuthenticatedMarkdownBirth(scope);
         else {
-          await scope.access.assertCurrent(); await assertAuthenticatedCreateOriginCurrent(database, frame, scope.access);
+          if (frame.kind === 'request') await scope.access.assertCurrent();
+          await assertAuthenticatedCreateOriginCurrent(database, frame, scope.access);
           await assertBootstrapOwner(frame); await claim.assertRoot();
         }
         // This exact private first-birth phase already retains the real
         // EXCLUSIVE owner B. A second shared session would block its own I04.
         // Keep the same durable-operation deferral without an ALS-only bypass.
+        await assertNoPendingOriginalFileOperationProjection(database, state.workspaceId, frame.realm.schema);
+        await assertBootstrapOwner(frame);
+      };
+      const afterStorageBoundary = async (stage?: string) => {
+        if (frame.kind === 'request') return beforeBoundary(stage);
+        // MarkdownCreateBirthClaim invokes its fixed Agent/MCP storage guard
+        // immediately before this callback. That guard already performs the
+        // full Current/native/source/claim checks in this exact private phase,
+        // including the synchronous before-link turn guard. Keep the extra
+        // pending-operation and A-owner checks here; never cache authority or
+        // enter another Principal during a protected filesystem action.
         await assertNoPendingOriginalFileOperationProjection(database, state.workspaceId, frame.realm.schema);
         await assertBootstrapOwner(frame);
       };
@@ -2356,7 +2574,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         const receipt = await loadCollaborationProjectionReceipt(state), file = await claim.verify();
         if (!receipt?.finalized || receipt.revisionId !== binding.revision_id || file.serializedHash !== binding.serialized_hash
           || state.serializedHash !== binding.serialized_hash) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-        await claim.complete(state.serializedHash!, receipt.revisionId, beforeBoundary);
+        await claim.complete(state.serializedHash!, receipt.revisionId, afterStorageBoundary);
         return { revisionId: receipt.revisionId, serializedHash: state.serializedHash! };
       }
       const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<{ revisionId: string }>({ documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
@@ -2367,7 +2585,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
           const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(current));
           const serialized = serializeCanonicalText(snapshot.canonicalContent, current);
           await beforeBoundary(); await inCollaborationProjectionPhase('receipt_begin', () => beginCollaborationProjectionAttempt(current));
-          await claim.publish(serialized, beforeBoundary, () => {
+          await claim.publish(serialized, afterStorageBoundary, () => {
             if (!scope.active || firstProjectionPhases.getStore() !== scope || performance.now() >= scope.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
           });
           const revision = await ensureFileRevisionForCurrentContent({ workspace: scope.access.workspace, path: state.path,
@@ -2397,7 +2615,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       await beforeBoundary();
       await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({ state: fenced.state, workspace: scope.access.workspace, revisionId: fenced.result.revisionId }));
       await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
-      await currentAuthenticatedMarkdownBirth(scope); await claim.complete(fenced.state.serializedHash, fenced.result.revisionId, beforeBoundary);
+      await currentAuthenticatedMarkdownBirth(scope); await claim.complete(fenced.state.serializedHash, fenced.result.revisionId, afterStorageBoundary);
       const changed = await inCollaborationProjectionPhase('birth_finalize', async () => database.get(`UPDATE collaboration_markdown_create_births SET finalized=1,revision_id=$1,serialized_hash=$2
         WHERE workspace_id=$3 AND operation_id=$4 AND claim_id=$5 AND claim_fingerprint=$6 AND request_fingerprint=$7 AND finalized=0 RETURNING document_id`,
       [fenced.result.revisionId, fenced.state.serializedHash, state.workspaceId, input.operationId, claim.id, claim.fingerprint, input.fingerprint]));
@@ -2416,7 +2634,11 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
     }),true),
   })),true);
-  await assertBootstrapOwner(frame); await source.assertCurrent(); await claim.verify();
+  await assertBootstrapOwner(frame); await source.assertCurrent();
+  // Tool claims finish under one fresh real Principal through verification,
+  // both actual descriptor closes and the final source/named-root checks.
+  // Request claims retain their existing verification and close protocol.
+  if (frame.kind === 'request') await claim.verify();
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
 

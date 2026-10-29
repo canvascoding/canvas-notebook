@@ -2,6 +2,7 @@ import 'server-only';
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import syncFs, { constants, promises as fs, type Stats, type BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
@@ -35,6 +36,10 @@ export type MarkdownCreateBirthClaim = Readonly<{
   publish(serialized: string, beforeBoundary: (stage?: string) => Promise<void>, assertWithinTurn: () => void): Promise<Observation>;
   complete(serializedHash: string, revisionId: string, beforeBoundary: (stage?: string) => Promise<void>): Promise<void>;
 }>;
+/** The coordinator may own one genuine database phase around a whole helper
+ * action or terminal close sequence. This callback supplies no authority;
+ * fixed source guards still run. */
+export type MarkdownCreateBirthStoragePhase = <T>(operation: () => Promise<T>) => Promise<T>;
 export class MarkdownCreateBirthError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'MarkdownCreateBirthError'; }
 }
@@ -268,7 +273,42 @@ type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
-  fixedSourceWithinTurn?: () => void };
+  readonly input?: MarkdownCreateBirthStorageInput;
+  fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
+type StorageInvocation = { active: boolean; verificationEntry: boolean; privateStorageBoundary: boolean; readonly verification: boolean;
+  readonly frame: Frame; readonly operation: () => Promise<Observation> };
+const storageInvocationContext = new AsyncLocalStorage<StorageInvocation>();
+
+/** Describes only the live private message. Historical verification is not
+ * write authority, and an earlier or copied invocation cannot select it. */
+export function isMarkdownCreateBirthVerification(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.verification === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
+}
+export function isMarkdownCreateBirthVerificationOperation(input: MarkdownCreateBirthStorageInput,
+  operation: () => Promise<unknown>): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return isMarkdownCreateBirthVerification(input) && invocation?.operation === operation;
+}
+
+/** Only the actual private message can identify a staging/receipt boundary.
+ * Copied inputs, caller stage strings and retained contexts cannot select it.
+ * It grants no rights, native-state proof or successful publication result. */
+export function isMarkdownCreateBirthPrivateStorageBoundary(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.privateStorageBoundary === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
+}
+
+/** A data-only predicate for the actual private verify-entry callback. Copied
+ * inputs, caller stage strings and retained async contexts cannot select it.
+ * It grants no write, Principal or native-state authority. */
+export function isMarkdownCreateBirthVerificationEntry(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.verificationEntry === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
+}
 function manualEmptyAttribution(intent: Record<string, unknown>): Record<string, unknown> {
   const selected = intent.source as Record<string, unknown>, origin = intent.origin as Record<string, unknown>;
   const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'];
@@ -314,14 +354,16 @@ async function root(frame: Frame): Promise<void> {
 async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'observe' | 'complete',
   boundary: (stage?: string) => Promise<void>, fields: Record<string, unknown> = {}): Promise<Observation> {
   const phase = { open: 'birth_open', verify: 'birth_verify', prepare: 'birth_prepare', observe: 'birth_observe', complete: 'birth_complete' } as const;
-  return inCollaborationProjectionPhase(phase[action], async () => {
+  const operation = async () => {
     const agentSource = !!frame.intent.source && typeof frame.intent.source === 'object' && Reflect.get(frame.intent.source,'kind') === 'agent-markdown-v1';
     if (agentSource) agentMarkdownCreateAttribution(frame.intent);
     const message = JSON.stringify({action,key:frame.key,intent:frame.intent,...fields}) + '\n';
     // Agent content is already bounded to 8 MiB before B. The existing wire
     // uses base64; 64 MiB also bounds worst-case JSON escaping plus metadata.
     if (agentSource ? Buffer.byteLength(message,'utf8') > 64 * 1024 * 1024 : message.length > 8 * 1024 * 1024) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
-    await root(frame); await boundary();
+    await root(frame);
+    invocation.verificationEntry = action === 'verify';
+    try { await boundary(); } finally { invocation.verificationEntry = false; invocation.privateStorageBoundary = false; }
     if (frame.storePin) readStorePointer(frame);
     const helper = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts/runtime/markdown-create-birth.py');
     const observed = await new Promise<Observation>((resolve, reject) => {
@@ -343,7 +385,14 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
           pending = pending.then(async () => {
             if (hasFailure) return;
             const result = JSON.parse(line);
-            if (typeof result.stage === 'string') { await root(frame); await boundary(result.stage); child.stdin!.write('continue\n'); }
+            if (typeof result.stage === 'string') {
+              invocation.privateStorageBoundary = action === 'prepare' && ['temp_synced','prepared_durable'].includes(result.stage)
+                || action === 'observe' && ['target_linked','born_durable'].includes(result.stage)
+                || action === 'complete' && result.stage === 'complete_durable';
+              try { await root(frame); await boundary(result.stage); }
+              finally { invocation.privateStorageBoundary = false; }
+              child.stdin!.write('continue\n');
+            }
             else if (typeof result.error === 'string') rejectChild(new MarkdownCreateBirthError(result.error));
             else if (result.result) value = result.result as Observation;
             else rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
@@ -366,7 +415,13 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     await root(frame); await boundary();
     if (frame.storePin) readStorePointer(frame);
     return observed;
-  });
+  };
+  const invocation: StorageInvocation = { active: true, verificationEntry: false, privateStorageBoundary: false,
+    verification: action === 'verify', frame, operation };
+  try {
+    return await storageInvocationContext.run(invocation, () => inCollaborationProjectionPhase(phase[action], () =>
+      frame.withStoragePhase ? frame.withStoragePhase(operation) : operation()));
+  } finally { invocation.verificationEntry = false; invocation.privateStorageBoundary = false; invocation.active = false; }
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -594,8 +649,11 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
  * and every helper/ACK promise close before this whole callback settles. */
 export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: string; targetPath: string;
   origin: Readonly<Record<string, unknown>>; source: Readonly<Record<string, unknown>>; operationId: string },
-  beforeBoundary: () => Promise<void>, operation: (claim: MarkdownCreateBirthClaim) => Promise<T>): Promise<T> {
+  beforeBoundary: () => Promise<void>, operation: (claim: MarkdownCreateBirthClaim) => Promise<T>,
+  withStoragePhase?: MarkdownCreateBirthStoragePhase): Promise<T> {
   const captured = captureBirthInput(input);
+  if (withStoragePhase !== undefined && (typeof withStoragePhase !== 'function'
+    || !['agent-markdown-v1', 'direct-mcp-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   let fixedSourceGuard: ((stage: string) => Promise<void>) | undefined, fixedSourceWithinTurn: (() => void) | undefined;
   if (Object.hasOwn(captured.source, 'kind')) {
     const context = await import('../collaboration/markdown-file-import-persistence');
@@ -631,7 +689,8 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}) };
+      intent, input: captured, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
+      ...(withStoragePhase ? { withStoragePhase } : {}) };
     frame = current;
     const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;
     current.storePin = readStorePointer(current);
@@ -676,7 +735,6 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     if (unfinished) errors.push(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_UNAWAITED_IO'));
     for (const settlement of settlements) if (settlement.status === 'rejected') errors.push(settlement.reason);
   } catch (error) { errors.push(error); }
-  if (frame) { try { await root(frame); await boundary(); } catch (error) { errors.push(error); } }
   const close = async (handle: FileHandle) => {
     try { await handle.close(); } catch (error) {
       errors.push(error);
@@ -684,9 +742,35 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       try { await handle.close(); } catch (retryError) { errors.push(retryError); }
     }
   };
-  if (workspace) await close(workspace);
-  await close(data);
-  if (frame) { try { await named(frame); await boundary(); } catch (error) { errors.push(error); } frame.active = false; }
+  const closeHandles = async () => { if (workspace) await close(workspace); await close(data); };
+  const closing = frame;
+  let settled = false;
+  const settle = async () => {
+    settled = true;
+    // Tools keep one fresh actual Principal around final verification, both
+    // real descriptor closes and the final named-root/source observation.
+    // Public claim methods are already closed; only this private frame can
+    // perform its last read, with its descriptors still pinned and open.
+    if (closing?.withStoragePhase && errors.length === 0) {
+      try { await invoke(closing, 'verify', boundary); } catch (error) { errors.push(error); }
+    }
+    if (closing) { try { await root(closing); await boundary(); } catch (error) { errors.push(error); } }
+    await closeHandles();
+    if (closing) { try { await named(closing); await boundary(); } catch (error) { errors.push(error); } }
+  };
+  try {
+    if (closing?.withStoragePhase) await closing.withStoragePhase(settle);
+    else await settle();
+  } catch (error) { errors.push(error); }
+  // Authorization can fail before settle is entered. Closing our own handles
+  // must still happen, and that failure can never become a successful result.
+  if (!settled) {
+    if (!errors.length) errors.push(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
+    if (closing) { try { await root(closing); } catch (error) { errors.push(error); } }
+    await closeHandles();
+    if (closing) { try { await named(closing); } catch (error) { errors.push(error); } }
+  }
+  if (closing) closing.active = false;
   try { await fixedSourceGuard?.('closed'); } catch (error) { errors.push(error); }
   if (errors.length === 1) throw errors[0];
   if (errors.length) throw new AggregateError(errors, 'MARKDOWN_CREATE_BIRTH_CLOSURE_FAILED');

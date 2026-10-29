@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { Pool, types } from 'pg';
 import { randomUUID } from 'node:crypto';
+import { installDocumentDatabaseMetrics } from '../observability/document-operation-metrics';
 
 import * as schema from './schema';
 import { toDatabaseTimestamp } from './timestamps';
@@ -763,6 +764,7 @@ export function createPostgresPool(): Pool {
     connectionString,
     ...resolvePostgresRuntimeOptions(),
   });
+  installDocumentDatabaseMetrics(pool);
   const poolId = randomUUID();
   // pg removes a failed idle client itself. Do not release it a second time,
   // or turn this background error into a fatal unhandled EventEmitter error.

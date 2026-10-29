@@ -256,12 +256,16 @@ export async function loadDirectMcpGrantState(
 }
 
 /** Pure grant read on caller B. This neither verifies a JWT nor grants access. */
-export async function loadDirectMcpGrantStateOnConnection(
-  database: Pick<SqlConnection, 'get'>,
-  claims: Pick<DirectMcpJwtClaims, 'sessionId' | 'subject' | 'clientId'>,
-  token?: string,
-): Promise<DirectMcpGrantStateRow | null> {
-    const row = await database.get(`
+/** Fixed grant query; ordinals only, all actual values remain bound. */
+export function directMcpGrantStateSnapshotSql(clientParameter = 1, tokenHashParameter = 2,
+  sessionParameter = 3, userParameter = 4): string {
+    if (![clientParameter, tokenHashParameter, sessionParameter, userParameter]
+      .every(value => Number.isInteger(value) && value >= 1 && value <= 32)) {
+      throw new RangeError('Invalid MCP grant snapshot parameter ordinal.');
+    }
+    const client = '$' + clientParameter, hash = '$' + tokenHashParameter,
+      session = '$' + sessionParameter, user = '$' + userParameter;
+    return `
       SELECT
         auth_session.id AS session_id,
         auth_session.expires_at AS session_expires_at,
@@ -277,7 +281,7 @@ export async function loadDirectMcpGrantStateOnConnection(
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
       INNER JOIN oauth_client
-        ON oauth_client.client_id = $1
+        ON oauth_client.client_id = ${client}
       INNER JOIN oauth_consent active_consent
         ON active_consent.id = (
           SELECT latest_consent.id
@@ -291,7 +295,7 @@ export async function loadDirectMcpGrantStateOnConnection(
           LIMIT 1
         )
       LEFT JOIN mcp_revoked_access_token revoked_access_token
-        ON revoked_access_token.token_hash = $2
+        ON revoked_access_token.token_hash = ${hash}
        AND revoked_access_token.client_id = oauth_client.client_id
        AND revoked_access_token.session_id = auth_session.id
        AND revoked_access_token.user_id = local_user.id
@@ -299,10 +303,19 @@ export async function loadDirectMcpGrantStateOnConnection(
         ON grant_revocation.client_id = oauth_client.client_id
        AND grant_revocation.session_id = auth_session.id
        AND grant_revocation.user_id = local_user.id
-      WHERE auth_session.id = $3
-        AND auth_session.user_id = $4
+      WHERE auth_session.id = ${session}
+        AND auth_session.user_id = ${user}
       LIMIT 1
-    `, [
+    `;
+}
+const directMcpGrantStateSql = directMcpGrantStateSnapshotSql();
+
+export async function loadDirectMcpGrantStateOnConnection(
+  database: Pick<SqlConnection, 'get'>,
+  claims: Pick<DirectMcpJwtClaims, 'sessionId' | 'subject' | 'clientId'>,
+  token?: string,
+): Promise<DirectMcpGrantStateRow | null> {
+    const row = await database.get(directMcpGrantStateSql, [
       claims.clientId,
       token ? createHash('sha256').update(token).digest('base64url') : '',
       claims.sessionId,

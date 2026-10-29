@@ -5,6 +5,8 @@ on:
     paths:
       - tests/destination-folder-creation.spec.ts
       - scripts/run-dev.mjs
+      - scripts/runtime/markdown-create-birth.py
+      - scripts/markdown-create-birth-storage-test.py
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
       - scripts/browser-test-environment-test.ts
@@ -53,6 +55,8 @@ on:
     paths:
       - tests/destination-folder-creation.spec.ts
       - scripts/run-dev.mjs
+      - scripts/runtime/markdown-create-birth.py
+      - scripts/markdown-create-birth-storage-test.py
       - scripts/dev-checkout-lifetime*.mjs
       - scripts/*shutdown*test.ts
       - scripts/browser-test-environment-test.ts
@@ -123,6 +127,7 @@ jobs:
       - run: npm run test:server:shutdown
       - run: npm run test:browser:environment
       - run: npm run test:browser:lifecycle
+      - run: npm run test:markdown:create-birth:storage
       - run: npm run test:agent:provider-setup
       - run: >-
           npx --no-install eslint scripts/run-dev.mjs scripts/dev-checkout-lifetime.mjs

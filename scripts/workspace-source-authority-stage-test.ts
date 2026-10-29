@@ -97,6 +97,78 @@ async function fixture(run: (root: string, workspace: WorkspaceContext) => Promi
   try { await run(root, context(root)); } finally { await fs.rm(root, { recursive: true, force: true }); }
 }
 
+for (const environmentName of ['venv', '.venv']) {
+  test(`document index excludes a marked ${environmentName} without changing mutation observations`, async () => fixture(async (root, workspace) => {
+    await fs.writeFile(path.join(root, 'source.md'), '[Target](target.md)');
+    await fs.writeFile(path.join(root, 'target.md'), '# Target');
+    await fs.mkdir(path.join(root, environmentName, 'bin'), { recursive: true });
+    await fs.writeFile(path.join(root, environmentName, 'pyvenv.cfg'), 'home = /usr/bin\ninclude-system-site-packages = false\n');
+    await fs.writeFile(path.join(root, environmentName, 'dependency.md'), '[Unrelated](missing.md)');
+    await fs.symlink('/outside-workspace/python', path.join(root, environmentName, 'bin/python'));
+
+    const indexed = database([]);
+    const options = { sourceScope: 'document-index' as const, openConnection: async () => indexed.connection };
+    const stage = await stageWorkspaceLinkSourceAuthority(workspace, options);
+    assert.equal(stage.coverage.complete, true, JSON.stringify(stage.coverage.gaps));
+    assert.deepEqual(stage.sources.map(source => source.kind === 'physical' ? source.inventory.path : source.inventory.document.path).sort(),
+      ['source.md', 'target.md']);
+    assert(stage.scope.excludedPaths.includes(environmentName));
+    assert.equal(stage.executionReady, false);
+    const preview = previewStagedWorkspaceLinkEffects(stage, { kind: 'rename', sourcePath: 'target.md', destinationPath: 'renamed.md' });
+    assert.equal(preview.readiness, 'blocked', 'Document-index observations cannot certify a mutation preview.');
+    assert.deepEqual(preview.effects, []);
+
+    const strict = database([]);
+    const mutation = await stageWorkspaceLinkSourceAuthority(workspace, { openConnection: async () => strict.connection });
+    assert.equal(mutation.coverage.complete, false);
+    assert.equal(mutation.readiness, 'blocked');
+    assert.deepEqual(mutation.sources, []);
+    assert.equal(mutation.scope.excludedPaths.includes(environmentName), false);
+    assert.equal(await fs.readlink(path.join(root, environmentName, 'bin/python')), '/outside-workspace/python');
+    assert.equal(await fs.readFile(path.join(root, 'source.md'), 'utf8'), '[Target](target.md)');
+  }));
+}
+
+test('document index keeps authored documents in a directory named venv without a real environment marker', async () => fixture(async (root, workspace) => {
+  await fs.mkdir(path.join(root, 'venv'));
+  await fs.writeFile(path.join(root, 'venv/notes.md'), '# Authored environment notes');
+  const db = database([]);
+  const options = { sourceScope: 'document-index' as const, openConnection: async () => db.connection };
+  const stage = await stageWorkspaceLinkSourceAuthority(workspace, options);
+  assert.equal(stage.coverage.complete, true);
+  assert.equal(stage.scope.excludedPaths.includes('venv'), false);
+  assert.equal(stage.sources[0].kind === 'physical' && stage.sources[0].inventory.path, 'venv/notes.md');
+}));
+
+test('document index reports an unrelated symlink while retaining independently verified document sources', async () => fixture(async (root, workspace) => {
+  await fs.writeFile(path.join(root, 'source.md'), '[Target](target.md)');
+  await fs.writeFile(path.join(root, 'target.md'), '# Target');
+  await fs.symlink('/outside-workspace/secret.md', path.join(root, 'alias.md'));
+  const db = database([]);
+  const options = { sourceScope: 'document-index' as const, openConnection: async () => db.connection };
+  const stage = await stageWorkspaceLinkSourceAuthority(workspace, options);
+  assert.equal(stage.coverage.complete, false);
+  assert(stage.coverage.gaps.some(gap => gap.code === 'unsafe-physical-source' && gap.path === 'alias.md'));
+  assert.deepEqual(stage.sources.map(source => source.kind === 'physical' ? source.inventory.path : source.inventory.document.path).sort(),
+    ['source.md', 'target.md']);
+  assert.equal(stage.sources.some(source => source.kind === 'physical' && source.inventory.path === 'alias.md'), false);
+}));
+
+test('document-index metadata read profile retains body links without certifying a mutation stage', async () => fixture(async (root, workspace) => {
+  await fs.writeFile(path.join(root, 'source.md'), '---\naliases: [\n---\n\n[Target](target.md)');
+  await fs.writeFile(path.join(root, 'target.md'), '# Target');
+  for (const readOnly of [false, true]) {
+    const db = database([]), stage = await stageWorkspaceLinkSourceAuthority(workspace,
+      { ...(readOnly ? { sourceScope: 'document-index' as const } : {}), openConnection: async () => db.connection });
+    const source = stage.sources.find(source => source.kind === 'physical' && source.inventory.path === 'source.md')!;
+    assert.equal(source.inventory.links.length, readOnly ? 1 : 0);
+    assert.equal(stage.coverage.complete, false);
+    assert(stage.coverage.gaps.some(gap => gap.code === 'invalid-frontmatter'));
+    const preview = previewStagedWorkspaceLinkEffects(stage, { kind: 'rename', sourcePath: 'target.md', destinationPath: 'new.md' });
+    assert.equal(preview.readiness, 'blocked'); assert.equal(preview.executionReady, false);
+  }
+}));
+
 test('unregistered and explicitly never-initialized Markdown gain byte-proven preview coverage without native identities', async () => fixture(async (root, workspace) => {
   await fs.writeFile(path.join(root, 'note.md'), '[Target](target.md) and [[Shared|Visible]]');
   await fs.writeFile(path.join(root, 'target.md'), '---\naliases: [Shared]\n---\n\n# Target');

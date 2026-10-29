@@ -15,6 +15,7 @@ import { admissionDrainTicketForTarget } from './room-admission-drain';
 import {
   CollaborationAdmissionError,
   captureCollaborationAdmissionRequest,
+  type CollaborationAdmissionDocument,
   type CollaborationAdmissionRequest,
 } from './room-admission-contract';
 import {
@@ -46,11 +47,7 @@ async function lockProofRoom(database: SqlConnection, documentId: string, authen
   if (acquired?.locked !== true) throw new CollaborationAdmissionError('ADMISSION_CONFLICT');
 }
 
-/** Header -> target -> state locks, following the already acquired room guard. */
-async function inspectProof(database: SqlConnection, captured: CapturedRequest, documentId: string) {
-  const expected = captured.request.expectedDocuments.find((document) => document.documentId === documentId)!;
-  const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
-    [captured.request.requestId]) as Row | undefined;
+function assertProofHeader(header: Row | undefined, captured: CapturedRequest): asserts header is Row {
   if (!header || header.request_digest !== captured.requestDigest || header.intent_text !== captured.intentText) {
     throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
   }
@@ -59,16 +56,25 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
     || !Number.isSafeInteger(revision) || revision < 1 || revision >= Number.MAX_SAFE_INTEGER) {
     throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   }
-  const targetRow = await database.get(`SELECT * FROM collaboration_admission_targets
-    WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [captured.request.requestId, documentId]) as Row | undefined;
+}
+
+function captureProofTarget(targetRow: Row | undefined, expected: CollaborationAdmissionDocument) {
   if (!targetRow || targetRow.active !== true || typeof targetRow.snapshot_text !== 'string'
     || !['reserved', 'draining', 'released'].includes(targetRow.status as string)) {
     throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   }
-  const target = decodeCollaborationAdmissionTarget(targetRow.snapshot_text, expected);
-  const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
-    [documentId]) as Row | undefined;
-  if (!row) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  return { row: targetRow as Row & { snapshot_text: string },
+    target: decodeCollaborationAdmissionTarget(targetRow.snapshot_text, expected) };
+}
+
+/** Same validator for individually locked and set-locked actual SQL rows.
+ * These private observations grant no mutation or authorization capability. */
+async function inspectProofRows(database: SqlConnection, captured: CapturedRequest, observation: {
+  expected: CollaborationAdmissionDocument; header: Row; row: Row;
+  target: ReturnType<typeof captureProofTarget>;
+}) {
+  const { expected, header, row } = observation, { row: targetRow, target } = observation.target;
+  const documentId = expected.documentId;
   const current = captureCollaborationAdmissionTargetRow(row, expected);
   if (current.ownerEpoch !== target.ownerEpoch) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
   // An available advisory lock does not prove the old owner flushed its bytes.
@@ -147,8 +153,58 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
   return { proof, alreadyProven: targetRow.quiescence_text === proofText };
 }
 
+/** Header -> target -> state locks, following the already acquired room guard. */
+async function inspectProof(database: SqlConnection, captured: CapturedRequest, documentId: string) {
+  const expected = captured.request.expectedDocuments.find(document => document.documentId === documentId)!;
+  const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
+    [captured.request.requestId]) as Row | undefined;
+  assertProofHeader(header, captured);
+  const targetRow = await database.get(`SELECT * FROM collaboration_admission_targets
+    WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [captured.request.requestId, documentId]) as Row | undefined;
+  const target = captureProofTarget(targetRow, expected);
+  const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
+    [documentId]) as Row | undefined;
+  if (!row) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  return inspectProofRows(database, captured, { expected, header, row, target });
+}
+
 /** Internal handoff validation; caller already holds room guard and mutation locks. */
 export { inspectProof as inspectCollaborationAdmissionQuiescence };
+
+/** Fresh set observation on the caller's actual transaction. The caller holds
+ * every selected room guard and the mutation/workspace locks continuously.
+ * No state, proof or permission is reused across invocations or SQL phases. */
+export async function inspectCollaborationAdmissionQuiescenceSet(database: SqlConnection, captured: CapturedRequest,
+  documentIds: readonly string[]): Promise<readonly Awaited<ReturnType<typeof inspectProofRows>>[]> {
+  const requestedIds = Object.freeze([...documentIds]), selectedIds = new Set(requestedIds);
+  const expected = captured.request.expectedDocuments.filter(document => selectedIds.has(document.documentId));
+  if (expected.length !== requestedIds.length || selectedIds.size !== requestedIds.length
+    || expected.some((document, index) => document.documentId !== requestedIds[index])) {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  if (!expected.length) return Object.freeze([]);
+  const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
+    [captured.request.requestId]) as Row | undefined;
+  assertProofHeader(header, captured);
+  const targetRows = await database.all(`SELECT * FROM collaboration_admission_targets
+    WHERE request_id = $1 AND document_id = ANY($2::text[]) ORDER BY document_id COLLATE "C" FOR UPDATE`,
+  [captured.request.requestId, requestedIds]) as Row[];
+  const targetById = new Map(targetRows.map(row => [row.document_id, row]));
+  if (targetRows.length !== expected.length || targetById.size !== expected.length
+    || requestedIds.some(id => !targetById.has(id))) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  const targets = expected.map(document => captureProofTarget(targetById.get(document.documentId), document));
+  const rows = await database.all(`SELECT * FROM collaboration_yjs_states
+    WHERE document_id = ANY($1::text[]) ORDER BY document_id COLLATE "C" FOR UPDATE`, [requestedIds]) as Row[];
+  const stateById = new Map(rows.map(row => [row.document_id, row]));
+  if (rows.length !== expected.length || stateById.size !== expected.length
+    || requestedIds.some(id => !stateById.has(id))) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const result = [];
+  for (const [index, document] of expected.entries()) {
+    result.push(await inspectProofRows(database, captured, { expected: document, header,
+      target: targets[index], row: stateById.get(document.documentId)! }));
+  }
+  return Object.freeze(result);
+}
 
 /** Borrowed DA03 mechanics only; the caller owns current authorization, the
  * actual connection/transaction and the commit/recovery boundary. The optional

@@ -50,14 +50,14 @@ export type RecoveryExecutionProof = {
   writerDrain: { verifiedAt: string; report: string; reportHash: string };
 };
 
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   const normalize = (item: unknown): unknown => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.entries(item).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b))
       .map(([key, child]) => [key, normalize(child)])) : Array.isArray(item) ? item.map(normalize) : item;
   return JSON.stringify(normalize(value));
 }
 function requireValue(value: unknown, reason: string): asserts value { if (!value) throw new Error(`Recovery rejected: ${reason}.`); }
-function recordCanonical(row: unknown): string {
+export function recordCanonical(row: unknown): string {
   if (!row || typeof row !== 'object') return canonical(row);
   const integers = new Set(['state_version', 'created_at', 'updated_at', 'revision_number', 'size_bytes']);
   return canonical(Object.fromEntries(Object.entries(row).map(([key, value]) => [key,
@@ -234,7 +234,7 @@ export function prepareCollaborationRecoverySelection(bundle: RecoveryBundle): R
       && operation.documentId === item.documentId)) };
 }
 
-async function readPrivateRegularFile(filename: string): Promise<Buffer> {
+export async function readPrivateRegularFile(filename: string): Promise<Buffer> {
   const handle = await fs.open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
@@ -242,7 +242,7 @@ async function readPrivateRegularFile(filename: string): Promise<Buffer> {
     return await handle.readFile();
   } finally { await handle.close(); }
 }
-async function durablePrivateWrite(filename: string, value: unknown): Promise<void> {
+export async function durablePrivateWrite(filename: string, value: unknown): Promise<void> {
   const temporary = path.join(path.dirname(filename), `.${path.basename(filename)}.tmp-${randomUUID()}`);
   const handle = await fs.open(temporary, 'wx', 0o600);
   try {

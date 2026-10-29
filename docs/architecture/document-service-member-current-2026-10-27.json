@@ -1,0 +1,508 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "baseHead": "65f939b55823508d262e0e8a1fa92f10f150914f",
+  "sourceHashes": {
+    "app/lib/workspaces/request-principal.ts": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+    "app/lib/workspaces/postgres-runtime.ts": "4d10689af6894cd346e65b6db90537344f42110a754ddd6d99324416cff14071",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/workspace-member-current-snapshot-postgres-test.ts": "2e1bca581e4054d40768f50330d14c7a8f553e1aa9a0f904fa8c3de12d81c939",
+    "scripts/workspace-request-principal-postgres-test.ts": "9fac9a02b4a2dc5cb42862a8811f006571e3230ec18b5a08180efd3548f8e6ad",
+    "scripts/authenticated-native-session-transport-postgres-test.ts": "673e6fc867f46a6187d035fd5a45550cae28f8801094f76e67c18d2eee40e972",
+    "scripts/authenticated-native-websocket-postgres-test.ts": "0656442fdbe2261d684146936a5cd9ab63bfa2d8dc94b9a8b456d9e5a687a56a",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59",
+    "app/lib/collaboration/authenticated-native-peer.ts": "87c01ad43101485b3f3e12d4737452333a0036ce160bb29f67dd2bdc82b940ca",
+    "server/collaboration-server.ts": "62f580c26d1dcddccbc89625073692827879b200f4116017f2700e9fc762f67b"
+  },
+  "baselineProductSha256": "1f2cd44e10b88283a368fe11a90d08c7efed7be171f9ee0d9a1af21b93f78b73",
+  "currentProductSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+  "metric": "actual PostgreSQL driver calls incl transaction control; multi-statement strings are not split",
+  "memberCurrent": {
+    "baselineActualSql": 8,
+    "currentActualSql": 2,
+    "freshCompleteInitialAndFinalSnapshots": true,
+    "repeatReadsBothAgain": true,
+    "newActualNegativeAndControlCases": 38,
+    "newAuthorityOrAuthorizationCache": false
+  },
+  "functionProof": {
+    "existingFunctionsChecked": 61,
+    "changed": [
+      "current"
+    ],
+    "added": [
+      "readMemberScopeSnapshot",
+      "memberSnapshotWorkspace"
+    ],
+    "allOtherExistingFunctionsByteIdentical": true
+  },
+  "regressions": [
+    {
+      "label": "member66",
+      "entry": "scripts/workspace-request-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "46c5e2e4d3e919163214544cfba09dfe87d26529e7dd8ef17f1c714c2cd2186a",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "36cd1efd1f2fcb4a361bbe4b01b8eccd70c021c15ff9051055f57232e08fbf18"
+    },
+    {
+      "label": "member38",
+      "entry": "scripts/workspace-member-current-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "73df7bfeb9aad49cff898e71cd0b14340d6897301d5520d3a2f77cea50595f9f",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "e9ed19c6ac683b5560253c0fb3ccaf596f203c2c296323107f20fc394fc9ac9e"
+    },
+    {
+      "label": "transport35",
+      "entry": "scripts/authenticated-native-session-transport-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "b4081933e801dd79e494bfca6887562515435e5246e07fcd3c9efcd82b1a786a",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "e9ed19c6ac683b5560253c0fb3ccaf596f203c2c296323107f20fc394fc9ac9e"
+    },
+    {
+      "label": "native-room",
+      "entry": "scripts/native-document-search-room-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "4479a3f2337241a44e5e7ac15ca1f0ac3d4cb85aa922c4bfaca64d62f84cc397",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59"
+    },
+    {
+      "label": "maintenance10",
+      "entry": "scripts/workspace-principal-maintenance-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "498044dd3952e0b47ff3b373d79d3e29ff0f27b51ee216a7aa47d91fd3d3e67c",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59"
+    },
+    {
+      "label": "scope60",
+      "entry": "scripts/agent-markdown-create-principal-scope-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "18cdba8397b45a68804a5884592be6fecc1204ad862150d1614651c74d6c9c75",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59"
+    },
+    {
+      "label": "guest30",
+      "entry": "scripts/file-guest-invitation-authority-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "9c7668a663aa1e844c1a938dcab2e499005f196f6bbaf2427f59a705f68d6f9d",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59"
+    },
+    {
+      "label": "mcp-path12",
+      "entry": "scripts/direct-mcp-workspace-path-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "bab1a6b658eb29ce8c8cdacfabaa583eace7145374cbc816ef040b31f4264e28",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "actualStrictRunnerSha256": "6f20b2b5d99231dfca05382be8266fdf83f3876eda903bf5141aa49fff634f59"
+    },
+    {
+      "label": "websocket23",
+      "entry": "scripts/authenticated-native-websocket-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "89ee39bbe3fc37ff824da0e67b17bb78a7e1437a572fcb16262265086914b159",
+      "runner": "node --conditions=react-server --import tsx",
+      "scope": "actual source read/transpiled server/peer hooks with original real transport and SQL"
+    }
+  ],
+  "comparisons": [
+    {
+      "variant": "baseline",
+      "label": "http10",
+      "productSha256": "1f2cd44e10b88283a368fe11a90d08c7efed7be171f9ee0d9a1af21b93f78b73",
+      "outputSha256": "c4d53c95c21aa8156414e16de37c0197d4d9180961facf3b0754fcbd6efc2f30",
+      "logSha256": "cdc98c3253f06f00eb30697f52a20fa33403e36651c35c0a9eed28f1e28e1ee5",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "statements": 103,
+          "checkouts": 12,
+          "wallMs": 185.02,
+          "databaseMs": 112.85,
+          "poolWaitMs": 0.19,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-1",
+          "statements": 100,
+          "checkouts": 9,
+          "wallMs": 77.29,
+          "databaseMs": 63.98,
+          "poolWaitMs": 0.12,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-2",
+          "statements": 100,
+          "checkouts": 9,
+          "wallMs": 66.12,
+          "databaseMs": 55.56,
+          "poolWaitMs": 0.1,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "label": "editor10",
+      "productSha256": "1f2cd44e10b88283a368fe11a90d08c7efed7be171f9ee0d9a1af21b93f78b73",
+      "outputSha256": "89e3b01b49dc3af92f5f3c7098a1fc1a2238f817677047c354a3abe88631e10b",
+      "logSha256": "b64d7481e5ec943a5da2d8d5099aac47761a9a1a9cb7e0574c9960348fe53d23",
+      "profiles": [
+        {
+          "label": "cold-session-socket-and-initial-projection",
+          "statements": 1143,
+          "checkouts": 111,
+          "wallMs": 889.85,
+          "databaseMs": 742.07,
+          "poolWaitMs": 53.75,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 1,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "idle-held-owner-6100ms",
+          "statements": 1390,
+          "checkouts": 223,
+          "wallMs": 6099.91,
+          "databaseMs": 1445.83,
+          "poolWaitMs": 294.03,
+          "peakConnections": 8,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 1,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-save-through-file-checkpoint-1",
+          "statements": 708,
+          "checkouts": 110,
+          "wallMs": 2843.01,
+          "databaseMs": 774.1,
+          "poolWaitMs": 90.89,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 1,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-save-through-file-checkpoint-2",
+          "statements": 715,
+          "checkouts": 115,
+          "wallMs": 2787.33,
+          "databaseMs": 651.41,
+          "poolWaitMs": 126.22,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 2,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-session-and-second-real-peer",
+          "statements": 1256,
+          "checkouts": 126,
+          "wallMs": 773.68,
+          "databaseMs": 750.04,
+          "poolWaitMs": 18.32,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 1,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "label": "mcp10",
+      "productSha256": "1f2cd44e10b88283a368fe11a90d08c7efed7be171f9ee0d9a1af21b93f78b73",
+      "outputSha256": "6573f47a76d379eeaf97bb1ec13b7d0b45be659bb9e15ff0d0a31fef316024c4",
+      "logSha256": "82c60e1379d6e0030e7e91f27a19e4c55b3e4c980bd57c96ae29eaab37792e9a",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2618,
+          "checkouts": 50,
+          "wallMs": 2967.32,
+          "databaseMs": 1686.29,
+          "poolWaitMs": 4.51,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2622.92,
+          "databaseMs": 1520.35,
+          "poolWaitMs": 4.72,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2586.91,
+          "databaseMs": 1509.08,
+          "poolWaitMs": 4.23,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 129,
+          "checkouts": 12,
+          "wallMs": 127.22,
+          "databaseMs": 70.95,
+          "poolWaitMs": 0.12,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "label": "http10",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "outputSha256": "88924b8a26b836c19e3e56e656bc5a3de6eee5329ed2bba61ef0ae7ef2d1528d",
+      "logSha256": "457a49adf96b56333306c7a40ca36ca282f5f0b605ac7db6f363b00e71f5ee82",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "statements": 91,
+          "checkouts": 12,
+          "wallMs": 172.18,
+          "databaseMs": 103.76,
+          "poolWaitMs": 0.18,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-1",
+          "statements": 88,
+          "checkouts": 9,
+          "wallMs": 82.04,
+          "databaseMs": 68.89,
+          "poolWaitMs": 0.12,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-2",
+          "statements": 88,
+          "checkouts": 9,
+          "wallMs": 72.74,
+          "databaseMs": 61.78,
+          "poolWaitMs": 0.1,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "label": "editor10",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "outputSha256": "92be5a7256504524bb394393000068b2d0d4ca8057266f820bd364d128e04fb6",
+      "logSha256": "261e7431f685c2a5db26595ce994a4986b2a5acfdab1197d2033eff158bb0b25",
+      "profiles": [
+        {
+          "label": "cold-session-socket-and-initial-projection",
+          "statements": 765,
+          "checkouts": 110,
+          "wallMs": 885.12,
+          "databaseMs": 709.73,
+          "poolWaitMs": 44.14,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 2,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "idle-held-owner-6100ms",
+          "statements": 1176,
+          "checkouts": 223,
+          "wallMs": 6099.45,
+          "databaseMs": 1535.2,
+          "poolWaitMs": 269.79,
+          "peakConnections": 8,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 2,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-save-through-file-checkpoint-1",
+          "statements": 533,
+          "checkouts": 96,
+          "wallMs": 2753.87,
+          "databaseMs": 671.95,
+          "poolWaitMs": 147.54,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 2,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-save-through-file-checkpoint-2",
+          "statements": 610,
+          "checkouts": 116,
+          "wallMs": 2816.72,
+          "databaseMs": 698.46,
+          "poolWaitMs": 149.22,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 2,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-session-and-second-real-peer",
+          "statements": 859,
+          "checkouts": 126,
+          "wallMs": 840.04,
+          "databaseMs": 776.99,
+          "poolWaitMs": 18.87,
+          "peakConnections": 3,
+          "openQueriesAtCompletion": 1,
+          "openConnectionsAtCompletion": 1,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "label": "mcp10",
+      "productSha256": "d10b638653612cac53f77833349d9b9123f37ccded744387efec8d27220a195c",
+      "outputSha256": "b3c96052364d4d3c9ec98c2500ee91ae4a6320b1db42bffb44feedfe18b7293d",
+      "logSha256": "1f7580ff50b354ac06f5349bece7f0c17205a0fca2dc83673c9cd6a1b0a36746",
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2618,
+          "checkouts": 50,
+          "wallMs": 2892.59,
+          "databaseMs": 1626.15,
+          "poolWaitMs": 4.31,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2581.13,
+          "databaseMs": 1492,
+          "poolWaitMs": 4.44,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2597,
+          "checkouts": 37,
+          "wallMs": 2783.4,
+          "databaseMs": 1666.28,
+          "poolWaitMs": 4.33,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 129,
+          "checkouts": 12,
+          "wallMs": 141.87,
+          "databaseMs": 79.27,
+          "poolWaitMs": 0.14,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    }
+  ],
+  "editorScope": "actual process windows with background polls and live peers; in-flight queries and checkouts at profile boundaries are not zero; owned final HTTP/socket/DB/schema/DATA cleanup verified",
+  "httpAndCreateScope": "isolated adapter request/response; all measured windows end with no open queries/connections",
+  "unchangedMcpCreate": true,
+  "latencyImprovementEstablished": false,
+  "reviewCenterDevelopment": false,
+  "undoDevelopment": false,
+  "productionDataChanged": false,
+  "releasePublished": false,
+  "remaining": [
+    "shared authorization/registry/state bundling, including unchanged MCP Create cost",
+    "incremental link dependency projection and shared normal writes",
+    "final 10/200 comparisons and actual latency/revocation/concurrency acceptance",
+    "final build/Desktop/Mobile/test:all/required CI/reviews",
+    "fresh backup with actual restore proof, original document recovery, controlled release/deployment"
+  ],
+  "verification": {
+    "scopedTypeScript": {
+      "roots": 36,
+      "sourceFiles": 5156,
+      "diagnostics": 0
+    },
+    "releaseTypeScriptExitCode": 0,
+    "eslintExitCode": 0,
+    "eslintMaxWarnings": 0,
+    "scopedTypeScriptLogSha256": "2c65fe9f73d3fb2d1497f57f38c467e23aaf3f2112da5505bf9e969f64a26e59",
+    "releaseTypeScriptLogSha256": "97979d9ee02bd53c64ef3eb9d8bb769943e6af29838451351f53ac0dbedf26f1"
+  }
+}

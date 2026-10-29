@@ -8,6 +8,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
+import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { captureCollaborationAdmissionRequest, CollaborationAdmissionError,
   type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { reserveCollaborationAdmissionOnConnection, startCollaborationAdmissionDrainOnConnection,
@@ -50,10 +51,11 @@ type AbortedResult = WorkspaceImplicitMoveSelectionPublic & Readonly<{ state: 'a
 export type WorkspaceImplicitMoveOperationResult = BatchResult | PendingResult | AbortedResult;
 type Snapshot = Readonly<{ saved: Saved; result: WorkspaceImplicitMoveOperationResult }>;
 type Progress = Readonly<{ documentId: string; proofText: string | null }>;
-type PhaseResult = Readonly<{ snapshot?: Snapshot; legacy?: BatchResult; progress?: Progress }>;
+type PhaseResult = Readonly<{ snapshot?: Snapshot; legacy?: BatchResult; progress?: readonly Progress[] }>;
 type Command = Readonly<{ kind: 'select'; input: Input }>
   | Readonly<{ kind: 'observe'; lookup: Lookup }>
-  | Readonly<{ kind: 'advance'; lookup: Lookup; expected: CollaborationAdmissionRequest; documentId: string }>;
+  | Readonly<{ kind: 'advance'; lookup: Lookup; expected: CollaborationAdmissionRequest;
+    documentIds: readonly string[]; deadline: number }>;
 type Row = Record<string, unknown>;
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
@@ -61,6 +63,7 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 const tables = ['collaboration_admission_requests', 'collaboration_admission_scopes', 'collaboration_admission_targets',
   'workspace_file_operation_batches', 'workspace_file_operation_move_preparations', 'collaboration_native_file_operation_intents',
   'workspace_path_import_preparations'];
+const ADVANCE_DOCUMENTS_PER_PHASE = 8;
 export class WorkspaceImplicitMoveOperationError extends Error {
   constructor(readonly code: string, readonly status: 401 | 403 | 409 | 422 | 503,
     readonly operationId?: string, readonly requestId?: string, options?: ErrorOptions) {
@@ -274,6 +277,13 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
             if (expected.requestDigest !== stored.requestDigest || expected.intentText !== stored.intentText) fail();
           }
           if (command.kind !== 'advance' || existing.outcome) return { snapshot: await snapshot(database, access, existing) };
+          // This fixed internal group shares one genuine Principal/B and its
+          // held auth/ACL locks. It carries no authority across transactions.
+          const documentIds = command.documentIds;
+          if (!Array.isArray(documentIds) || !documentIds.length || documentIds.length > ADVANCE_DOCUMENTS_PER_PHASE
+            || !Number.isSafeInteger(command.deadline) || command.deadline < 0) fail();
+          const selected = existing.request.expectedDocuments.filter(document => documentIds.includes(document.documentId));
+          if (!equal(selected.map(document => document.documentId), documentIds)) fail();
           // Header -> target -> state follows the real drain server's order.
           // Upgrade BEFORE locking any target, never while a server header reader waits on that target.
           const header = await database.get(`SELECT request_digest,intent_text,status,revision
@@ -283,25 +293,30 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
           if (!header || header.request_digest !== expectedRequest.requestDigest || header.intent_text !== expectedRequest.intentText
             || !['reserved','draining'].includes(String(header.status)) || !Number.isSafeInteger(Number(header.revision))
             || Number(header.revision) < 1 || Number(header.revision) >= Number.MAX_SAFE_INTEGER) fail();
-          const expected = existing.request.expectedDocuments.find(document => document.documentId === command.documentId);
-          if (!expected) fail();
-          const target = await database.get(`SELECT status,active,
-            CASE WHEN octet_length(snapshot_text)<=32768 THEN snapshot_text END AS snapshot_text
-            FROM ${quote(actual!.schema)}.collaboration_admission_targets WHERE request_id=$1 AND document_id=$2 FOR UPDATE`,
-          [existing.request.requestId, command.documentId]) as Row | undefined;
-          if (!target || target.active !== true || typeof target.snapshot_text !== 'string'
-            || !['reserved','draining','released'].includes(String(target.status))) fail();
-          const captured = decodeCollaborationAdmissionTarget(target.snapshot_text as string, expected!);
-          if (captured.ownerToken !== null && target.status !== 'released') {
-            await startCollaborationAdmissionDrainOnConnection(database, existing.request, command.documentId);
+          const progress: Progress[] = [];
+          for (const expected of selected) {
+            if (Date.now() >= command.deadline) break;
+            const documentId = expected.documentId;
+            const target = await database.get(`SELECT status,active,
+              CASE WHEN octet_length(snapshot_text)<=32768 THEN snapshot_text END AS snapshot_text
+              FROM ${quote(actual!.schema)}.collaboration_admission_targets WHERE request_id=$1 AND document_id=$2 FOR UPDATE`,
+            [existing.request.requestId, documentId]) as Row | undefined;
+            if (!target || target.active !== true || typeof target.snapshot_text !== 'string'
+              || !['reserved','draining','released'].includes(String(target.status))) fail();
+            const captured = decodeCollaborationAdmissionTarget(target.snapshot_text as string, expected);
+            if (captured.ownerToken !== null && target.status !== 'released') {
+              await startCollaborationAdmissionDrainOnConnection(database, existing.request, documentId);
+            }
+            let proofText: string | null = null;
+            try { proofText = (await proveCollaborationAdmissionQuiescenceOnConnection(database, existing.request,
+              documentId, { lockTimeout: '50ms' })).proofText; }
+            catch (error) { if (!(error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT')) throw error; }
+            // Keep a fresh policy/realm check after EVERY actual target proof,
+            // including a Busy target, before advancing to the next document.
+            await assertCurrent(database, access, actual!, existing.selection);
+            progress.push(Object.freeze({ documentId, proofText }));
           }
-          let proofText: string | null = null;
-          try { proofText = (await proveCollaborationAdmissionQuiescenceOnConnection(database, existing.request,
-            command.documentId, { lockTimeout: '50ms' })).proofText; }
-          catch (error) { if (!(error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT')) throw error; }
-          await assertCurrent(database, access, actual!, existing.selection);
-          return { snapshot: await snapshot(database, access, existing), progress: { documentId: command.documentId,
-            proofText } };
+          return { snapshot: await snapshot(database, access, existing), progress: Object.freeze(progress) };
         }
         if (command.kind !== 'select') fail('IMPLICIT_MOVE_NOT_FOUND');
         const input = command.input;
@@ -342,7 +357,8 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
   };
   try {
     if (command.kind === 'observe') return await execute();
-    if (command.kind === 'select') return await withWorkspaceMutationLock(workspaceId, execute);
+    if (command.kind === 'select') return await withWorkspaceMutationLock(workspaceId,
+      () => withNativeInspectionSchema(execute));
     const settled = await withWorkspaceMutationLock(workspaceId, async (): Promise<
       { kind: 'value'; value: PhaseResult } | { kind: 'rolled-back-busy'; error: unknown }> => {
       try { return { kind: 'value', value: await execute() }; }
@@ -392,7 +408,7 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
     if (!attempted) throw error;
     const observed = await runPhase(original, { kind: 'observe', lookup: { workspaceId, requestId: attempted.saved.request.requestId } });
     if (!observed.snapshot || !equal(observed.snapshot.saved.request, attempted.saved.request)) throw error;
-    if (error.attempted.progress?.proofText) {
+    if (error.attempted.progress?.some(progress => progress.proofText !== null)) {
       // A lost proof-commit is not promoted from a header alone: require its exact saved proof.
       // Fixed next advance re-proves it; return pending now rather than inventing progress.
       return { snapshot: observed.snapshot };
@@ -505,11 +521,13 @@ async function continueSaved(original: NextRequest, first: Snapshot, waitMs: num
   const pause = () => new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
   while (Date.now() < deadline) {
     let pending = false;
-    for (const document of current.saved.request.expectedDocuments) {
+    const documents = current.saved.request.expectedDocuments;
+    for (let offset = 0; offset < documents.length; offset += ADVANCE_DOCUMENTS_PER_PHASE) {
       if (Date.now() >= deadline) return current.result;
       const command: Extract<Command, { kind: 'advance' }> = { kind: 'advance', lookup: {
         workspaceId: current.saved.selection.scope.workspaceId, requestId: current.saved.request.requestId },
-      expected: current.saved.request, documentId: document.documentId };
+      expected: current.saved.request, deadline,
+      documentIds: Object.freeze(documents.slice(offset, offset + ADVANCE_DOCUMENTS_PER_PHASE).map(document => document.documentId)) };
       let advanced: PhaseResult;
       while (true) {
         if (Date.now() >= deadline) return current.result;
@@ -518,14 +536,15 @@ async function continueSaved(original: NextRequest, first: Snapshot, waitMs: num
           if (!(error instanceof WorkspaceImplicitMoveOperationError) || retryableAdvanceFailures.get(error) !== command) throw error;
           retryableAdvanceFailures.delete(error);
           // Fresh authentication and SQL on the next attempt, with the same
-          // request/document and original deadline. No scope survives this wait.
+          // request/group and original deadline. No scope survives this wait.
           if (Date.now() >= deadline) return current.result;
           await pause();
         }
       }
       if (!advanced.snapshot) fail(); current = advanced.snapshot!;
       if (current.result.state !== 'pending') return current.result;
-      pending ||= advanced.progress?.proofText == null;
+      pending ||= advanced.progress?.length !== command.documentIds.length
+        || advanced.progress.some(progress => progress.proofText === null);
     }
     if (!pending) {
       if (Date.now() >= deadline) return current.result;

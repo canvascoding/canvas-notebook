@@ -8,6 +8,7 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import messages from '../messages/en.json';
 import type { CollaborationDocument } from '../app/lib/collaboration/client';
+import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { createInitialTextCollaborationClientState } from '../app/lib/collaboration/client-state';
 import type { CurrentFile } from '../app/lib/files/types';
 
@@ -60,7 +61,10 @@ async function main() {
   const text = documentState.getText('content'); text.insert(0, 'AAA');
   const awareness = new Awareness(documentState);
   const collaboration = { registryKey: 'test-workspace\0source-lifecycle', doc: documentState, provider: { awareness },
-    session: { permission: 'write', documentId: 'source-document', lifecycleGeneration: 1, representation: 'plain_text' },
+    session: { success: true, provider: 'yjs', permission: 'write', documentId: 'source-document', documentName: 'source-document',
+      lifecycleGeneration: 1, representation: 'plain_text', schemaVersion: 1, richTextSchemaVersion: 3,
+      token: 'fixture-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
+      user: { id: 'source-user', name: 'Source fixture', color: '#123456', colorLight: '#abcdef' } } satisfies CollaborationSessionResponse,
     ready: true, status: 'saved', connection: 'live', durability: 'checkpointed_file',
     clientState: { ...createInitialTextCollaborationClientState(), ready: true, indexedDbHydrated: true,
       remoteSynced: true, connection: 'live', durability: 'checkpointed_file' }, setComposition: () => {},

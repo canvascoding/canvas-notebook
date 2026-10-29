@@ -746,6 +746,7 @@ export function EmailClient({
     const controller = new AbortController();
     listRequestRef.current = controller;
     listRequestScopeRef.current = scopeKey;
+    const selectedAtRequestStart = selectedMessageRef.current;
     const preserveVisibleData = options?.background || hasMessagesRef.current;
     setIsLoadingMessages(!preserveVisibleData);
     setIsRefreshingMessages(preserveVisibleData);
@@ -787,7 +788,11 @@ export function EmailClient({
       setSearchNotice(typeof payload.data?.searchNotice === 'string' ? payload.data.searchNotice : null);
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
       scheduleListFollowUp(scopeKey, payload.data?.cache, requestEpoch);
-      if (!options?.swrFollowUp) void refreshSelectedMessage();
+      // A detail opened while this list was pending already has its own fresh
+      // read. Only refresh the unchanged selection this request began with.
+      if (!options?.swrFollowUp && selectedAtRequestStart && selectedMessageRef.current === selectedAtRequestStart) {
+        void refreshSelectedMessage();
+      }
     } catch (loadError) {
       if (controller.signal.aborted || listRequestRef.current !== controller) return;
       if (!preserveVisibleData) {

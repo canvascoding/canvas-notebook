@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { openDb, type SqlConnection } from '../db';
+import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { readNativeDocumentByIdOnConnection, type NativeDocumentReadObservation } from '../collaboration/native-document-read';
 import { getFileDisplayName } from '../files/display-name';
 import { SeatLimitGuardError } from '../license/seat-limit';
@@ -58,8 +59,7 @@ function assertWorkspace(workspace: WorkspaceContext, expected: HistoricalScope)
   if (workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
     || scopeFields.some(key => (Reflect.get(workspace, key) ?? null) !== (Reflect.get(expected, key) ?? null))) changed();
 }
-async function readRealm(connection: SqlConnection): Promise<Realm> {
-  const row = await connection.get(`SELECT current_schema() AS schema,
+const readRealmSql = `SELECT current_schema() AS schema,
     to_regnamespace(current_schema())::oid::text AS schema_oid,
     CASE WHEN octet_length(current_setting('search_path'))<=16384 THEN current_setting('search_path') END AS search_path,
     (SELECT oid::text FROM pg_database WHERE datname=current_database()) AS database_oid,
@@ -67,7 +67,8 @@ async function readRealm(connection: SqlConnection): Promise<Realm> {
     pg_current_xact_id_if_assigned()::text AS transaction_id,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only,
     current_setting('session_replication_role') AS replication
-    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as Row | undefined;
+    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
+function parseReadRealmRow(row: Row | undefined): Realm {
   if (!row || typeof row.schema !== 'string' || !row.schema || row.schema.length > 63
     || !positive(row.schema_oid) || !positive(row.database_oid) || !positive(row.backend) || !positive(row.transaction_id)
     || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
@@ -76,27 +77,50 @@ async function readRealm(connection: SqlConnection): Promise<Realm> {
   return Object.freeze({ schema: row.schema, schemaOid: String(row.schema_oid), searchPath: row.search_path,
     database: String(row.database_oid), backend: Number(row.backend), start: row.start, transaction: String(row.transaction_id) });
 }
+async function readRealm(connection: SqlConnection): Promise<Realm> {
+  return parseReadRealmRow(await connection.get(readRealmSql) as Row | undefined);
+}
+/** One fresh observation on the held connection at each existing boundary.
+ * Workspace scalars retain the driver's types and original byte limits. */
+async function readBindingFacts(phase: ReadPhase): Promise<Row> {
+  const columns = ['id', 'type', 'organization_id', 'customer_id', 'project_id', 'owner_user_id', 'root_relative_path', 'status'];
+  try {
+    const row = await phase.connection.get(`SELECT realm.*,
+      (SELECT jsonb_agg(jsonb_build_object('name',name,'same_relation',
+        to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid))
+        FROM unnest($2::text[]) names(name)) AS binding_relations,
+      ${columns.map(name => `CASE WHEN octet_length(w.${name})<=16384 THEN w.${name} END AS binding_workspace_${name}`).join(',')},
+      (${columns.map(name => `COALESCE(octet_length(w.${name}),0)>16384`).join(' OR ')}) AS binding_oversized_text
+      FROM (${readRealmSql}) realm
+      LEFT JOIN ${quote(phase.realm.schema)}.canvas_workspaces w ON w.id=$3`,
+    [quote(phase.realm.schema), tables, phase.origin.scope.workspaceId]) as Row | undefined;
+    if (!row) changed();
+    return row;
+  } catch (error) {
+    // A missing bound schema/relation formerly failed the realm/relation
+    // checks before the workspace read. Preserve that failure without issuing
+    // another query on an already aborted transaction.
+    const code = (error as { code?: string } | null)?.code;
+    if (code === '42P01' || code === '3F000') changed();
+    throw error;
+  }
+}
 async function assertBinding(phase: ReadPhase): Promise<void> {
   if (!phase.active) changed();
-  const current = await readRealm(phase.connection), expected = phase.origin.scope;
+  const row = await readBindingFacts(phase), current = parseReadRealmRow(row), expected = phase.origin.scope;
   if (!phase.active || !isDeepStrictEqual(current, phase.realm) || current.schema !== expected.schema
     || current.schemaOid !== String(expected.schemaOid) || current.database !== String(expected.databaseOid)
     || current.searchPath !== expected.searchPath) changed();
-  const relations = await phase.connection.all(`SELECT name,
-    to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same_relation
-    FROM unnest($2::text[]) names(name)`, [quote(current.schema), tables]) as Row[];
-  if (!phase.active || relations.length !== tables.length || new Set(relations.map(row => row.name)).size !== tables.length
-    || relations.some(row => !tables.includes(String(row.name)) || row.same_relation !== true)) changed();
-  const columns = ['id', 'type', 'organization_id', 'customer_id', 'project_id', 'owner_user_id', 'root_relative_path', 'status'];
-  const workspace = await phase.connection.get(`SELECT ${columns.map(name =>
-    `CASE WHEN octet_length(${name})<=16384 THEN ${name} END AS ${name}`).join(',')},
-    (${columns.map(name => `COALESCE(octet_length(${name}),0)>16384`).join(' OR ')}) AS oversized_text
-    FROM ${quote(current.schema)}.canvas_workspaces WHERE id=$1`, [expected.workspaceId]) as Row | undefined;
-  if (workspace?.oversized_text === true) throw new DocumentReadError('DOCUMENT_TOO_LARGE');
-  if (!phase.active || !workspace || workspace.id !== expected.workspaceId || workspace.type !== expected.workspaceType
-    || workspace.organization_id !== expected.organizationId || workspace.customer_id !== expected.customerId
-    || workspace.project_id !== expected.projectId || workspace.owner_user_id !== expected.ownerUserId
-    || workspace.root_relative_path !== expected.rootRelativePath || workspace.status !== 'active') changed();
+  const relations = row.binding_relations as Row[] | undefined;
+  if (!phase.active || !Array.isArray(relations) || relations.length !== tables.length
+    || relations.some(relation => !relation || typeof relation !== 'object' || Array.isArray(relation)
+      || !tables.includes(String(relation.name)) || relation.same_relation !== true)
+    || new Set(relations.map(relation => relation.name)).size !== tables.length) changed();
+  if (row.binding_oversized_text === true) throw new DocumentReadError('DOCUMENT_TOO_LARGE');
+  if (!phase.active || row.binding_workspace_id !== expected.workspaceId || row.binding_workspace_type !== expected.workspaceType
+    || row.binding_workspace_organization_id !== expected.organizationId || row.binding_workspace_customer_id !== expected.customerId
+    || row.binding_workspace_project_id !== expected.projectId || row.binding_workspace_owner_user_id !== expected.ownerUserId
+    || row.binding_workspace_root_relative_path !== expected.rootRelativePath || row.binding_workspace_status !== 'active') changed();
 }
 async function phaseFor(connection: SqlConnection, workspace: WorkspaceContext, source: Origin): Promise<ReadPhase> {
   const captured = structuredClone(workspace);
@@ -128,7 +152,8 @@ async function headerWitness(phase: ReadPhase, documentId: string): Promise<stri
     `COALESCE(octet_length(${field}),0)>16384`).join(' OR ')} THEN NULL ELSE
       encode(sha256(convert_to(jsonb_build_array(${witnessText.join(',')},l.archived_at,
         s.lifecycle_generation,s.schema_version,m.updated_at)::text,'UTF8')),'hex') END AS witness
-    FROM ${schema}.collaboration_documents d FULL JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
+    FROM (SELECT * FROM ${schema}.collaboration_documents WHERE id=$1) d
+    FULL JOIN (SELECT * FROM ${schema}.collaboration_yjs_states WHERE document_id=$1) s ON s.document_id=d.id
     LEFT JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
     LEFT JOIN ${schema}.workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
     WHERE (d.id=$1 AND d.workspace_id=$2) OR (s.document_id=$1 AND s.workspace_id=$2) LIMIT 2`,
@@ -266,40 +291,46 @@ async function finish(held: { phase: ReadPhase; page: DocumentReadPageV1 }): Pro
 
 /** Genuine Better Auth request; selectors and continuation evidence grant no rights. */
 export async function readDocumentForRequest(request: Request, input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input);
-  // Compiled route/core bundles can carry distinct NextRequest constructors.
-  // Require a genuine Web Request and normalize to this module's local class.
-  if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
-  const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
-  const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-  try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'request', async () => {
+    const selection = decodeDocumentReadRequestV1(input);
+    // Compiled route/core bundles can carry distinct NextRequest constructors.
+    // Require a genuine Web Request and normalize to this module's local class.
+    if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
+    const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+    const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
+    try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 /** Actual current PI invocation; never constructs a member request or accepts an actor DTO. */
 export async function readDocumentForAgentTool(input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input), historical: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
-  try { return await withWorkspaceAgentToolPrincipalOriginalOrigin({ workspaceId: selection.workspaceId, permission: 'canRead' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['agent_tool', value.userId, value.agentId, value.piSessionId, value.toolName]), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'agent', async () => {
+    const selection = decodeDocumentReadRequestV1(input), historical: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
+    try { return await withWorkspaceAgentToolPrincipalOriginalOrigin({ workspaceId: selection.workspaceId, permission: 'canRead' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['agent_tool', value.userId, value.agentId, value.piSessionId, value.toolName]), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 /** Actual Direct MCP token, /mcp audience and knowledge:read purpose. Search does not grant read. */
 export async function readDocumentForDirectMcp(authInfo: AuthInfo, input: unknown): Promise<DocumentReadPageV1> {
-  const selection = decodeDocumentReadRequestV1(input), historical: { value?: DirectMcpDocumentReadHistoricalOrigin } = {};
-  try { return await withDirectMcpDocumentReadPrincipal(authInfo, { workspaceId: selection.workspaceId, purpose: 'read' },
-    value => observe(historical, value), principal => transaction(async connection => {
-      const held = await withDirectMcpDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
-        connection, access.workspace, value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection));
-      return finish(held);
-    })); } catch (error) { throw normalizeError(error); }
+  return measureDocumentOperation('read', 'mcp', async () => {
+    const selection = decodeDocumentReadRequestV1(input), historical: { value?: DirectMcpDocumentReadHistoricalOrigin } = {};
+    try { return await withDirectMcpDocumentReadPrincipal(authInfo, { workspaceId: selection.workspaceId, purpose: 'read' },
+      value => observe(historical, value), principal => transaction(async connection => {
+        const held = await withDirectMcpDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
+          connection, access.workspace, value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection));
+        return finish(held);
+      })); } catch (error) { throw normalizeError(error); }
+  });
 }
 
 type HeldSearch = Readonly<{ phase: ReadPhase;

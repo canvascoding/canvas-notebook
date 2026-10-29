@@ -186,6 +186,60 @@ async function main(): Promise<void> {
     const observe=async<T>(cap:AuthenticatedNativeSessionTransport,consume:(access:import('../app/lib/collaboration/authenticated-native-session-transport').AuthenticatedOwnedNativeSessionAccess)=>Promise<T>,
       permission:'canRead'|'canWrite'='canRead')=>transaction(db=>owned(db,cap,{permission,identity:native.identity,ownerFence:fence},consume));
     try{
+      const { createAuthenticatedNativePeer } = await import('../app/lib/collaboration/authenticated-native-peer');
+      const { measureDocumentOperation, withDocumentOperationMetricObserver } = await import('../app/lib/observability/document-operation-metrics');
+      const peerFor = async (userId='owner', maximum:'canRead'|'canWrite'='canWrite', permission:'read'|'write'='write', cookie=false) => {
+        const transport=await captured(userId,maximum,cookie);
+        return createAuthenticatedNativePeer({transport,identity:native.identity,claims:{...native.identity,provider:'yjs',
+          userId,sessionId:`session-${userId}`,permission,issuedAt:Date.now(),expiresAt:Date.now()+600000}});
+      };
+      for(const cookie of [true,false])await check(`actual ${cookie?'Cookie':'Bearer'} writer status uses one bounded authorization phase`,async()=>{
+        const peer=await peerFor('owner','canWrite','write',cookie);
+        try{
+          const measurements:import('../app/lib/observability/document-operation-metrics').DocumentOperationMeasurement[]=[];
+          const result=await withDocumentOperationMetricObserver(value=>measurements.push(value),()=>
+            measureDocumentOperation('read','request',()=>peer.check(fence)));
+          assert.equal(result.quarantined,false);assert.equal(result.workspace.permissions.canWrite,true);
+          assert.equal(measurements.length,1);
+          console.log('Actual peer status measurement:',{cookie,statements:measurements[0].statements,
+            checkouts:measurements[0].checkouts,authorizationChecks:measurements[0].phases.find(value=>value.phase==='authorization')?.calls});
+          assert.equal(measurements[0].phases.find(value=>value.phase==='authorization')?.calls,2,
+            'Status owns one genuine Principal with its initial and final fresh Current.');
+          assert.equal(measurements[0].openConnectionsAtCompletion,0);assert.equal(measurements[0].openQueriesAtCompletion,0);
+          // Status never replaces the distinct fresh canWrite phase before a live mutation.
+          await peer.authorizeWrite(fence);
+        }finally{await peer.dispose();}
+      });
+      await check('a read-only original transport cannot be promoted by forged writer claims',async()=>{
+        const peer=await peerFor('owner','canRead','write');
+        try{await assert.rejects(peer.check(fence),code('NATIVE_TRANSPORT_ACCESS_DENIED'));}
+        finally{await peer.dispose();}
+      });
+      await check('current write revocation rejects status and the actual mutation authorization',async()=>{
+        await withWriter(async()=>{
+          const statusPeer=await peerFor('member'),writePeer=await peerFor('member');
+          await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+          try{await assert.rejects(statusPeer.check(fence),code('PRINCIPAL_ACCESS_DENIED'));
+            await assert.rejects(writePeer.authorizeWrite(fence),code('PRINCIPAL_ACCESS_DENIED'));}
+          finally{await statusPeer.dispose();await writePeer.dispose();}
+        });
+      });
+      await check('quarantined writer keeps diagnosis after write revocation without mutation authority',async()=>{
+        await withWriter(async()=>{
+          const peer=await peerFor('member');
+          await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+          await admin.query("UPDATE collaboration_yjs_states SET degraded=1,projection_error_code='COLLABORATION_SCHEMA_INVALID',projection_error_permanent=1,projection_error_generation=1,projection_error_sequence=7 WHERE document_id=$1",[native.identity.documentId]);
+          try{const result=await peer.check(fence);assert.equal(result.quarantined,true);assert.equal(result.workspace.permissions.canWrite,false);
+            await assert.rejects(peer.authorizeWrite(fence),code('PRINCIPAL_ACCESS_DENIED'));}
+          finally{await peer.dispose();await admin.query('UPDATE collaboration_yjs_states SET degraded=0,projection_error_code=NULL,projection_error_permanent=0,projection_error_generation=NULL,projection_error_sequence=NULL WHERE document_id=$1',[native.identity.documentId]);}
+        });
+      });
+      await check('read ticket remains read-only even when current workspace permits writing',async()=>{
+        const peer=await peerFor('owner','canRead','read');
+        try{assert.equal((await peer.check(fence)).quarantined,false);
+          await assert.rejects(peer.authorizeWrite(fence),code('NATIVE_TRANSPORT_ACCESS_DENIED'));}
+        finally{await peer.dispose();}
+      });
       for(const cookie of [true,false])await check(`genuine ${cookie?'Cookie':'Bearer'} held-owner phase uses original auth and expires facade`,async()=>{
         assert.equal((await auth.api.getSession({headers:(await request('owner',cookie)).headers}))?.session.id,'session-owner');
         const cap=await captured('owner','canWrite',cookie);let retained:import('../app/lib/collaboration/authenticated-native-session-transport').AuthenticatedOwnedNativeSessionAccess|undefined;
@@ -207,7 +261,7 @@ async function main(): Promise<void> {
         await admin.query('DELETE FROM collaboration_admission_scopes WHERE request_id=$1',[request.requestId]);
         await admin.query('DELETE FROM collaboration_admission_requests WHERE request_id=$1',[request.requestId]);
       });
-      await check('overlapping genuine PG peers reject Busy without callback or cached write then freshly retry',async()=>{
+      await check('actual conflicting PG row lock rejects Busy before callback then freshly retries',async()=>{
         const first=await captured(),second=await captured(),entered=gate(),release=gate(),bothReady=gate();let secondCalls=0,ready=0;
         // Both genuine HTTP factories finish before overlapping their real B
         // lock phases. No fake principal or returned SQL result is injected.
@@ -219,7 +273,12 @@ async function main(): Promise<void> {
             }
             return db.get(sql,values);
           }};
-          return owned(actual,cap,{permission:'canWrite',identity:native.identity,ownerFence:fence},consume);
+          return owned(actual,cap,{permission:'canWrite',identity:native.identity,ownerFence:fence},async access=>{
+            // Two policy readers both hold SHARE and are compatible. A genuine
+            // writer must hold a conflicting row lock before expecting Busy.
+            if(!later)await db.get("SELECT user_id FROM organization_user_permissions WHERE user_id='owner' FOR UPDATE NOWAIT");
+            return consume(access);
+          });
         });
         const holding=overlapping(first,false,async access=>{entered.resolve();await release.promise;await access.assertCurrent();});
         const attempted=overlapping(second,true,async()=>{secondCalls++;});
@@ -307,7 +366,7 @@ async function main(): Promise<void> {
         const finalFence=await finalOwner.acquire(finalScope),cap=await captured();let observations=0,calls=0;
         try{await assert.rejects(transaction(db=>{
           const actual={...db,get:async(sql:string,values?:unknown[])=>{
-            if(sql.includes('to_regnamespace(current_schema())')&&++observations===3)await finalOwner.release(finalFence);
+            if(sql.includes('pg_current_xact_id()::text AS xid,w.id AS workspace_id')&&++observations===3)await finalOwner.release(finalFence);
             return db.get(sql,values);
           }};
           return owned(actual,cap,{permission:'canWrite',identity:finalNative.identity,ownerFence:finalFence},async()=>{calls++;});

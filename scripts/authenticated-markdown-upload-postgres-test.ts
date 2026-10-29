@@ -76,13 +76,11 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      let scoped = sql;
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        scoped = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(scoped.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      const result = await admin.query(scoped,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -298,6 +296,37 @@ async function main(): Promise<void> {
         }});
         await assert.rejects(persist(entry.original,entry.selection,owned));await empty(entry);assert.equal(owned.events.filter(e=>e.step==='receipt').length,1);
       }
+    });
+    await check('actual same-B native relation shadow rejects the fresh realm observation and rolls back exactly',async()=>{
+      const entry=await source('native-relation-shadow.md');
+      const nativeRows=async()=>(await admin.query(`SELECT * FROM (SELECT 'registry' AS kind,to_jsonb(d) AS value,xmin::text AS version FROM collaboration_documents d
+        UNION ALL SELECT 'state',to_jsonb(s),xmin::text FROM collaboration_yjs_states s
+        UNION ALL SELECT 'backup',to_jsonb(b),xmin::text FROM collaboration_yjs_state_backups b
+        UNION ALL SELECT 'lineage',to_jsonb(l),xmin::text FROM file_collaboration_lineages l
+        UNION ALL SELECT 'receipt',to_jsonb(r),xmin::text FROM collaboration_markdown_file_import_receipts r) native_rows
+        ORDER BY kind,value::text COLLATE "C"`)).rows;
+      const before=await nativeRows(),relationBefore=(await admin.query("SELECT to_regclass('collaboration_yjs_state_backups')::oid AS oid")).rows;
+      let injected=false;
+      const owned=factory({afterReceipt:async database=>{
+        // The pinned path lists pg_temp last. Remove the real name inside this
+        // transaction so the temporary replacement actually resolves instead.
+        await database.run('ALTER TABLE collaboration_yjs_state_backups RENAME TO native_realm_original_backups');
+        await database.run('CREATE TEMP TABLE collaboration_yjs_state_backups (not_native integer)');
+        const row=await database.get(`SELECT to_regclass('collaboration_yjs_state_backups')::oid
+          IS DISTINCT FROM to_regclass($1||'.collaboration_yjs_state_backups')::oid AS shadow`,[schema]) as {shadow:boolean};
+        assert.equal(row.shadow,true);injected=true;
+      }});
+      let rejection:unknown;
+      await assert.rejects(persist(entry.original,entry.selection,owned),error=>{rejection=error;return true;});
+      const observedCode=rejection&&typeof rejection==='object'?Reflect.get(rejection,'code'):undefined;
+      console.log('NATIVE_REALM_SHADOW_RESULT',JSON.stringify({injected,code:typeof observedCode==='string'&&/^[A-Z0-9_]{1,80}$/u.test(observedCode)?observedCode:null,
+        receipts:owned.events.filter(e=>e.step==='receipt').length}));
+      assert.equal(injected,true);assert.equal(observedCode,'MARKDOWN_IMPORT_INVALID_INPUT');
+      assert.equal(owned.events.filter(e=>e.step==='receipt').length,1);
+      assert.equal(owned.events.filter(e=>e.ordinal===2&&e.step==='commit').length,0);
+      assert.equal(owned.events.filter(e=>e.ordinal===2&&e.step==='rollback').length,1);
+      assert.deepEqual((await admin.query("SELECT to_regclass('collaboration_yjs_state_backups')::oid AS oid")).rows,relationBefore);
+      assert.deepEqual(await nativeRows(),before);await empty(entry);await unchangedUpload(entry);
     });
     await check('actual shared source and file fences remain held through B close and fresh C close',async()=>{
       const entry=await source('held-through-close.md');let observed=0;

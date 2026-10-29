@@ -37,7 +37,10 @@ type LinkIndexCacheEntry = {
   expiresAt: number;
   generation: number;
   nextRequestAt: number;
+  retryAfterAt: number;
   requestGeneration: number | null;
+  pendingRequest?: { interactive: boolean; wake?: () => void };
+  followupInteractive?: boolean;
   promise?: Promise<WorkspaceLinkIndex>;
   followupPromise?: Promise<WorkspaceLinkIndex>;
   value?: WorkspaceLinkIndex;
@@ -79,10 +82,17 @@ let invalidationTimer: ReturnType<typeof setTimeout> | null = null;
 function linkIndexEntry(workspaceId: string): LinkIndexCacheEntry {
   let entry = linkIndexCache.get(workspaceId);
   if (!entry) {
-    entry = { expiresAt: 0, generation: 0, nextRequestAt: 0, requestGeneration: null };
+    entry = { expiresAt: 0, generation: 0, nextRequestAt: 0, retryAfterAt: 0, requestGeneration: null };
     linkIndexCache.set(workspaceId, entry);
   }
   return entry;
+}
+
+/** Promote only the shared scheduled fetch; an active HTTP request is retained. */
+function prioritizeLinkIndexRequest(entry: LinkIndexCacheEntry): void {
+  if (!entry.pendingRequest) return;
+  entry.pendingRequest.interactive = true;
+  entry.pendingRequest.wake?.();
 }
 
 function scheduleInvalidation(workspaceId: string | null): void {
@@ -138,14 +148,18 @@ export async function loadWorkspaceMarkdownEmbed(
   workspaceId: string,
   rawTarget: string,
   sourcePath?: string | null,
+  options: { priority?: 'background' | 'interactive' } = {},
 ): Promise<WorkspaceMarkdownEmbedDocument> {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   const cacheKey = `${normalizedWorkspaceId}\0${sourcePath ?? ''}\0${rawTarget}`;
   const now = Date.now();
   const cached = markdownEmbedCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) return cached.promise;
+  if (cached && cached.expiresAt > now) {
+    if (options.priority === 'interactive') prioritizeLinkIndexRequest(linkIndexEntry(normalizedWorkspaceId));
+    return cached.promise;
+  }
 
-  const promise = loadWorkspaceLinkIndex(normalizedWorkspaceId)
+  const promise = loadWorkspaceLinkIndex(normalizedWorkspaceId, options)
     .then(async (index) => {
       const resolution = resolveWorkspaceLinkFromIndex(rawTarget, index, sourcePath);
       if (resolution?.status !== 'resolved' || !resolution.path) {
@@ -178,19 +192,24 @@ export async function loadWorkspaceMarkdownEmbed(
 
 export async function loadWorkspaceLinkIndex(
   workspaceId: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; priority?: 'background' | 'interactive' } = {},
 ): Promise<WorkspaceLinkIndex> {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   const now = Date.now();
   const entry = linkIndexEntry(normalizedWorkspaceId);
+  const interactive = options.priority === 'interactive';
+  if (interactive) prioritizeLinkIndexRequest(entry);
   if (entry.promise) {
     if (entry.requestGeneration === null || entry.requestGeneration === entry.generation) return entry.promise;
     // A reader arriving after invalidation needs a request begun after its
     // read. Queue exactly one successor, without delaying existing readers
     // until the workspace becomes quiet or opening concurrent fetches.
+    entry.followupInteractive ||= interactive;
     entry.followupPromise ??= entry.promise.catch(() => undefined).then(() => {
       entry.followupPromise = undefined;
-      return loadWorkspaceLinkIndex(normalizedWorkspaceId);
+      const priority = entry.followupInteractive ? 'interactive' : 'background';
+      entry.followupInteractive = false;
+      return loadWorkspaceLinkIndex(normalizedWorkspaceId, { priority });
     });
     return entry.followupPromise;
   }
@@ -198,9 +217,24 @@ export async function loadWorkspaceLinkIndex(
   if (options.force) entry.expiresAt = 0;
 
   const url = withWorkspaceQuery('/api/markdown/link-index', normalizedWorkspaceId);
+  const request: NonNullable<LinkIndexCacheEntry['pendingRequest']> = { interactive };
+  entry.pendingRequest = request;
   const promise = (async () => {
-    const delay = entry.nextRequestAt - Date.now();
-    if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    // User intent may expedite local background pacing, including a fetch that
+    // was already queued. Server backoff remains mandatory for every reader.
+    for (;;) {
+      const delay = Math.max(entry.retryAfterAt, request.interactive ? 0 : entry.nextRequestAt) - Date.now();
+      if (delay <= 0) break;
+      await new Promise<void>((resolve) => {
+        const wake = () => {
+          clearTimeout(timer);
+          if (request.wake === wake) request.wake = undefined;
+          resolve();
+        };
+        const timer = setTimeout(wake, delay);
+        request.wake = wake;
+      });
+    }
     const generation = entry.generation;
     entry.requestGeneration = generation;
     entry.nextRequestAt = Date.now() + LINK_INDEX_MIN_REQUEST_INTERVAL_MS;
@@ -215,7 +249,8 @@ export async function loadWorkspaceLinkIndex(
         const seconds = retryAfter === null ? NaN : Number(retryAfter);
         const retryAt = Number.isFinite(seconds)
           ? Date.now() + Math.max(0, seconds) * 1000 : Date.parse(retryAfter ?? '');
-        if (Number.isFinite(retryAt)) entry.nextRequestAt = Math.max(entry.nextRequestAt, retryAt);
+        entry.retryAfterAt = Math.max(entry.retryAfterAt, Number.isFinite(retryAt) ? retryAt : entry.nextRequestAt);
+        entry.nextRequestAt = Math.max(entry.nextRequestAt, entry.retryAfterAt);
       }
       throw new Error(await readApiError(response, 'Failed to load workspace link index'));
     }
@@ -238,6 +273,7 @@ export async function loadWorkspaceLinkIndex(
     if (entry.promise === promise) {
       entry.promise = undefined;
       entry.requestGeneration = null;
+      entry.pendingRequest = undefined;
     }
   });
 

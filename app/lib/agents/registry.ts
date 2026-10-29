@@ -431,6 +431,11 @@ function mapSqlAgent(row: Record<string, unknown>): AgentProfile {
   });
 }
 
+/** Pure mapping of a genuine SQL observation; supplies no database or actor authority. */
+export function agentProfileFromSqlRow(row: Record<string, unknown>): AgentProfile {
+  return mapSqlAgent(row);
+}
+
 /** Reads an existing profile on the caller's transaction without running built-in repairs. */
 export async function readAgentProfileOnConnection(
   database: SqlConnection,

@@ -309,9 +309,11 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
       // Workspace services read the same genuine rows on one caller-owned B.
       // These are service parity checks, not new actor/principal authority.
       const { readPostgresWorkspaceForActorOnConnection: readWorkspace,
-        readPostgresWorkspaceForActorInSingleSnapshotOnConnection: readWorkspaceSnapshot } = await import('../app/lib/workspaces/postgres-runtime');
+        readPostgresWorkspaceForActorInSingleSnapshotOnConnection: readWorkspaceSnapshot,
+        readPostgresWorkspaceForUserInSingleSnapshotOnConnection: readUserWorkspaceSnapshot } = await import('../app/lib/workspaces/postgres-runtime');
       const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
       const workspaceRowsSQL = `SELECT
+        (SELECT jsonb_agg(to_jsonb(u) ORDER BY u.id) FROM "user" u) AS accounts,
         (SELECT jsonb_agg(to_jsonb(w) ORDER BY w.id) FROM canvas_workspaces w) AS workspaces,
         (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.organization_id,p.user_id) FROM organization_user_permissions p) AS permissions,
         (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.workspace_id,m.user_id) FROM canvas_workspace_members m) AS members,
@@ -328,6 +330,10 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
           `UPDATE canvas_workspaces SET status='disabled' WHERE id=$1`], allowed: false },
         { name: 'team-owner-without-member-row', kind: 'team', userId: 'owner', changes: [], allowed: true },
         { name: 'team-member', kind: 'team', userId: 'reader', changes: [], allowed: true },
+        { name: 'team-current-account-role', kind: 'team', userId: 'reader', changes: [
+          `UPDATE "user" SET role='admin' WHERE id='reader'`], allowed: true },
+        { name: 'team-current-account-email', kind: 'team', userId: 'reader', changes: [
+          `UPDATE "user" SET email='changed@parity.test' WHERE id='reader'`], allowed: true },
         { name: 'team-without-organization-permission', kind: 'team', userId: 'reader', changes: [
           `DELETE FROM organization_user_permissions WHERE organization_id='tool-dispatch-org' AND user_id='reader'`], allowed: false },
         { name: 'team-without-member-row', kind: 'team', userId: 'reader', changes: [
@@ -351,7 +357,7 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
           `UPDATE canvas_project_members SET role='external' WHERE project_id='workspace-parity-project' AND user_id='reader'`], allowed: true },
         { name: 'missing-workspace', kind: 'missing', userId: 'reader', changes: [], allowed: false },
       ];
-      assert.equal(workspaceVariants.length, 19);
+      assert.equal(workspaceVariants.length, 21);
       for (const variant of workspaceVariants) {
         const rollback = new Error(`Expected Workspace parity rollback: ${variant.name}`);
         await assert.rejects(transaction(async (db, client, sql) => {
@@ -381,6 +387,13 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
           const snapshot = await readWorkspaceSnapshot(db, actor, selectedWorkspaceId);
           assert.equal(sql.length - snapshotBefore, 1, 'The fixed Workspace reader must use exactly one fresh actual SQL statement.');
           assert.deepEqual(snapshot, ordinary, `Complete WorkspaceContext/null parity: ${variant.name}`);
+          const userSnapshotBefore = sql.length;
+          const userSnapshot = await readUserWorkspaceSnapshot(db, variant.userId, selectedWorkspaceId);
+          assert.equal(sql.length - userSnapshotBefore, 1, 'Current account and Workspace policy must share one actual SQL snapshot.');
+          assert.deepEqual(userSnapshot, ordinary, `Fresh account plus complete WorkspaceContext/null parity: ${variant.name}`);
+          const missingUserBefore = sql.length;
+          assert.equal(await readUserWorkspaceSnapshot(db, 'absent-parity-account', selectedWorkspaceId), null);
+          assert.equal(sql.length - missingUserBefore, 1, 'Missing accounts fail closed in the same single snapshot.');
           assert.equal(ordinary !== null, variant.allowed);
           if (ordinary) { assert.equal(ordinary.workspaceId, selectedWorkspaceId); assert.equal(ordinary.workspaceType, variant.kind);
             assert.equal(ordinary.actor?.userId, variant.userId); assert.equal(ordinary.legacy, false);

@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "baseHead": "947b1af3307a6aab9f3a231398829ffc9ae5b630",
+  "sourceHashes": {
+    "app/lib/db/postgres-scalar-snapshot.ts": "a4288f9acfb2030353e8936d24c6349ec413b9b7b67b0ad3413a6f0f0dfd3843",
+    "app/lib/workspaces/request-principal.ts": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "app/lib/workspaces/postgres-runtime.ts": "69a18c8a1ec5c48b34c2cb4998ac6fa4052379536e5e475bf0f768ffd8ee56f8",
+    "app/lib/mcp/server/document-read-principal.ts": "38fa1daaca80cff1b4ff189a99af54530c1d7c2aa91e6c0a86e774f79dd437a6",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "scripts/workspace-member-current-snapshot-postgres-test.ts": "73cbadafdd97f53968bd093a8fd40b89c49a0b2abd09279f01b6e894e1eb6453",
+    "scripts/agent-markdown-create-scalar-snapshot-postgres-test.ts": "662733e6c9a87feece633647be72bf22849cab8ca1a12d370f93d3f6dad506c6",
+    "scripts/direct-mcp-slot-snapshot-postgres-test.ts": "62213af8a9245a08fe87be3a421dcc822ec39f0358e876a0ea513787b7cf9431",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "874021b99d66b89fc0627f23bcaca79f5d5092697532094cb9735344dd30de66",
+    "app/lib/db/index.ts": "c3edce1e2d640d02e4d42d0f8d4112679d7b3cc6c9e032b8d26f6fe8b4275536",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0",
+    "scripts/document-adapter-matrix-baseline-postgres-entry.ts": "980314928f3a80782dbfca599f22d73c915423b624f2479b26a948ad8541d854",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/helpers/document-baseline-fixture.ts": "13cc42638e01bb92e496f94e2c0cbdbc94691ad8376cdffb6d10757c4fd9582f"
+  },
+  "scope": "Shared scalar encoding only; not full central-service acceptance",
+  "actualBeforeFix": {
+    "memberScalarDeniedJsonAllowed": true,
+    "agentDeniedFaultsPreviouslyAllowed": 6,
+    "agentBaselineCases": 7,
+    "memberBaselineLogSha256": "b2499d6e26c810733614d76b499a5cd00ac8e685e8ffde594ee3b7932c8b8f86",
+    "agentBaselineLogSha256": "259551d9b21589f8ae865b576271a0258d9159ee27e65a6ed80d5bd0e02b42d9",
+    "agentBaselineRowsXminAndTypesVerifiedRestored": true,
+    "negativeCasesThrowBeforeCommit": true
+  },
+  "sharedCodec": {
+    "numericWireType": "exact pg scalar string",
+    "unsupported": "domains, DATE and other unproven types deny as schema errors",
+    "workspaceColumns": 19,
+    "agentAdditionalFields": "profile/session integer fields, account banned and seat scalars",
+    "newAuthorizationOrRowCache": false,
+    "newDbApi": false,
+    "agentPreparedFallbackBothTested": true,
+    "mcpGeneratedSqlByteIdentical": true
+  },
+  "functionProof": {
+    "app/lib/workspaces/request-principal.ts": {
+      "changed": [
+        "readMemberScopeSnapshot",
+        "readAgentCreateScopeFacts"
+      ],
+      "unchangedCount": 61,
+      "added": [],
+      "removed": []
+    },
+    "app/lib/workspaces/postgres-runtime.ts": {
+      "changed": [],
+      "unchangedCount": 79,
+      "added": [],
+      "removed": []
+    },
+    "app/lib/mcp/server/document-read-principal.ts": {
+      "changed": [
+        "typedSlotSnapshotSql"
+      ],
+      "unchangedCount": 45,
+      "added": [],
+      "removed": []
+    }
+  },
+  "focusedCases": {
+    "member": 46,
+    "agentPreparedFallback": 14,
+    "mcpPreparedFallback": 132
+  },
+  "regressions": [
+    {
+      "label": "agent-scalars",
+      "entry": "scripts/agent-markdown-create-scalar-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "39ba06f3dda4befc4fcf6499132d6abc390faafb600621dd12c7057070b6eed4",
+      "entrySha256": "662733e6c9a87feece633647be72bf22849cab8ca1a12d370f93d3f6dad506c6"
+    },
+    {
+      "label": "member-scalars",
+      "entry": "scripts/workspace-member-current-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "b4145ba4903cf74996752cc8748d5c754cdb4df83f2db2a505d0e5de9e0bee2f",
+      "entrySha256": "73cbadafdd97f53968bd093a8fd40b89c49a0b2abd09279f01b6e894e1eb6453"
+    },
+    {
+      "label": "mcp-scalars",
+      "entry": "scripts/direct-mcp-slot-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "cfd2eabeec9b8bcc1636c70e31d697e031e733c5a2ccf0c03d59cd79c19f197e",
+      "entrySha256": "62213af8a9245a08fe87be3a421dcc822ec39f0358e876a0ea513787b7cf9431"
+    },
+    {
+      "label": "member",
+      "entry": "scripts/workspace-request-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "2477117f4737b1ab3194857a6e70e90ab11ced05ab982a093fb3bb2799a2a153",
+      "entrySha256": "9fac9a02b4a2dc5cb42862a8811f006571e3230ec18b5a08180efd3548f8e6ad"
+    },
+    {
+      "label": "agent-scope",
+      "entry": "scripts/agent-markdown-create-principal-scope-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "8cef083d6c9350cb3a56a94afbee117c746ed2545e914fefa66c1cb475d65971",
+      "entrySha256": "bc79cc1c6f9396efd4437f6b8ae3c73701c776822ce6f8b2e99a30f9eae6cd79"
+    },
+    {
+      "label": "agent-initial",
+      "entry": "scripts/agent-markdown-create-initial-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "f69f0994b5dbe816c44999c496c80e823171fc45da5afdddfd70f3a5835203fe",
+      "entrySha256": "5c211dcb0d28c7f110934f3a1e17be9c732b41e5d9585495820df7402bbcd849"
+    },
+    {
+      "label": "transport",
+      "entry": "scripts/authenticated-native-session-transport-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "41c37daadd49dd63839243a8b4f3159afec041053832cff8cd95d829c83d56bb",
+      "entrySha256": "673e6fc867f46a6187d035fd5a45550cae28f8801094f76e67c18d2eee40e972"
+    },
+    {
+      "label": "native-room",
+      "entry": "scripts/native-document-search-room-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "e9d475c0152fdc907d408b5c66801bdd0b779bf760d404447ad396c921e5fb6f",
+      "entrySha256": "c74e956abe360765267c4d64f9a2db71a84e5fade1a744387309edbc8b6cf338"
+    },
+    {
+      "label": "maintenance",
+      "entry": "scripts/workspace-principal-maintenance-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "fd0dd9b1cbe6ace9c2b3dc603f148cd7ef7333d819489ca3b5c96f64a4141f81",
+      "entrySha256": "fbfcc295c751edf2edcc670eef8fc12af271c2bf772be5a3120e62d4696f157d"
+    },
+    {
+      "label": "mcp-copy",
+      "entry": "scripts/direct-mcp-workspace-copy-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "fe84373fb207ea64130e93066b858ccd1deecfed1cf0978586aa594178ed7eb4",
+      "entrySha256": "a2713c3b4c719fe06c7eba5793fc0b0202f9310bb59ce291e0f3a016cedb2f83"
+    },
+    {
+      "label": "native-create",
+      "entry": "scripts/direct-mcp-native-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "1791fb4d4042d37dab804005a2329a6c833e569f3a783531b2db87956d2c7cc4",
+      "entrySha256": "97c66c5d766390210d697045b12db0b2b85ac1201bf7cb84c78d9fa4b27dd880"
+    },
+    {
+      "label": "native-copy",
+      "entry": "scripts/direct-mcp-native-copy-owner-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "f8fb93a034649d75e5d878df795fb121827dd5be796d3bb34f5b97ec20c11ed1",
+      "entrySha256": "acf5ede74eacd0d7866af4951fcd864f43dc5240ff1995b6d6673dbe55858b5b"
+    }
+  ],
+  "realWebSocket": {
+    "families": 23,
+    "logSha256": "f333fcc323f1e7b143dce8947c466c5a24b97ffed533b1103534e7630c2d5646"
+  },
+  "typeScript": {
+    "releaseExitCode": 0,
+    "scopedExitCode": 0,
+    "roots": 42,
+    "sourceFiles": 5164,
+    "diagnostics": 0,
+    "scopedLogSha256": "f0bc1868ad4be38b5ba79cd75d5fe18baa53417b04331bb096c862decefe743c",
+    "releaseLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "eslint": {
+    "exitCode": 0,
+    "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "metric": "PostgreSQL driver calls incl transaction control; multi-statement strings not split",
+  "measurements": [
+    {
+      "label": "agent10",
+      "adapter": "agent",
+      "documents": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2285,
+          "checkouts": 80,
+          "wallMs": 3080.01,
+          "databaseMs": 1595.42,
+          "poolWaitMs": 5.35,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2587.39,
+          "databaseMs": 1458.72,
+          "poolWaitMs": 4.19,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2661.62,
+          "databaseMs": 1526.91,
+          "poolWaitMs": 4.44,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 203.37,
+          "databaseMs": 147.66,
+          "poolWaitMs": 0.1,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "20bde4dfecef2222103f742bbf1b8c32fb504e7e40ba8e21f462c67bab68dda0",
+      "logSha256": "f50e8e6deef0a3b42df39a9c19dd947ef1e2e40e1e60755ef110f0bc9591ca61"
+    },
+    {
+      "label": "mcp10",
+      "adapter": "mcp",
+      "documents": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1997,
+          "checkouts": 50,
+          "wallMs": 2679.34,
+          "databaseMs": 1350.63,
+          "poolWaitMs": 4.8,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2414.64,
+          "databaseMs": 1261.21,
+          "poolWaitMs": 4.91,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1976,
+          "checkouts": 37,
+          "wallMs": 2386.42,
+          "databaseMs": 1255.49,
+          "poolWaitMs": 4.58,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 142.63,
+          "databaseMs": 82.91,
+          "poolWaitMs": 0.16,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "999eff404b1f3ed6a013a34611a33398f2926f16facb221d84788ee263ebc881",
+      "logSha256": "db5bafb5030c37b89a36b1def0f06976390310b56fb8d00e34b690fa10b02cc1"
+    },
+    {
+      "label": "http10",
+      "adapter": "http",
+      "documents": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "statements": 91,
+          "checkouts": 12,
+          "wallMs": 161.49,
+          "databaseMs": 92.75,
+          "poolWaitMs": 0.2,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-1",
+          "statements": 88,
+          "checkouts": 9,
+          "wallMs": 76.62,
+          "databaseMs": 65.11,
+          "poolWaitMs": 0.1,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-read-2",
+          "statements": 88,
+          "checkouts": 9,
+          "wallMs": 73.65,
+          "databaseMs": 63.03,
+          "poolWaitMs": 0.11,
+          "peakConnections": 1,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ],
+      "outputSha256": "8e31a21960c1a2e288ad50349fb2b31f7701ddf3ef0c616fb065594d630eea01",
+      "logSha256": "1199946b745b27b500144f7f6ae5987d8e1b401847846715e1ab7a4581ee2ece"
+    }
+  ],
+  "limits": [
+    "Bounded local measurements, not general performance or controlled network-latency acceptance",
+    "Current-source ten-document fixtures only; prior 200-document matrix retains its own source binding",
+    "Final shared phase/registry/state batching, incremental link dependencies and normal shared writes remain incomplete",
+    "Final-source build, Desktop/Mobile UI, regular test:all, required CI/reviews and backup/restore/original recovery/release/deployment remain open"
+  ],
+  "reviewCenterDevelopment": false,
+  "undoDevelopment": false,
+  "productionChanged": false,
+  "fullGoalComplete": false,
+  "measurementAggregationRecovery": {
+    "originalDriverExitCode": 1,
+    "reason": "HTTP reader output has explicit nativeIdentityAndBytesUnchanged and completeCanonicalMarkdown invariants rather than the Create-only passed key. All three fixture children exited zero; source pins, actual output contracts and complete cleanup revalidated.",
+    "fixturesRerun": false
+  }
+}

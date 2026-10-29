@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ComponentType } from 'react';
+import { useMemo, useState, useSyncExternalStore, type ComponentType } from 'react';
 import {
   BadgeCheck,
   BarChart3,
@@ -47,6 +47,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+
+const subscribeToHydration = () => () => {};
 
 export type SettingsTab =
   | 'general'
@@ -257,8 +259,10 @@ function NavigationItems({
   collapsed,
   onTabChange,
   onNavigate,
+  hydrated,
 }: Pick<SettingsNavigationProps, 'activeTab' | 'visibleTabs' | 'collapsed' | 'onTabChange'> & {
   onNavigate?: () => void;
+  hydrated: boolean;
 }) {
   const t = useTranslations('settings');
   const visibleGroups = useMemo(
@@ -292,6 +296,7 @@ function NavigationItems({
                 <button
                   key={item.value}
                   type="button"
+                  disabled={!hydrated}
                   aria-current={isActive ? 'page' : undefined}
                   aria-label={collapsed ? t(item.labelKey) : undefined}
                   onClick={() => {
@@ -341,6 +346,7 @@ export function SettingsNavigation({
   onTabChange,
 }: SettingsNavigationProps) {
   const t = useTranslations('settings');
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const activeItem = SETTINGS_TAB_ITEMS.find((item) => item.value === activeTab) ?? SETTINGS_TAB_ITEMS[0];
   const ActiveIcon = activeItem.icon;
@@ -352,6 +358,7 @@ export function SettingsNavigation({
           <SheetTrigger asChild>
             <Button
               type="button"
+              disabled={!hydrated}
               variant="outline"
               className="h-12 w-full justify-between rounded-lg border-border/80 bg-card px-3 shadow-sm"
             >
@@ -388,6 +395,7 @@ export function SettingsNavigation({
                 collapsed={false}
                 onTabChange={onTabChange}
                 onNavigate={() => setMobileOpen(false)}
+                hydrated={hydrated}
               />
             </div>
           </SheetContent>
@@ -412,6 +420,7 @@ export function SettingsNavigation({
           </div>
           <Button
             type="button"
+            disabled={!hydrated}
             variant="ghost"
             size="icon-sm"
             onClick={() => onCollapsedChange(!collapsed)}
@@ -428,6 +437,7 @@ export function SettingsNavigation({
             visibleTabs={visibleTabs}
             collapsed={collapsed}
             onTabChange={onTabChange}
+            hydrated={hydrated}
           />
         </div>
       </aside>

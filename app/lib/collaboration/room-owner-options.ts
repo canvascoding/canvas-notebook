@@ -2,6 +2,7 @@ import 'server-only';
 
 import { Client } from 'pg';
 import { openDb } from '@/app/lib/db';
+import { installDocumentClientQueryMetrics } from '@/app/lib/observability/document-operation-metrics';
 import { createCollaborationRoomOwnerSession } from './room-owner';
 import { recoverCollaborationRoomRelease } from './room-owner-release';
 import { createCollaborationAdmissionService } from './room-admission';
@@ -12,6 +13,7 @@ import type { CollaborationRoomOwnerRuntimeOptions } from './room-owner-runtime'
 async function connectOwnerClient(purpose: string) {
   const client = new Client({ connectionString: process.env.DATABASE_URL,
     application_name: `canvas-collaboration-${purpose}-${process.pid}`, connectionTimeoutMillis: 5_000 });
+  installDocumentClientQueryMetrics(client);
   try { await client.connect(); return client; }
   catch (error) { await client.end().catch(() => {}); throw error; }
 }

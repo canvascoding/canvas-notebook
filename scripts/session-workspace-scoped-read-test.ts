@@ -84,10 +84,10 @@ function scopedReadHarness(options: TestOptions = {}) {
       findPostgresUserById: async (connection: unknown, userId: string) => {
         assert.equal(connection, database); events.push('find-user'); assert.equal(userId, 'user-1'); return user;
       },
-      readPostgresWorkspaceForActorOnConnection: async (connection: unknown, actor: unknown, workspaceId: string) => {
+      readPostgresWorkspaceForUserInSingleSnapshotOnConnection: async (connection: unknown, userId: string, workspaceId: string) => {
         assert.equal(connection, database); events.push('workspace-read');
-        assert.deepEqual(actor, { userId: user?.id, email: user?.email, role: user?.role });
-        assert.equal(workspaceId, 'workspace-1'); return workspace;
+        assert.equal(userId, 'user-1');
+        assert.equal(workspaceId, 'workspace-1'); return user ? workspace : null;
       },
       getPostgresWorkspaceState: async () => { throw new Error('workspace-state/default resolution must not run'); },
       resolvePostgresWorkspaceForActor: async () => { throw new Error('nested workspace resolution must not run'); },
@@ -110,7 +110,7 @@ test('reads the exact active session and current authorization only on the calle
     sql: 'SELECT workspace_id FROM pi_sessions\n     WHERE session_id = $1 AND user_id = $2 AND agent_id = $3 AND archived_at IS NULL LIMIT 1',
     params: ['session-1', 'user-1', 'agent-1'],
   }]);
-  assert.deepEqual(h.events, ['find-user', 'actor', 'workspace-read', 'agent-access']);
+  assert.deepEqual(h.events, ['workspace-read', 'agent-access']);
   assert.deepEqual(h.noConnectionSideEffects, { close: 0, run: 0, open: 0, globalDrizzle: 0, skills: 0 });
 });
 
@@ -137,7 +137,7 @@ test('caller mutation during the first await cannot change captured identity or 
   const result = await writable.read(writable.database, mutableInput);
   assert.equal(result, writable.workspace);
   assert.deepEqual(writable.queries[0].params, ['session-1', 'user-1', 'agent-1']);
-  assert.deepEqual(writable.events, ['find-user', 'actor', 'workspace-read', 'agent-access']);
+  assert.deepEqual(writable.events, ['workspace-read', 'agent-access']);
   assert.deepEqual(writable.permissionChecks, ['canWrite']);
 });
 

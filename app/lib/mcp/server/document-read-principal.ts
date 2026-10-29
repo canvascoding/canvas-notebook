@@ -1,18 +1,22 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual, types } from 'node:util';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getPostgresRuntimeQueryable, type SqlConnection } from '@/app/lib/db';
 import { normalizeDatabaseTimestamp } from '@/app/lib/db/timestamps';
+import { postgresScalarSnapshotSql } from '@/app/lib/db/postgres-scalar-snapshot';
 import { getLicenseStatus } from '@/app/lib/license';
 import type { LicenseStatus } from '@/app/lib/license/types';
-import { assertUserSeatAccessInSingleSnapshotOnConnection } from '@/app/lib/license/seat-limit';
+import { resolveEffectiveSeatPolicy, userSeatAccessSnapshotSql, evaluateUserSeatAccessSnapshot,
+  type CurrentSeatSnapshotRow, type EffectiveSeatPolicy } from '@/app/lib/license/seat-limit';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
+import { workspacePermissionSnapshotSql, workspacePermissionSnapshotScalarColumns, workspaceContextFromPermissionSnapshot,
+  type WorkspacePermissionSnapshotRow } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { assertGrantStateActive, DirectMcpAuthorizationError, loadDirectMcpGrantStateOnConnection,
-  verifyDirectMcpJwtClaims, type DirectMcpJwtClaims } from './access-token-verifier';
+import { assertGrantStateActive, DirectMcpAuthorizationError, directMcpGrantStateSnapshotSql,
+  verifyDirectMcpJwtClaims, type DirectMcpJwtClaims, type DirectMcpGrantStateRow } from './access-token-verifier';
 import { resolveDirectMcpOAuthConfig } from './config';
 import { getDirectMcpRuntimeSettings } from './runtime-settings';
 
@@ -262,9 +266,12 @@ async function pinCreateReceiptRealm(phase: Phase): Promise<void> {
   phase.identity = Object.freeze({ ...before, searchPath: realm.searchPath });
   await identity(phase); await schema(phase);
 }
-async function schema(phase: Phase): Promise<void> {
-  alive(phase);
-  const row = await phase.connection.get(`SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
+function schemaSnapshotSql(schemaParameter = 1, relationsParameter = 2): string {
+  if (![schemaParameter, relationsParameter].every(value => Number.isInteger(value) && value >= 1 && value <= 32)) {
+    throw new RangeError('Invalid MCP schema snapshot parameter ordinal.');
+  }
+  const schema = '$' + schemaParameter, relations = '$' + relationsParameter;
+  return `SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
     extract(epoch FROM a.backend_start)::text AS start,
     CASE WHEN pg_catalog.current_setting('transaction_isolation')='read committed'
       AND pg_catalog.current_setting('transaction_read_only')='off' THEN pg_catalog.pg_current_xact_id()::text END AS xid,
@@ -272,9 +279,18 @@ async function schema(phase: Phase): Promise<void> {
     pg_catalog.current_setting('session_replication_role') AS replication,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(facts)),'[]'::jsonb)
       FROM (SELECT name,
-    pg_catalog.to_regclass(name)::oid=pg_catalog.to_regclass($1||'.'||pg_catalog.quote_ident(name))::oid AS same_relation
-    FROM pg_catalog.unnest($2::text[]) names(name) LIMIT 17) facts) AS schema_relations
-    FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`, [quote(phase.capture.realm.schema), tables]) as Row | undefined;
+    pg_catalog.to_regclass(name)::oid=pg_catalog.to_regclass(${schema}||'.'||pg_catalog.quote_ident(name))::oid AS same_relation
+    FROM pg_catalog.unnest(${relations}::text[]) names(name) LIMIT 17) facts) AS schema_relations
+    FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`;
+}
+const defaultSchemaSnapshotSql = schemaSnapshotSql();
+async function schema(phase: Phase): Promise<void> {
+  alive(phase);
+  const row = await phase.connection.get(defaultSchemaSnapshotSql, [quote(phase.capture.realm.schema), tables]) as Row | undefined;
+  validateSchemaSnapshot(phase,row);
+}
+/** Same context and exact-relation decisions for standalone and joint reads. */
+function validateSchemaSnapshot(phase: Phase, row: Row | undefined): void {
   alive(phase); captureCurrentPhaseIdentity(phase, row);
   const rows = row?.schema_relations;
   alive(phase);
@@ -306,12 +322,25 @@ function historical(workspace: WorkspaceContext, capture: Capture, slot: Workspa
     customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null, ownerUserId: workspace.ownerUserId ?? null,
     rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath, legacy: false, status: 'active', ...capture.realm });
 }
+const seatColumns = ['account_present', 'account_id', 'account_banned', 'organization_present', 'organization_id',
+  'owner_user_id', 'reconciliation_seat_limit', 'fallback_owner_id', 'team_quantity', 'solo_quantity', 'eligible_user_ids'] as const;
+const snapshotScalarColumns = ['raw_banned', 'raw_disabled', 'user_banned', 'client_disabled', 'seat_account_banned',
+  'seat_reconciliation_seat_limit', 'edit_session_expires_at', 'session_expires_at', 'consent_updated_at', 'grant_revoked_at',
+  ...workspacePermissionSnapshotScalarColumns] as const;
+type SlotFacts = { row: Row; seatPolicy: EffectiveSeatPolicy };
+/** One stable wire type lets pg reuse its plan through real column-type changes.
+ * Keep NUMERIC strings exact: their JSON numeric form could round into a grant.
+ * Other supported scalar types retain the existing driver/policy interpretation. */
+function typedSlotSnapshotSql(sql: string): string {
+  return postgresScalarSnapshotSql(sql, snapshotScalarColumns);
+}
 /** Fresh bounded facts only on the actual B; never a grant or a cached policy.
  * Keep raw user/session values scalar. Numeric aggregate flags travel as exact
  * text so JSON decoding cannot round an invalid integer/NUMERIC into 0 or 1. */
-async function readCurrentSlotFacts(phase: Phase, slot: WorkspaceSlot): Promise<Row | undefined> {
+async function readCurrentSlotFacts(phase: Phase, slot: WorkspaceSlot): Promise<SlotFacts> {
+  alive(phase);
   const { connection, capture } = phase;
-  return await connection.get(`WITH raw_user AS MATERIALIZED (SELECT
+  const rawSql = `WITH raw_user AS MATERIALIZED (SELECT
     CASE WHEN octet_length(u.id)<=1024 THEN u.id END AS id,
     CASE WHEN octet_length(u.email)<=4096 THEN u.email END AS email,
     CASE WHEN octet_length(u.role)<=256 THEN u.role END AS role,u.banned,c.disabled,s.expires_at AS edit_session_expires_at,
@@ -319,7 +348,7 @@ async function readCurrentSlotFacts(phase: Phase, slot: WorkspaceSlot): Promise<
       AND octet_length(s.id)<=1024 AND octet_length(s.user_id)<=1024 AND octet_length(c.client_id)<=1024
       AND (c.name IS NULL OR octet_length(c.name)<=4096)) AS bounded
     FROM "user" u JOIN "session" s ON s.user_id=u.id CROSS JOIN oauth_client c
-    WHERE u.id=$1 AND s.id=$2 AND c.client_id=$3 LIMIT 1
+    WHERE u.id=$2 AND s.id=$3 AND c.client_id=$4 LIMIT 1
   ), organization_flags AS MATERIALIZED (
     SELECT CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(team_features_enabled))='number'
       THEN pg_catalog.to_jsonb(team_features_enabled::text) ELSE pg_catalog.to_jsonb(team_features_enabled) END AS team_features_enabled
@@ -331,29 +360,60 @@ async function readCurrentSlotFacts(phase: Phase, slot: WorkspaceSlot): Promise<
       THEN pg_catalog.to_jsonb(can_create_public_links::text) ELSE pg_catalog.to_jsonb(can_create_public_links) END AS can_create_public_links,
     CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(can_create_team_automations))='number'
       THEN pg_catalog.to_jsonb(can_create_team_automations::text) ELSE pg_catalog.to_jsonb(can_create_team_automations) END AS can_create_team_automations
-    FROM organization_user_permissions WHERE user_id=$1 LIMIT 1025
+    FROM organization_user_permissions WHERE user_id=$2 LIMIT 1025
   ) SELECT r.*,
-    EXISTS(SELECT 1 FROM mcp_direct_workspace_setting WHERE workspace_id=$4) AS opted_in,
-    EXISTS(SELECT 1 FROM mcp_direct_workspace_grant WHERE workspace_id=$4 AND client_id=$3 AND user_id=$1) AS granted,
+    EXISTS(SELECT 1 FROM mcp_direct_workspace_setting WHERE workspace_id=$1) AS opted_in,
+    EXISTS(SELECT 1 FROM mcp_direct_workspace_grant WHERE workspace_id=$1 AND client_id=$4 AND user_id=$2) AS granted,
     COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(o)) FROM organization_flags o),'[]'::jsonb) AS organizations,
     COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(p)) FROM permission_flags p),'[]'::jsonb) AS permissions
-    FROM raw_user r`, [capture.claims.subject, capture.claims.sessionId, capture.claims.clientId, slot.workspaceId]) as Row | undefined;
+    FROM raw_user r`;
+  const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
+  const relations = tables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${quote(capture.realm.schema)}.${quote(name)})`).join(',');
+  let row: Row | undefined;
+  try {
+    // Preserve scalar driver types, including NUMERIC strings. JSON decoding
+    // must not turn an invalid flag or a string-valued permission into number 1.
+    // Unsafe raw strings cannot materialize a joined grant row in Node.
+    const sql = typedSlotSnapshotSql(`WITH ${relations}
+      SELECT binding.*,raw.id AS raw_id,raw.email AS raw_email,raw.role AS raw_role,
+        raw.banned AS raw_banned,raw.disabled AS raw_disabled,raw.bounded,raw.edit_session_expires_at,
+        raw.opted_in,raw.granted,raw.organizations,raw.permissions,grant_state.*,
+        ${seatColumns.map(name => `seat.${name} AS seat_${name}`).join(',')},workspace.*
+      FROM (${schemaSnapshotSql(7,8)}) binding
+      LEFT JOIN LATERAL (${rawSql}) raw ON true
+      LEFT JOIN LATERAL (
+        SELECT actual.* FROM (${directMcpGrantStateSnapshotSql(4,6,3,2)}) actual WHERE raw.bounded IS TRUE
+      ) grant_state ON true
+      LEFT JOIN LATERAL (${userSeatAccessSnapshotSql(2,5)}) seat ON raw.bounded IS TRUE
+      LEFT JOIN LATERAL (${workspacePermissionSnapshotSql}) workspace ON raw.bounded IS TRUE`);
+    // This caches only pg's plan. The same held B executes the actual SELECT
+    // again on every call; borrowed adapters keep their ordinary fresh reader.
+    const prepared = Object.getOwnPropertyDescriptor(connection,'getPrepared');
+    const read = prepared && typeof prepared.value === 'function' ? prepared.value as SqlConnection['get'] : connection.get;
+    const reply = await read.call(connection,sql,
+      [slot.workspaceId,capture.claims.subject,capture.claims.sessionId,capture.claims.clientId,seatPolicy.mode,
+        createHash('sha256').update(capture.token).digest('base64url'),quote(capture.realm.schema),tables]) as { facts?: unknown } | undefined;
+    if (!reply?.facts || typeof reply.facts !== 'object' || Array.isArray(reply.facts)
+      || Reflect.get(reply.facts,'scalar_types_supported') !== true) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
+    row = reply.facts as Row;
+  } catch (error) {
+    const code = error && typeof error === 'object' ? Reflect.get(error,'code') : undefined;
+    if (code === '42P01' || code === '42703') fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
+    if (code === '3F000') fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+    throw error;
+  }
+  validateSchemaSnapshot(phase,row);
+  return { row: row!, seatPolicy };
 }
 
-/** Slots are private fixed selections, never caller-supplied permission DTOs. */
-async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<WorkspaceContext> {
-  alive(phase); await schema(phase); const { connection, capture } = phase;
+/** Existing decisions from one actual complete reply, with no new authority. */
+function mcpSlotWorkspace(phase: Phase, slot: WorkspaceSlot, { row: raw, seatPolicy }: SlotFacts): WorkspaceContext {
+  alive(phase); const { capture } = phase;
   const slots = capture.slots;
-  if (slots.kind === 'single'
-    ? capture.policy.kind === 'copy' || slot !== slots.workspace
-    : capture.policy.kind !== 'copy' || slot !== slots.source && slot !== slots.destination) fail('MCP_READ_PRINCIPAL_INVALID');
-  await runtime(capture); alive(phase);
-  // Bound all strings before the unchanged shared grant loader materializes them.
-  const raw = await readCurrentSlotFacts(phase, slot);
   alive(phase);
-  if (!raw || raw.bounded !== true || raw.id !== capture.claims.subject || typeof raw.email !== 'string'
-    || raw.role !== null && typeof raw.role !== 'string' || !flag(raw.banned) || !flag(raw.disabled)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
-  const state = await loadDirectMcpGrantStateOnConnection(connection, capture.claims, capture.token); alive(phase);
+  if (raw.bounded !== true || raw.raw_id !== capture.claims.subject || typeof raw.raw_email !== 'string'
+    || raw.raw_role !== null && typeof raw.raw_role !== 'string' || !flag(raw.raw_banned) || !flag(raw.raw_disabled)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
+  const state = raw.session_id == null ? null : raw as unknown as DirectMcpGrantStateRow;
   if (state && (!flag(state.user_banned) || !flag(state.client_disabled))) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
   assertGrantStateActive(state, capture.claims);
   const permitted = raw;
@@ -364,19 +424,36 @@ async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<Workspace
     || organizations.length > 16 || permissions.length > 1024
     || organizations.some(row => !row || typeof row !== 'object' || !flag(row.team_features_enabled))
     || permissions.some(row => !row || typeof row !== 'object' || Object.values(row).some(value => !flag(value)))) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
-  await assertUserSeatAccessInSingleSnapshotOnConnection(connection, capture.claims.subject, capture.license); alive(phase);
-  const workspace = await readPostgresWorkspaceForActorOnConnection(connection,
-    resolveWorkspaceActor({ id: capture.claims.subject, email: raw.email, role: raw.role as string | null }), slot.workspaceId);
+  const seat = Object.fromEntries(seatColumns.map(name => [name,raw[`seat_${name}`]])) as CurrentSeatSnapshotRow;
+  evaluateUserSeatAccessSnapshot(capture.claims.subject,seatPolicy,seat); alive(phase);
+  const workspace = workspaceContextFromPermissionSnapshot(raw.id == null ? undefined : raw as unknown as WorkspacePermissionSnapshotRow,
+    resolveWorkspaceActor({ id: capture.claims.subject, email: raw.raw_email, role: raw.raw_role as string | null }));
   const requiresWrite = slots.kind === 'single' ? capture.policy.kind !== 'read' : slot === slots.destination;
   alive(phase); if (!workspace || workspace.permissions.canRead !== true
     || requiresWrite && (workspace.permissions.canWrite !== true
       || workspace.permissions.canRunAgent !== true)
     || (capture.policy.kind === 'move' || capture.policy.kind === 'delete')
       && workspace.permissions.canDelete !== true) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
-  const origin = historical(workspace, capture, slot), original = capture.originals.get(slot);
-  if (original && !isDeepStrictEqual(origin, original)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  return workspace;
+}
+
+/** Slots are private fixed selections, never caller-supplied permission DTOs. */
+async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<WorkspaceContext> {
+  alive(phase); await schema(phase); const { capture } = phase;
+  const slots = capture.slots;
+  if (slots.kind === 'single'
+    ? capture.policy.kind === 'copy' || slot !== slots.workspace
+    : capture.policy.kind !== 'copy' || slot !== slots.source && slot !== slots.destination) fail('MCP_READ_PRINCIPAL_INVALID');
+  await runtime(capture); alive(phase);
+  const initial = mcpSlotWorkspace(phase,slot,await readCurrentSlotFacts(phase,slot));
+  const initialOrigin = historical(initial,capture,slot), original = capture.originals.get(slot);
+  if (original && !isDeepStrictEqual(initialOrigin,original)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  // A complete final observation keeps authority and connection facts fresh
+  // after the first real reply. The pre-runtime schema fence stays separate.
+  const final = await readCurrentSlotFacts(phase,slot), raw = final.row;
+  const workspace = mcpSlotWorkspace(phase,slot,final), origin = historical(workspace,capture,slot);
+  if (!isDeepStrictEqual(origin,original ?? initialOrigin)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   if (!original) capture.originals.set(slot, origin);
-  await identity(phase);
   if (slots.kind === 'single') {
     const returned: unknown = slots.observe(original ?? origin);
     if (returned !== undefined) {

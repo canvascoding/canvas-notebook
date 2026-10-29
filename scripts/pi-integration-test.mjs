@@ -246,40 +246,79 @@ async function testManagedFiles(cookie) {
 
   const marker = `PI_PROMPT_MARKER_${Date.now()}`;
   const currentContent = list.body.data.files['AGENTS.md'];
-  const nextContent = `${currentContent.trim()}\n\n- Integration marker: ${marker}\n`;
+  const nextContent = `${currentContent}\n\n- Integration marker: ${marker}\n`;
+  let testError;
 
-  const update = await request('/api/agents/files', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', cookie },
-    body: JSON.stringify({
-      fileName: 'AGENTS.md',
-      content: nextContent,
-    }),
-  });
-  if (!update.response.ok || !update.body?.data?.content?.includes(marker)) {
-    throw new Error('PUT agent file failed');
-  }
+  try {
+    const update = await request('/api/agents/files', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        fileName: 'AGENTS.md',
+        content: nextContent,
+      }),
+    });
+    if (!update.response.ok || !update.body?.data?.content?.includes(marker)) {
+      throw new Error('PUT agent file failed');
+    }
 
-  const doctor = await request('/api/agents/doctor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', cookie },
-    body: JSON.stringify({ livePing: true }),
-  });
-  if (!doctor.response.ok) {
-    throw new Error('Doctor request failed');
-  }
+    const doctor = await request('/api/agents/doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ livePing: true }),
+    });
+    if (!doctor.response.ok) {
+      throw new Error('Doctor request failed');
+    }
 
-  const promptDiagnostics = doctor.body?.data?.promptDiagnostics;
-  if (!promptDiagnostics) {
-    throw new Error('Doctor response missing prompt diagnostics');
-  }
+    const promptDiagnostics = doctor.body?.data?.promptDiagnostics;
+    if (!promptDiagnostics) {
+      throw new Error('Doctor response missing prompt diagnostics');
+    }
 
-  if (!Array.isArray(promptDiagnostics.includedFiles) || !promptDiagnostics.includedFiles.includes('AGENTS.md')) {
-    throw new Error('Prompt diagnostics do not include AGENTS.md');
-  }
+    if (!Array.isArray(promptDiagnostics.includedFiles) || !promptDiagnostics.includedFiles.includes('AGENTS.md')) {
+      throw new Error('Prompt diagnostics do not include AGENTS.md');
+    }
 
-  if (promptDiagnostics.usedFallback) {
-    throw new Error(`Prompt diagnostics unexpectedly used fallback (${promptDiagnostics.fallbackReason || 'unknown'})`);
+    if (promptDiagnostics.usedFallback) {
+      throw new Error(`Prompt diagnostics unexpectedly used fallback (${promptDiagnostics.fallbackReason || 'unknown'})`);
+    }
+  } catch (error) {
+    testError = error;
+    throw error;
+  } finally {
+    try {
+      // The default-agent API has no revision precondition. Use an owned test
+      // server and refuse cleanup if another writer has changed the content.
+      // Read even after a failed PUT: its write may have committed already.
+      const latest = await request('/api/agents/files', { headers: { cookie } });
+      const content = latest.body?.data?.files?.['AGENTS.md'];
+      if (!latest.response.ok || typeof content !== 'string') {
+        throw new Error('Cannot read agent file for cleanup');
+      }
+      if (content !== currentContent) {
+        if (content !== nextContent) {
+          throw new Error('Agent file changed during test; preserving the concurrent edit');
+        }
+        const restored = await request('/api/agents/files', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', cookie },
+          body: JSON.stringify({ fileName: 'AGENTS.md', content: currentContent }),
+        });
+        if (!restored.response.ok) {
+          throw new Error('Restoring agent file failed');
+        }
+        const verified = await request('/api/agents/files', { headers: { cookie } });
+        if (!verified.response.ok || verified.body?.data?.files?.['AGENTS.md'] !== currentContent) {
+          throw new Error('Agent file cleanup did not preserve the original content');
+        }
+      }
+    } catch (cleanupError) {
+      if (testError) {
+        throw new AggregateError([testError, cleanupError], 'Managed files check and cleanup failed');
+      }
+      throw cleanupError;
+    }
   }
 
   console.log('[PI Test] Managed files check passed.');

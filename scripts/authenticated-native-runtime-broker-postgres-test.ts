@@ -588,9 +588,9 @@ async function incompatible(kind: string): Promise<void> {
         'createAuthenticatedNativePeerOrigin', 'adoptAuthenticatedNativePeerOrigin',
         'captureAuthenticatedNativePeerOriginTransportOnConnection', 'withAuthenticatedNativePeerOriginJoinOnConnection',
         'retireAuthenticatedNativePeerOriginAttempt', 'finishAuthenticatedNativePeerOrigin', 'disposeAuthenticatedNativePeerOrigin'];
-  const api = { kind: 'canvas-authenticated-native-session-runtime', version: kind === 'version' ? 1 : 2,
+  const api = { kind: 'canvas-authenticated-native-session-runtime', version: kind === 'version' ? 2 : 3,
     Error: Error, ...Object.fromEntries(methods.map(name => [name, method])), ...(kind === 'extra' ? { records: new WeakMap() } : {}) };
-  const value = kind === 'partial' ? Object.freeze({ kind: api.kind, version: 2 }) : kind === 'mutable' ? api : Object.freeze(api);
+  const value = kind === 'partial' ? Object.freeze({ kind: api.kind, version: 3 }) : kind === 'mutable' ? api : Object.freeze(api);
   Object.defineProperty(globalThis, runtimeKey, kind === 'accessor' ? { get() { calls++; return value; } }
     : { value, writable: false, configurable: false });
   const before = Object.getOwnPropertyDescriptor(globalThis, runtimeKey);

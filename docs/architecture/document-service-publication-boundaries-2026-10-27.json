@@ -1,0 +1,1344 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "baseHead": "ed0ffb21155fc46f89dd419bf3c0fd6dea7ac98b",
+  "scope": "Publication-boundary deduplication on actual Agent/MCP Create paths; four sequential 10-source fixtures and separate read-only source attribution. SQL driver calls include transaction and schema statements.",
+  "sourceHashes": {
+    "scripts/markdown-create-publication-boundaries-postgres-test.ts": "6a4449d735b7b4c1952b650f1da88d72f7f7503c7067b5096c2ebf3cb3556005",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "cd348ff86980aa02fe7bfe4acca9166415d4401fb42bcd2326ecbed9ce242f8c",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "304fd89413c2571a76784fa4d666bf155db397c08fe6ad0478aa054e1703c022",
+    "app/lib/files/markdown-create-birth.ts": "234a067f6b497492bda754d8adcc1a0ae3fd54780d2746f34ebd5d0cf14725fd",
+    "app/lib/mcp/server/document-read-principal.ts": "38fa1daaca80cff1b4ff189a99af54530c1d7c2aa91e6c0a86e774f79dd437a6",
+    "app/lib/workspaces/request-principal.ts": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "app/lib/collaboration/lifecycle-transaction.ts": "856f47f213ddbd5c5183e7df0cbf422123c96bae9d6ac2b6034ee14f8bfd673d",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "5553e1e0569cedff3fbbd1dad80a8dede2c1ced8aac3ce0902b557b445bff93f",
+    "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts": "6dc7cb587b6096d605e458af59ad5eeb365bf90c6b5bfc3228f5cced79c571cf",
+    "scripts/agent-markdown-create-storage-phase-postgres-test.ts": "82af08e82dc12d13db9015216579a795d6c567d651f57f23f4b79cf8a19a71ac",
+    "scripts/agent-markdown-create-storage-commit-postgres-test.ts": "e4e83d54f6c008e64b8f8a61e827178b5e5ccdde25903b4eca7b70f93eb7d730",
+    "scripts/direct-mcp-native-markdown-create-postgres-test.ts": "97c66c5d766390210d697045b12db0b2b85ac1201bf7cb84c78d9fa4b27dd880",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/manual-markdown-create-birth-entry-test.ts": "ccb790cdc281d73d989e994d1791fd98cf5e16952fcb81a840c4a87e7ef8871a",
+    "scripts/direct-mcp-document-create-principal-postgres-test.ts": "30002d6de27c6ec8ee20ab7f5a723132f6e3207dd06613738d9248b5d2c96907",
+    "scripts/direct-mcp-native-copy-owner-postgres-test.ts": "acf5ede74eacd0d7866af4951fcd864f43dc5240ff1995b6d6673dbe55858b5b",
+    "scripts/direct-mcp-slot-snapshot-postgres-test.ts": "62213af8a9245a08fe87be3a421dcc822ec39f0358e876a0ea513787b7cf9431"
+  },
+  "matrixFixedSourceHashes": {
+    "app/lib/workspaces/request-principal.ts": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "app/lib/workspaces/postgres-runtime.ts": "69a18c8a1ec5c48b34c2cb4998ac6fa4052379536e5e475bf0f768ffd8ee56f8",
+    "app/lib/mcp/server/document-read-principal.ts": "38fa1daaca80cff1b4ff189a99af54530c1d7c2aa91e6c0a86e774f79dd437a6",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "app/lib/db/postgres-scalar-snapshot.ts": "a4288f9acfb2030353e8936d24c6349ec413b9b7b67b0ad3413a6f0f0dfd3843",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "5553e1e0569cedff3fbbd1dad80a8dede2c1ced8aac3ce0902b557b445bff93f",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/helpers/document-baseline-fixture.ts": "13cc42638e01bb92e496f94e2c0cbdbc94691ad8376cdffb6d10757c4fd9582f",
+    "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts": "6dc7cb587b6096d605e458af59ad5eeb365bf90c6b5bfc3228f5cced79c571cf",
+    "app/lib/db/index.ts": "c3edce1e2d640d02e4d42d0f8d4112679d7b3cc6c9e032b8d26f6fe8b4275536",
+    "app/lib/collaboration/lifecycle-transaction.ts": "856f47f213ddbd5c5183e7df0cbf422123c96bae9d6ac2b6034ee14f8bfd673d",
+    "app/lib/files/markdown-create-birth.ts": "234a067f6b497492bda754d8adcc1a0ae3fd54780d2746f34ebd5d0cf14725fd",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "cd348ff86980aa02fe7bfe4acca9166415d4401fb42bcd2326ecbed9ce242f8c",
+    "scripts/markdown-create-publication-boundaries-postgres-test.ts": "6a4449d735b7b4c1952b650f1da88d72f7f7503c7067b5096c2ebf3cb3556005",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500"
+  },
+  "matrixProductHashes": {
+    "baseline": {
+      "app/lib/collaboration/markdown-file-import-persistence.ts": "96ff473113ba32e867e344bfa6596fed1a3879e84823595e16c539f344b13074"
+    },
+    "current": {
+      "app/lib/collaboration/markdown-file-import-persistence.ts": "304fd89413c2571a76784fa4d666bf155db397c08fe6ad0478aa054e1703c022"
+    }
+  },
+  "baseline": {
+    "fullNativeProofsAtPublicationAck": 2,
+    "expectedFailure": true,
+    "logSha256": "b2317192513c0c03bb1bf7ab15010f464322060e3be44dfe040881f88c171b35"
+  },
+  "focused": {
+    "actors": 2,
+    "checkedPublicationAcks": 4,
+    "actualVersionRaces": 2,
+    "retainedFullNativeFence": true,
+    "originalNativeIdsBytesClockRestored": true,
+    "explicitRetrySameIdentity": true,
+    "logSha256": "297298f15db42d64d38d3b05947e575a491f9285b08664ecdfe640db1bf1ec0d"
+  },
+  "functionProof": {
+    "base": "ed0ffb21155fc46f89dd419bf3c0fd6dea7ac98b",
+    "file": "app/lib/collaboration/markdown-file-import-persistence.ts",
+    "changed": [
+      "assertAuthenticatedAgentMarkdownBirthStorageAllowed",
+      "assertAuthenticatedDirectMcpMarkdownBirthStorageAllowed",
+      "currentAuthenticatedMarkdownBirth",
+      "projectAuthenticatedMarkdownBirth"
+    ],
+    "added": [
+      "assertAuthenticatedMarkdownBirthStorageBoundary"
+    ]
+  },
+  "unchangedExistingPersistenceFunctions": 107,
+  "regressions": [
+    {
+      "entry": "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7ada91d49f64ba83d5ace64e99a551deb298fadf2670921b80728bf88cdbddb6"
+    },
+    {
+      "entry": "scripts/agent-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "aa8b6b63583eb92ae3b78a046deb3c75559fd2670a307df9f8c0df618a188127"
+    },
+    {
+      "entry": "scripts/agent-markdown-create-storage-commit-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "8894d2e5d5ff198d294734dc269b848c3b91304b8051eaf0ee2c75eea23fd4ad"
+    },
+    {
+      "entry": "scripts/direct-mcp-native-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "1c134b2ab31c8b9ac4f2da1a29e615734dd8fb14e6be7c2992028a6a3357eed5"
+    },
+    {
+      "entry": "scripts/authenticated-manual-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "11a82c112aec63940cdce734e356ae8e7d86a10901df0298fcf202f419003b5a"
+    },
+    {
+      "entry": "scripts/authenticated-markdown-upload-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "9803bba532b2ad76b85fd971a8dc8bdea2ddbfb8af0969981c6f4008299c3b43"
+    },
+    {
+      "entry": "scripts/manual-markdown-create-birth-entry-test.ts",
+      "exitCode": 0,
+      "logSha256": "5fc9321f045e41cb0a8c57aaf25a31dd2c649573b096134dbe0416272fc2dedd"
+    },
+    {
+      "entry": "scripts/direct-mcp-document-create-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "2df6f69bb1674e393b81a0a9bbd18dbb007629ab31a6f7957f5d9a2e10f0e65b"
+    },
+    {
+      "entry": "scripts/direct-mcp-native-copy-owner-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "c903566bd119267c40d792a6c80d19e864ce9b979e0e1a5f55092fedeb254570"
+    },
+    {
+      "entry": "scripts/direct-mcp-slot-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7efb77fe2b7464aeec149683dc92712ca65a45fc7ba68c9f44597db1ffd1f851"
+    }
+  ],
+  "metric": "Actual measured PostgreSQL runtime driver calls in fixed existing operation windows; source attribution timing is not performance acceptance.",
+  "matrix": [
+    {
+      "variant": "baseline",
+      "adapter": "mcp",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1892,
+          "checkouts": 46,
+          "wallMs": 2683.51,
+          "databaseMs": 1357.15,
+          "poolWaitMs": 5.19,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1871,
+          "checkouts": 33,
+          "wallMs": 2321.87,
+          "databaseMs": 1182.16,
+          "poolWaitMs": 4.33,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1871,
+          "checkouts": 33,
+          "wallMs": 2306.24,
+          "databaseMs": 1174.99,
+          "poolWaitMs": 4.31,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 140.07,
+          "databaseMs": 82.43,
+          "poolWaitMs": 0.17,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "adapter": "mcp",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1577,
+          "checkouts": 46,
+          "wallMs": 2340.92,
+          "databaseMs": 1083.57,
+          "poolWaitMs": 4.27,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1556,
+          "checkouts": 33,
+          "wallMs": 2043.38,
+          "databaseMs": 959.74,
+          "poolWaitMs": 4.22,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1556,
+          "checkouts": 33,
+          "wallMs": 2036.2,
+          "databaseMs": 976.5,
+          "poolWaitMs": 4.23,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 138.68,
+          "databaseMs": 79.2,
+          "poolWaitMs": 0.18,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "adapter": "agent",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2285,
+          "checkouts": 80,
+          "wallMs": 3075.59,
+          "databaseMs": 1597.58,
+          "poolWaitMs": 5.64,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2720.12,
+          "databaseMs": 1587.69,
+          "poolWaitMs": 4.58,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2180,
+          "checkouts": 46,
+          "wallMs": 2501.59,
+          "databaseMs": 1398.58,
+          "poolWaitMs": 4.04,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 192.75,
+          "databaseMs": 142.24,
+          "poolWaitMs": 0.06,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "adapter": "agent",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2248,
+          "checkouts": 80,
+          "wallMs": 3054.54,
+          "databaseMs": 1587,
+          "poolWaitMs": 4.95,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2143,
+          "checkouts": 46,
+          "wallMs": 2642.55,
+          "databaseMs": 1513.04,
+          "poolWaitMs": 4.34,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2143,
+          "checkouts": 46,
+          "wallMs": 2492.94,
+          "databaseMs": 1383.94,
+          "poolWaitMs": 4.84,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 200.69,
+          "databaseMs": 148.41,
+          "poolWaitMs": 0.07,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    }
+  ],
+  "matrixSourceRestored": true,
+  "attribution": {
+    "baseline": {
+      "stackFailures": 0,
+      "windows": [
+        {
+          "index": 0,
+          "statements": 1892,
+          "observedCalls": 1892,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 489,
+            "catalogue": 1305,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 382,
+              "catalogue": 382,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 313,
+              "catalogue": 313,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 249,
+              "catalogue": 0,
+              "lines": [
+                1768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 224,
+              "catalogue": 224,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 104,
+              "catalogue": 104,
+              "lines": [
+                1388
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2296
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 51,
+              "catalogue": 48,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 51,
+              "catalogue": 51,
+              "lines": [
+                2252
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 43,
+              "catalogue": 43,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 42,
+              "catalogue": 0,
+              "lines": [
+                2265
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2316
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "statements": 1871,
+          "observedCalls": 1871,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 468,
+            "catalogue": 1305,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 382,
+              "catalogue": 382,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 313,
+              "catalogue": 313,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 249,
+              "catalogue": 0,
+              "lines": [
+                1768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 224,
+              "catalogue": 224,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 104,
+              "catalogue": 104,
+              "lines": [
+                1388
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2296
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 51,
+              "catalogue": 48,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 51,
+              "catalogue": 51,
+              "lines": [
+                2252
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 43,
+              "catalogue": 43,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 42,
+              "catalogue": 0,
+              "lines": [
+                2265
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2316
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "statements": 1871,
+          "observedCalls": 1871,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 468,
+            "catalogue": 1305,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 382,
+              "catalogue": 382,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 313,
+              "catalogue": 313,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 249,
+              "catalogue": 0,
+              "lines": [
+                1768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 224,
+              "catalogue": 224,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 104,
+              "catalogue": 104,
+              "lines": [
+                1388
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2296
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 51,
+              "catalogue": 48,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 51,
+              "catalogue": 51,
+              "lines": [
+                2252
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 43,
+              "catalogue": 43,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 42,
+              "catalogue": 0,
+              "lines": [
+                2265
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2316
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "statements": 102,
+          "observedCalls": 102,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 29,
+            "catalogue": 54,
+            "transaction": 19
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 18,
+              "catalogue": 18,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 15,
+              "catalogue": 15,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:withWorkspaceFileLifecycleGuard",
+              "calls": 8,
+              "catalogue": 2,
+              "lines": [
+                379,
+                396,
+                397,
+                403,
+                419,
+                422,
+                444
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 7,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                1768
+              ]
+            },
+            {
+              "owner": "collaboration/lifecycle-transaction.ts:executeLifecycleTransaction",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                24,
+                40
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:identity",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                197
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                1388
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:observeMcpNativeCompletion",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                1535,
+                1556,
+                1578,
+                1587
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:bootstrapConnectionRealm",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                339
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:assertWorkspaceFileLifecycleSqlAvailable",
+              "calls": 3,
+              "catalogue": 1,
+              "lines": [
+                324,
+                341,
+                351
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "current": {
+      "stackFailures": 0,
+      "windows": [
+        {
+          "index": 0,
+          "statements": 1577,
+          "observedCalls": 1577,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 473,
+            "catalogue": 1006,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 244,
+              "catalogue": 244,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 240,
+              "catalogue": 240,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 237,
+              "catalogue": 0,
+              "lines": [
+                1758
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 155,
+              "catalogue": 155,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 91,
+              "catalogue": 91,
+              "lines": [
+                1403
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2286
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 49,
+              "catalogue": 46,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 49,
+              "catalogue": 49,
+              "lines": [
+                2242
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 41,
+              "catalogue": 41,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2255
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 38,
+              "catalogue": 0,
+              "lines": [
+                2306
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "statements": 1556,
+          "observedCalls": 1556,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 452,
+            "catalogue": 1006,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 244,
+              "catalogue": 244,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 240,
+              "catalogue": 240,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 237,
+              "catalogue": 0,
+              "lines": [
+                1758
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 155,
+              "catalogue": 155,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 91,
+              "catalogue": 91,
+              "lines": [
+                1403
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2286
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 49,
+              "catalogue": 46,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 49,
+              "catalogue": 49,
+              "lines": [
+                2242
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 41,
+              "catalogue": 41,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2255
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 38,
+              "catalogue": 0,
+              "lines": [
+                2306
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "statements": 1556,
+          "observedCalls": 1556,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 452,
+            "catalogue": 1006,
+            "transaction": 98
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 244,
+              "catalogue": 244,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 240,
+              "catalogue": 240,
+              "lines": [
+                70
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 237,
+              "catalogue": 0,
+              "lines": [
+                1758
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 155,
+              "catalogue": 155,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 91,
+              "catalogue": 91,
+              "lines": [
+                1403
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertFirstProjectionOwnerOrigin",
+              "calls": 89,
+              "catalogue": 89,
+              "lines": [
+                2286
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapNativeRealm",
+              "calls": 49,
+              "catalogue": 46,
+              "lines": [
+                354,
+                363,
+                365
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertMarkdownBirthRealm",
+              "calls": 49,
+              "catalogue": 49,
+              "lines": [
+                2242
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 44,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertBootstrapRoomAbsent",
+              "calls": 41,
+              "catalogue": 41,
+              "lines": [
+                398
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedMarkdownBirth",
+              "calls": 40,
+              "catalogue": 0,
+              "lines": [
+                2255
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:currentAuthenticatedMarkdownBirth",
+              "calls": 38,
+              "catalogue": 0,
+              "lines": [
+                2306
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "statements": 102,
+          "observedCalls": 102,
+          "exactCountMatch": true,
+          "groups": {
+            "other": 29,
+            "catalogue": 54,
+            "transaction": 19
+          },
+          "owners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 18,
+              "catalogue": 18,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 15,
+              "catalogue": 15,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:withWorkspaceFileLifecycleGuard",
+              "calls": 8,
+              "catalogue": 2,
+              "lines": [
+                379,
+                396,
+                397,
+                403,
+                419,
+                422,
+                444
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 7,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                1758
+              ]
+            },
+            {
+              "owner": "collaboration/lifecycle-transaction.ts:executeLifecycleTransaction",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                24,
+                40
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:identity",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                197
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                1403
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:observeMcpNativeCompletion",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                1525,
+                1546,
+                1568,
+                1577
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:bootstrapConnectionRealm",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                339
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:assertWorkspaceFileLifecycleSqlAvailable",
+              "calls": 3,
+              "catalogue": 1,
+              "lines": [
+                324,
+                341,
+                351
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "baselineScriptSha256": "d2f43d3df28740fae8668957bf1f980430f565065a82bb5e5c5070ede690c32b",
+    "currentScript": "scripts/helpers/document-query-callsite-profiler.mjs",
+    "currentScriptSha256": "cd348ff86980aa02fe7bfe4acca9166415d4401fb42bcd2326ecbed9ce242f8c",
+    "currentOutputSha256": "144234320aaf9701a861f73495e256eb04c603064958c6a3f74f204977ac0aca",
+    "catalogueMeaning": "Statements mentioning PostgreSQL system catalogues, schema or transaction identity; these can also contain authorization facts. This is not the Markdown link catalogue."
+  },
+  "typescript": {
+    "scoped": {
+      "roots": 44,
+      "sourceFiles": 5166,
+      "diagnostics": 0
+    },
+    "releaseExitCode": 0
+  },
+  "eslint": {
+    "exitCode": 0
+  },
+  "limits": [
+    "Ten-source sequential local fixtures only; earlier 200-source reports retain their own source binding.",
+    "No claim about proportions of all production database traffic.",
+    "No controlled network-latency, final-source build/UI/test:all, merge CI or full-plan acceptance.",
+    "Further authorization/owner/state consolidation, shared link contracts, incremental dependencies, common writes, production recovery/restore proof and release remain required."
+  ],
+  "reviewCenterDevelopment": false,
+  "undoDevelopment": false,
+  "productionChanged": false,
+  "newReleasePublished": false,
+  "fullGoalComplete": false
+}

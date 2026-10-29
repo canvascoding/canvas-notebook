@@ -178,7 +178,7 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
     return withManagedAuthCleanup(async () => {
       if (await stateIsAuthorized(browser, storageStatePath, identity, deadline)) return storageStatePath;
       const baseURL = process.env.BASE_URL || 'http://localhost:3000';
-      const context = await browser.newContext({ baseURL });
+      const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
       const temporaryPath = `${storageStatePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
       await withManagedAuthCleanup(async () => {
         let retries = 0;

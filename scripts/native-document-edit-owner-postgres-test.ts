@@ -244,13 +244,18 @@ export async function nativeDocumentEditOwnerPostgresTest():Promise<void> {
       console.log('PASS real native-only unexportable XML and Blocks edits persist and read by ID without Markdown history/export precondition');groups++;
 
       stage='postwrite SQL ACK loss';
-      // No socket on this document: the observed postwrite session SELECT
-      // belongs to the direct edit authority, not a peer access monitor.
+      // No socket on this document: observe the direct edit authority's real
+      // complete Member snapshot. Its session selector is parameter 3; the
+      // former standalone session SELECT used parameter 1.
       const faultBefore=await read(fault),faultRequest=selection(fault,faultBefore.document.version,'native-owner-ack-loss-1','Target','Acknowledged');
       let injected=false,failedOperationId:string|undefined;
       await h.withProbe(async event=>{
         if(injected||!documents.get(fault.id)?.getText('content').toString().includes('Acknowledged')
-          ||!event.text.includes('SELECT s.user_id,s.expires_at,s.impersonated_by')||event.values[0]!==currentSession)return;
+          ||!event.text.includes('SELECT header.*,account.*,')
+          ||!event.text.includes('SELECT s.user_id,s.expires_at,s.impersonated_by')
+          ||event.values[0]!==h.source.workspaceId||event.values[2]!==currentSession)return;
+        assert.equal(event.values[1],'owner');assert.equal(event.result.rows.length,1);
+        assert.equal(event.result.rows[0].user_id,'owner');assert.equal(event.result.rows[0].id,'owner');
         injected=true;throw new Error('OWNED_POST_APPLY_SQL_ACK_LOSS');
       },async()=>{await assert.rejects(apply(faultRequest),error=>{
         assert.equal(code(error),'EDIT_OUTCOME_UNCONFIRMED');const id=error&&typeof error==='object'?Object.getOwnPropertyDescriptor(error,'operationId')?.value:undefined;

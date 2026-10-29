@@ -10,6 +10,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import type { CollaborationRoomOwnerScope } from '../app/lib/collaboration/room-owner';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+import { installDocumentClientQueryMetrics } from '../app/lib/observability/document-operation-metrics';
 
 // Actual HTTP upgrade/Cookie authorization, Hocuspocus and dedicated PG owner
 // sessions. SQL/hook observers preserve real returned rows and authorization.
@@ -52,6 +53,9 @@ export async function nativeDocumentSearchRoomPostgresTest(): Promise<void> {
       const identity = (await client.query(`SELECT current_schema() AS schema,pg_backend_pid() AS pid,
         extract(epoch FROM backend_start)::text AS start FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
       assert.equal(identity.schema, h.schema); ownerBackends.push({ pid: identity.pid, start: identity.start });
+      // Exclude the fixture-only backend identity probe, then observe the same
+      // actual owner SQL as the regular production owner-client factory.
+      installDocumentClientQueryMetrics(client);
       const session = await createCollaborationRoomOwnerSession({ query: client.query.bind(client), on: client.on.bind(client),
         end: async () => { await client.end(); ownClients.delete(client); } }, onInvalidated);
       ownerSessions.add(session); return session;
@@ -236,7 +240,10 @@ export async function nativeDocumentSearchRoomPostgresTest(): Promise<void> {
   console.log(JSON.stringify({ suite: 'native-document-search-room', groups, evidence: 'actual_socket_principal_pg_owner_and_native_service' }));
 }
 
-nativeDocumentSearchRoomPostgresTest().catch(error => {
+// Profilers must await the actual socket/owner cleanup, not merely this
+// module's asynchronous import. The standalone runner retains its error guard.
+export const nativeDocumentSearchRoomPostgresCompletion = nativeDocumentSearchRoomPostgresTest();
+nativeDocumentSearchRoomPostgresCompletion.catch(error => {
   console.error(JSON.stringify({ suite: 'native-document-search-room', stage, groups, name: error instanceof Error ? error.name : 'UnknownError',
     code: error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value ?? null : null }));
   console.error(error); process.exitCode = 1;

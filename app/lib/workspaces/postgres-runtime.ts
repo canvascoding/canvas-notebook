@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from '
 import path from 'node:path';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { postgresScalarSnapshotSql } from '@/app/lib/db/postgres-scalar-snapshot';
 import {
   areTeamFeaturesEnabled,
   getConfiguredOrganizationId,
@@ -34,6 +35,7 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
+import { resolveWorkspaceActor } from './context';
 import { seedWorkspaceStarterDocument, withObservedWorkspaceStarterDocument } from './starter-document';
 import { recordWorkspaceStarterInitializationIntent } from './starter-document-initialization-store';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
@@ -1073,47 +1075,6 @@ function workspaceContextFromRecord(
   };
 }
 
-async function getProjectPermissionRows(
-  database: RuntimeDb,
-  organizationId: string,
-  userId: string,
-  projectIds: string[],
-): Promise<Map<string, ProjectPermissionRow>> {
-  const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
-  if (uniqueProjectIds.length === 0) return new Map();
-  const placeholders = uniqueProjectIds.map((_, index) => `$${index + 3}`).join(', ');
-  const rows = await database.all(
-    `
-      SELECT project_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
-      FROM canvas_project_members
-      WHERE organization_id = $1 AND user_id = $2 AND project_id IN (${placeholders})
-    `,
-    [organizationId, userId, ...uniqueProjectIds],
-  ) as ProjectPermissionRow[];
-
-  return new Map(rows.flatMap((row) => (row.project_id ? [[row.project_id, row]] : [])));
-}
-
-async function getTeamWorkspacePermissionRows(
-  database: RuntimeDb,
-  userId: string,
-  workspaceIds: string[],
-): Promise<Map<string, TeamWorkspacePermissionRow>> {
-  const uniqueWorkspaceIds = Array.from(new Set(workspaceIds.filter(Boolean)));
-  if (uniqueWorkspaceIds.length === 0) return new Map();
-  const placeholders = uniqueWorkspaceIds.map((_, index) => `$${index + 2}`).join(', ');
-  const rows = await database.all(
-    `
-      SELECT workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
-      FROM canvas_workspace_members
-      WHERE user_id = $1 AND workspace_id IN (${placeholders})
-    `,
-    [userId, ...uniqueWorkspaceIds],
-  ) as TeamWorkspacePermissionRow[];
-
-  return new Map(rows.flatMap((row) => (row.workspace_id ? [[row.workspace_id, row]] : [])));
-}
-
 async function getTeamWorkspacePermissionRow(
   database: RuntimeDb,
   workspaceId: string,
@@ -1153,38 +1114,16 @@ async function listWorkspaceContextsForUser(
   actor: WorkspaceActor,
   organizationId: string,
 ): Promise<WorkspaceContext[]> {
-  const rows = await database.all(
-    `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
-      FROM canvas_workspaces
-      WHERE organization_id = $1 AND status = 'active'
-        AND (type != 'personal' OR owner_user_id = $2)
-      ORDER BY is_default DESC, CASE type WHEN 'personal' THEN 0 WHEN 'organization' THEN 1 WHEN 'team' THEN 2 ELSE 3 END, created_at ASC
-    `,
-    [organizationId, actor.userId],
-  ) as WorkspaceRow[];
-  const permission = await getPermissionRow(database, organizationId, actor.userId);
-  const teamPermissionRows = await getTeamWorkspacePermissionRows(
-    database,
-    actor.userId,
-    rows.flatMap((row) => (row.type === 'team' ? [row.id] : [])),
-  );
-  const projectPermissionRows = await getProjectPermissionRows(
-    database,
-    organizationId,
-    actor.userId,
-    rows.flatMap((row) => (row.type === 'project' && row.project_id ? [row.project_id] : [])),
-  );
-
-  return rows
-    .map(rowToWorkspaceRecord)
-    .map((record) => ({
-      record,
-      teamPermission: record.type === 'team' ? teamPermissionRows.get(record.id) ?? null : null,
-      projectPermission: record.projectId ? projectPermissionRows.get(record.projectId) ?? null : null,
-    }))
-    .filter(({ record, teamPermission, projectPermission }) => canReadWorkspace(record, actor, permission, teamPermission, projectPermission))
-    .map(({ record, teamPermission, projectPermission }) => workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission));
+  const rows = await database.all(`${workspacePermissionSnapshotProjection}
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces
+      WHERE organization_id=$1 AND status='active' AND (type!='personal' OR owner_user_id=$2)) w
+    ${workspacePermissionSnapshotJoins}
+    ORDER BY w.is_default DESC, CASE w.type WHEN 'personal' THEN 0 WHEN 'organization' THEN 1 WHEN 'team' THEN 2 ELSE 3 END, w.created_at ASC`,
+  [organizationId, actor.userId]) as WorkspacePermissionSnapshotRow[];
+  return rows.flatMap(row => {
+    const workspace = workspaceContextFromPermissionSnapshot(row, actor);
+    return workspace ? [workspace] : [];
+  });
 }
 
 async function resolveDefaultWorkspaceContext(
@@ -2377,64 +2316,7 @@ export async function removePostgresWorkspaceMemberForActor(
   }
 }
 
-/** Internal fixed current read on the caller's actual connection. No bootstrap,
- * pool, transaction, cache or authority. Scalar aliases preserve the ordinary
- * PG wire values; presence flags distinguish a missing optional joined row. */
-export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
-  database: Pick<PostgresRuntimeDb, 'get'>,
-  actor: WorkspaceActor,
-  workspaceId: string,
-): Promise<WorkspaceContext | null> {
-  const row = await database.get(`
-    SELECT w.*,
-      p.present AS permission_present,
-      p.role AS permission_role,
-      p.status AS permission_status,
-      p.can_write_team_workspace AS permission_can_write_team_workspace,
-      p.can_create_public_links AS permission_can_create_public_links,
-      p.can_create_team_automations AS permission_can_create_team_automations,
-      p.can_share_plugins_and_skills AS permission_can_share_plugins_and_skills,
-      p.can_export AS permission_can_export,
-      p.can_delete_team_files AS permission_can_delete_team_files,
-      p.can_delete_studio_assets AS permission_can_delete_studio_assets,
-      p.can_manage_backups AS permission_can_manage_backups,
-      p.can_manage_organization_memory AS permission_can_manage_organization_memory,
-      p.can_migrate_database AS permission_can_migrate_database,
-      p.can_enable_knowledge AS permission_can_enable_knowledge,
-      p.can_recover_workspaces AS permission_can_recover_workspaces,
-      t.present AS team_present,
-      t.workspace_id AS team_workspace_id,
-      t.role AS team_role,
-      t.status AS team_status,
-      t.can_read AS team_can_read,
-      t.can_write AS team_can_write,
-      t.can_manage AS team_can_manage,
-      j.present AS project_present,
-      j.role AS project_role,
-      j.status AS project_status,
-      j.can_read AS project_can_read,
-      j.can_write AS project_can_write,
-      j.can_manage AS project_can_manage
-    FROM (
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
-        display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
-      FROM canvas_workspaces WHERE id=$1 LIMIT 1
-    ) w
-    LEFT JOIN LATERAL (
-      SELECT true AS present, role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
-        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
-        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
-      FROM organization_user_permissions WHERE organization_id=w.organization_id AND user_id=$2 LIMIT 1
-    ) p ON true
-    LEFT JOIN LATERAL (
-      SELECT true AS present, workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
-      FROM canvas_workspace_members WHERE w.type='team' AND workspace_id=w.id AND user_id=$2 LIMIT 1
-    ) t ON true
-    LEFT JOIN LATERAL (
-      SELECT true AS present, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
-      FROM canvas_project_members WHERE w.project_id IS NOT NULL AND w.project_id<>''
-        AND organization_id=w.organization_id AND project_id=w.project_id AND user_id=$2 LIMIT 1
-    ) j ON true`, [workspaceId, actor.userId]) as (WorkspaceRow & {
+export type WorkspacePermissionSnapshotRow = WorkspaceRow & {
     permission_present: boolean | null;
     permission_role: PermissionRow['role'];
     permission_status: PermissionRow['status'];
@@ -2463,7 +2345,75 @@ export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
     project_can_read: ProjectPermissionRow['can_read'];
     project_can_write: ProjectPermissionRow['can_write'];
     project_can_manage: ProjectPermissionRow['can_manage'];
-  }) | undefined;
+  };
+const workspacePermissionSnapshotProjection = `
+    SELECT w.*,
+      p.present AS permission_present,
+      p.role AS permission_role,
+      p.status AS permission_status,
+      p.can_write_team_workspace AS permission_can_write_team_workspace,
+      p.can_create_public_links AS permission_can_create_public_links,
+      p.can_create_team_automations AS permission_can_create_team_automations,
+      p.can_share_plugins_and_skills AS permission_can_share_plugins_and_skills,
+      p.can_export AS permission_can_export,
+      p.can_delete_team_files AS permission_can_delete_team_files,
+      p.can_delete_studio_assets AS permission_can_delete_studio_assets,
+      p.can_manage_backups AS permission_can_manage_backups,
+      p.can_manage_organization_memory AS permission_can_manage_organization_memory,
+      p.can_migrate_database AS permission_can_migrate_database,
+      p.can_enable_knowledge AS permission_can_enable_knowledge,
+      p.can_recover_workspaces AS permission_can_recover_workspaces,
+      t.present AS team_present,
+      t.workspace_id AS team_workspace_id,
+      t.role AS team_role,
+      t.status AS team_status,
+      t.can_read AS team_can_read,
+      t.can_write AS team_can_write,
+      t.can_manage AS team_can_manage,
+      j.present AS project_present,
+      j.role AS project_role,
+      j.status AS project_status,
+      j.can_read AS project_can_read,
+      j.can_write AS project_can_write,
+      j.can_manage AS project_can_manage`;
+const workspacePermissionSnapshotJoins = `
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
+        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
+        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
+      FROM organization_user_permissions WHERE organization_id=w.organization_id AND user_id=$2 LIMIT 1
+    ) p ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_workspace_members WHERE w.type='team' AND workspace_id=w.id AND user_id=$2 LIMIT 1
+    ) t ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_project_members WHERE w.project_id IS NOT NULL AND w.project_id<>''
+        AND organization_id=w.organization_id AND project_id=w.project_id AND user_id=$2 LIMIT 1
+    ) j ON true`;
+const workspacePermissionSnapshotColumns = `id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at`;
+
+/** Fixed read profile: $1 is workspace ID, $2 is current user ID. No authority. */
+export const workspacePermissionSnapshotSql = `${workspacePermissionSnapshotProjection}
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
+    ${workspacePermissionSnapshotJoins}`;
+
+/** Fields whose scalar driver interpretation is consumed by the existing policy. */
+export const workspacePermissionSnapshotScalarColumns = Object.freeze(['is_default', 'permission_can_write_team_workspace',
+  'permission_can_create_public_links', 'permission_can_create_team_automations', 'permission_can_share_plugins_and_skills',
+  'permission_can_export', 'permission_can_delete_team_files', 'permission_can_delete_studio_assets',
+  'permission_can_manage_backups', 'permission_can_manage_organization_memory', 'permission_can_migrate_database',
+  'permission_can_enable_knowledge', 'permission_can_recover_workspaces', 'team_can_read', 'team_can_write', 'team_can_manage',
+  'project_can_read', 'project_can_write', 'project_can_manage'] as const);
+
+/** Same current facts with exact NUMERIC strings for callers nesting JSON. */
+export const workspacePermissionSnapshotJsonSql = postgresScalarSnapshotSql(workspacePermissionSnapshotSql,
+  workspacePermissionSnapshotScalarColumns);
+
+export function workspaceContextFromPermissionSnapshot(row: WorkspacePermissionSnapshotRow | undefined,
+  actor: WorkspaceActor): WorkspaceContext | null {
   if (!row) return null;
   const record = rowToWorkspaceRecord(row);
   const permission = row.permission_present === true ? {
@@ -2501,6 +2451,37 @@ export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
   return workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission);
 }
 
+/** Current workspace and rights in one real SQL snapshot on the caller's
+ * connection. Optional joined rows retain their genuine presence flags. */
+export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
+  database: Pick<PostgresRuntimeDb, 'get'>,
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const row = await database.get(workspacePermissionSnapshotSql, [workspaceId, actor.userId]) as WorkspacePermissionSnapshotRow | undefined;
+  return workspaceContextFromPermissionSnapshot(row, actor);
+}
+
+/** Fresh account identity and workspace policy on the caller's connection.
+ * Account/seat admission stays with the caller; this creates no authority,
+ * bootstrap writes, transaction, pool borrow or reusable observation. */
+export async function readPostgresWorkspaceForUserInSingleSnapshotOnConnection(
+  database: Pick<PostgresRuntimeDb, 'get'>,
+  userId: string,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const row = await database.get(`${workspacePermissionSnapshotProjection},
+      u.id AS actor_id,u.email AS actor_email,u.role AS actor_role
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
+    INNER JOIN "user" u ON u.id=$2
+    ${workspacePermissionSnapshotJoins}`, [workspaceId, userId]) as (WorkspacePermissionSnapshotRow & {
+      actor_id: string; actor_email: string | null; actor_role: string | null;
+    }) | undefined;
+  if (!row || row.actor_id !== userId) return null;
+  const actor = resolveWorkspaceActor({ id: row.actor_id, email: row.actor_email, role: row.actor_role });
+  return workspaceContextFromPermissionSnapshot(row, actor);
+}
+
 /** Recheck existing access without rerunning account/workspace bootstrap. */
 export async function readPostgresWorkspaceForActorOnConnection(
   database: PostgresRuntimeDb,
@@ -2532,7 +2513,7 @@ export async function resolvePostgresWorkspaceForActor(
       await database.run('ROLLBACK');
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
     }
-    const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
+    const workspace = await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(database, actor, workspaceId);
     await database.run('COMMIT');
     return workspace;
   } catch (error) {

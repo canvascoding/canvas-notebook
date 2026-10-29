@@ -138,6 +138,9 @@ function mapState(row: StateRow): PersistedCollaborationState {
   };
 }
 
+/** Pure row mapping only. Callers retain their actual read, validation and write fences. */
+export { mapState as mapPersistedCollaborationStateRow };
+
 function encodingProfile(content: string): { canonical: string; newlineStyle: 'lf' | 'crlf'; hasBom: boolean } {
   const hasBom = content.charCodeAt(0) === 0xfeff;
   const withoutBom = hasBom ? content.slice(1) : content;

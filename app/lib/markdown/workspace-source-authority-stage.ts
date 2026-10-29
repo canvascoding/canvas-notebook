@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
-import { mapValidatedNativeStateRow, validateRawState } from '../collaboration/native-session-state-reader';
+import { mapValidatedNativeStateRow, NativeSessionStateReaderError, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
 import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
@@ -24,9 +24,10 @@ import type { WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-sc
 import type { WorkspaceSceneSnapshotRecord } from '../excalidraw-collaboration/workspace-scene-snapshot';
 import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-copy-source-observation';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { readNativeDocumentLinkProjection } from './document-link-read-projection';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
-import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, inspectOriginalPhysicalDocumentLinksForRead, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
   type WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
 
 type Limits = { maxPaths: number; maxDepth: number; maxSourceBytes: number; maxTotalSourceBytes: number; maxLinks: number };
@@ -78,7 +79,11 @@ export function requiresWorkspaceLinkSourceAuthorityRevalidation(observation: Wo
   return confirmedSourceReadChanges.has(observation);
 }
 /** A data-reader choice only. It never changes the caller's fences or rights. */
-export type WorkspacePhysicalSourceReadOptions = Readonly<{ physicalParserVersion?: 2 | 3 }>;
+export type WorkspacePhysicalSourceReadOptions = Readonly<{
+  physicalParserVersion?: 2 | 3;
+  /** Explicitly non-executable scope used only by the document/link reader. */
+  sourceScope?: 'document-index';
+}>;
 type CollectorDependencies = Omit<Dependencies, 'openConnection'> & WorkspacePhysicalSourceReadOptions;
 type Row = Record<string, unknown>;
 const MAX_VECTOR_BYTES = 1024 * 1024;
@@ -124,7 +129,7 @@ function nativeSourceHeader(workspace: WorkspaceContext, document: WorkspaceDocu
 }
 
 async function readNativeSource(workspace: WorkspaceContext, document: WorkspaceDocumentCatalogueEntry,
-  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState']): Promise<NativeSourceRead> {
+  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead> {
   const organizationId = workspace.organizationId ?? null;
   if (!raw || !(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
     || raw.yjs_state.byteLength !== Number(metadata!.state_bytes) || raw.state_vector.byteLength !== Number(metadata!.vector_bytes)
@@ -145,7 +150,14 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     } }, document.id, true);
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
-  const inventory = inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
+  let inventory: NativeDocumentLinkInventory;
+  if (documentIndexRead) {
+    // Global schema readiness is checked by the batch reader before entering
+    // this data-only, exactly scoped document inspection. SQL and identity
+    // failures must never be mistaken for a local parsing failure.
+    try { inventory = await readNativeDocumentLinkProjection(state!); }
+    catch { throw new PhysicalStageConflict('unreadable-native-source', document.path); }
+  } else inventory = inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
     assertNativeDocumentSchema(doc, state!.representation, getNativeInspectionSchema());
     return inspectNativeDocumentLinks(doc, snapshot);
   });
@@ -170,8 +182,12 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState']): Promise<NativeSourceRead[]> {
-  if (!documents.length) return [];
+  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{
+    sources: NativeSourceRead[]; gaps: PhysicalSourceGap[]; reservedBytes: number;
+  }> {
+  const gaps: PhysicalSourceGap[] = [];
+  if (!documents.length) return { sources: [], gaps, reservedBytes: 0 };
+  if (documentIndexRead) getNativeInspectionSchema();
   if (documents.length > limits.maxPaths || new Set(documents.map(document => document.id)).size !== documents.length
     || documents.some(document => !validId(document.id) || !validId(document.lineage_id))) fail('native-identity-conflict', '');
   const ids = documents.map(document => document.id), lineages = documents.map(document => document.lineage_id), selectedIds = new Set(ids);
@@ -189,9 +205,30 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
   const byId = new Map(headers.map(row => [row.requested_document_id, row]));
   if (headers.length !== documents.length || byId.size !== documents.length
     || headers.some(row => !selectedIds.has(row.requested_document_id as string))) fail('native-source-changed', '');
-  const metadata = documents.map(document => nativeSourceHeader(workspace, document, byId.get(document.id), limits));
+  const selected: WorkspaceDocumentCatalogueEntry[] = [], metadata: Row[] = [];
+  const diagnose = (error: unknown, document: WorkspaceDocumentCatalogueEntry): boolean => {
+    if (!documentIndexRead) return false;
+    if (error instanceof NativeSessionStateReaderError && error.code === 'NATIVE_SESSION_STATE_INVALID') {
+      gaps.push({ code: 'invalid-native-state', path: document.path }); return true;
+    }
+    if (error instanceof PhysicalStageConflict && error.filePath === document.path
+      && ['source-byte-limit', 'native-source-changed', 'unreadable-native-source'].includes(error.code)) {
+      gaps.push({ code: error.code, path: document.path }); return true;
+    }
+    return false;
+  };
+  for (const document of documents) {
+    try { metadata.push(nativeSourceHeader(workspace, document, byId.get(document.id), limits)); selected.push(document); }
+    catch (error) { if (!diagnose(error, document)) throw error; }
+  }
+  if (!selected.length) return { sources: [], gaps, reservedBytes: 0 };
+  const selectedStateIds = selected.map(document => document.id), selectedStateIdSet = new Set(selectedStateIds);
   const stateLengths = metadata.map(row => Number(row.state_bytes)), vectorLengths = metadata.map(row => Number(row.vector_bytes));
-  if (metadata.reduce((sum, row) => sum + Number(row.state_bytes) + Number(row.vector_bytes), 0) > remainingBytes) fail('source-byte-limit', '');
+  // Keep the full binary allocation reservation even when inspection later
+  // discards a document. Missing rows may overreserve, never free bytes that
+  // were already transferred for a malformed native source.
+  const reservedBytes = metadata.reduce((sum, row) => sum + Number(row.state_bytes) + Number(row.vector_bytes), 0);
+  if (reservedBytes > remainingBytes) fail('source-byte-limit', '');
   // Count ALL rows for each selected ID before exposing any binary payload,
   // including duplicates with different lengths. This statement's snapshot
   // keeps the precomputed total bound valid even without a state-table PK.
@@ -206,14 +243,17 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
     INNER JOIN collaboration_yjs_states s ON s.document_id=expected.document_id
     WHERE octet_length(s.yjs_state)=expected.state_bytes AND octet_length(s.state_vector)=expected.vector_bytes
       AND octet_length(s.yjs_state) BETWEEN 1 AND $4 AND octet_length(s.state_vector) BETWEEN 1 AND $5
-    ORDER BY expected.ordinal`, [ids, stateLengths, vectorLengths, limits.maxSourceBytes, MAX_VECTOR_BYTES]) as Row[];
+    ORDER BY expected.ordinal`, [selectedStateIds, stateLengths, vectorLengths, limits.maxSourceBytes, MAX_VECTOR_BYTES]) as Row[];
   const rawById = new Map(raws.map(row => [row.document_id, row]));
-  if (raws.length !== documents.length || rawById.size !== documents.length
-    || raws.some(row => !selectedIds.has(row.document_id as string))) fail('native-source-changed', '');
+  if ((!documentIndexRead && raws.length !== selected.length) || rawById.size !== raws.length
+    || raws.some(row => !selectedStateIdSet.has(row.document_id as string))) fail('native-source-changed', '');
   const result: NativeSourceRead[] = [];
-  for (let index = 0; index < documents.length; index++) result.push(await readNativeSource(workspace, documents[index],
-    byId.get(documents[index].id)!, metadata[index], rawById.get(documents[index].id), loadState));
-  return result;
+  for (const [index, document] of selected.entries()) {
+    try { result.push(await readNativeSource(workspace, document,
+      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead)); }
+    catch (error) { if (!diagnose(error, document)) throw error; }
+  }
+  return { sources: result, gaps, reservedBytes };
 }
 
 /** Fixed observation only. Caller owns the actual connection, read transaction,
@@ -228,6 +268,10 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   if (parserDescriptor && (!parserDescriptor.enumerable || !Object.hasOwn(parserDescriptor, 'value'))) throw new Error('Invalid physical source parser version.');
   const physicalParserVersion = parserDescriptor?.value === undefined ? 2 : parserDescriptor.value;
   if (physicalParserVersion !== 2 && physicalParserVersion !== 3) throw new Error('Invalid physical source parser version.');
+  const scopeDescriptor = Object.getOwnPropertyDescriptor(dependencies, 'sourceScope');
+  if (scopeDescriptor && (!scopeDescriptor.enumerable || !Object.hasOwn(scopeDescriptor, 'value'))
+    || scopeDescriptor?.value !== undefined && scopeDescriptor.value !== 'document-index') throw new Error('Invalid source read scope.');
+  const documentIndexRead = scopeDescriptor?.value === 'document-index';
   workspace = structuredClone(workspace);
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   const originalMove = readOriginalMoveCollectorOverlay(connection, workspace);
@@ -242,7 +286,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
   try {
-    const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
+    const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
     privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
@@ -257,16 +302,49 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     if (!rootStat.isDirectory()) fail('invalid-workspace-root', '');
     const entries = new Map<string, WorkspaceOriginalPathObservation>();
     const root: WorkspaceOriginalRootObservation = { resolvedRootPath: realRoot, identity: filesystemFileVersion(rootStat), entries };
+    const isPythonEnvironment = async (relativePath: string): Promise<boolean> => {
+      if (!['venv', '.venv'].includes(path.posix.basename(relativePath))) return false;
+      const markerPath = `${relativePath}/pyvenv.cfg`;
+      const registeredMarker = registered.get(markerPath);
+      if (registeredMarker && registeredMarker.authority !== 'pristine') return false;
+      let markerStat: Awaited<ReturnType<typeof fs.lstat>>;
+      try { markerStat = await fs.lstat(path.join(realRoot, markerPath)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+      if (!markerStat.isFile() || markerStat.isSymbolicLink() || markerStat.nlink !== 1 || markerStat.size > 16 * 1024) return false;
+      const marker = { relativePath: markerPath, stat: markerStat, identity: filesystemFileVersion(markerStat) };
+      const markerEntries = new Map(entries); markerEntries.set(markerPath, marker);
+      const bytes = await readWorkspaceOriginalFileSource({ configuredRootPath: workspace.rootPath,
+        root: { ...root, entries: markerEntries }, observed: marker,
+        maxBytes: Math.min(16 * 1024, limits.maxSourceBytes, limits.maxTotalSourceBytes - totalBytes),
+        verifyCurrentSource: () => verifyPhysicalAuthority(markerPath) });
+      totalBytes += bytes.length;
+      const configuration = Buffer.from(bytes).toString('utf8');
+      if (!/^home\s*=\s*\S.*$/mu.test(configuration)
+        || !/^include-system-site-packages\s*=\s*(?:true|false)\s*$/mu.test(configuration)) return false;
+      if (observed.length >= limits.maxPaths) fail('path-count-limit', markerPath);
+      observed.push(marker); entries.set(markerPath, marker);
+      return true;
+    };
     const pending = [{ relativePath: '', depth: 0 }];
     while (pending.length) {
       const directory = pending.pop()!;
-      const children = (await fs.readdir(path.join(realRoot, directory.relativePath), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+      let children: import('node:fs').Dirent[];
+      try { children = await fs.readdir(path.join(realRoot, directory.relativePath), { withFileTypes: true }); }
+      catch (error) {
+        if (!documentIndexRead || !directory.relativePath || !['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+        gap('unreadable-source-directory', directory.relativePath); continue;
+      }
+      children.sort((a, b) => a.name.localeCompare(b.name));
       for (const child of children) {
         const relativePath = directory.relativePath ? `${directory.relativePath}/${child.name}` : child.name;
         if (!isCanonicalAdmissionPath(relativePath)) { gap('invalid-source-path', relativePath); continue; }
         if (child.isDirectory() && (EXCLUDED_DIRECTORIES.has(child.name) || directory.depth === 0 && child.name === '.canvas-skill-drafts')
           || EXCLUDED_FILES.has(child.name) || isInternalWorkspaceStagingPath(child.name)) { excludedPaths.push(relativePath); continue; }
         if (observed.length >= limits.maxPaths) fail('path-count-limit', relativePath);
+        if (documentIndexRead && child.isSymbolicLink()) { gap('unsafe-physical-source', relativePath); continue; }
         // File names came from this actual parent listing. Keep the original
         // directory/unsafe-Dirent guard before traversal; the final batch below
         // freshly verifies exact membership and all physical ancestry for files.
@@ -274,6 +352,9 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         const stat = await fs.lstat(path.join(realRoot, relativePath));
         if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) { gap('unsafe-physical-source', relativePath); continue; }
         const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); entries.set(relativePath, item);
+        if (documentIndexRead && stat.isDirectory() && await isPythonEnvironment(relativePath)) {
+          excludedPaths.push(relativePath); continue;
+        }
         const physicalEntry: NativeNamespaceEntry = { workspaceId: workspace.workspaceId, path: relativePath, kind: stat.isDirectory() ? 'directory' : 'file',
           identity: item.identity, filesystemIdentity: item.identity, documentId: null, lifecycleGeneration: null };
         // Only the fixed owner can install this private active read frame. All
@@ -301,12 +382,17 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       namespace.set(document.path, { workspaceId: workspace.workspaceId, path: document.path, kind: 'file',
         identity: `registry:${document.id}:${document.lifecycle_generation ?? document.yjs_state_lifecycle}`,
         documentId: document.id, lifecycleGeneration: document.lifecycle_generation, filesystemIdentity: projection?.filesystemIdentity ?? null });
-      if (document.authority === 'missing-state') { gap('missing-native-state', document.path); continue; }
+      if (document.authority === 'missing-state') {
+        gap(document.has_persisted_state && document.state_status !== 'active' ? 'inactive-native-state' : 'missing-native-state', document.path); continue;
+      }
     }
     // Extension/capability never authorize projection bytes for this branch.
-    for (const native of await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
-      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState)) {
-      totalBytes += native.byteLength; totalLinks += native.inventory.links.length;
+    const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
+      limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
+    totalBytes += nativeRead.reservedBytes;
+    gaps.push(...nativeRead.gaps);
+    for (const native of nativeRead.sources) {
+      totalLinks += native.inventory.links.length;
       if (totalLinks > limits.maxLinks) fail('source-link-limit', native.state.path);
       nativeBindings.push(native.binding); privateNativeStates.push(native.state);
       sources.push({ kind: 'native', inventory: native.inventory });
@@ -357,7 +443,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         // passed the reader above. It never changes the observed/rechecked path.
         const physicalSource = originalMove?.physicalSource(item.relativePath, item.identity, bytes)
           ?? { path: item.relativePath, filesystemIdentity: item.identity };
-        const inventory = (physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
+        const inventory = (documentIndexRead ? inspectOriginalPhysicalDocumentLinksForRead
+          : physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
           path: physicalSource.path, authority, bytes, filesystemIdentity: physicalSource.filesystemIdentity, maxLinks: limits.maxLinks - totalLinks });
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);
@@ -366,15 +453,21 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
-    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
     }
-    const physicalBytes = totalBytes - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
+    const physicalBytes = totalBytes - nativeRead.reservedBytes;
+    const unavailableNativeBytes = nativeRead.reservedBytes
+      - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
-    try { currentSources = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-      limits, limits.maxTotalSourceBytes - physicalBytes, dependencies.loadState); }
+    try {
+      const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
+        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead);
+      if (current.gaps.length) fail('native-source-changed', '');
+      currentSources = current.sources;
+    }
     catch { fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {
@@ -383,7 +476,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     await assertWorkspaceOriginalPathsCurrent({ configuredRootPath: workspace.rootPath, root, observed });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
-    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(finalCatalogue) !== catalogueProof) {
       if (finalCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
@@ -399,8 +492,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
     organizationId: workspace.organizationId ?? null, catalogueProof,
     namespace: [...namespace.values()].sort((a, b) => a.path.localeCompare(b.path)), sources,
-    scope: { kind: 'visible-workspace', excludedPaths: excludedPaths.sort() },
-    coverage: { complete: !gaps.length, gaps }, readiness: gaps.length ? 'blocked'
+    scope: { kind: documentIndexRead ? 'document-index' : 'visible-workspace', excludedPaths: excludedPaths.sort() },
+    coverage: { complete: !gaps.length, gaps }, readiness: documentIndexRead || gaps.length ? 'blocked'
       : sources.some((source) => source.kind === 'physical') ? 'requires-import-and-rebinding' : 'native-coordinator-required', executionReady: false };
   const observation = Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
     // Coherent catalogue facts remain private read evidence even when a source
@@ -421,7 +514,8 @@ export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: Wo
   const unavailable = () => {
     const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, catalogueProof: stage?.catalogueProof ?? null,
-      namespace: stage?.namespace ?? [], sources: [], scope: stage?.scope ?? { kind: 'visible-workspace', excludedPaths: [] },
+      namespace: stage?.namespace ?? [], sources: [], scope: stage?.scope ?? {
+        kind: Object.getOwnPropertyDescriptor(dependencies, 'sourceScope')?.value === 'document-index' ? 'document-index' : 'visible-workspace', excludedPaths: [] },
       coverage: { complete: false, gaps: [...(stage?.coverage.gaps ?? []), { code: 'source-authority-unavailable', path: '' }] },
       readiness: 'blocked', executionReady: false };
     stage = { ...body, stageProof: workspaceSourceAuthorityStageProof(body) };

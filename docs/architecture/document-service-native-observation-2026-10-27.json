@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "date": "2026-10-27",
+  "baseHead": "bb29011749a6d7fb2d4124bb4418da498f1165d9",
+  "scope": "Fresh native/receipt read consolidation on actual publication connection; unchanged strict catalogue and authorization fences.",
+  "sourceHashes": {
+    "app/lib/collaboration/persistence.ts": "5349631e0aad1f97e4546cfc5c7c6ff46f8639978482b1e2a7cd6b7120b08ee6",
+    "app/lib/collaboration/workspace-document-catalogue.ts": "d9ad8785caffec1119d4068416eff1409ad0f1da31a9691317367afc94d8b917",
+    "scripts/markdown-create-native-observation-postgres-test.ts": "10a91a27784d17974941e02a3000df2bec0f9c0c182139346dfa553aa025557b",
+    "scripts/markdown-create-publication-boundaries-postgres-test.ts": "6a4449d735b7b4c1952b650f1da88d72f7f7503c7067b5096c2ebf3cb3556005",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "cd348ff86980aa02fe7bfe4acca9166415d4401fb42bcd2326ecbed9ce242f8c",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "c56662c0853d00e4c43c51ce1d7565365b0e5c4130a85f4dd5f56794af9ba75c",
+    "app/lib/files/markdown-create-birth.ts": "234a067f6b497492bda754d8adcc1a0ae3fd54780d2746f34ebd5d0cf14725fd",
+    "app/lib/mcp/server/document-read-principal.ts": "38fa1daaca80cff1b4ff189a99af54530c1d7c2aa91e6c0a86e774f79dd437a6",
+    "app/lib/workspaces/request-principal.ts": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "app/lib/collaboration/lifecycle-transaction.ts": "856f47f213ddbd5c5183e7df0cbf422123c96bae9d6ac2b6034ee14f8bfd673d",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "7cc55e0154371a8413f1bec9e25028c2b43f28f4d140c5f00281f3b9d5fda841",
+    "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts": "6dc7cb587b6096d605e458af59ad5eeb365bf90c6b5bfc3228f5cced79c571cf",
+    "scripts/authenticated-markdown-first-projection-postgres-test.ts": "d47daccfb13ac9b09000d7bfbb8919156062cef94bdb119b5865993f98f9c043",
+    "scripts/explicit-original-markdown-import-postgres-test.ts": "92e4f2b893e49de72b6367253aa4ac8e3e29e59d66b9e2e7922710da69f055ba",
+    "scripts/agent-markdown-create-storage-phase-postgres-test.ts": "82af08e82dc12d13db9015216579a795d6c567d651f57f23f4b79cf8a19a71ac",
+    "scripts/agent-markdown-create-storage-commit-postgres-test.ts": "e4e83d54f6c008e64b8f8a61e827178b5e5ccdde25903b4eca7b70f93eb7d730",
+    "scripts/direct-mcp-native-markdown-create-postgres-test.ts": "97c66c5d766390210d697045b12db0b2b85ac1201bf7cb84c78d9fa4b27dd880",
+    "scripts/authenticated-manual-markdown-create-postgres-test.ts": "a3db9528c32cfebaf9872a0c60ebb5335874b16e0fee0a83704b20a912fdce6a",
+    "scripts/authenticated-markdown-upload-postgres-test.ts": "423473517e5aa56ddad3272e1b37ba84b70453e964f3df710b0e8f3b945dcd2b",
+    "scripts/manual-markdown-create-birth-entry-test.ts": "ccb790cdc281d73d989e994d1791fd98cf5e16952fcb81a840c4a87e7ef8871a",
+    "scripts/direct-mcp-document-create-principal-postgres-test.ts": "30002d6de27c6ec8ee20ab7f5a723132f6e3207dd06613738d9248b5d2c96907",
+    "scripts/direct-mcp-native-copy-owner-postgres-test.ts": "acf5ede74eacd0d7866af4951fcd864f43dc5240ff1995b6d6673dbe55858b5b",
+    "scripts/direct-mcp-slot-snapshot-postgres-test.ts": "62213af8a9245a08fe87be3a421dcc822ec39f0358e876a0ea513787b7cf9431"
+  },
+  "legacySourceHashes": {
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "c56662c0853d00e4c43c51ce1d7565365b0e5c4130a85f4dd5f56794af9ba75c",
+    "app/lib/collaboration/persistence.ts": "5349631e0aad1f97e4546cfc5c7c6ff46f8639978482b1e2a7cd6b7120b08ee6",
+    "app/lib/collaboration/workspace-document-catalogue.ts": "d9ad8785caffec1119d4068416eff1409ad0f1da31a9691317367afc94d8b917",
+    "scripts/markdown-file-import-postgres-test.ts": "f99c34e6edc4678cea0d78b44790974d639f5ef47a96f9f6818b0875e14c710a",
+    "scripts/workspace-pristine-original-bootstrap-postgres-test.ts": "c928c830fe16dfda7694405d3c7c6bc525819e1f954b7620819086147a583381"
+  },
+  "matrixFixedSourceHashes": {
+    "app/lib/workspaces/request-principal.ts": "4e6bc9d05156b38b99611e906df0a7ee645ca8494d28f2e114bbe6a102e5e5e1",
+    "app/lib/workspaces/postgres-runtime.ts": "69a18c8a1ec5c48b34c2cb4998ac6fa4052379536e5e475bf0f768ffd8ee56f8",
+    "app/lib/mcp/server/document-read-principal.ts": "38fa1daaca80cff1b4ff189a99af54530c1d7c2aa91e6c0a86e774f79dd437a6",
+    "app/lib/license/seat-limit.ts": "3ef1af2d31af366c9cf2cf148a614e6b1ce1e53207d44bc735a304ba4e157365",
+    "app/lib/db/postgres-scalar-snapshot.ts": "a4288f9acfb2030353e8936d24c6349ec413b9b7b67b0ad3413a6f0f0dfd3843",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "7cc55e0154371a8413f1bec9e25028c2b43f28f4d140c5f00281f3b9d5fda841",
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "a1d375266bb9ea0ad64d73f88ef03e51b89ef23ac824bc0e955443b9ac9a04d0",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "c53b373a846a17abaedd3cdc4a52a4dd25ee043d190874667c72c47807f86b78",
+    "scripts/helpers/document-baseline-fixture.ts": "13cc42638e01bb92e496f94e2c0cbdbc94691ad8376cdffb6d10757c4fd9582f",
+    "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts": "6dc7cb587b6096d605e458af59ad5eeb365bf90c6b5bfc3228f5cced79c571cf",
+    "app/lib/db/index.ts": "c3edce1e2d640d02e4d42d0f8d4112679d7b3cc6c9e032b8d26f6fe8b4275536",
+    "app/lib/collaboration/lifecycle-transaction.ts": "856f47f213ddbd5c5183e7df0cbf422123c96bae9d6ac2b6034ee14f8bfd673d",
+    "app/lib/files/markdown-create-birth.ts": "234a067f6b497492bda754d8adcc1a0ae3fd54780d2746f34ebd5d0cf14725fd",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "cd348ff86980aa02fe7bfe4acca9166415d4401fb42bcd2326ecbed9ce242f8c",
+    "scripts/markdown-create-publication-boundaries-postgres-test.ts": "6a4449d735b7b4c1952b650f1da88d72f7f7503c7067b5096c2ebf3cb3556005",
+    "app/lib/public-sharing/tool-policy.ts": "805c37798f95ec0b3f18df412a854817bfc09d5ece623f205e31adb85de30500",
+    "scripts/markdown-create-native-observation-postgres-test.ts": "10a91a27784d17974941e02a3000df2bec0f9c0c182139346dfa553aa025557b",
+    "app/lib/collaboration/workspace-document-catalogue.ts": "d9ad8785caffec1119d4068416eff1409ad0f1da31a9691317367afc94d8b917"
+  },
+  "matrixProductHashes": {
+    "baseline": {
+      "app/lib/collaboration/markdown-file-import-persistence.ts": "304fd89413c2571a76784fa4d666bf155db397c08fe6ad0478aa054e1703c022",
+      "app/lib/collaboration/persistence.ts": "9326fe2f131fcee40089c6487d096756b0f9583e3f80ba5c374e1250d66e8a0d"
+    },
+    "current": {
+      "app/lib/collaboration/markdown-file-import-persistence.ts": "c56662c0853d00e4c43c51ce1d7565365b0e5c4130a85f4dd5f56794af9ba75c",
+      "app/lib/collaboration/persistence.ts": "5349631e0aad1f97e4546cfc5c7c6ff46f8639978482b1e2a7cd6b7120b08ee6"
+    }
+  },
+  "matrixSourceRestored": true,
+  "baseline": {
+    "actor": "mcp",
+    "nativeReadStatementsAtPublicationAck": 7,
+    "fullNativeProofs": 1,
+    "expectedRed": true,
+    "logSha256": "e67a21fe980781616c7a0273c17dd27fe41cd96db2126bfb86cdf75e0e3b49e7"
+  },
+  "focused": {
+    "proof": {
+      "actors": 2,
+      "checkedPublicationAcks": 8,
+      "actualNativeFaults": 6,
+      "retainedFullNativeFence": true,
+      "originalNativeIdsBytesClockRestored": true,
+      "explicitRetrySameIdentity": true
+    },
+    "acks": [
+      {
+        "actor": "mcp",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "mcp",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "mcp",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "mcp",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "agent",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "agent",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "agent",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      },
+      {
+        "actor": "agent",
+        "stage": "before_link",
+        "fullNativeProofs": 1,
+        "nativeReadStatements": 3
+      }
+    ],
+    "logSha256": "49a5e0baf40a65469a70391ce8e4db56166336cfba83f1275de95a73277af22d"
+  },
+  "functionProof": {
+    "files": {
+      "app/lib/collaboration/markdown-file-import-persistence.ts": {
+        "changed": [
+          "observedState",
+          "confirmedRetry",
+          "authenticatedUploadReads",
+          "currentAuthenticatedMarkdownBirth"
+        ],
+        "added": [
+          "assertObservedMarkdownImportState",
+          "decodeMarkdownImportRetryRows",
+          "confirmMarkdownImportRetryState",
+          "normalizeAuthenticatedMarkdownStateRow",
+          "readAuthenticatedMarkdownBirthSnapshot"
+        ],
+        "unchangedCount": 108
+      },
+      "app/lib/collaboration/persistence.ts": {
+        "changed": [],
+        "added": [],
+        "unchangedCount": 40
+      }
+    },
+    "sharedGuards": {
+      "receiptValidationIdentical": true,
+      "stateConfirmationIdentical": true,
+      "originalNativePredicateIdentical": true,
+      "rawNormalizationExecutableIdentical": true
+    }
+  },
+  "regressions": [
+    {
+      "entry": "scripts/markdown-create-native-observation-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "49a5e0baf40a65469a70391ce8e4db56166336cfba83f1275de95a73277af22d"
+    },
+    {
+      "entry": "scripts/markdown-create-publication-boundaries-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "61541c8189eeb0014bba3ec01b9fc14e211035a8d5340c924ae5143cd97fe63f"
+    },
+    {
+      "entry": "scripts/authenticated-markdown-first-projection-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "b303c82636d3c321e6ef34257fbe7d39d653f06fbccd0928c9425b9aa5bfb12a"
+    },
+    {
+      "entry": "scripts/explicit-original-markdown-import-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "cacc46a9a70ca3bacc9e3ee2326e676b16a9bee722902a8abe98517bd31208e7"
+    },
+    {
+      "entry": "scripts/direct-mcp-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "a0020b2fdd91286bbaa8d2788f5197d48e3c2db9c9d40a564d9120327d42e4b2"
+    },
+    {
+      "entry": "scripts/agent-markdown-create-storage-phase-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "6e6f6a38a462d4c60620f1861caa308a2210a9e5501c8d6bfa8ac4bffd7edeba"
+    },
+    {
+      "entry": "scripts/agent-markdown-create-storage-commit-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "468ef3f92b79afdf91cdee361087692f8693e3d87a8488cc6e7dfe1d034528d7"
+    },
+    {
+      "entry": "scripts/direct-mcp-native-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "04c348d5bf618e32d2fb1e050f2a176a80a6ef7b09db9737627f509dd312c24c"
+    },
+    {
+      "entry": "scripts/authenticated-manual-markdown-create-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "b878554e853b1bdc4a78e57f105fb3614f50e526045269d6ab26a288ac955da7"
+    },
+    {
+      "entry": "scripts/authenticated-markdown-upload-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "8fa68d607f932ef5d2a24a60164c3108f0435226f10584292d8d4119f4acc390"
+    },
+    {
+      "entry": "scripts/manual-markdown-create-birth-entry-test.ts",
+      "exitCode": 0,
+      "logSha256": "d1d1fa618bc2a26a5f6165a1cde4c3531691471b576f337a268cd0e80b8ea2ae"
+    },
+    {
+      "entry": "scripts/direct-mcp-document-create-principal-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7c16d1a4f08d140a67f3646d34e98bde17edfe034e8e76b1c20396be7f4ec16a"
+    },
+    {
+      "entry": "scripts/direct-mcp-native-copy-owner-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "963c844cc4605c0c0c9a2ac35337e6eb6d9ce235f74430742e90c32dd35db144"
+    },
+    {
+      "entry": "scripts/direct-mcp-slot-snapshot-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "c8ca551368cfafa971d3caaac445a6057ef82d601d6531483ecd42d603cd558d"
+    }
+  ],
+  "legacyRegressions": [
+    {
+      "entry": "scripts/markdown-file-import-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "fa545042b3ab1af0db8743a70d24e648af0a9e14fc4046fc1bb045e52ea42ed7"
+    },
+    {
+      "entry": "scripts/workspace-pristine-original-bootstrap-postgres-test.ts",
+      "exitCode": 0,
+      "logSha256": "7c8e82bbdfedf72cbe1e0ff55cbc56b1a159bb6cc450d6cb6df7707c48807d7b"
+    }
+  ],
+  "metric": "Actual SQL driver calls include transaction and schema statements; fixed operation windows without attribution instrumentation.",
+  "matrix": [
+    {
+      "variant": "baseline",
+      "adapter": "mcp",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1577,
+          "checkouts": 46,
+          "wallMs": 2386.12,
+          "databaseMs": 1129.65,
+          "poolWaitMs": 4.56,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1556,
+          "checkouts": 33,
+          "wallMs": 2063.05,
+          "databaseMs": 976.85,
+          "poolWaitMs": 4.25,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1556,
+          "checkouts": 33,
+          "wallMs": 2102.87,
+          "databaseMs": 1027.52,
+          "poolWaitMs": 4.24,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 146.97,
+          "databaseMs": 80.98,
+          "poolWaitMs": 0.18,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "adapter": "mcp",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 1425,
+          "checkouts": 46,
+          "wallMs": 2254.79,
+          "databaseMs": 1011.42,
+          "poolWaitMs": 4.39,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1404,
+          "checkouts": 33,
+          "wallMs": 2038.2,
+          "databaseMs": 959.93,
+          "poolWaitMs": 4.33,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1404,
+          "checkouts": 33,
+          "wallMs": 2039.96,
+          "databaseMs": 955.99,
+          "poolWaitMs": 4.52,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 102,
+          "checkouts": 12,
+          "wallMs": 142.33,
+          "databaseMs": 78.76,
+          "poolWaitMs": 0.19,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "adapter": "agent",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2248,
+          "checkouts": 80,
+          "wallMs": 3174.34,
+          "databaseMs": 1696.61,
+          "poolWaitMs": 4.89,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 2143,
+          "checkouts": 46,
+          "wallMs": 2702.33,
+          "databaseMs": 1549.12,
+          "poolWaitMs": 4.34,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 2143,
+          "checkouts": 46,
+          "wallMs": 2573.25,
+          "databaseMs": 1445.58,
+          "poolWaitMs": 4.31,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 194.19,
+          "databaseMs": 142.43,
+          "poolWaitMs": 0.07,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    },
+    {
+      "variant": "current",
+      "adapter": "agent",
+      "size": 10,
+      "exitCode": 0,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "statements": 2096,
+          "checkouts": 80,
+          "wallMs": 2972.1,
+          "databaseMs": 1519.56,
+          "poolWaitMs": 4.87,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "statements": 1991,
+          "checkouts": 46,
+          "wallMs": 2550.97,
+          "databaseMs": 1428.92,
+          "poolWaitMs": 4.71,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "statements": 1991,
+          "checkouts": 46,
+          "wallMs": 2533.69,
+          "databaseMs": 1420.14,
+          "poolWaitMs": 4.16,
+          "peakConnections": 4,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "statements": 180,
+          "checkouts": 7,
+          "wallMs": 193.43,
+          "databaseMs": 143.43,
+          "poolWaitMs": 0.07,
+          "peakConnections": 2,
+          "openQueriesAtCompletion": 0,
+          "openConnectionsAtCompletion": 0,
+          "failedStatements": 0,
+          "unsupportedQueryForms": 0
+        }
+      ]
+    }
+  ],
+  "typescript": {
+    "scoped": {
+      "roots": 45,
+      "sourceFiles": 5167,
+      "diagnostics": 0
+    },
+    "releaseExitCode": 0
+  },
+  "eslintExitCode": 0,
+  "limits": [
+    "Four sequential ten-source fixtures only; earlier 200-source evidence retains its own source binding.",
+    "No controlled reply-latency/concurrency, final-source build/UI/test:all or full-plan acceptance.",
+    "Further Current/owner/resolver consolidation, shared link contracts, incremental dependencies, shared writes, production recovery/restore proof and release remain required."
+  ],
+  "reviewCenterDevelopment": false,
+  "undoDevelopment": false,
+  "productionChanged": false,
+  "newReleasePublished": false,
+  "fullGoalComplete": false
+}

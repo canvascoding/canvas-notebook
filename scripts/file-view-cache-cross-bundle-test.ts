@@ -125,7 +125,10 @@ test('an invalidated build completion cannot remove the newer pending build from
     const joined = references.getCachedFileReferenceEntries(true, options); await flush();
     assert.equal(releases.length, 2, 'the obsolete finally handler must not erase a different pending build');
     releases[1]([node('after.md')]);
-    assert.equal(await joined, await fresh);
+    assert.deepEqual(await joined, await fresh);
+    const cached = references.getCachedFileReferenceEntries(false, options); await flush();
+    assert.equal(releases.length, 2, 'a completed shared scan must serve later file projections without another read');
+    assert.deepEqual(await cached, await fresh);
   } finally {
     for (const resolve of releases) resolve([]);
     await flush(); references.invalidateFileReferenceCache(options);
@@ -144,7 +147,7 @@ test('separate bundles share in-flight reference work while keeping workspaces i
     const unrelated = fixture.a.references.getCachedFileReferenceEntries(false, otherOptions); await flush();
     assert.equal(releases.length, 2, 'a different workspace has its own read');
     releases[0]([node('shared.md')]); releases[1]([node('other.md')]);
-    assert.equal(await a, await b);
+    assert.deepEqual(await a, await b);
     assert.equal((await unrelated)[0].path, 'other.md');
     fixture.watcher.publishMutation({ workspace: scope, type: 'unlink', relativePath: 'shared.md' });
     assert.equal((await fixture.b.references.getCachedFileReferenceEntries(false, otherOptions))[0].path, 'other.md');
@@ -173,8 +176,10 @@ test('an obsolete failed build cannot erase a fresh pending read in another bund
     const joined = fixture.a.references.getCachedFileReferenceEntries(false, options); await flush();
     assert.equal(builds.length, 2, 'a failed obsolete finally must preserve the fresh shared promise');
     builds[1].resolve([node('fresh.md')]);
-    assert.equal(await joined, await fresh);
-    assert.equal((await fixture.a.references.getCachedFileReferenceEntries(false, options))[0].path, 'fresh.md');
+    assert.deepEqual(await joined, await fresh);
+    const cached = fixture.a.references.getCachedFileReferenceEntries(false, options); await flush();
+    assert.equal(builds.length, 2, 'the shared completed scan survives the obsolete failure');
+    assert.equal((await cached)[0].path, 'fresh.md');
   } finally {
     fixture.watcher.stop();
     for (const build of builds) build.resolve([]);
@@ -208,8 +213,11 @@ for (const code of ['EACCES', 'EPERM', 'ENOENT']) {
       const recovered = await references.getCachedFileReferenceEntries(false, options);
       assert.deepEqual(recovered.map((entry) => entry.path), ['B.md', 'nested/A.md']);
       assert.equal(rootReads, 2, 'the failed partial result must not be cached');
-      assert.equal(await references.getCachedFileReferenceEntries(false, options), recovered,
-        'the legacy array API still caches a complete successful scan');
+      assert.deepEqual(await references.getCachedFileReferenceEntries(false, options), recovered,
+        'the legacy file-only projection returns the cached complete scan values');
+      assert.deepEqual((await references.getCachedWorkspaceReferenceEntries(false, options)).map(entry => entry.path),
+        ['B.md', 'nested', 'nested/A.md'], 'the shared workspace snapshot also retains directories');
+      assert.equal(rootReads, 2, 'neither cached projection may scan the workspace again');
     } finally { references.invalidateFileReferenceCache(options); }
   });
 }
