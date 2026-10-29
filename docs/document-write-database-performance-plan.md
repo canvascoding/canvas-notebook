@@ -217,6 +217,14 @@ schließen 16 Fenster: warm Agent 1347 → 1219 SQL / 43 → 37 Ausleihen,
 MCP 973 → 919 / 32 → 30. Originalwiederholungen bleiben gleich. Gesamtbudgets,
 übrige Servicepakete und alle finalen Release-Gates bleiben weiterhin offen.
 
+Die [Zuordnung tatsächlicher SQL-Aufrufe zu Pool-Ausleihen](architecture/document-service-lease-attribution-2026-10-29.md)
+lokalisiert die verbleibenden Blöcke ohne zusätzliche SQL-Anweisungen. In beiden
+warmen Fenstern sind alle 1219 Agent- beziehungsweise 919 MCP-Anweisungen ihren
+tatsächlichen Ausleihen zugeordnet. Die größten Publikationsverbindungen enthalten
+332 beziehungsweise 288 Aufrufe; die separate Absicherung des Dateivorgangs
+159 beziehungsweise 220. Das begründet die nächste Bündelung innerhalb dieser
+Phasen, ist selbst aber keine Leistungseinsparung oder Paketabnahme.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

@@ -1,6 +1,8 @@
 /** Optional read-only baseline profiler. Use NODE_OPTIONS=--import=./scripts/helpers/document-query-callsite-profiler.mjs.
  * Reuses the existing baseline output path with .callers.json. Only code files,
  * symbols and counts survive; no SQL, parameters, document paths or actor IDs.
+ * Pool attempts are attributed without wrapping a callback or returned promise;
+ * the final report compares them with the existing actual lease counters.
  * The original driver receives exactly its original arguments and replies.
  */
 import fs from 'node:fs';
@@ -8,14 +10,18 @@ import path from 'node:path';
 import { createRequire, SourceMap } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { isProxy } from 'node:util/types';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
 if (process.argv[1]?.endsWith('/dispatch.mjs') && output && path.isAbsolute(output)) {
   const root = process.cwd();
   const requireFromRoot = createRequire(path.join(root,'package.json'));
-  const { Client } = requireFromRoot('pg');
+  const { Client, Pool } = requireFromRoot('pg');
   const original = Client.prototype.query;
+  const originalConnect = Pool.prototype.connect;
   const records = new Map();
+  const connectContext = new AsyncLocalStorage();
+  const observedPools = new WeakSet(), clientLeases = new WeakMap();
   const runtimeKey = Symbol.for('canvas.document-operation-metrics.v1');
   const catalogue = /\b(?:pg_stat_activity|pg_namespace|pg_class|pg_database|pg_attribute|pg_constraint|pg_trigger|to_regclass|to_regnamespace|current_schema|pg_current_xact_id(?:_if_assigned)?)\b/iu;
   let stackFailures = 0;
@@ -42,10 +48,10 @@ if (process.argv[1]?.endsWith('/dispatch.mjs') && output && path.isAbsolute(outp
     }
     return functions.find(fn=>fn.start<=line && fn.end>=line)?.name ?? fallback;
   }
-  function owningFrames() {
+  function owningFrames(exclude = profiledQuery) {
     const previous = Error.stackTraceLimit;
     let probe;
-    try { Error.stackTraceLimit = 22; probe = {}; Error.captureStackTrace(probe, profiledQuery); }
+    try { Error.stackTraceLimit = 22; probe = {}; Error.captureStackTrace(probe, exclude); }
     finally { Error.stackTraceLimit = previous; }
     const frames = [];
     for (const line of String(probe.stack).split('\n').slice(1)) {
@@ -70,13 +76,57 @@ if (process.argv[1]?.endsWith('/dispatch.mjs') && output && path.isAbsolute(outp
     }
     return frames.slice(0,10);
   }
+  function recordFor(state) {
+    let record = records.get(state);
+    if (!record) {
+      record = { calls: 0, groups: new Map(), owners: new Map(), chains: new Map(),
+        poolAttempts: 0, poolOwners: new Map(), poolChains: new Map(), poolLeases: [], queriesWithoutObservedLease: 0 };
+      records.set(state, record);
+    }
+    return record;
+  }
+  function profiledConnect(...args) {
+    const runtime = globalThis[runtimeKey];
+    if (runtime?.measuredPools?.has(this) && runtime.activities?.size) {
+      if (!observedPools.has(this)) {
+        this.on('acquire', client => {
+          const captured = connectContext.getStore();
+          clientLeases.delete(client);
+          if (captured?.pool === this) {
+            clientLeases.set(client, new Map(captured.bindings));
+            for (const [, lease] of captured.bindings) lease.acquired = true;
+          }
+        });
+        this.on('release', (_error, client) => { clientLeases.delete(client); });
+        observedPools.add(this);
+      }
+      let frames = [];
+      try { frames = owningFrames(profiledConnect); } catch { stackFailures++; }
+      const nearest = frames[0], key = nearest ? `${nearest.file}:${nearest.name}` : 'unattributed';
+      const chain = frames.map(frame => `${frame.file}:${frame.name}`).join(' <- ') || 'unattributed';
+      const bindings = [];
+      for (const state of runtime.activities) {
+        if (state.closed) continue;
+        const record = recordFor(state);
+        record.poolAttempts++;
+        record.poolOwners.set(key, (record.poolOwners.get(key) ?? 0) + 1);
+        record.poolChains.set(chain, (record.poolChains.get(chain) ?? 0) + 1);
+        const lease = { attempt: record.poolAttempts, checkoutOwner: key, acquired: false, calls: 0, owners: new Map() };
+        record.poolLeases.push(lease);
+        bindings.push([state, lease]);
+      }
+      // The driver's original return value (including promise identity) and
+      // arguments remain untouched. Only these diagnostic bindings propagate.
+      return connectContext.run({ pool: this, bindings }, () => Reflect.apply(originalConnect, this, args));
+    }
+    return Reflect.apply(originalConnect, this, args);
+  }
   function profiledQuery(...args) {
     const runtime = globalThis[runtimeKey];
     if (runtime?.measuredClients?.has(this) && runtime.activities?.size) {
       for (const state of runtime.activities) {
         if (state.closed) continue;
-        let record = records.get(state);
-        if (!record) { record = { calls: 0, groups: new Map(), owners: new Map(), chains: new Map() }; records.set(state, record); }
+        const record = recordFor(state);
         record.calls++;
         const input = args[0], text = typeof input === 'string' ? input
         : input && typeof input === 'object' && !isProxy(input) ? Object.getOwnPropertyDescriptor(input, 'text')?.value : undefined;
@@ -90,6 +140,11 @@ if (process.argv[1]?.endsWith('/dispatch.mjs') && output && path.isAbsolute(outp
         let owner = record.owners.get(key);
         if (!owner) { owner = { calls: 0, catalogue: 0, lines: new Set() }; record.owners.set(key, owner); }
         owner.calls++; if (group === 'catalogue') owner.catalogue++; if (nearest) owner.lines.add(nearest.line);
+        const lease = clientLeases.get(this)?.get(state);
+        if (lease) {
+          lease.calls++;
+          lease.owners.set(key, (lease.owners.get(key) ?? 0) + 1);
+        } else record.queriesWithoutObservedLease++;
         const chain = frames.map(frame => `${frame.file}:${frame.name}`).join(' <- ') || 'unattributed';
         record.chains.set(chain, (record.chains.get(chain) ?? 0) + 1);
       }
@@ -97,16 +152,24 @@ if (process.argv[1]?.endsWith('/dispatch.mjs') && output && path.isAbsolute(outp
     return Reflect.apply(original, this, args);
   }
   Client.prototype.query = profiledQuery;
+  Pool.prototype.connect = profiledConnect;
   process.once('exit', () => {
     if (!records.size) return;
     const windows = [...records].map(([state, record], index) => ({ index,
       actor: state.actor, operation: state.operation, closed: state.closed, measuredStatements: state.statements,
       observedCalls: record.calls, exactCountMatch: state.statements === record.calls,
+      measuredCheckouts: state.checkouts, observedPoolAttempts: record.poolAttempts,
+      exactPoolLeaseCountMatch: state.checkouts === record.poolAttempts,
+      poolOwners: [...record.poolOwners].map(([owner,attempts]) => ({ owner,attempts })).sort((a,b) => b.attempts-a.attempts),
+      poolChains: [...record.poolChains].map(([chain,attempts]) => ({ chain,attempts })).sort((a,b) => b.attempts-a.attempts),
+      poolLeases: record.poolLeases.map(({ owners, ...lease }) => ({ ...lease,
+        owners: [...owners].map(([owner,calls]) => ({ owner,calls })).sort((a,b) => b.calls-a.calls) })),
+      queriesWithoutObservedLease: record.queriesWithoutObservedLease,
       groups: Object.fromEntries(record.groups),
       owners: [...record.owners].map(([owner, value]) => ({ owner, calls: value.calls, catalogue: value.catalogue, lines: [...value.lines].sort((a,b) => a-b) })).sort((a,b) => b.calls-a.calls),
       chains: [...record.chains].map(([chain,calls]) => ({ chain,calls })).sort((a,b) => b.calls-a.calls),
     }));
-    fs.writeFileSync(output+'.callers.json', JSON.stringify({ version: 1,
+    fs.writeFileSync(output+'.callers.json', JSON.stringify({ version: 2,
       scope: 'read-only diagnostic of actual instrumented runtime SQL in existing measurement windows; only code symbols/counts retained',
       stackFailures, windows }, null, 2)+'\n', { flag: 'wx', mode: 0o600 });
   });
