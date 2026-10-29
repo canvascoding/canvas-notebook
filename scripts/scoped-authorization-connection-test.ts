@@ -77,14 +77,7 @@ test('agent access on an existing connection preserves policy and observes revoc
   let organizationPermission = { role: 'member', status: 'active' };
   let grants = [{ target_type: 'role', target_id: 'member', can_use: 1, can_edit: 0, can_manage: 0 }];
   const database = {
-    async get(sql: string, values: unknown[] = []) {
-      // This isolated lease/policy unit fixture supplies the same current
-      // account and workspace rows through the new packed read shapes.
-      // Real SQL, locks and authority parity are covered by the PG fixtures.
-      if (sql.includes('AS configured') && sql.includes('AS memberships')) return {
-        configured: { organization_id: 'organization-1' }, account: { id: values[0], banned: 0 },
-        memberships: [{ organization_id: 'organization-1', ...organizationPermission, can_share_plugins_and_skills: 0 }],
-      };
+    async get(sql: string) {
       if (sql.includes('AS permission_present')) return {
         id: 'workspace-1', organization_id: 'organization-1', type: 'project', owner_user_id: null,
         customer_id: null, project_id: 'project-1', root_relative_path: 'workspaces/project-1/files',
@@ -105,7 +98,15 @@ test('agent access on an existing connection preserves policy and observes revoc
       if (sql.includes('FROM organization_user_permissions')) return { ...organizationPermission };
       throw new Error(`Unexpected get query: ${sql}`);
     },
-    async all(sql: string) {
+    async all(sql: string, values: unknown[] = []) {
+      // This isolated lease/policy fixture supplies the same current rows.
+      // Real typed SQL, locks and authority parity are covered by PG fixtures.
+      if (sql.includes('AS configured_present') && sql.includes('AS account_present')) return [{
+        configured_present: true, configured_organization_id: 'organization-1',
+        account_present: true, account_id: values[0], account_banned: 0,
+        membership_present: true, organization_id: 'organization-1',
+        ...organizationPermission, can_share_plugins_and_skills: 0,
+      }];
       if (sql.includes('FROM agent_grants')) return grants.map((grant) => ({ ...grant }));
       throw new Error(`Unexpected all query: ${sql}`);
     },

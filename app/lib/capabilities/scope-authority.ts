@@ -40,14 +40,33 @@ export async function readActorMembershipAuthorityOnConnection(database: Pick<Sq
       FROM organization_user_permissions WHERE user_id = $1 ORDER BY organization_id FOR SHARE`, [userId]) as Row[];
     return membershipAuthority(userId, configured, user, memberships);
   }
-  const row = await database.get(`SELECT
-    (SELECT to_jsonb(o) FROM (SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1) o) AS configured,
-    (SELECT to_jsonb(u) FROM (SELECT id,banned FROM "user" WHERE id=$1) u) AS account,
-    (SELECT COALESCE(jsonb_agg(to_jsonb(m)), '[]'::jsonb) FROM (
-      SELECT organization_id,role,status,can_share_plugins_and_skills FROM organization_user_permissions WHERE user_id=$1
-    ) m) AS memberships`, [userId]) as { configured: Row | null; account: Row | null; memberships: Row[] } | undefined;
-  if (!row || !Array.isArray(row.memberships)) throw new Error('Current account membership observation is unavailable.');
-  return membershipAuthority(userId, row.configured, row.account, row.memberships);
+  // Typed scalar columns retain the driver's exact NUMERIC/domain/boolean
+  // values. JSON would round NUMERIC flags before the existing decision sees them.
+  const rows = await database.all(`WITH configured AS MATERIALIZED (
+      SELECT true AS present,organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1
+    ), current_account AS MATERIALIZED (
+      SELECT true AS present,id,banned FROM "user" WHERE id=$1
+    )
+    SELECT (SELECT present FROM configured) AS configured_present,
+      (SELECT organization_id FROM configured) AS configured_organization_id,
+      (SELECT present FROM current_account) AS account_present,
+      (SELECT id FROM current_account) AS account_id,
+      (SELECT banned FROM current_account) AS account_banned,
+      m.membership_present,m.organization_id,m.role,m.status,m.can_share_plugins_and_skills
+    FROM (VALUES (1)) AS anchor(value)
+    LEFT JOIN (
+      SELECT true AS membership_present,organization_id,role,status,can_share_plugins_and_skills
+      FROM organization_user_permissions WHERE user_id=$1
+    ) m ON true`, [userId]) as Row[];
+  const first = rows[0];
+  if (!first) throw new Error('Current account membership observation is unavailable.');
+  const configured = first.configured_present === true ? { organization_id: first.configured_organization_id } : undefined;
+  const user = first.account_present === true ? { id: first.account_id, banned: first.account_banned } : undefined;
+  const memberships = rows.filter(row => row.membership_present === true).map(row => ({
+    organization_id: row.organization_id, role: row.role, status: row.status,
+    can_share_plugins_and_skills: row.can_share_plugins_and_skills,
+  }));
+  return membershipAuthority(userId, configured, user, memberships);
 }
 
 export async function authority(database: SqlConnection, actor: CapabilityResourceActor, lock = false): Promise<Authority> {
