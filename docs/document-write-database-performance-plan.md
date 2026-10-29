@@ -518,5 +518,8 @@ lesend bestätigt, ohne noch einmal in den nativen Schreiber einzutreten. Die
 Aktivität bleibt eine aktuelle Benutzer-/Owner-/Identitätsprüfung; öffentliche
 Schreibfreigabe und tatsächlicher Apply behalten den strengen Schreibzaun.
 Unangewendete Änderungen und echte Fremdschreiber bleiben abgewiesen. Eine neue
-echte PG-Suite und die bisherigen 15 Grenzfälle bestehen. Die erneute vollständige
-Build-/Linux-/UI-Abnahme dieser Korrektur und alle übrigen Pakete bleiben offen.
+echte PG-Suite und die bisherigen 15 Grenzfälle bestehen. Am Produktstand
+`24b234d61` bestehen beide Produktionsbuilds, gleicher Linux-Datenbestand beim
+Neustart, alle vier UI-Fälle, 15 Linux-Speicherfälle und neun CI-Prüfungen. Die
+Originaldaten bleiben nach dem gesamten Lauf unverändert. Die finale Gesamtsuite,
+Budgets, übrigen Pakete und Release-Abnahme bleiben offen.

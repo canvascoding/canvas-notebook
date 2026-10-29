@@ -41,7 +41,25 @@ denied. The actual unapplied-mutation denial is also checked through the mobile
 HTTP error mapper. The original 15 activity/reader/actual-write boundary cases
 and the existing prepare/crash/retry/compaction unit scenario pass.
 
-Fresh production builds, same-volume Linux startup and all four UI cases must
-be rerun on this correction before acceptance. Final `test:all`, performance
-budgets, remaining plan packages, PR/main/release and production backup plus
-actual restore remain open. Review Center and Undo development remain excluded.
+## Current-source acceptance
+
+Product source `24b234d61b4ef04afdea88c471610443b56a7722` passes host and full
+Linux production builds, same-volume startup and all nine CI checks. The fresh
+four-case UI batch passes in 80.175 seconds, with zero skipped/flaky/failed cases
+and zero Playwright case retries: mobile durable-save recovery after failed
+export and later peer changes; two-user live edits followed by actual permission
+revocation and a fresh read-only login; both Agent provisioning/access cases.
+One existing bounded sign-in transport retry follows an actual HTTP 429; no
+rate limits, retry allowances, timeouts or test selections are increased.
+
+All 15 current Linux storage cases pass. The two-user case uses a separately
+pinned acceptance-test source in the private driver, with no application-source
+overlay. Actual runtime source hashes match the commit. Desktop/mobile captures
+are retained; the mobile capture includes a transient remote presence badge.
+All other eleven containers remain unchanged. Original rows/xmin, native/file
+bytes and identities and physical anchors match across all ten protected
+snapshot sections after the entire batch.
+
+Final `test:all`, performance budgets, remaining plan packages, PR/main/release
+and production backup plus actual restore remain open. Review Center and Undo
+development remain excluded.
