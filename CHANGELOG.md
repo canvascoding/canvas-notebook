@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.29.1] - 2026-10-29
+
+### Fixed
+
+- Keep independently readable documents available when another link-index source is unreadable. Ignore Python runtime aliases during document-index discovery and distinguish missing sources from metadata or HTML diagnostics.
+- Resolve code-editor collaboration sessions once, avoiding duplicate startup and HTTP 409 connection failures.
+- Keep Agent/MCP document creation tied to its original native identity and durable receipt during retries.
+- Confirm already-persisted mobile saves without replaying the writer or overwriting newer peer edits.
+- Create the initial bootstrap administrator with its active owner membership.
+- Preserve source text, identities, revision history and shares during explicitly selected legacy-document recovery.
+
+### Changed
+
+- Reduce duplicate document and permission reads while retaining fresh authorization, revocation checks and final native-write fences.
+- Review Center and Undo feature development remain outside this release; their disabled-mode behavior is retained.
+
+### Added
+
+- An explicit offline recovery operator for selected legacy documents with missing native state, guarded by verified source revisions, a full backup, an actual restore and stopped writers.
+
+### Verification
+
+- Real registered Agent/MCP native-edit dispatch passed against PostgreSQL and a collaboration room.
+- Full host and Linux builds, Linux storage checks, and desktop/mobile collaboration acceptance passed for the application source.
+- All nine pull-request checks passed. The fresh production backup was restored into an isolated database and file directory with matching document identities, history, shares and native states.
+
 ## [2026.10.26.2] - 2026-10-26
 
 ### Fixed
