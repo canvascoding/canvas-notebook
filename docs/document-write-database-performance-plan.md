@@ -259,6 +259,20 @@ bestehen. Vier frische Fixtures / 16 Fenster reduzieren warm Agent von 1090 auf
 gleich; bestehende Sonden werden nicht geändert. Gesamtbudgets, übrige Pakete
 und sämtliche finalen Release-Gates bleiben offen.
 
+Die [tatsächlichen MCP-Verbrauchergrenzen](architecture/document-service-mcp-consumer-boundaries-2026-10-29.md)
+verwenden die frischen Eintritts-/Ausgangsprüfungen des echten umschließenden
+Principals. Der zusätzliche private Wrapper vergleicht dort nur seine identischen
+ursprünglichen Daten; tatsächliche IO-/Native-Grenzen behalten die volle aktuelle
+Prüfung. Drei neue reale Eintritts-/Ausgangsfälle, 24 Settings-IO-Fälle und alle 25
+gezielten PostgreSQL-Suiten bestehen. Eine veraltete Copy-Testannahme zum früheren
+Native-Opt-in ist am dauerhaft aktivierten Produktvertrag ausgerichtet; ursprüngliche
+Recover-Belege und Daten bleiben geprüft. Vier frische Fixtures / 16 Fenster senken
+warm MCP von 753 auf 702 SQL / 29 Ausleihen und dessen Originalwiederholung von
+102 auf 91 / 12. Agent bleibt als Kontrolle bei 1058 / 34 beziehungsweise 168 / 7.
+Typprüfung, Lint und tatsächliche Ressourcenfreigabe bestehen. Gesamtbudgets,
+abschließende Standardsettings-/Latenz-/Größenabnahme, übrige Pakete und alle
+finalen Release-Gates bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

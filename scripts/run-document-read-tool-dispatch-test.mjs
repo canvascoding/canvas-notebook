@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/direct-mcp-create-consumer-boundaries-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/files/markdown-create-birth.ts',
+    'app/lib/files/workspace-file-lifecycle-guard.ts'],
+  'scripts/direct-mcp-runtime-snapshot-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/mcp/server/document-read-principal.ts',
+    'app/lib/mcp/server/runtime-settings.ts', 'app/lib/server-settings.ts',
+    'app/lib/db/postgres-scalar-snapshot.ts', 'app/lib/workspaces/postgres-runtime.ts'],
   'scripts/markdown-create-late-owner-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/files/markdown-create-birth.ts',
     'app/lib/collaboration/markdown-file-import-persistence.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts',

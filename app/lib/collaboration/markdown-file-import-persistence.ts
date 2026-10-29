@@ -1396,6 +1396,20 @@ function currentMcpInvocation(frame: Extract<BootstrapFrame, { kind: 'direct-mcp
     || !isDeepStrictEqual(actual.original, frame.originalOrigin)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   assertMcpOriginalCurrent(frame.originalOrigin, actual.current); actual.signal?.throwIfAborted(); return actual;
 }
+/** Origin data only. The genuine enclosing Principal owns fresh entry/exit
+ * Current and its actual locks. No copied access or retained consumer can
+ * select this comparison, and it never replaces an IO/native write guard. */
+function assertDirectMcpCreateConsumerOrigin(database: SqlConnection,
+  frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>, access: AuthenticatedCreateAccess): void {
+  const phase = directMcpCreatePhases.getStore();
+  if (!phase?.active || phase.database !== database || phase.frame !== frame || phase.access !== access) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const actual = currentMcpInvocation(frame), expected = frame.originalOrigin, current = actual.current!;
+  if (!('clientId' in access) || !('tool' in access) || access.userId !== current.userId || access.clientId !== current.clientId
+    || access.sessionId !== current.sessionId || access.tool !== current.tool
+    || !access.workspace.permissions.canRead || !access.workspace.permissions.canWrite || !access.workspace.permissions.canRunAgent
+    || ['workspaceId', 'workspaceType', 'organizationId', 'customerId', 'projectId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status']
+      .some(key => (Reflect.get(access.workspace, key) ?? null) !== Reflect.get(expected, key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
 async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConnection, frame: BootstrapFrame,
   operation: (access: AuthenticatedCreateAccess) => Promise<T>, requestPrincipal?: WorkspaceRequestPrincipal): Promise<T> {
   if (frame.kind === 'agent-tool') {
@@ -1420,8 +1434,12 @@ async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConn
       const phase: DirectMcpCreatePhase = { active: true, database, access, frame };
       return directMcpCreatePhases.run(phase, async () => {
         try {
-          await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-          const value = await operation(access); await assertAuthenticatedCreateOriginCurrent(database, frame, access); return value;
+          // The enclosing genuine Principal has just completed Current and
+          // will repeat it after this whole consumer settles. Its private
+          // origin observer is synchronous data comparison only. Native/IO
+          // boundaries inside operation retain their full fresh guards.
+          assertDirectMcpCreateConsumerOrigin(database, frame, access);
+          const value = await operation(access); assertDirectMcpCreateConsumerOrigin(database, frame, access); return value;
         } finally { phase.active = false; }
       });
     });
@@ -1462,12 +1480,8 @@ async function assertAuthenticatedCreateOriginCurrent(database: SqlConnection, f
         .some(key => (Reflect.get(access.workspace,key) ?? null) !== Reflect.get(expected,key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
     await actual.policy.assertCurrent(database,access); await assertMarkdownBirthRealm(database,frame); return;
   }
-  const actual = currentMcpInvocation(frame), expected = frame.originalOrigin, current = actual.current!;
-  if (!('clientId' in access) || !('tool' in access) || access.userId !== current.userId || access.clientId !== current.clientId
-    || access.sessionId !== current.sessionId || access.tool !== current.tool
-    || !access.workspace.permissions.canRead || !access.workspace.permissions.canWrite || !access.workspace.permissions.canRunAgent
-    || ['workspaceId', 'workspaceType', 'organizationId', 'customerId', 'projectId', 'ownerUserId', 'rootPath', 'rootRelativePath', 'legacy', 'status']
-      .some(key => (Reflect.get(access.workspace, key) ?? null) !== Reflect.get(expected, key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  assertDirectMcpCreateConsumerOrigin(database, frame, access);
+  const expected = frame.originalOrigin;
   await access.assertCurrent();
   const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
@@ -1697,9 +1711,9 @@ export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInf
         const workspace = await executeLifecycleTransaction({ openConnection: openDb,
           execute: async database => {
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-            return withDirectMcpDocumentCreatePrincipalOnConnection(database, principal, async access => {
-              await access.assertCurrent(); return access.workspace;
-            });
+            // This callback only returns constructor-owned data. The genuine
+            // Principal checks Current before and after this whole callback.
+            return withDirectMcpDocumentCreatePrincipalOnConnection(database, principal, async access => access.workspace);
           }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
         if (!current) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
         const operationId = directMcpIngestFingerprint([current.clientId, current.userId, selected.workspaceId, selected.idempotencyKey]);
