@@ -225,6 +225,18 @@ tatsächlichen Ausleihen zugeordnet. Die größten Publikationsverbindungen enth
 159 beziehungsweise 220. Das begründet die nächste Bündelung innerhalb dieser
 Phasen, ist selbst aber keine Leistungseinsparung oder Paketabnahme.
 
+Die [internen Dateisystem-Bestätigungen](architecture/document-service-private-acks-2026-10-29.md)
+verwenden jetzt die tatsächlich gehaltene Publikationsphase, ohne an privaten
+ACKs vollständige Rechte-/Native-Leser zu wiederholen. Helfereintritt, wirklicher
+Link und Abschluss behalten die frischen vollständigen Prüfungen. Ein dabei
+reproduzierter Agent-Wiederaufnahmefehler ist ebenfalls korrigiert: Der zentrale
+Dienst darf die originale Anlage prüfen, bevor die allgemeine Hardlink-Sperre
+eine beabsichtigte private Sicherung blockiert; gewöhnliche Hardlinks bleiben
+gesperrt. Zehn neue Kontroll-/Fehlerfälle, 15 PostgreSQL-Suiten und Typ-/Lint-Prüfungen
+bestehen. Vier frische Fixtures / 16 Fenster reduzieren warme Agent-Neuanlage von
+1219 auf 1159 SQL und MCP von 919 auf 869; Ausleihen und Originalwiederholungen
+bleiben gleich. Die endgültigen Budgets, übrigen Pakete und Release-Gates bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-

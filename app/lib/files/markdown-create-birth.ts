@@ -275,7 +275,7 @@ type Frame = { active: boolean; configuredData: string; resolvedData: string; co
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
   readonly input?: MarkdownCreateBirthStorageInput;
   fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
-type StorageInvocation = { active: boolean; verificationEntry: boolean; readonly verification: boolean;
+type StorageInvocation = { active: boolean; verificationEntry: boolean; privateStorageBoundary: boolean; readonly verification: boolean;
   readonly frame: Frame; readonly operation: () => Promise<Observation> };
 const storageInvocationContext = new AsyncLocalStorage<StorageInvocation>();
 
@@ -290,6 +290,15 @@ export function isMarkdownCreateBirthVerificationOperation(input: MarkdownCreate
   operation: () => Promise<unknown>): boolean {
   const invocation = storageInvocationContext.getStore();
   return isMarkdownCreateBirthVerification(input) && invocation?.operation === operation;
+}
+
+/** Only the actual private message can identify a staging/receipt boundary.
+ * Copied inputs, caller stage strings and retained contexts cannot select it.
+ * It grants no rights, native-state proof or successful publication result. */
+export function isMarkdownCreateBirthPrivateStorageBoundary(input: MarkdownCreateBirthStorageInput): boolean {
+  const invocation = storageInvocationContext.getStore();
+  return invocation?.active === true && invocation.privateStorageBoundary === true
+    && invocation.frame.active && invocation.frame.input !== undefined && invocation.frame.input === input;
 }
 
 /** A data-only predicate for the actual private verify-entry callback. Copied
@@ -354,7 +363,7 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     if (agentSource ? Buffer.byteLength(message,'utf8') > 64 * 1024 * 1024 : message.length > 8 * 1024 * 1024) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     await root(frame);
     invocation.verificationEntry = action === 'verify';
-    try { await boundary(); } finally { invocation.verificationEntry = false; }
+    try { await boundary(); } finally { invocation.verificationEntry = false; invocation.privateStorageBoundary = false; }
     if (frame.storePin) readStorePointer(frame);
     const helper = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts/runtime/markdown-create-birth.py');
     const observed = await new Promise<Observation>((resolve, reject) => {
@@ -376,7 +385,14 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
           pending = pending.then(async () => {
             if (hasFailure) return;
             const result = JSON.parse(line);
-            if (typeof result.stage === 'string') { await root(frame); await boundary(result.stage); child.stdin!.write('continue\n'); }
+            if (typeof result.stage === 'string') {
+              invocation.privateStorageBoundary = action === 'prepare' && ['temp_synced','prepared_durable'].includes(result.stage)
+                || action === 'observe' && ['target_linked','born_durable'].includes(result.stage)
+                || action === 'complete' && result.stage === 'complete_durable';
+              try { await root(frame); await boundary(result.stage); }
+              finally { invocation.privateStorageBoundary = false; }
+              child.stdin!.write('continue\n');
+            }
             else if (typeof result.error === 'string') rejectChild(new MarkdownCreateBirthError(result.error));
             else if (result.result) value = result.result as Observation;
             else rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
@@ -400,11 +416,12 @@ async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'obs
     if (frame.storePin) readStorePointer(frame);
     return observed;
   };
-  const invocation: StorageInvocation = { active: true, verificationEntry: false, verification: action === 'verify', frame, operation };
+  const invocation: StorageInvocation = { active: true, verificationEntry: false, privateStorageBoundary: false,
+    verification: action === 'verify', frame, operation };
   try {
     return await storageInvocationContext.run(invocation, () => inCollaborationProjectionPhase(phase[action], () =>
       frame.withStoragePhase ? frame.withStoragePhase(operation) : operation()));
-  } finally { invocation.verificationEntry = false; invocation.active = false; }
+  } finally { invocation.verificationEntry = false; invocation.privateStorageBoundary = false; invocation.active = false; }
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };

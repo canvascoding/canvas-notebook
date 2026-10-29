@@ -49,6 +49,7 @@ async function publicationBoundariesPostgresTest(): Promise<void> {
     [h.workspaceId, target])).rows;
     type Action = { name: string; stage: string; proofs: number; nativeClient?: PoolClient };
     let live: Action | undefined, actor: 'agent' | 'mcp' = 'mcp', race = false, injected = false, before: unknown;
+    let latestNativeClient: PoolClient | undefined;
     let currentTarget = '', checkedAcks = 0;
     const mutations: Promise<void>[] = [], mutationErrors: unknown[] = [];
     const descriptors = new Map<PoolClient, PropertyDescriptor | undefined>();
@@ -58,8 +59,9 @@ async function publicationBoundariesPostgresTest(): Promise<void> {
       Object.defineProperty(client, 'query', { configurable: true, writable: true, value: (...args: unknown[]) => {
         const input = args[0], text = typeof input === 'string' ? input
           : input && typeof input === 'object' ? Object.getOwnPropertyDescriptor(input, 'text')?.value : undefined;
-        if (live && typeof text === 'string' && text.includes("r.live_yjs_state_sha256=encode(sha256(y.yjs_state),'hex')")) {
-          live.proofs++; live.nativeClient = client;
+        if (typeof text === 'string' && text.includes("r.live_yjs_state_sha256=encode(sha256(y.yjs_state),'hex')")) {
+          latestNativeClient = client;
+          if (live) { live.proofs++; live.nativeClient = client; }
         }
         return Reflect.apply(original, client, args);
       } });
@@ -70,7 +72,10 @@ async function publicationBoundariesPostgresTest(): Promise<void> {
     childModule.spawn = ((...args: Parameters<typeof originalSpawn>) => {
       const child = originalSpawn(...args);
       if (!Array.isArray(args[1]) || !args[1].some(value => String(value).endsWith('/markdown-create-birth.py'))) return child;
-      assert(!live); const action: Action = { name: '', stage: '', proofs: 0 }; live = action;
+      // Reuse the real entry observation as the injection handle; assertions
+      // still require a fresh full proof at the actual before-link ACK.
+      assert(!live); const action: Action = { name: '', stage: '', proofs: 0,
+        nativeClient: latestNativeClient }; live = action;
       let buffer = '';
       child.stdout!.on('data', chunk => {
         buffer += String(chunk);

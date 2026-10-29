@@ -53,6 +53,7 @@ async function publicationOwnerObservationPostgresTest(): Promise<void> {
     [h.workspaceId, target])).rows;
     type Action = { name: string; stage: string; proofs: number; nativeReads: number; ownerReads: number; nativeClient?: PoolClient; ownerClient?: PoolClient };
     let live: Action | undefined, actor: 'agent' | 'mcp' = 'mcp', race = false, injected = false, before: unknown;
+    let latestNativeClient: PoolClient | undefined;
     let currentTarget = '', checkedAcks = 0;
     let restoreOwnerSearchPath: (() => Promise<void>) | undefined;
     let fault: 'sequence' | 'degraded' | 'permanent' | 'owner' | 'schema' = 'sequence';
@@ -71,8 +72,9 @@ async function publicationOwnerObservationPostgresTest(): Promise<void> {
           if (owner) live.ownerClient = client;
         }
         if (live && typeof text === 'string' && /\bFROM\s+(?:collaboration_yjs_states|collaboration_documents|collaboration_markdown_file_import_receipts|file_collaboration_lineages)\b/iu.test(text)) live.nativeReads++;
-        if (live && typeof text === 'string' && text.includes("r.live_yjs_state_sha256=encode(sha256(y.yjs_state),'hex')")) {
-          live.proofs++; live.nativeClient = client;
+        if (typeof text === 'string' && text.includes("r.live_yjs_state_sha256=encode(sha256(y.yjs_state),'hex')")) {
+          latestNativeClient = client;
+          if (live) { live.proofs++; live.nativeClient = client; }
         }
         return Reflect.apply(original, client, args);
       } });
@@ -83,7 +85,10 @@ async function publicationOwnerObservationPostgresTest(): Promise<void> {
     childModule.spawn = ((...args: Parameters<typeof originalSpawn>) => {
       const child = originalSpawn(...args);
       if (!Array.isArray(args[1]) || !args[1].some(value => String(value).endsWith('/markdown-create-birth.py'))) return child;
-      assert(!live); const action: Action = { name: '', stage: '', proofs: 0, nativeReads: 0, ownerReads: 0 }; live = action;
+      // Preserve the actual held publication backend observed before spawn;
+      // private ACKs no longer repeat its full native snapshot query.
+      assert(!live); const action: Action = { name: '', stage: '', proofs: 0, nativeReads: 0, ownerReads: 0,
+        nativeClient: latestNativeClient }; live = action;
       let buffer = '';
       child.stdout!.on('data', chunk => {
         buffer += String(chunk);

@@ -1759,7 +1759,10 @@ export async function writeAgentTextFile(params: {
       relativePath:workspaceRelativeAgentPath(createWorkspace,fullPath),legacy:false as const,
       invocation:captureCurrentAgentToolInvocation()}) : null;
   if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
-  await assertAgentWritablePathAllowed(fullPath);
+  // An interrupted native birth can still own its private hardlink. Let the
+  // original document service authenticate that operation before the generic
+  // alias check. Destination restrictions still precede any service call.
+  await (nativeSelection ? assertAgentPathDestinationAllowed(fullPath) : assertAgentWritablePathAllowed(fullPath));
   // Eligibility was selected before the await. A changed invocation cannot
   // turn an active native request into a legacy/raw fallback afterwards.
   if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
@@ -1773,6 +1776,10 @@ export async function writeAgentTextFile(params: {
     const nativeCreate = await createOrReplayAgentMarkdownFile({...createInput,...nativeSelection});
     assertCurrentAgentToolInvocation(nativeSelection.invocation);
     if (nativeCreate) return nativeCreate;
+    // No original native creation owns this request: ordinary writes retain
+    // the complete hardlink/real-path guard before reading or changing bytes.
+    await assertAgentWritablePathAllowed(fullPath);
+    assertCurrentAgentToolInvocation(nativeSelection.invocation);
   }
   const before = await readExistingFile(fullPath);
   if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);

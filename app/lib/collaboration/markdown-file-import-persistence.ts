@@ -27,7 +27,7 @@ import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
 import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth,
-  isMarkdownCreateBirthVerification, isMarkdownCreateBirthVerificationOperation,
+  isMarkdownCreateBirthVerification, isMarkdownCreateBirthVerificationOperation, isMarkdownCreateBirthPrivateStorageBoundary,
   directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
   type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
   type MarkdownCreateBirthStorageInput, type MarkdownCreateBirthClaim } from '../files/markdown-create-birth';
@@ -1154,6 +1154,16 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
   if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
+  if (projection && isMarkdownCreateBirthPrivateStorageBoundary(input)) {
+    // The same genuine Principal still holds its actual rights/Workspace locks.
+    // Only this private message can select staging/receipt boundaries. Public
+    // before-link turns and the real helper close retain full fresh native and
+    // policy proofs. A/source/root and the negative phase lifetime stay current.
+    if (owner.frame.kind === 'agent-tool') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+    else assertAuthenticatedDirectMcpMarkdownBirthWithinTurn(input);
+    await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+    return;
+  }
   if (isMarkdownCreateBirthVerification(input)) {
     // Pure historical IO never grants authority, even under a held Principal.
     // Its enclosing native/publication/result boundary performs fresh Current
