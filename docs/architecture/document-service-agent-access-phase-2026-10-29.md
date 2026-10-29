@@ -4,7 +4,8 @@ Stand: 29.10.2026. Die [Messbasis für den normalen Organisations-Agenten](docum
 wird am unveränderten bisherigen Produktstand mit dem neuen Ablauf verglichen.
 Der [maschinenlesbare Nachweis](document-service-agent-access-phase-2026-10-29.json)
 bindet die sechs geänderten Quellen und die tatsächlichen Prüfausgaben per SHA-256.
-Build und UI dieses neuen Produktstands stehen noch aus.
+Host-/Linux-Build, Start und UI sind inzwischen am Produktstand
+`c8dde1074a257b546eee6e9a4991c637a6b1e9bf` erfolgreich geprüft.
 
 Die normale Agentenfreigabe wird in der tatsächlichen bereits gehaltenen Create-
 Verbindung mit einer statt sechs SQL-Abfragen beobachtet. Mitgliedschaft,
@@ -57,11 +58,35 @@ Release-Quellen samt betroffenen Testeintritten bestehen mit 3624 Wurzeln,
 Sperrreihenfolge werden beibehalten; drei ursprüngliche Funktionen binden die
 geteilten Entscheidungen beziehungsweise die spätere Beobachtung ein.
 
+Der vollständige Host-Build und der Linux-Image-Build bestehen am sauberen selben
+Quellstand. Der verwaltete Notebook-Container startet mit derselben Datenbank und
+denselben Volumes gesund. Die ursprünglichen Upload-Zeilen mit `xmin`, Identitäten,
+Dateibytes und Speicheranker bleiben erhalten; die elf übrigen Container laufen
+unter ihren unveränderten IDs weiter. Alle neun CI-Prüfungen am Produktcommit
+stehen auf erfolgreich.
+
+Im neu gestarteten Linux-Container bestehen 15 Speicherfälle und vier echte
+Browserfälle: mobiler Original-Retry nach Exportfehler ohne Überschreiben späterer
+Peer-Änderungen, zwei Live-Editoren mit echtem Rechteentzug und frischem Leser
+sowie beide Agentenverwaltungs-/Zugriffsfälle. Fünf tatsächliche Browserabrufe des
+Dokumentlesers prüfen Identität, Generation und Inhalt. Review Center ist aus.
+Der abschließende Lauf enthält null fehlgeschlagene, übersprungene oder flaky
+Fälle und null Playwright-Fallwiederholungen. Eine unveränderte begrenzte
+Anmeldewiederholung nach echter HTTP-429-Antwort wartet 1000 ms. Sieben Screenshots
+sind visuell geprüft; Originaldaten bleiben auch nach dem Lauf unverändert.
+
+Ein erster Browserlauf bestand drei Fälle; der zusätzliche Peer-Fall stoppte vor
+seinen fachlichen Prüfungen an einer veralteten erwarteten Commit-ID im privaten
+Testskript. Nur diese ID wurde auf den gebauten Quellstand berichtigt. Alle
+anderen Assertions, Zeitgrenzen und Cleanup-Schritte bleiben bytegleich. Nach
+erneutem Recreate desselben aktuellen Images besteht der vollständige Vier-Fälle-
+Lauf. Der ursprüngliche Fehlbericht und die Vergleichshashes bleiben erhalten.
+
 Die Gesamtbudgets (vorläufig HTTP-Lesen ≤20, Create 200–500), weitere strukturelle
 Phasen-/Verbindungsbündelung und alle übrigen Pakete des
 [Serviceplans](../document-write-database-performance-plan.md) bleiben offen.
 Die vorhandene Dokument-/Linkindexstruktur bleibt die Grundlage für inkrementelle
 Extraktion und Zielauflösung. Review Center und Undo werden nicht weiterentwickelt.
-Dieser Nachweis ersetzt weder aktuellen Build/Linux-Start/UI und finales
-`test:all` noch PR/CI/Reviews, Backup/Restore, verlustfreie Original-Recovery und
+Dieser Nachweis ersetzt weder finales `test:all` noch abschließende PR/CI/Reviews,
+Backup/Restore, verlustfreie Original-Recovery und
 kontrolliertes Release. Produktionsdaten werden dadurch nicht verändert.

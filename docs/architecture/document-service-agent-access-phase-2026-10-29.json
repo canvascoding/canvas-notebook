@@ -412,12 +412,84 @@
     "latencyAndSize": {
       "file": "agent-access-phase-latency-20261029/validation.json",
       "sha256": "e4ff3f54548aad9571ce1ec78508fb1655b4fdb139e2fbf2b49b242be0aed90b"
+    },
+    "hostBuild": {
+      "file": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/build-1793300362451-result.json",
+      "sha256": "fbbd609b8a3514575889cb48f1cb59fa4869ba557ce7891eef5923e1feec91b8"
+    },
+    "linuxBuild": {
+      "file": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/linux-document-image-1793300980087-result.json",
+      "sha256": "5f8bf8a34f050c2543aba77f467d5db006328825fea1faac6fed296878f0328c"
+    },
+    "sameVolumeStartup": {
+      "file": "agent-access-linux-update-1793300978103-progress.json",
+      "sha256": "1048ed87dfe12b117cd6cc09fb91eaa0132d1b7cc0b174fcc72f1298e4166dbe"
+    },
+    "freshUiRecreation": {
+      "file": "agent-access-linux-recreate-1793301800509-progress.json",
+      "sha256": "189abdc0ce8f888bac69299606da6f07e3016b26f229c62ccd8590187cb03950"
+    },
+    "currentUi": {
+      "file": "agent-access-ui-linux-1793301880003-result.json",
+      "sha256": "b4462c69b9b3f4fd6cabc42dfad28f4423b2e92fa96a8bde701d0ec0fd9fdc19"
+    },
+    "currentBrowserReport": {
+      "file": "agent-access-ui-linux-1793301880003-browser-results.json",
+      "sha256": "cd82fde38f974fe2f753bd230d25cc1be8e1900a6c9153e3658fdb9e2b1e5a35"
+    },
+    "finalRuntime": {
+      "file": "agent-access-c8-final-runtime-acceptance-20261029.json",
+      "sha256": "a7ac6a94b9616c41e163897ecda357ca0fce378d087e72c31c6d050477576bea"
+    },
+    "retainedPrivateTestBindingFailure": {
+      "file": "agent-access-ui-linux-1793301611739-result.json",
+      "sha256": "adba0f942c41a96ed3507824e00f5482a2c946b7b5e4031605a03a6eccebe9ad"
+    },
+    "privateTestBindingComparison": {
+      "file": "/tmp/canvas-agent-access-ui-source-binding-proof-20261029.json",
+      "sha256": "b05aa9ae902d1a326f3fd38733b6fa717f0da48d431f4c49058d7c1b141eba39"
     }
   },
   "reviewCenterAndUndoFeatureDevelopmentExcluded": true,
-  "hostBuildCurrentSource": false,
-  "linuxBuildCurrentSource": false,
-  "uiCurrentSource": false,
+  "hostBuildCurrentSource": true,
+  "linuxBuildCurrentSource": true,
+  "uiCurrentSource": true,
   "fullPlanComplete": false,
-  "noProductionDeployment": true
+  "noProductionDeployment": true,
+  "builtApplicationSourceSha": "c8dde1074a257b546eee6e9a4991c637a6b1e9bf",
+  "runtimeAcceptance": {
+    "sourceSha": "c8dde1074a257b546eee6e9a4991c637a6b1e9bf",
+    "imageId": "sha256:bf37f66d902202d05b5e70f85706f5fcdb6408c04db25a051b70a445e1773993",
+    "containerId": "32e60f94c05362933f19efcf02eac3d9aa164581ffd4e539b1495474af5f595e",
+    "healthy": true,
+    "otherElevenContainersPreservedAndRunning": true,
+    "originalRowsXminBytesAndIdentitiesPreserved": true,
+    "protectedOriginalAfterTerminalUnchanged": true,
+    "reviewCenterDisabled": true,
+    "caseRetries": 0,
+    "browserStats": {
+      "startTime": "2026-10-29T19:25:02.716Z",
+      "duration": 75774.053,
+      "expected": 4,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "birthStorageCases": 15,
+    "unchangedBoundedAuthenticationRetry": {
+      "count": 1,
+      "actualStatus": 429,
+      "delayMs": 1000
+    },
+    "screenshotsInspected": 7,
+    "previousPrivateTestSourceBindingFailureRetained": true
+  },
+  "currentCi": {
+    "sourceSha": "c8dde1074a257b546eee6e9a4991c637a6b1e9bf",
+    "allNineSuccess": true,
+    "evidence": {
+      "file": "/tmp/canvas-agent-access-c8-ci-initial-20261029.json",
+      "sha256": "24b893563fdabf05ef6db741c1d867901c9baa5027b143abd7fa7bc489fc5a46"
+    }
+  }
 }

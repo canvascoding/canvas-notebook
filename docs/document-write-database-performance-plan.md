@@ -128,8 +128,11 @@ echter PostgreSQL-Antwortlatenz im Median von 7044,345 auf 5247,92 ms schneller.
 echtem Widerruf nach der frühen Scope-Antwort. Die gebündelte Abfrage bleibt an
 der späteren tatsächlichen Rechtegrenze; Original-Origin-, native/Owner- und
 COMMIT-Prüfungen bleiben erhalten. Zwölf gezielte Suiten, Typprüfung
-und Lint bestehen. Build/Linux-Start/UI für diesen neuen Produktstand sowie die
-Gesamtbudgets und übrigen Pakete sind weiterhin offen.
+und Lint bestehen. Am Produktstand `c8dde1074` bestehen zusätzlich vollständiger
+Host-/Linux-Build, gleicher Datenbestand beim Neustart, alle neun CI-Prüfungen,
+15 Linux-Speicherfälle und vier Browserfälle mit ausgeschaltetem Review Center.
+Originaldaten und Speicheranker sowie die elf übrigen Container sind erhalten.
+Die Gesamtbudgets und übrigen Pakete sind weiterhin offen.
 
 Die [Nachmessung mit einem normalen Organisations-Agenten](architecture/document-service-configured-agent-baseline-2026-10-29.md)
 am unveränderten Produktstand `0e088417588b780ccc3ea24e36e9c3c0eb63869b` ergänzt
