@@ -29,6 +29,7 @@ import {
   type CollaborationAdmissionStatus,
 } from './room-admission-contract';
 import { getWorkspaceFileLifecycleLeases } from './file-lifecycle-admission-context';
+import { collaborationAdmissionReadPredicates } from './room-admission-predicates';
 
 type Query = (sql: string, values?: unknown[]) => Promise<Array<Record<string, unknown>>>;
 type CapturedRequest = ReturnType<typeof captureCollaborationAdmissionRequest>;
@@ -51,9 +52,8 @@ export type CollaborationAdmissionResult = Readonly<{
   targets: readonly CollaborationAdmissionTarget[];
 }>;
 
-const ACTIVE_REQUEST = "r.status NOT IN ('committed', 'cancelled')";
-const matchesPath = `(s.path = $2 OR (s.kind = 'subtree'
-  AND (s.path = '' OR left($2, length(s.path) + 1) = s.path || '/')))`;
+const ACTIVE_REQUEST = collaborationAdmissionReadPredicates.activeRequest;
+const matchesPath = collaborationAdmissionReadPredicates.parameterPath;
 
 /** Caller owns a short transaction. Never wait for a room owner while holding this guard. */
 export async function lockCollaborationAdmissionWorkspace(query: Query, workspaceId: string): Promise<void> {

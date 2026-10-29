@@ -152,7 +152,8 @@ async function headerWitness(phase: ReadPhase, documentId: string): Promise<stri
     `COALESCE(octet_length(${field}),0)>16384`).join(' OR ')} THEN NULL ELSE
       encode(sha256(convert_to(jsonb_build_array(${witnessText.join(',')},l.archived_at,
         s.lifecycle_generation,s.schema_version,m.updated_at)::text,'UTF8')),'hex') END AS witness
-    FROM ${schema}.collaboration_documents d FULL JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
+    FROM (SELECT * FROM ${schema}.collaboration_documents WHERE id=$1) d
+    FULL JOIN (SELECT * FROM ${schema}.collaboration_yjs_states WHERE document_id=$1) s ON s.document_id=d.id
     LEFT JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
     LEFT JOIN ${schema}.workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
     WHERE (d.id=$1 AND d.workspace_id=$2) OR (s.document_id=$1 AND s.workspace_id=$2) LIMIT 2`,

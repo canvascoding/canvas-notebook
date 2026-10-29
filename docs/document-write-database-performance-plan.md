@@ -27,6 +27,15 @@ gesperrte Leser bleiben bytegleich, Rohwerte und Originaldaten bleiben erhalten.
 Die SQL-Anzahl dieses Lesers bleibt bei eins beziehungsweise drei; die Abnahme
 ersetzt weder neue Leistungswerte noch einen Abschluss des Bündelungspakets.
 
+Die [gemeinsame native Lesephase](architecture/document-service-native-read-phase-2026-10-29.md)
+bündelt inzwischen frische Kontext-, Workspace-, Dokumentkopf- und Reservierungsdaten
+und begrenzt ID-Joins vorab. Der tatsächliche Vergleich bei 10 und 200 Quellen senkt
+warme HTTP-Lesefenster von 69 auf 59 SQL-Aufrufe, Agent von 109 auf 99 und MCP
+von 84 auf 74; Ausleihen bleiben unverändert. Die fünf betroffenen PostgreSQL-Suiten
+und der Vergleich mit begrenzter Antwortlatenz bestehen. Lokal ist ohne zusätzliche
+Verzögerung kein wesentlicher allgemeiner Latenzgewinn nachgewiesen. Frischer
+Produktbuild/Start/UI sowie die Leistungsbudgets und übrigen Pakete bleiben offen.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
