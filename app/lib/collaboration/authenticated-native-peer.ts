@@ -6,6 +6,7 @@ import type { CollaborationTicketClaims } from './types';
 import type { ExistingNativeSessionIdentity } from './native-session-state-reader';
 import type { CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { WorkspaceRequestPrincipalError } from '../workspaces/request-principal';
 import { AuthenticatedNativeSessionTransportError, disposeAuthenticatedNativeSessionTransport,
   isAuthenticatedNativeSessionTransportBusy, withAuthenticatedOwnedNativeSessionTransportOnConnection,
   type AuthenticatedNativeSessionTransport, type AuthenticatedOwnedNativeSessionAccess } from './authenticated-native-session-transport';
@@ -58,8 +59,13 @@ export function createAuthenticatedNativePeer(input: {
       return enqueue(async () => {
         const read = await phase('canRead', ownerFence);
         if (!read.quarantined && claims.permission === 'write') {
-          const write = await phase('canWrite', ownerFence);
-          return { workspace: write.workspace, quarantined: write.quarantined };
+          // This fixed observation has no consumer callback or mutable work.
+          // Its genuine Principal holds the policy rows through final Current
+          // and COMMIT. Use those freshly resolved rights for status, together
+          // with the actual original transport ceiling. Never retain a grant:
+          // authorizeWrite still owns a distinct fresh canWrite phase before apply.
+          if (read.originalPermission !== 'canWrite') throw new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_ACCESS_DENIED');
+          if (!read.workspace.permissions.canWrite) throw new WorkspaceRequestPrincipalError('PRINCIPAL_ACCESS_DENIED');
         }
         return { workspace: read.workspace, quarantined: read.quarantined };
       });

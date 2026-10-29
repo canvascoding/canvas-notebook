@@ -12,6 +12,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/authenticated-native-owned-peer-postgres-test.ts': [entryPoint,
+    'app/lib/collaboration/authenticated-native-peer.ts',
+    'app/lib/collaboration/authenticated-native-session-transport.ts',
+    'app/lib/workspaces/request-principal.ts', 'app/lib/collaboration/room-owner.ts',
+    'app/lib/collaboration/lifecycle-transaction.ts', 'app/lib/observability/document-operation-metrics.ts',
+    'app/lib/db/index.ts'],
   'scripts/native-direct-activity-completion-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'server/collaboration-server.ts',
     'app/lib/collaboration/document-access.ts', 'app/lib/collaboration/agent-file-edits.ts',

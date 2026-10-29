@@ -41,8 +41,10 @@ type Phase = { record: RecordState; connection: SqlConnection; active: boolean; 
 export type AuthenticatedOwnedNativeSessionAccess = ExistingNativeSessionRequestAccess & Readonly<{
   identity: ExistingNativeSessionIdentity; quarantined: boolean; documentSequence: number;
 }>;
-/** Inert result of a completed fixed observation, never a retained capability. */
-export type AuthenticatedOwnedNativeSessionObservation = Omit<AuthenticatedOwnedNativeSessionAccess, 'assertCurrent'>;
+/** Inert result of a completed fixed observation, never a retained capability.
+ * Original permission is the immutable transport ceiling, not a current grant. */
+export type AuthenticatedOwnedNativeSessionObservation = Omit<AuthenticatedOwnedNativeSessionAccess, 'assertCurrent'>
+  & Readonly<{ originalPermission: Permission }>;
 type OwnedNativeSessionInput = {
   permission: Permission; identity: ExistingNativeSessionIdentity; ownerFence: CollaborationRoomOwnerFence;
 };
@@ -645,7 +647,7 @@ function createNativeRuntime(): NativeRuntime {
               const state = await observeOwnedNativeSession(phase, identity, fence);
               if (captured.permission === 'canWrite' && state.quarantined) fail('NATIVE_TRANSPORT_QUARANTINED');
               observation = Object.freeze({ workspace: actual.workspace, userId: actual.userId, sessionId: actual.sessionId,
-                identity, ...state });
+                originalPermission: record.maxPermission, identity, ...state });
               return observation;
             }
             await verify(phase, actual);

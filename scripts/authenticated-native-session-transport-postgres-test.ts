@@ -207,7 +207,7 @@ async function main(): Promise<void> {
             counted(db, () => borrowedCount++), cap, options, async access => ({ workspace: access.workspace,
               userId: access.userId, sessionId: access.sessionId, identity: access.identity,
               quarantined: access.quarantined, documentSequence: access.documentSequence })));
-          assert.deepEqual(fixed, borrowed); assert(Object.isFrozen(fixed)); assert(Object.isFrozen(fixed.workspace));
+          assert.deepEqual(fixed, { ...borrowed, originalPermission: 'canWrite' }); assert(Object.isFrozen(fixed)); assert(Object.isFrozen(fixed.workspace));
           assert.equal('assertCurrent' in fixed, false);
           console.log(JSON.stringify({ scope: 'fixed-owned-observation', permission, fixedCount, borrowedCount }));
           // Shared Member batching improves both variants. Keep absolute query

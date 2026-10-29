@@ -499,3 +499,14 @@ Zwölf 10/200-Dokument-Fixtures sparen in allen 18 Vergleichsfenstern sechs weit
 SQL-Aufrufe: warm HTTP 76 → 70 / 9 Ausleihen, Agent 116 → 110 / 3 und MCP 90 → 84 / 19.
 Release-TypeScript, erweiterte TypeScript-Prüfung (55 Wurzeln/5184 Quellen) und ESLint
 bestehen. Gesamtbudgets und übrige Pakete bleiben weiterhin offen.
+
+Die [gebündelte aktuelle Editor-Statusprüfung](architecture/document-service-peer-status-2026-10-29.md)
+ersetzt zwei unmittelbar aufeinanderfolgende vollständige Principal-Phasen durch
+eine feste, rein beobachtende Phase. Aktuelle Schreibrechte, die ursprüngliche
+Transportgrenze und Quarantäne bleiben geprüft; die zusätzliche frische
+Schreibfreigabe vor dem tatsächlichen Apply bleibt unverändert. 66 echte
+PostgreSQL-Fälle bestehen. Ein Statuscheck sinkt von 94 SQL / 18 Ausleihen auf
+47 / 9. Im gepaarten Editorlauf mit zehn regulären Quellen sinkt das breite
+6,1-Sekunden-Fenster nach dem Öffnen von 1220 / 233 auf 782 / 151; beide Saves
+benötigen ebenfalls weniger Abfragen. Der Laufzeitgewinn beim Speichern ist klein.
+Die finalen Budgets, übrigen Pakete und Prüfungen vor dem Release bleiben offen.
