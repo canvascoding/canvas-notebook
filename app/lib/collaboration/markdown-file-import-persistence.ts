@@ -1500,7 +1500,9 @@ async function loadDirectMcpCreateSource(frame: Extract<BootstrapFrame, { kind: 
     assertCurrent: async () => {
       currentMcpInvocation(frame);
       if (!createSources.has(source) || hash(bytes) !== binding.sourceHash || bytes.byteLength !== binding.sourceBytes) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-      await assertBootstrapOwner(frame);
+      // This capsule proves the live invocation and immutable source bytes.
+      // The concrete storage/native coordinator owns the fresh A proof, as it
+      // does for Agent sources; checking provenance never grants write rights.
     }, readSource: async () => { await source.assertCurrent(); return new Uint8Array(bytes); } });
   createSources.add(source); actual.liveSource = source; return source;
 }
@@ -1816,7 +1818,9 @@ async function assertAuthenticatedUploadScope(database: SqlConnection, input: Ca
     || !createSources.has(scope.source) || scope.access.userId !== input.actorUserId
     || (scope.frame.kind === 'request' ? !('sessionId' in scope.access) || scope.access.sessionId !== input.actorSessionId
       : input.actorSessionId !== (scope.frame.kind === 'agent-tool' ? scope.frame.originalOrigin.piSessionId : scope.frame.originalOrigin.sessionId))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
+  await scope.source.assertCurrent();
+  if (scope.frame.kind === 'direct-mcp') await assertBootstrapOwner(scope.frame);
+  await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
   // The helper only observes private evidence. Refresh authority after its
   // actual close, immediately before this boundary can permit native DML.
   if (scope.frame.kind === 'request') await scope.access.assertCurrent();
@@ -1867,10 +1871,13 @@ async function captureAuthenticatedUpload(database: SqlConnection, frame: Bootst
   source: AuthenticatedCreateSource, absence: UploadTargetAbsence): Promise<Captured> {
   if (!createSources.has(source)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
-  await source.assertCurrent(); await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
+  await source.assertCurrent();
+  if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
+  await assertUploadTargetAbsent(access.workspace, source.binding.targetPath, absence);
   await assertAuthenticatedCreateOriginCurrent(database, frame, access);
   frame.mutationIdentity = await bootstrapConnectionRealm(database);
   const bytes = await source.readSource();
+  if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
   if (bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
   const input = capture({ workspace: access.workspace, path: source.binding.targetPath, operationId: source.binding.operationId,
     requestId: source.binding.requestId, actorUserId: source.binding.actorUserId, actorSessionId: source.binding.actorSessionId,
@@ -2247,9 +2254,13 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
       const publish = () => withMarkdownCreateBirthClaim({ workspaceRoot: expectedScope.rootPath, targetPath: intent.targetPath,
         origin: expectedScope, source: source.binding, operationId: intent.operationId },
       async () => {
-        // Storage's read-only inode observations are NOT authority checks.
-        // Original source/auth is checked by the native/publication phase;
-        // A and the physical/SQL origin remain pinned during every IO/close.
+        const owner = frame.kind === 'agent-tool' ? agentBirthOwners.getStore()
+          : frame.kind === 'direct-mcp' ? directMcpBirthOwners.getStore() : undefined;
+        // Only pure private verification has no intervening B observation
+        // after the fixed guard's fresh A/Workspace proof. Ordinary helper and
+        // close boundaries retain this late fence after asynchronous Current.
+        if (owner?.active && owner.accepting && owner.frame === frame && owner.source === source
+          && owner.invocation && isMarkdownCreateBirthVerification(owner.invocation)) return;
         await assertFirstProjectionOwnerOrigin(frame);
       }, persist, frame.kind === 'agent-tool' ? operation => withAgentMarkdownBirthStoragePhase(frame, operation)
         : frame.kind === 'direct-mcp' ? operation => withAuthenticatedMarkdownBirthStoragePhase(frame, operation) : undefined);
@@ -2460,11 +2471,14 @@ async function currentAuthenticatedMarkdownBirth(phase: FirstProjectionPhase, ch
   // fixed slot; Agent checks before/after config/profile. Requests need theirs.
   if (frame.kind === 'request') await access.assertCurrent();
   await assertAuthenticatedCreateOriginCurrent(database, frame, access);
-  // The fixed MCP source rechecks the genuine A after the realm read. Agent
-  // sources validate invocation/bytes only; requests and source-free reads keep A.
+  // Preserve MCP's fresh A proof after the realm and source observations.
+  // All tool-source capsules now validate provenance without granting rights.
   if (frame.kind !== 'direct-mcp' || !checkSource) await assertBootstrapOwner(frame);
   await assertBootstrapNativeRealm(database, frame);
-  if (checkSource) await source.assertCurrent();
+  if (checkSource) {
+    await source.assertCurrent();
+    if (frame.kind === 'direct-mcp') await assertBootstrapOwner(frame);
+  }
   await claim.assertRoot(); await assertBootstrapRoomAbsent(database, result.receipt.target.documentId);
   await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
   return readAuthenticatedMarkdownBirthSnapshot(phase);

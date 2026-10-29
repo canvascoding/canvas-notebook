@@ -248,6 +248,17 @@ senken warme Agent-Neuanlage von 1159 / 37 auf 1090 SQL / 34 Ausleihen und MCP v
 bestehen. Laufzeiten bleiben Diagnosewerte; die endgültigen Budgets, übrigen
 Pakete und alle finalen Release-Gates bleiben weiterhin offen.
 
+Die [Quellen- und Owner-Grenzen](architecture/document-service-source-owner-boundaries-2026-10-29.md)
+trennen nun den MCP-Quellenbeleg von den ausdrücklichen frischen Owner-Prüfungen
+seiner Koordinatoren. Nur tatsächliche private Leseverifikation entfernt den
+doppelten äußeren Owner-Leser; vor gewöhnlichen Helfern und beim Abschluss bleibt
+die späte Prüfung nach asynchroner B-Autorisierung bestehen. Vier neue echte
+Kontrollen/Lockverluste, alle 17 gezielten PostgreSQL-Suiten und Typ-/Lint-Prüfungen
+bestehen. Vier frische Fixtures / 16 Fenster reduzieren warm Agent von 1090 auf
+1058 SQL / 34 Ausleihen und MCP von 836 auf 753 / 29. Originalwiederholungen bleiben
+gleich; bestehende Sonden werden nicht geändert. Gesamtbudgets, übrige Pakete
+und sämtliche finalen Release-Gates bleiben offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-
