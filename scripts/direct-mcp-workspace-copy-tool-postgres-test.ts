@@ -292,7 +292,7 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
         await preview(baseline); assert.deepEqual(await domain(), before); assert.deepEqual(await filesystem(), filesBefore); assert.deepEqual(events, []);
         await verifyComplete(baseline, await success(argumentsFor(baseline, 'apply')), false); assertBirths(baseline);
       });
-      await group('genuine renewed SID B reads historical Original A, retries without births, and preserves status under mutation gate-off', async () => {
+      await group('genuine renewed SID B reads historical Original A and retries without births after the legacy native opt-in is cleared', async () => {
         const before = await domain(), filesBefore = await filesystem(), stagesBefore = await stageNames();
         const original = object(JSON.parse((await journal.get(baseline.operationId))!.requestJson)).origin; events.length = 0; seedCaches();
         await withRenewed(async (tokenB, sessionB) => {
@@ -314,7 +314,13 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
             const stillReadable = await success(statusArgs, tokenB); assert.deepEqual(stillReadable, seen);
             assert.deepEqual(await domain(), gatedStatusRows); assert.deepEqual(await filesystem(true), gatedStatusFiles);
             assert.deepEqual(fileTreeCache.get(targetCache), []); assert.deepEqual(events, []);
-            for (const action of ['preview', 'apply', 'recover'] as const) await failure(argumentsFor(baseline, action), 'COPY_NATIVE_REQUIRED', tokenB);
+            // Native document authority is integrated permanently. Clearing
+            // the former opt-in must preserve actual original recovery.
+            for (const action of ['apply', 'recover'] as const) {
+              await verifyComplete(baseline, await success(argumentsFor(baseline, action), tokenB), true);
+              assert.deepEqual(await domain(), gatedStatusRows); assert.deepEqual(await filesystem(true), gatedStatusFiles);
+              assert.deepEqual(events, []);
+            }
           } finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
         });
         assert.deepEqual(object(JSON.parse((await journal.get(baseline.operationId))!.requestJson)).origin, original);
