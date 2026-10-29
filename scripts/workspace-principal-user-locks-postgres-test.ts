@@ -40,7 +40,8 @@ async function workspacePrincipalUserLocksPostgresTest(): Promise<void> {
         peerDenials++;
       } finally { await h.admin.query('ROLLBACK'); }
     };
-    const run = async (permission: 'canRead' | 'canWrite', kind: 'text' | 'domain-id' | 'numeric-zero' | 'numeric-tiny' | 'peer-lock',
+    const run = async (permission: 'canRead' | 'canWrite', kind: 'text' | 'domain-id' | 'numeric-zero' | 'numeric-tiny' | 'peer-lock'
+      | 'invalid-flag-workspace-peer' | 'invalid-flag-membership-peer',
       peerUser?: string) => {
       const before = await snapshot();
       const ordered = [...expected].sort((a,b) => Buffer.compare(Buffer.from(a,'utf8'),Buffer.from(b,'utf8')));
@@ -71,6 +72,9 @@ async function workspacePrincipalUserLocksPostgresTest(): Promise<void> {
                 if (kind === 'numeric-tiny') await database.run(`UPDATE ${quote(h.schema)}."user" SET banned=$2::numeric WHERE id=$1`,
                   ['lock-account-0000', tiny]);
               }
+              if(kind==='invalid-flag-workspace-peer'||kind==='invalid-flag-membership-peer') {
+                await database.run(`UPDATE ${quote(h.schema)}."user" SET banned=2 WHERE id=$1`,['lock-account-0000']);
+              }
               return h.withProbe(async event => {
                 const sql = event.text.replace(/\s+/gu, ' ').trim();
                 if (sql.startsWith('SELECT id,banned FROM ') && sql.endsWith('WHERE id=$1 FOR SHARE NOWAIT')) legacy.push(event.values[0]);
@@ -79,7 +83,8 @@ async function workspacePrincipalUserLocksPostgresTest(): Promise<void> {
                 });
               }, () => principal.withWorkspaceRequestPrincipalOnConnection(database, p, async access => {
                 entered = true; assert.equal(access.workspace.workspaceId, h.destination.workspaceId);
-                assert.equal(kind === 'numeric-tiny' || kind === 'peer-lock', false, 'A real lock/flag fault cannot enter the consumer.');
+                assert.equal(kind === 'numeric-tiny' || kind === 'peer-lock' || kind === 'invalid-flag-workspace-peer'
+                  || kind === 'invalid-flag-membership-peer', false, 'A real lock/flag fault cannot enter the consumer.');
                 await access.assertCurrent();
                 if (kind === 'text') {
                   for (const userId of ordered) await blockedByShare(userId);
@@ -99,10 +104,11 @@ async function workspacePrincipalUserLocksPostgresTest(): Promise<void> {
           }));
         assert.equal(result, 'actual-locked-principal');
       } catch (error) { failure = error; }
-      const deny = kind === 'numeric-tiny' || kind === 'peer-lock';
+      const deny = kind === 'numeric-tiny' || kind === 'peer-lock' || kind === 'invalid-flag-workspace-peer' || kind === 'invalid-flag-membership-peer';
       if (deny) {
         assert.equal(entered, false); assert(failure);
-        assert.equal((failure as { code?: string }).code, kind === 'peer-lock' ? 'PRINCIPAL_BUSY' : 'PRINCIPAL_SCOPE_CHANGED');
+        assert.equal((failure as { code?: string }).code, kind === 'peer-lock' || kind === 'invalid-flag-membership-peer'
+          ? 'PRINCIPAL_BUSY' : 'PRINCIPAL_SCOPE_CHANGED');
       } else if (kind === 'domain-id' || kind === 'numeric-zero') {
         assert.equal(entered, true); assert.equal(failure, rollbackControl);
       } else { if (failure) throw failure; assert(entered); }
@@ -150,8 +156,17 @@ async function workspacePrincipalUserLocksPostgresTest(): Promise<void> {
         } finally { await h.admin.query('ROLLBACK'); }
         assert.deepEqual(await snapshot(), before);
       }
+      for (const kind of ['invalid-flag-workspace-peer','invalid-flag-membership-peer'] as const) {
+        const before=await snapshot();await h.admin.query('BEGIN');
+        try {
+          if(kind==='invalid-flag-workspace-peer')assert.equal((await h.admin.query('SELECT id FROM canvas_workspaces WHERE id=$1 FOR UPDATE NOWAIT',[h.destination.workspaceId])).rows.length,1);
+          else assert.equal((await h.admin.query('SELECT id FROM team_memberships WHERE id=$1 FOR UPDATE NOWAIT',['owner-seat'])).rows.length,1);
+          await run(permission,kind);
+        }finally{await h.admin.query('ROLLBACK');}
+        assert.deepEqual(await snapshot(),before);
+      }
     }
-    assert.equal(groups, 16); assert.equal(peerDenials, 2 * (2+32+200)); assert.equal(peerUnreferencedAllowed, 6);
+    assert.equal(groups, 20); assert.equal(peerDenials, 2 * (2+32+200)); assert.equal(peerUnreferencedAllowed, 6);
     // The actual phase has completed and disposed before a peer can lock again.
     await h.admin.query('BEGIN');
     try { assert.equal((await h.admin.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE NOWAIT', ['lock-account-0000'])).rows.length, 1); }

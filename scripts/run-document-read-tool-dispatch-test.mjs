@@ -110,6 +110,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/collaboration/file-lifecycle-admission-context.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts'],
   'scripts/document-create-matrix-baseline-postgres-entry.ts': [entryPoint,
     'scripts/helpers/document-baseline-fixture.ts', 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'app/lib/workspaces/request-principal.ts',
     'app/lib/pi/tool-registry.ts', 'app/lib/pi/core-tools.ts', 'app/lib/pi/agent-file-operations.ts',
     'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/ingest-tools.ts',
     'app/lib/files/workspace-upload-service.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',

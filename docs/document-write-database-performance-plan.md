@@ -273,6 +273,15 @@ Typprüfung, Lint und tatsächliche Ressourcenfreigabe bestehen. Gesamtbudgets,
 abschließende Standardsettings-/Latenz-/Größenabnahme, übrige Pakete und alle
 finalen Release-Gates bleiben offen.
 
+Die [Bewertung gebündelter Principal-Zeilensperren](architecture/document-service-principal-lock-batching-evaluation-2026-10-29.md)
+verwirft eine zusätzliche Produktvariante: 44 gezielte PostgreSQL-Suiten und sechs
+Vorher-/Nachher-Fixtures bestanden, doch die SQL-Ersparnis von rund drei Prozent
+bei Agent-Neuanlagen brachte keinen belegten lokalen Laufzeitgewinn. Die
+Laufzeitdateien sind bytegleich wiederhergestellt; vier echte Regressionen für
+kombinierte Daten-/Sperrfehler bleiben erhalten. Der nächste strukturelle
+Schwerpunkt liegt auf wiederholten Kontextaufbauten beim normalen Dokumentöffnen.
+Budgets, übrige Pakete und Release-Gates bleiben vollständig offen.
+
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und
 Navigation warten nach Invalidierung nicht mehr auf die lokale Zehn-Sekunden-
