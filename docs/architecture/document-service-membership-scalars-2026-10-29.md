@@ -58,10 +58,37 @@ bekannten Berechtigungsdaten jetzt über die typisierte Ergebniszeile; sie ist k
 SQL- oder Autoritätsnachweis. Release-TypeScript, die erweiterte Typprüfung mit
 24 Wurzeln und 5.101 Quelldateien sowie ESLint bestehen.
 
-## Verbleibende Abnahme
+## Gebaute Abnahme
 
-Der vollständige Build, der frisch gebaute Linux-Start und die betroffenen
-Agent-Oberflächen müssen mit diesem Produktstand noch geprüft werden. Diese
-Korrektur ist kein neuer Leistungsbenchmark. Weitere strukturelle Bündelung,
+Am Produktstand `31fcf8aee5c9aa60dfad62de8708b4f901c00074` bestehen vollständiger
+Host-/Linux-Build und Start. Das Image ist
+`sha256:c8b8695418b4ed6a225d7efe48b31c647564e8f4e3a41e9287fdac14b26d9d35`.
+Dieselbe geschützte PostgreSQL-Testdatenbank und dieselben Volumes bleiben erhalten;
+alle elf anderen Container behalten ihre Identität. Die tatsächlichen Produktquellen
+im Container stimmen einschließlich Konto-/Mitgliedschaftsleser und Agent-Kontext
+mit diesem Commit überein.
+
+Alle drei ausgewählten bestehenden Browserfälle bestehen in 46.600 ms mit einem
+Worker und null Retries, Skips oder Flakes. Sie prüfen persönliche und Organisations-
+Agenten auf Desktop und Mobil, echte Zugriffsvergaben und deren Entzug sowie die
+dauerhafte mobile Speicherung trotz Exportfehler. Ein Member kann den zugewiesenen
+Agenten nutzen, aber weder Profil noch Grants verwalten; nach Entzug verschwindet
+der Agent und weitere Browserzugriffe werden mit HTTP 403 abgewiesen. Die Tests
+sind unverändert und benötigen keine privaten Plugin-Store- oder Modellaufruf-
+Fixtures. Review Center bleibt ausgeschaltet.
+
+Die 15 aktuellen Linux-Speicherfälle und alle neun CI-Prüfungen bestehen ebenfalls.
+Der Testtreiber stammt aus einem sauberen `git archive` dieses Produktstands mit
+eigenen Linux-Testabhängigkeiten; es gibt keine Produktquellen-Overlays. Nach dem
+gesamten Lauf bleiben alle zehn Abschnitte der geschützten Originalprobe mit Zeilen,
+`xmin`, Originalbytes, Identitäten und Speicherankern exakt gleich. Das Browser-
+Artefaktarchiv hat SHA-256
+`4c2f365fb9d55ac418a985b6d7b2fd79c85b29543480bd67ee507330a233b86f`.
+
+## Verbleibende Servicearbeit
+
+Diese Korrektur ist kein neuer Leistungsbenchmark. Weitere strukturelle Bündelung,
 inkrementelle Linkpflege, gemeinsame Schreibwege und sämtliche abschließenden
 Gates des [Gesamtplans](../document-write-database-performance-plan.md) bleiben offen.
+Die letzte vollständige reguläre Gesamtsuite gilt weiterhin für `dc6bece03` und
+muss am endgültigen Produktstand erneut bestehen. Es erfolgte kein Deployment.

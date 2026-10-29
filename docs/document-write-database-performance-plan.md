@@ -16,8 +16,16 @@ ist am gebauten Produktstand `32880bee0` gesondert geprüft: 15 echte PostgreSQL
 Testgruppen, Host-/Linux-Build, Start, neun CI-Prüfungen und alle sieben aktivierten
 Recovery-/Linkfälle bestehen ohne Browser-Retries oder Skips. Ursprüngliche
 Operationsbelege, Zeilen mit `xmin`, Dateibytes und Speicheranker bleiben erhalten.
-Dies schließt den gefundenen Admission-Fehler; die NUMERIC-Wertgleichheit, weitere
-strukturelle Bündelung und sämtliche übrigen Pakete bleiben offen.
+Dies schließt den gefundenen Admission-Fehler; weitere strukturelle Bündelung und
+sämtliche übrigen Pakete bleiben offen.
+
+Die zusätzliche [NUMERIC-Wertabweichung](architecture/document-service-membership-scalars-2026-10-29.md)
+ist am gebauten Stand `31fcf8aee` korrigiert. 24 echte PostgreSQL-Varianten, die
+vorhandenen Agent-/MCP-Verbraucher, Host-/Linux-Build, Start, neun CI-Prüfungen und
+drei bestehende Agent-/Mobil-Browserfälle bestehen. Reine Entscheidungen und der
+gesperrte Leser bleiben bytegleich, Rohwerte und Originaldaten bleiben erhalten.
+Die SQL-Anzahl dieses Lesers bleibt bei eins beziehungsweise drei; die Abnahme
+ersetzt weder neue Leistungswerte noch einen Abschluss des Bündelungspakets.
 
 ## Priorität und Umsetzungspakete
 
