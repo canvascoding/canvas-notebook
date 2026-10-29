@@ -15,6 +15,9 @@ assert.equal(process.env.NODE_ENV, 'test');
 const configuredAdapter = process.env.CANVAS_DOCUMENT_BASELINE_ADAPTER;
 assert(configuredAdapter === 'agent' || configuredAdapter === 'mcp');
 const adapter: 'agent' | 'mcp' = configuredAdapter;
+const agentKind = process.env.CANVAS_DOCUMENT_BASELINE_AGENT_KIND as 'main' | 'organization-member' | undefined ?? 'main';
+assert(agentKind === 'main' || agentKind === 'organization-member');
+assert(adapter === 'agent' || agentKind === 'main');
 const requestedSize = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 10);
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
 assert(output && path.isAbsolute(output));
@@ -174,14 +177,14 @@ async function documentCreateMatrixBaseline(): Promise<void> {
       && item.measurement.openQueriesAtCompletion === 0 && item.measurement.openConnectionsAtCompletion === 0));
     console.log(JSON.stringify({ documentCreateMatrix: true, adapter, normalUploadSources: seededDocuments,
       windows: profiles.length, unrelatedNativeAndPhysicalUnchanged: true, originalRetryIdentityPreserved: true }));
-  });
+  }, { agentKind });
 }
 
 try {
   await withDocumentOperationMetricObserver(value => operations.push(value), documentCreateMatrixBaseline);
   completed = true;
 } finally {
-  await fs.writeFile(output, JSON.stringify({ version: 1, passed: completed, fixture: 'document-create-matrix', adapter,
+  await fs.writeFile(output, JSON.stringify({ version: 1, passed: completed, fixture: 'document-create-matrix', adapter, agentKind,
     nativeDocumentsBeforeFirstCreate: seededDocuments, normalUploadSources: true,
     scope: 'fresh-process-per-adapter-first-entry-two-warm-fresh-creates-and-separate-original-retry',
     exclusions: ['no-live-model-turn', 'no-production-OAuth-issuance', 'no-browser-or-Next-middleware', 'not-a-cold-PostgreSQL-buffer-cache'],

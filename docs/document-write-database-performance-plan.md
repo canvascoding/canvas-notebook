@@ -117,6 +117,21 @@ statt eine Dokumentanlage oder Inhaltsänderung doppelt auszuführen.
 
 ## Aktueller Messstand und verbleibende Bündelung
 
+Die [Nachmessung mit einem normalen Organisations-Agenten](architecture/document-service-configured-agent-baseline-2026-10-29.md)
+am unveränderten Produktstand `0e088417588b780ccc3ea24e36e9c3c0eb63869b` ergänzt
+die bisher vorwiegend am eingebauten Hauptagenten gemessene Anlage. Sie benötigt
+bei 10 und 200 regulär angelegten Quellen identisch 1790 SQL-Treiberaufrufe / 34
+Ausleihen pro warmer Neuanlage; Hauptagent und MCP liegen im wiederholten
+10-Quellen-Vergleich weiterhin bei 1058 / 34 beziehungsweise 702 / 29. Die
+zusätzlichen 732 Anweisungen stammen aus der wiederholten tatsächlichen Agenten-
+Zugriffskette. Die Test-Fixture kann diesen eingeschränkten Agenten nun über die
+normale Profil-Factory und gespeicherte Mitgliedschaft erzeugen; ihre bisherige
+Voreinstellung bleibt erhalten. Originaldaten und Belege, Ressourcenfreigabe,
+Typprüfung, Lint sowie die vorhandenen Read-/Edit-/Search-Suiten sind geprüft.
+Das ist eine erweiterte Messbasis, keine neue Produktoptimierung oder Abnahme
+der Leistungsbudgets. Die nächste Bündelung muss diese normale Zugriffskette
+einschließen und die frischen Prüfungen an späteren I/O-Grenzen erhalten.
+
 Der [aktuelle Create-Vergleich](architecture/document-service-create-matrix-current-2026-10-27.md)
 am Produktstand `0a40365484806ea83d1e906d99406ff1445bde6b` besteht in allen 16 Fenstern
 für Agent/MCP mit jeweils 10 und 200 regulär angelegten Quellen. Die warme

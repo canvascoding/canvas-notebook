@@ -24,7 +24,8 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   snapshot: () => Promise<unknown>;
   restoreReaderSession: () => Promise<void>;
   setPiEnabledTools: (names: string[]) => Promise<void>;
-}) => Promise<T>, options: Readonly<{ loopbackOrigin?: string }> = {}): Promise<T> {
+}) => Promise<T>, options: Readonly<{ loopbackOrigin?: string; agentKind?: 'main' | 'organization-member' }> = {}): Promise<T> {
+  assert(options.agentKind === undefined || options.agentKind === 'main' || options.agentKind === 'organization-member');
   const fixtureOrigin = options.loopbackOrigin ?? 'http://localhost';
   if (options.loopbackOrigin !== undefined) {
     const selected = new URL(fixtureOrigin);
@@ -160,10 +161,28 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
         scope: 'knowledge:read knowledge:search', ...overrides } } });
       assert(signed.token); return signed.token;
     };
-    const { MAIN_AGENT_ID: agentId } = await import('../../app/lib/agents/main-agent');
-    await admin.query(`INSERT INTO agents(agent_id,name,type,access_policy,scope_type,organization_id,enabled_tools_json,created_at,updated_at)
-      VALUES($1,'System','main','legacy','organization',$2,'["read_document"]',100,100)
-      ON CONFLICT(agent_id) DO UPDATE SET enabled_tools_json=excluded.enabled_tools_json`, [agentId, organizationId]);
+    const { MAIN_AGENT_ID } = await import('../../app/lib/agents/main-agent');
+    const agentId = options.agentKind === 'organization-member' ? `dispatch-org-agent-${nonce}` : MAIN_AGENT_ID;
+    if (options.agentKind === 'organization-member') {
+      // The ordinary factory and stored least-privilege membership establish
+      // this dataset. Runtime access still goes through the genuine resolver.
+      const { createAgentProfile } = await import('../../app/lib/agents/registry');
+      const { getAgentAccessOnConnection } = await import('../../app/lib/agents/access');
+      const { openDb } = await import('../../app/lib/db');
+      const database = await openDb();
+      try {
+        await createAgentProfile({ agentId, name: 'Dispatch organization agent', accessPolicy: 'restricted',
+          scopeType: 'organization', organizationId, createdByUserId: 'owner', enabledTools: ['read_document'] }, database);
+        await database.run(`INSERT INTO agent_members(agent_id,organization_id,user_id,created_at,updated_at)
+          VALUES($1,$2,'reader',100,100)`, [agentId, organizationId]);
+        const access = await getAgentAccessOnConnection(database, 'reader', agentId, { organizationId, workspaceId });
+        assert.equal(access.canUse, true); assert.equal(access.canEdit, false); assert.equal(access.canManage, false);
+      } finally { await database.close(); }
+    } else {
+      await admin.query(`INSERT INTO agents(agent_id,name,type,access_policy,scope_type,organization_id,enabled_tools_json,created_at,updated_at)
+        VALUES($1,'System','main','legacy','organization',$2,'["read_document"]',100,100)
+        ON CONFLICT(agent_id) DO UPDATE SET enabled_tools_json=excluded.enabled_tools_json`, [agentId, organizationId]);
+    }
     const piSessionId = 'dispatch-pi-session';
     const piSession = (await admin.query(`INSERT INTO pi_sessions(session_id,user_id,agent_id,provider,model,organization_id,workspace_id,
       workspace_type,workspace_name,workspace_root_relative_path,created_at,updated_at)
