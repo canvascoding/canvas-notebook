@@ -598,14 +598,17 @@ export function createCollaborationServer(server: http.Server, options: {
     // Caller-visible checks always retain strict writer admission. Passing
     // arguments to the facade cannot select the private completion reader.
     const revalidateWrite = () => revalidate(assertCurrentCollaborationAdmissionOpen);
+    // Only the fixed server reader and completion use this read observation;
+    // the public facade and actual native mutation retain writer admission.
+    const revalidateRead = () => revalidate(assertCurrentCollaborationRoomAdmissionOpen);
     try {
-      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidateWrite }, async () => {
+      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidateRead }, async () => {
         await revalidateWrite();
         const result = await operation(Object.freeze({ assertOpen: revalidateWrite }));
         // No mutation follows this fixed completion observation. Keep fresh
         // identity, user access, owner and reservation checks while allowing a
         // concurrent native reader to finish under the shared workspace fence.
-        await revalidate(assertCurrentCollaborationRoomAdmissionOpen);
+        await revalidateRead();
         return result;
       });
     } finally {

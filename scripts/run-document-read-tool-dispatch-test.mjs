@@ -14,6 +14,7 @@ const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postg
 const criticalInputsByEntryPoint = {
   'scripts/native-direct-activity-completion-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'server/collaboration-server.ts',
+    'app/lib/collaboration/document-access.ts', 'app/lib/collaboration/agent-file-edits.ts',
     'app/lib/collaboration/direct-activity-session.ts', 'app/lib/collaboration/room-owner-options.ts',
     'app/lib/collaboration/room-owner-runtime.ts', 'app/lib/collaboration/room-admission.ts',
     'app/lib/collaboration/file-lifecycle-writer-admission.ts', 'app/lib/collaboration/connection-access.ts',

@@ -18,7 +18,9 @@ await withNativeCopyMetadataOwnerFixture(async h => {
   const { createCollaborationServer } = await import('../server/collaboration-server');
   const { createCollaborationRoomOwnerOptions } = await import('../app/lib/collaboration/room-owner-options');
   const { withCollaborationDirectActivitySession: activity } = await import('../app/lib/collaboration/direct-activity-session');
-  const { AgentDirectConnectionAuthorizationError } = await import('../app/lib/collaboration/direct-connection');
+  const { AgentDirectConnectionAuthorizationError, runCollaborationDirectConnection } = await import('../app/lib/collaboration/direct-connection');
+  const { readCurrentCollaborationTextSnapshot } = await import('../app/lib/collaboration/agent-file-edits');
+  const { isLiveCollaborationDocumentReaderAvailable } = await import('../app/lib/collaboration/document-access');
   const { CollaborationAdmissionError, collaborationAdmissionLockKey, collaborationAdmissionActionDigest } = await import('../app/lib/collaboration/room-admission-contract');
   const { createCollaborationAdmissionService } = await import('../app/lib/collaboration/room-admission');
   const { openDb } = await import('../app/lib/db');
@@ -49,10 +51,86 @@ await withNativeCopyMetadataOwnerFixture(async h => {
   const admission = createCollaborationAdmissionService({ openConnection: openDb });
   const server = http.createServer((_request, response) => { response.writeHead(404); response.end(); });
   const wss = createCollaborationServer(server, { roomOwner: createCollaborationRoomOwnerOptions() });
+  const readSnapshot = () => readCurrentCollaborationTextSnapshot({ documentId: scope.documentId,
+    workspace: selected.workspace, path: scope.path, lifecycleGeneration: scope.lifecycleGeneration });
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-    assert.equal(await activity(input, async session => { await session.assertOpen(); return 'original-result'; }), 'original-result');
+    assert.equal(isLiveCollaborationDocumentReaderAvailable(), true, 'Use the actual installed server reader, never the maintenance fallback.');
+    assert.equal(await activity(input, async session => {
+      await session.assertOpen(); assert.equal((await readSnapshot()).content, content); return 'original-result';
+    }), 'original-result');
     await unchanged(); groups++;
+
+    try {
+      const snapshot = await activity(input, async session => {
+        await session.assertOpen();
+        await h.admin.query('BEGIN'); await h.admin.query('SELECT pg_advisory_xact_lock_shared($1::bigint)', [key]);
+        return readSnapshot();
+      });
+      assert.equal(snapshot.documentId, scope.documentId); assert.equal(snapshot.content, content);
+    } finally { await h.admin.query('ROLLBACK'); }
+    await unchanged(); groups++;
+
+    try {
+      await assert.rejects(activity(input, async () => {
+        await h.admin.query('BEGIN'); await h.admin.query('SELECT pg_advisory_xact_lock($1::bigint)', [key]);
+        await readSnapshot(); assert.fail('The actual reader cannot return through an exclusive writer.');
+      }), admissionConflict);
+    } finally { await h.admin.query('ROLLBACK'); }
+    await unchanged(); groups++;
+
+    let cancelReadReservation: (() => Promise<unknown>) | undefined;
+    try {
+      await assert.rejects(activity(input, async () => {
+        const actionPayloadText = JSON.stringify({ kind: 'actual-reader-reservation' });
+        const request = { requestId: randomUUID(), actorId: input.actorId, action: 'compact' as const,
+          actionPayloadText, actionDigest: collaborationAdmissionActionDigest('compact', actionPayloadText),
+          scopes: [{ workspaceId: scope.workspaceId, organizationId: scope.organizationId, path: scope.path, kind: 'exact' as const }],
+          expectedDocuments: [{ ...scope, status: 'active' as const }] };
+        const reserved = await admission.reserve(request); assert.equal(reserved.status, 'reserved');
+        cancelReadReservation = () => admission.cancel(request, reserved.revision);
+        await readSnapshot(); assert.fail('The actual reader cannot return through a matching active reservation.');
+      }), admissionConflict);
+    } finally { if (cancelReadReservation) await cancelReadReservation(); }
+    await unchanged(); groups++;
+
+    const readExpiry = (await h.admin.query('SELECT expires_at FROM "session" WHERE id=$1', [input.actorSessionId])).rows[0].expires_at;
+    try {
+      await assert.rejects(activity(input, async () => {
+        await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1', [input.actorSessionId]);
+        await readSnapshot(); assert.fail('The actual reader cannot return after authentication expiry.');
+      }), error => error instanceof Error && Reflect.get(error, 'code') === 'COLLABORATION_ACCESS_REVOKED');
+    } finally { await h.admin.query('UPDATE "session" SET expires_at=$2 WHERE id=$1', [input.actorSessionId, readExpiry]); }
+    await unchanged(); groups++;
+
+    try {
+      await assert.rejects(activity(input, async () => {
+        await h.admin.query('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1', [scope.documentId, 'activity-completion/read-replaced.md']);
+        await readSnapshot(); assert.fail('The actual reader cannot return a changed native identity.');
+      }), error => error instanceof AgentDirectConnectionAuthorizationError
+        && error.message === 'Collaboration document identity, lifecycle, or representation is unavailable or stale.');
+    } finally { await h.admin.query('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1', [scope.documentId, scope.path]); }
+    const restoredReadIdentity = await target();
+    assert.deepEqual(restoredReadIdentity.native.map(row => row.body), baseline.native.map(row => row.body));
+    assert.deepEqual(restoredReadIdentity.registry, baseline.registry); assert.deepEqual(restoredReadIdentity.bytes, baseline.bytes);
+    baseline = restoredReadIdentity; await unchanged(); groups++;
+
+    await assert.rejects(activity(input, async () => {
+      await readCurrentCollaborationTextSnapshot({ documentId: randomUUID(), workspace: selected.workspace });
+      assert.fail('A bound activity cannot read another document.');
+    }), error => error instanceof AgentDirectConnectionAuthorizationError
+      && error.message === 'Direct activity read does not match this document.');
+    await unchanged(); groups++;
+
+    let mutationApplied = false;
+    try {
+      await assert.rejects(activity(input, async () => {
+        await h.admin.query('BEGIN'); await h.admin.query('SELECT pg_advisory_xact_lock_shared($1::bigint)', [key]);
+        await runCollaborationDirectConnection(input, () => { mutationApplied = true; });
+        assert.fail('The actual native mutation cannot select shared reader admission.');
+      }), admissionConflict);
+    } finally { await h.admin.query('ROLLBACK'); }
+    assert.equal(mutationApplied, false); await unchanged(); groups++;
 
     // Acquire the peer only AFTER strict entry/consumer authorization. The
     // old final writer try-lock rejected this already completed operation.
@@ -129,7 +207,10 @@ await withNativeCopyMetadataOwnerFixture(async h => {
     console.log(JSON.stringify({ suite: 'native-direct-activity-completion', groups,
       actualSharedReaderAllowed: true, actualExclusiveWriterDenied: true, actualReservationDenied: true,
       publicSelectorBypassDenied: true, disposedFacadeDenied: true, expiredSessionDenied: true,
-      changedIdentityDenied: true, originalNativeAndFileBytesRetained: true }));
+      changedIdentityDenied: true, originalNativeAndFileBytesRetained: true,
+      actualInstalledReaderUnderSharedPeer: true, readerExclusiveAndReservationDenied: true,
+      readerExpiredSessionAndIdentityChangeDenied: true, readerOtherDocumentDenied: true,
+      actualNativeMutationStillDeniedUnderSharedPeer: true }));
   } finally {
     await h.admin.query('ROLLBACK');
     await new Promise<void>((resolve, reject) => wss.close(error => error ? reject(error) : resolve()));
