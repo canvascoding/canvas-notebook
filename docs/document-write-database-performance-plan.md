@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 28.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 29.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -236,6 +236,17 @@ gesperrt. Zehn neue Kontroll-/Fehlerfälle, 15 PostgreSQL-Suiten und Typ-/Lint-P
 bestehen. Vier frische Fixtures / 16 Fenster reduzieren warme Agent-Neuanlage von
 1219 auf 1159 SQL und MCP von 919 auf 869; Ausleihen und Originalwiederholungen
 bleiben gleich. Die endgültigen Budgets, übrigen Pakete und Release-Gates bleiben offen.
+
+Die [private Eintrittsbindung](architecture/document-service-entry-binding-2026-10-29.md)
+entfernt nun eine vollständige zusätzliche Principal-Transaktion vor den rein
+lesenden Root-Opens. Der tatsächlich schreibende Helfer erhält weiterhin einen
+eigenen frischen Principal und die vollständige Prüfung vor jeder ersten Wirkung.
+Sechs neue echte Kontrollen/Sperrfälle und alle 15 gezielten PostgreSQL-Suiten
+bestehen; bestehende Sonden bleiben unverändert. Vier frische Fixtures / 16 Fenster
+senken warme Agent-Neuanlage von 1159 / 37 auf 1090 SQL / 34 Ausleihen und MCP von
+869 / 30 auf 836 / 29. Originalwiederholungen bleiben gleich. Typprüfung und Lint
+bestehen. Laufzeiten bleiben Diagnosewerte; die endgültigen Budgets, übrigen
+Pakete und alle finalen Release-Gates bleiben weiterhin offen.
 
 Die [interaktive Link-Nachladung](architecture/document-service-interactive-link-refresh-2026-10-28.md)
 behandelt zusätzlich einen belegten Client-Wartezustand: Direkte Vorschau und

@@ -1151,7 +1151,18 @@ async function assertAuthenticatedMarkdownBirthStorageBoundary(owner: AgentBirth
   if (consumer && (!consumer.active || consumer.frame !== owner.frame)
     || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
       || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-  if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
+  if (stage === 'entry') {
+    if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    owner.invocation = input;
+    if (!consumer && !projection) {
+      // Binding reserves only this input under the genuine A/source lifetime.
+      // Before any mutating helper can spawn, its actual open phase acquires a
+      // fresh Principal and runs the full boundary below. Read-only root opens
+      // between binding and that phase convey no publication authority.
+      await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+      return;
+    }
+  }
   else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (stage === 'closed') { owner.accepting = false; return; }
   if (projection && isMarkdownCreateBirthPrivateStorageBoundary(input)) {
