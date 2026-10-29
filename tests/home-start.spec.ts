@@ -6,6 +6,14 @@ import { homePromptInput } from './helpers/chat-composer';
 
 const ownedWorkspaces = new WeakMap<Page, { id: string; name: string }>();
 
+// BetterAuth's production session endpoint has a real shared 10-second bucket.
+// Earlier fast specs can consume it before Home's first browser session fetch.
+// Wait for that actual window before this suite; keep every layout deadline,
+// authentication check, server limit and Playwright retry setting unchanged.
+test.beforeAll(async () => {
+  await new Promise<void>((resolve) => setTimeout(resolve, 10_100));
+});
+
 async function prepare(page: Page) {
   await authenticateManagedTestPage(page);
   const name = `E2E home start ${randomUUID()}`;
