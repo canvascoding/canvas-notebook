@@ -75,15 +75,43 @@ als CRITICAL eingestuft; die Produktänderung bleibt deshalb im privaten
 Direct-Activity-Kontext, mit gesondertem Nachweis der unverändert strengen
 Schreibgrenzen.
 
-## Offene Abnahme
+## Gebaute UI-Abnahme
 
-Am Stand `f5df88e5a` bestehen Host-/Linux-Build, Start, neun CI-Prüfungen und sechs
-der sieben aktivierten Recovery-/Linkfälle. Der mobile Fall bleibt wegen der
-internen Reader-Prüfung rot. Die ursprünglichen geschützten Daten bleiben auch
-nach diesem vollständigen Fehlerlauf exakt erhalten. Mit der ergänzten Korrektur
-stehen ein neuer Linux-Container, der tatsächliche mobile Recovery-Ablauf und die
-abschließende Gesamtsuite noch aus. Der gezielte
-Handler-Test benötigt keinen geladenen Dokumentraum; der Browserfall muss auch
-Mutation, Raum-Owner und dauerhaften Beleg zusammen prüfen. Der Fix ist keine
-Leistungsabnahme und kein Produktionsdeployment. Sämtliche übrigen Pakete des
+Am Produktstand `32880bee06531b816df918a3e9d64679cc4c549f` bestehen der vollständige
+Host-Build, der frische Linux-Build und der echte Containerstart. Das Image ist
+`sha256:18cac533c0fe13b8e33424a9716ceb7267a0380426b27199170aac9f15a8bf03`.
+Nur der verwaltete Notebook-Container wurde ersetzt. Dieselbe PostgreSQL-
+Testdatenbank und dieselben Volumes bleiben erhalten; alle elf anderen Container
+behalten ihre Identität.
+
+Ein unverändertes `git archive` dieses sauberen Produktstands dient als privater
+Linux-Testtreiber mit eigenen Entwicklungsabhängigkeiten. Es gibt keine Overlays
+von Produktquellen. Alle sieben ausdrücklich aktivierten Recovery-/Linkfälle
+bestehen mit einem Worker, null Retries, null Skips und null Flakes in 254.447 ms.
+Die 15 aktuellen Python-Speicherfälle und alle neun CI-Prüfungen bestehen ebenfalls.
+Review Center ist in der Testinstanz ausgeschaltet; die vorhandenen Prüfungen der
+Undo-Freigabepolitik bleiben unverändert.
+
+Der mobile HTTP-Fall bestätigt beim absichtlich gesperrten Dateiexport eine
+dauerhafte native Änderung mit `projectionPending`. Eine Wiederholung behält die
+ursprüngliche Operations-ID und erhält spätere Peer-Änderungen; ein anderer Inhalt
+unter demselben Schlüssel wird mit `IDEMPOTENCY_CONFLICT` abgewiesen. Auch Legacy-
+Wiederholungen behalten ihre Operations-ID. Die übrigen Fälle prüfen unterbrochenen
+ersten Sitzungsaufbau, explizite Create-Recovery sowie Frontmatter-Links und
+Reparaturen nach Rename/Move. Der visuell geprüfte Webeditor zeigt die erwarteten
+abschließenden Inhalte `Legacy` und `Peer Keep`.
+
+Alle zehn Abschnitte der geschützten ursprünglichen Upload-Probe sind nach dem
+gesamten Browserlauf exakt gleich: Registry-/Native-/Birth-/Receipt-Zeilen mit
+`xmin`, Originalbytes und Identitäten einschließlich der Speicheranker. Das
+Browser-Artefaktarchiv hat SHA-256
+`dde488ee1e52b99a8555749873082f73ca94e78ac60229e57ac56030bb26d33f`.
+
+## Verbleibende Abnahme
+
+Diese Abnahme umfasst den mobilen HTTP-Speicherweg mit aktivem Webeditor und die
+genannten Recovery-/Linkfälle. Die letzte vollständige reguläre Gesamtsuite gilt
+weiterhin für `dc6bece03`; der endgültige Produktstand muss sie erneut bestehen.
+Leistungsbudgets, übrige Servicepakete, abschließende Desktop-/Mobilmatrix,
+Produktionsbackup/-restore und Deployment des
 [Gesamtplans](../document-write-database-performance-plan.md) bleiben erforderlich.

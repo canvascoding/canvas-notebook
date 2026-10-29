@@ -11,6 +11,14 @@ CI-Prüfungen am dokumentierten Teststand). Die Leistungsbudgets und die übrige
 Abnahmen der folgenden Pakete bleiben offen; dieser Meilenstein ist keine
 Gesamtabnahme oder Produktionsfreigabe.
 
+Der [mobile Speicherabschluss](architecture/document-service-mobile-completion-2026-10-29.md)
+ist am gebauten Produktstand `32880bee0` gesondert geprüft: 15 echte PostgreSQL-
+Testgruppen, Host-/Linux-Build, Start, neun CI-Prüfungen und alle sieben aktivierten
+Recovery-/Linkfälle bestehen ohne Browser-Retries oder Skips. Ursprüngliche
+Operationsbelege, Zeilen mit `xmin`, Dateibytes und Speicheranker bleiben erhalten.
+Dies schließt den gefundenen Admission-Fehler; die NUMERIC-Wertgleichheit, weitere
+strukturelle Bündelung und sämtliche übrigen Pakete bleiben offen.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
