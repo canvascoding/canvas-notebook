@@ -471,7 +471,8 @@ async function assertCurrentCollaborationAdmissionOpen(scope: CollaborationRoomO
 }
 
 /** WebSocket joins share admission with readers; direct mutations retain the strict writer check. */
-async function assertCurrentCollaborationRoomAdmissionOpen(scope: CollaborationTicketClaims): Promise<void> {
+async function assertCurrentCollaborationRoomAdmissionOpen(scope: CollaborationRoomOwnerScope | Pick<CollaborationTicketClaims,
+  'documentId' | 'workspaceId' | 'organizationId' | 'path' | 'representation' | 'lifecycleGeneration' | 'schemaVersion'>): Promise<void> {
   if (scope.representation === 'excalidraw_scene') return assertCurrentCollaborationAdmissionOpen(scope);
   const database = await openDb();
   try {
@@ -578,7 +579,7 @@ export function createCollaborationServer(server: http.Server, options: {
       const room = hocuspocus.documents.get(bound.documentId);
       if (room) roomOwners.fence(room);
     };
-    const revalidate = async () => {
+    const revalidate = async (admission: typeof assertCurrentCollaborationAdmissionOpen) => {
       assertOpen();
       const workspace = await resolveDirectConnectionWorkspace(bound);
       if (workspace.workspaceId !== bound.workspace.workspaceId
@@ -590,15 +591,21 @@ export function createCollaborationServer(server: http.Server, options: {
         if ((state.organizationId ?? null) !== (workspace.organizationId ?? null)) {
           throw new AgentDirectConnectionAuthorizationError('Direct activity document organization changed.');
         }
-        await assertCurrentCollaborationAdmissionOpen(state);
+        await admission(state);
         assertOpen();
       });
     };
+    // Caller-visible checks always retain strict writer admission. Passing
+    // arguments to the facade cannot select the private completion reader.
+    const revalidateWrite = () => revalidate(assertCurrentCollaborationAdmissionOpen);
     try {
-      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidate }, async () => {
-        await revalidate();
-        const result = await operation(Object.freeze({ assertOpen: revalidate }));
-        await revalidate();
+      return await directActivitySessions.run({ input: bound, assertOpen, assertCurrent: revalidateWrite }, async () => {
+        await revalidateWrite();
+        const result = await operation(Object.freeze({ assertOpen: revalidateWrite }));
+        // No mutation follows this fixed completion observation. Keep fresh
+        // identity, user access, owner and reservation checks while allowing a
+        // concurrent native reader to finish under the shared workspace fence.
+        await revalidate(assertCurrentCollaborationRoomAdmissionOpen);
         return result;
       });
     } finally {
