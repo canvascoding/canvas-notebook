@@ -33,8 +33,13 @@ und begrenzt ID-Joins vorab. Der tatsächliche Vergleich bei 10 und 200 Quellen 
 warme HTTP-Lesefenster von 69 auf 59 SQL-Aufrufe, Agent von 109 auf 99 und MCP
 von 84 auf 74; Ausleihen bleiben unverändert. Die fünf betroffenen PostgreSQL-Suiten
 und der Vergleich mit begrenzter Antwortlatenz bestehen. Lokal ist ohne zusätzliche
-Verzögerung kein wesentlicher allgemeiner Latenzgewinn nachgewiesen. Frischer
-Produktbuild/Start/UI sowie die Leistungsbudgets und übrigen Pakete bleiben offen.
+Verzögerung kein wesentlicher allgemeiner Latenzgewinn nachgewiesen. Am gebauten
+Produktstand `0e0884175` bestehen zusätzlich Host-/Linux-Build, Start, neun CI-
+Prüfungen und vier aktuelle Browserfälle einschließlich echter Dokumentabrufe aus
+zwei Live-Editoren und einer frischen Ansicht mit Leserechten. 15 Linux-Speicherfälle,
+Originaldaten und die elf übrigen Container sind geprüft. Die Buildlaufzeit ist
+höher; die Ursache bleibt zu untersuchen. Die Leistungsbudgets und übrigen Pakete
+bleiben offen.
 
 ## Priorität und Umsetzungspakete
 

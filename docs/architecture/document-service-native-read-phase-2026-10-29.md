@@ -99,8 +99,44 @@ Die vollständigen lokalen Nachweise liegen in der verwalteten Artefaktablage un
 zusätzlichen redundanten Abschluss-Katalogbeobachtung bleibt daneben getrennt
 als Diagnose erhalten und ist keine aktuelle Abnahme.
 
-Ein neuer vollständiger Host-/Linux-Build, frischer Containerstart und passende
-Browserprüfung sind vor der Abnahme dieses gebauten Produkts noch erforderlich.
+Am Produktstand `0e088417588b780ccc3ea24e36e9c3c0eb63869b` bestehen jetzt auch
+vollständiger Host-/Linux-Build, Start mit derselben Datenbank und denselben
+Volumes, alle neun CI-Prüfungen und vier Browserfälle. Der Browserlauf benötigt
+88.873 Sekunden, mit null fehlgeschlagenen/übersprungenen/flaky Fällen und null
+Playwright-Fallwiederholungen. Eine unveränderte begrenzte Anmeldung wiederholt
+nach einer tatsächlichen HTTP-429-Antwort einmal nach sechs Sekunden.
+
+Die Browserprüfung liest den aktuellen nativen Inhalt mit fünf echten
+`/api/documents/read`-Abrufen aus beiden geöffneten Editoren, nach Änderungen
+beider Benutzer sowie aus einer frischen Ansicht mit Leserechten. Diese wird
+zusätzlich mit 390 × 844 Pixeln geprüft. Die API-Prüfung vergleicht IDs,
+Generation, Workspace, Pfad und vollständigen Inhalt. Der reale
+Schreibrechteentzug sperrt die alte Sitzung; der Owner schreibt weiter. Der
+bestehende mobile Save-/Exportfehler-/Peer-Replay-Fall und die beiden
+Agenten-Zugriffs-/Widerrufsfälle bestehen ebenfalls. `documentReviewEnabled=false`
+ist am tatsächlichen Server geprüft. Die 15 Linux-Speichertests bestehen.
+Originalzeilen/xmin, Dateibytes und Speicheranker sowie die elf anderen Container
+bleiben erhalten. Desktop- und Mobil-Screenshots sind visuell geprüft; die
+bereits bekannte kurzzeitige Presence-Markierung über einem Teil der ersten
+mobilen Textzeile bleibt als Beobachtung dokumentiert, ohne neue UI-Änderung.
+
+Das geprüfte Image ist
+`sha256:6e521077792702c49a7655ca4e41bceeef3c1071907023db32e01ab6fa68d654`,
+der Container `803c1d0579266e1c861a48c4fa2fd796dc75d563a4a130ccaf50e6678caf7740`.
+Nachweise: `linux-document-image-1793285621647-result.json`,
+`native-read-linux-update-1793285619566-progress.json` und
+`native-read-ui-linux-1793286620341-result.json` in der verwalteten Artefaktablage.
+Die Zusatz-Browserquelle ist ausschließlich im privaten Testtreiber gepinnt,
+SHA-256 `434f583a57faec34472cf5cec26b69a421e6f989e82fa6aebdb48f8922365b3b`;
+Anwendungscode wird nicht überlagert.
+
+Die Buildlaufzeiten sind gegenüber dem vorherigen Produktstand gestiegen:
+Host 236.374 → 492.698 Sekunden, Linux 353.170 → 866.464 Sekunden. Die Ursache
+ist noch nicht isoliert. Das Image wächst dabei lediglich von 12755322863 auf
+12755802742 Bytes (479879 Bytes); es gibt keinen Nachweis einer entsprechenden
+Größenzunahme des ausgelieferten Produkts. Die erfolgreiche Ausführung innerhalb
+des freigegebenen Limits ist kein Beleg für unveränderten Compileraufwand.
+
 Die vorläufige HTTP-Grenze von 20 SQL-Aufrufen ist mit 59 noch nicht erreicht.
 Create ist hier nicht neu gemessen; der letzte akzeptierte Stand bleibt Agent
 1058/34 und MCP 702/29. Weitere strukturelle Bündelung, inkrementelle Linkabhängigkeiten,
