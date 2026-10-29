@@ -69,13 +69,18 @@ test('skeletons wait for both sources and a chat failure leaves files usable', a
   await fixtures(page);
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const requested = new Promise<void>(resolve => { started = resolve; });
   let failed = true;
   await page.route('**/api/home/chats?*', async route => {
+    started();
     await held;
     return route.fulfill(failed ? { status: 503, json: { success: false } } : { json: { success: true, data: { chats: [], hasMore: false } } });
   });
   await page.goto('/de');
+  await requested;
   const panel = page.getByTestId('home-files');
+  await expect(panel.locator('[aria-busy]')).toBeVisible();
   await expect(panel.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'true');
   await expect(panel.locator('li')).toHaveCount(0);
   const height = (await panel.locator('[aria-busy]').boundingBox())!.height;
