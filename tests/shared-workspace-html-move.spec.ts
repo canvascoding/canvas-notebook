@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type Response } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type Request as PlaywrightRequest, type Response } from '@playwright/test';
 import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import {
@@ -330,15 +330,34 @@ async function assertSameOpenDocuments(fixture: SharedFixture, filePath: string,
 async function openSharedDocument(page: Page, fixture: SharedFixture, filePath: string, marker: string,
   kind: 'rich' | 'code' | 'read' = 'rich') {
   observeSessionPaths(page);
-  await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(filePath)}&collaborationDebug=1`,
-    { waitUntil: 'domcontentloaded' });
-  const content = page.locator(kind === 'rich' ? '.tiptap-editor-shell .ProseMirror'
-    : kind === 'code' ? '.cm-content' : '.markdown-editor-content');
-  await expect(content).toBeVisible({ timeout: 60_000 });
-  await expect(content).toContainText(marker);
-  if (kind !== 'read') await expect(content).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
-  const sidebarToggle = page.getByRole('button', { name: 'Show sidebar', exact: true });
-  if (await sidebarToggle.isVisible()) await sidebarToggle.click();
+  const pending = new Set<PlaywrightRequest>();
+  let sessionRequests = 0, maxConcurrentSessionRequests = 0;
+  const started = (request: PlaywrightRequest) => {
+    if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/files/collaboration/session'
+      || request.postDataJSON()?.path !== filePath) return;
+    pending.add(request); sessionRequests++;
+    maxConcurrentSessionRequests = Math.max(maxConcurrentSessionRequests, pending.size);
+  };
+  const finished = (request: PlaywrightRequest) => { pending.delete(request); };
+  if (kind === 'code') {
+    page.on('request', started); page.on('requestfinished', finished); page.on('requestfailed', finished);
+  }
+  try {
+    await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(filePath)}&collaborationDebug=1`,
+      { waitUntil: 'domcontentloaded' });
+    const content = page.locator(kind === 'rich' ? '.tiptap-editor-shell .ProseMirror'
+      : kind === 'code' ? '.cm-content' : '.markdown-editor-content');
+    await expect(content).toBeVisible({ timeout: 60_000 });
+    await expect(content).toContainText(marker);
+    if (kind !== 'read') await expect(content).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+    const sidebarToggle = page.getByRole('button', { name: 'Show sidebar', exact: true });
+    if (await sidebarToggle.isVisible()) await sidebarToggle.click();
+    return { sessionRequests, maxConcurrentSessionRequests };
+  } finally {
+    if (kind === 'code') {
+      page.off('request', started); page.off('requestfinished', finished); page.off('requestfailed', finished);
+    }
+  }
 }
 
 function isRenameApply(response: Response, oldPath: string, newPath: string): boolean {
@@ -746,8 +765,11 @@ test.describe('shared workspace HTML move safety', () => {
       const source = 'quelltext.txt';
       const content = 'Erste Zeile\nZweite Zeile\n';
       await fixture.upload(source, content);
-      await openSharedDocument(fixture.adminPage, fixture, source, 'Erste Zeile', 'code');
-      await openSharedDocument(fixture.peerPage, fixture, source, 'Zweite Zeile', 'code');
+      const startup = [
+        await openSharedDocument(fixture.adminPage, fixture, source, 'Erste Zeile', 'code'),
+        await openSharedDocument(fixture.peerPage, fixture, source, 'Zweite Zeile', 'code'),
+      ];
+      expect(startup.map(value => value.maxConcurrentSessionRequests)).toEqual([1, 1]);
       const before = await documentEvidence(fixture, fixture.admin, source);
       expect(before.representation).toBe('plain_text');
       for (const page of [fixture.adminPage, fixture.peerPage]) await assertHealthyClient(page, before);
@@ -766,7 +788,7 @@ test.describe('shared workspace HTML move safety', () => {
       await expect(fixture.adminPage.locator('.cm-content')).toContainText(marker);
       const after = await assertSameOpenDocuments(fixture, `Ziel/${source}`, before, origins, false);
       await info.attach('plain-text-move-evidence', { contentType: 'application/json',
-        body: Buffer.from(JSON.stringify({ before, after, sha256: saved.stats.sha256, reloaded: false }, null, 2)) });
+        body: Buffer.from(JSON.stringify({ before, after, startupSessionRequests: startup, sha256: saved.stats.sha256, reloaded: false }, null, 2)) });
     });
   });
 

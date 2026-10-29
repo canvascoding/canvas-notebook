@@ -1456,7 +1456,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
               readOnly={Boolean(currentFile.unavailable)}
               path={currentFile.path}
               collaborationEnabled={Boolean(collaboration?.crdtCapable)}
-              collaborationSession={textSession.session}
+              collaborationResolution={textSession}
               collaborationDocument={activeCollaborationDocument}
               agentTargets={agentTargets}
             />
