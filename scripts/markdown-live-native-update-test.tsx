@@ -84,7 +84,7 @@ async function main() {
   const changes: string[] = [];
   const labels = messages.notebook.editorModes;
   const modeButton = (label: string) => [...document.querySelectorAll('.markdown-mode-bar button')]
-    .find((button) => button.textContent === label);
+    .find((button) => button.getAttribute('aria-label') === label);
   const editor = () => {
     const element = document.querySelector('.tiptap') as HTMLElement & { editor: Editor };
     assert(element?.editor); return element.editor;
@@ -141,20 +141,24 @@ async function main() {
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source"
       onModeChange={(mode) => modeChanges.push(mode)} />)));
     assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'an unavailable controlled Source mode never mounts a text writer');
-    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'read');
-    assert.equal(modeButton(labels.read)?.getAttribute('aria-pressed'), 'true');
+    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'rich');
+    assert.equal(modeButton(labels.read), undefined, 'writers do not receive an obsolete Read toggle');
     assert.equal(modeButton(labels.source), undefined);
-    assert(modeChanges.includes('read'), 'the controlled owner is told about the safe mode fallback');
-    assert.equal(editor().isEditable, false);
-    assert.deepEqual(editor().getJSON(), nativeBeforeModes, 'fallback Read uses the intact native document');
+    assert(modeChanges.includes('rich'), 'the controlled owner is told about the supported native edit fallback');
+    assert.equal(editor().isEditable, true);
+    assert.deepEqual(editor().getJSON(), nativeBeforeModes, 'fallback Edit uses the intact native document');
     const parsesAfterSource = projectionParses;
-    assert(parsesAfterSource > parsesBeforeInput, 'fallback Read validates its derived Markdown before choosing a renderer');
+    assert.equal(parsesAfterSource, parsesBeforeInput, 'native edit fallback does not parse the lossy derived Markdown');
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
     assert.equal(projectionParses, parsesAfterSource, 're-render reuses the validation of the same snapshot');
-    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" />)));
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" readOnly />)));
     assert.equal(document.querySelector('[data-testid="markdown-preview"]'), null);
     assert.equal(editor().isEditable, false, 'Read renders the native document instead of a lossy Markdown preview');
     assert.deepEqual(editor().getJSON(), nativeBeforeModes);
+    const parsesInRead = projectionParses;
+    assert(parsesInRead > parsesAfterSource, 'Read validates its derived Markdown before choosing a renderer');
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" readOnly />)));
+    assert.equal(projectionParses, parsesInRead, 'Read reuses validation of the same native snapshot');
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="rich" />)));
     assert.equal(editor().isEditable, true);
     assert.deepEqual(editor().getJSON(), nativeBeforeModes);
@@ -165,11 +169,15 @@ async function main() {
       editor().commands.unsetCode();
     });
     assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    const validBinaryBeforeModes = Y.encodeStateAsUpdate(doc);
     await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
     assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'a valid projection is still not an editable Source document');
     assert.equal(modeButton(labels.source), undefined);
-    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'read');
+    assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'rich');
+    assert.equal(document.querySelector('[data-testid="markdown-preview"]'), null, 'writable fallback remains native editing');
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" readOnly />)));
     assert(document.querySelector('[data-testid="markdown-preview"]'), 'lossless fallback Read may use the Markdown preview');
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), validBinaryBeforeModes, 'permission and mode changes preserve the current native bytes');
     assert.deepEqual(readRichDocumentJson(peer), readRichDocumentJson(doc));
 
     await act(async () => root.render(wrap(<MarkdownEditor value="Local source" filePath="local.md" mode="source" />)));
@@ -184,13 +192,13 @@ async function main() {
     try {
       await act(async () => root.render(wrap(<MarkdownEditor value="stale file" filePath="plain.md" collaborationEnabled
         externalCollaboration={external} mode="source" />)));
-      assert(modeButton(labels.source), 'source-backed collaboration retains Source');
+      assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'source', 'source-backed collaboration retains Source');
       assert.equal(document.querySelector('[data-testid="source-editor"]')?.textContent, '<div>Exact source</div>\n');
       assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-readonly'), 'false');
       plainCollaboration.connection = 'offline';
       await act(async () => root.render(wrap(<MarkdownEditor value="stale file" filePath="plain.md" collaborationEnabled
         externalCollaboration={external} mode="source" readOnly />)));
-      assert(modeButton(labels.source), 'source support is independent of permissions and connectivity');
+      assert.equal(document.querySelector('[data-editor-mode]')?.getAttribute('data-editor-mode'), 'source', 'source support is independent of permissions and connectivity');
       assert.equal(document.querySelector('[data-testid="source-editor"]')?.getAttribute('data-readonly'), 'true');
       await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" />)));
     } finally { plainDoc.destroy(); }
