@@ -505,25 +505,47 @@ fünf Workspaces. Kein neues Release wird durch den Plan allein als fertig erkl�
 
 ## Verhältnis zum bereits begonnenen Fehlerfix
 
-Die Änderungen für Python-Umgebungen, erhaltene lesbare Quellen und getrennte
-Indexdiagnosen sind bereits auf dem Fix-Branch committed. Die explizite, geprüfte
-Wiederherstellung der sieben Altregistrierungen ist implementiert und lokal getestet;
-die Produktionsreparatur benötigt noch die frische Backup-/Restore-Prüfung und das
-Deployment. Ebenso muss die ursprüngliche unvollständige LinkedIn-Dokumentanlage
-mit ihren vorhandenen Identitäts-, Inhalts- und Operationsbelegen verlustfrei
-abgeschlossen werden; eine zweite Initialisierung ersetzt diese Wiederherstellung
-nicht.
+Der Funktionsfix ist über [PR #188](https://github.com/canvascoding/canvas-notebook/pull/188)
+auf `main` integriert und als [Release 2026.10.29.1](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.10.29.1)
+veröffentlicht und produktiv ausgerollt. Der geprüfte Release-Commit ist
+`08bce484ab0bd52c59c2d593852704b9e4800631`. CI, Release-Artefakte, Prüfsummen,
+Standalone-Signatur, Update-Registrierung und der gesunde Produktionsstart sind
+nachgewiesen.
 
-Die bisherigen Performanceänderungen sind auf `codex/fix-document-link-index`
-committed und gepusht; PR #188 ist ein Entwurf. Am Stand `7edf640893` bestand die
-reguläre Gesamtsuite mit 329 erfolgreichen Fällen, 268 bestehenden bedingten
-Überspringungen und null Fehlern. Diese Überspringungen sind nicht ausschließlich
-Review-Center-Tests. Die danach gefundene Layoutkorrektur für lange Diagnosepfade
-und die Behandlung einzelner nativer Quellenfehler haben einen eigenen erfolgreichen
-Produktionsbuild und tatsächliche Desktop-/Mobilprüfungen. Die reguläre Gesamtsuite
-am endgültigen Stand bleibt ein Freigabekriterium. Der gesamte Serviceumbau ist
-weiterhin nicht abgenommen; weder Merge auf
-`main` noch ein neues Release oder Produktionsdeployment sind damit nachgewiesen.
+Die sieben Altregistrierungen wurden nach tatsächlicher Backup-Wiederherstellung
+verlustfrei repariert. Identitäten, Historien und unveränderte Quellen blieben erhalten;
+alle sieben Dokumente sind über den echten MCP-Connector wieder lesbar. Die
+ursprüngliche unvollständige Dokumentanlage wurde danach im angemeldeten,
+ursprünglichen Agent-Chat mit identischem Inhalt und Vorgangsschlüssel abgeschlossen.
+Dokument-ID, Lineage und der unveränderliche Operationsbeleg einschließlich `xmin`
+blieben erhalten. Editor, Dateibaum, beide ausgehenden Links, vollständiges MCP-Lesen
+und eine MCP-Schreibprüfung ohne Inhaltsänderung bestehen. Die abgeschlossene
+Wiederherstellung und ihre Belege sind zusätzlich in einem geprüften lokalen und
+remote verfügbaren Backup enthalten.
+
+Für den veröffentlichten Funktionsfix bestehen die reguläre Gesamtsuite mit
+329 erfolgreichen Fällen, 268 bestehenden bedingten Überspringungen und null
+Fehlern sowie sieben zusätzlich aktivierte Recovery-/Linkfälle ohne Browser-Retries.
+Die Überspringungen sind nicht ausschließlich Review-Center-Tests. Acht weitere
+Testgruppen prüfen native Agent-/MCP-Bearbeitungen über die registrierten
+Tool-Einstiege mit PostgreSQL; diese sind keine Behauptung über produktive
+Modellaufrufe oder die OAuth-Ausstellung.
+
+Die weitere inkrementelle Zielauflösung bleibt ein lokaler Folgezweig. Am Produktstand
+`80c85950034362fb3549b96a13b35ef216887aaf` bestehen 102 gezielte Tests,
+12 zusätzliche Fälle mit kodierten relativen Dateinamen, die echte Cookie-/PostgreSQL-
+Route mit 10/200 Dokumenten, Host-/Linux-Build und der Containerstart. Bei 200
+Dokumenten benötigt ein warmer Indexabruf keine neue Zielauflösung; eine geänderte
+Quelle löst nur ihre zwei Links neu auf. Das gemessene warme Routenfenster bleibt
+bei 36 SQL-Anweisungen und sieben Ausleihen. Dies ist keine SQL-Reduktion dieses
+Pakets. Die reguläre Gesamtsuite dieses Folgestands ist wegen eines offenen
+Benachrichtigungs-Testfalls und eines unterbrochenen lokalen Laufs noch nicht grün;
+die zusätzliche UI-Abnahme bleibt ausstehend.
+
+Der vollständige Serviceumbau, die inkrementellen Header-/Body-Lesungen, die übrige
+Bündelung und Vereinheitlichung der Änderungspfade sowie die endgültigen
+Leistungsbudgets bleiben offen. Die folgenden Teilberichte dokumentieren die
+jeweiligen Zwischenstände und ersetzen diese Gesamtabnahme nicht.
 
 Die [gemeinsame frische Bindungsbeobachtung](architecture/document-service-read-binding-2026-10-28.md)
 bündelt Realm, Relationsauflösung und rohe Workspace-Felder an jeder unveränderten
