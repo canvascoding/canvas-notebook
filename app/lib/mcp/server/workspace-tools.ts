@@ -1,6 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
+import { readManifestFile, ManifestReadError, MANIFEST_MAX_FILE_BYTES } from './file-manifest';
 import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from './legacy-pagination';
 import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
 import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
@@ -129,6 +130,7 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'list_workspaces',
   'get_workspace_overview',
   'list_knowledge_tree',
+  'get_knowledge_manifest',
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
@@ -475,6 +477,21 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         openWorldHint: false,
       },
       ...getToolSecurity('knowledge:search'),
+    };
+  }
+
+  if (tool === 'get_knowledge_manifest') {
+    return {
+      name: tool, title: 'Read workspace file manifest',
+      description: 'Page visible physical files with original-byte SHA-256, size, content revision and direct document links. Native Markdown additionally reports its authoritative current export hash separately; physical projections may lag. Each entry is an observed revision, not a workspace-wide snapshot. Follow next_cursor and expand depth-limited directories. Missing/oversized hashes are explicit errors, never equality evidence.',
+      inputSchema: { type: 'object' as const, properties: {
+        workspace_id: { type: 'string' }, path: { type: 'string', default: '.' },
+        max_depth: { type: 'integer', minimum: 0, maximum: 6, default: 2 },
+        max_entries: { type: 'integer', minimum: 1, maximum: 20, default: 10 },
+        cursor: { type: 'string', maxLength: 20000 },
+      }, required: ['workspace_id'], additionalProperties: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      ...getToolSecurity('knowledge:read'),
     };
   }
 
@@ -1053,6 +1070,54 @@ async function executeListKnowledgeTree(
       content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
       structuredContent: { code: error.code, message: error.message } };
     return errorResult('Could not browse the Canvas workspace.');
+  }
+}
+
+async function executeGetKnowledgeManifest(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  const parsed = parseArgs(args);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'max_depth', 'max_entries', 'cursor'].includes(key))) invalidParams('Unsupported manifest argument.');
+  const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
+  const startPath = optionalString(parsed, 'path', '.', MAX_PATH_LENGTH);
+  assertVisibleWorkspacePath(startPath);
+  const maxDepth = optionalInteger(parsed, 'max_depth', 2, 0, 6);
+  const maxEntries = optionalInteger(parsed, 'max_entries', 10, 1, 20);
+  const cursor = optionalString(parsed, 'cursor', '', 20000) || null;
+  const authorization = await authenticateForTool(authInfo, 'knowledge:read');
+  if ('result' in authorization) return authorization.result;
+  try {
+    const workspace = await readableWorkspace(authorization.principal, workspaceId);
+    const tree = await readWorkspaceTreePage({ workspaceId, rootPath: workspace.rootPath,
+      path: startPath, maxDepth, maxEntries, cursor });
+    const files = tree.entries.filter(entry => entry.type === 'file');
+    const links = await readDirectMcpFileLinks(workspaceId, files.map(entry => entry.path));
+    const entries: Record<string, unknown>[] = [];
+    for (const entry of files) {
+      const link = links.get(entry.path)!;
+      const row: Record<string, unknown> = { path: entry.path, ...link, hash_basis: 'original_file_bytes' };
+      try {
+        Object.assign(row, await readManifestFile(workspace, entry.path));
+      } catch (error) {
+        Object.assign(row, { size: entry.size, sha256: null, revision: null,
+          error: error instanceof ManifestReadError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE' });
+      }
+      if (link.document_id && /\.m(?:d|arkdown)$/iu.test(entry.path)) {
+        try {
+          const snapshot = await readCurrentCollaborationTextSnapshot({ documentId: link.document_id, workspace, path: entry.path });
+          row.document = { hash_basis: 'authoritative_markdown_utf8', sha256: snapshot.sha256,
+            size: Buffer.byteLength(snapshot.content, 'utf8'), revision: `sha256:${snapshot.sha256}`,
+            document_sequence: snapshot.documentSequence, lifecycle_generation: snapshot.lifecycleGeneration };
+        } catch { row.document = { error: 'MANIFEST_NATIVE_SOURCE_UNAVAILABLE' }; }
+      }
+      entries.push(row);
+    }
+    await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'get_knowledge_manifest', workspace, resultCount: entries.length });
+    return result({ workspace_id: workspaceId, path: tree.path, entries, directories: tree.directories,
+      next_cursor: tree.next_cursor, has_more: tree.has_more, truncated_by_depth: tree.truncated_by_depth,
+      coverage: { source: 'visible_physical_tree', atomic_snapshot: false, max_file_bytes: MANIFEST_MAX_FILE_BYTES,
+        complete: !tree.truncated && entries.every(entry => !entry.error) } }, `Manifest page: ${entries.length} files.`);
+  } catch (error) {
+    return structuredErrorResult(error instanceof WorkspaceTreeError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE',
+      error instanceof WorkspaceTreeError ? error.message : 'Could not read the workspace manifest.');
   }
 }
 
@@ -2237,6 +2302,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'list_knowledge_tree',
       descriptor: getDirectMcpWorkspaceToolDescriptor('list_knowledge_tree'),
       execute: executeListKnowledgeTree,
+    },
+    {
+      id: 'get_knowledge_manifest',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('get_knowledge_manifest'),
+      execute: executeGetKnowledgeManifest,
     },
     {
       id: 'search_knowledge',

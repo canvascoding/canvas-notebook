@@ -158,6 +158,7 @@ async function main(): Promise<void> {
         { id: 'auth_probe', available: true, enabled: true, scopes: ['workspace:list'] },
         { id: 'list_workspaces', available: true, enabled: true, scopes: ['workspace:list'] },
         { id: 'get_workspace_overview', available: true, enabled: true, scopes: ['workspace:list'] },
+        { id: 'get_knowledge_manifest', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'list_knowledge_tree', available: true, enabled: true, scopes: ['knowledge:tree'] },
         { id: 'search_knowledge', available: true, enabled: true, scopes: ['knowledge:search'] },
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },

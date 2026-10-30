@@ -163,3 +163,23 @@ Seven edit/checkpoint/authority tests, three existing edit-contract tests,
 settings migration tests, scoped ESLint and production TypeScript check pass.
 HTTP/Codex scripts now check full replacement, retry, conflict, SHA-256 and editor
 reload. Their combined rebuilt-container run is still pending.
+
+## Step 5 paged file manifest
+
+`get_knowledge_manifest` pages the existing visible physical tree, reauthorizing
+on every request. Entries carry original-file size, SHA-256, content revision and
+document link. Native Markdown has a separate authoritative export hash/size and
+sequence; clients must not compare that normalized export to original asset bytes.
+Hashing is bounded to 100 MiB per file with 64 KiB memory and rejects changes to
+the opened file or its path during hashing. Missing/oversized/unavailable sources
+are explicit entry errors. Symlinks and hidden paths are excluded.
+
+This is a physical-file inventory, not an atomic native-document snapshot.
+Depth-limited directories must be expanded, and native-only documents without a
+physical projection remain outside this manifest's declared coverage. Read native
+search separately for those documents. Per-file hashes are observations and do
+not prove that earlier pages stayed unchanged.
+
+Real PostgreSQL/public MCP dispatch tests pass binary hash/size/revision/link,
+pagination, cursor invalidation, hidden/symlink exclusion, oversized files and
+revoked access. Production typecheck, settings tests and scoped ESLint pass.

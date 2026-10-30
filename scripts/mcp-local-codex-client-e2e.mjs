@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-local-codex-client-e2e.mjs <report.json>
  */
 import assert from 'node:assert/strict';
+import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { spawn, execFile } from 'node:child_process';
@@ -116,6 +117,7 @@ try {
   assert.notEqual(searchedNext.structuredContent.hits[0].document.documentId, search.structuredContent.hits[0].document.documentId);
   await verifyUploadAcceptance(call, serverName);
   await verifyReplaceAcceptance(call, fixture.documents[1], `${serverName}-replace`);
+  await verifyManifestAcceptance(call, fixture.documents.map(row => row.path));
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
     client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',

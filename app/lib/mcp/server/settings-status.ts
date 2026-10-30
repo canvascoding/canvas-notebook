@@ -51,6 +51,7 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'auth_probe', available: true, scopes: ['workspace:list'] },
   { id: 'list_workspaces', available: true, scopes: ['workspace:list'] },
   { id: 'get_workspace_overview', available: true, scopes: ['workspace:list'] },
+  { id: 'get_knowledge_manifest', available: true, scopes: ['knowledge:read'] },
   { id: 'list_knowledge_tree', available: true, scopes: ['knowledge:tree'] },
   { id: 'search_knowledge', available: true, scopes: ['knowledge:search'] },
   { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },

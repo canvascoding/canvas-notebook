@@ -10,6 +10,7 @@ export const DIRECT_MCP_TOOL_IDS = [
   'list_workspaces',
   'get_workspace_overview',
   'list_knowledge_tree',
+  'get_knowledge_manifest',
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',

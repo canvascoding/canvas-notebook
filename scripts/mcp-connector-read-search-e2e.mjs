@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
+import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { randomUUID } from 'node:crypto';
@@ -32,7 +33,7 @@ async function step(name, run) {
   console.log(`PASS ${name}`);
 }
 const tools = ['auth_probe', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
-  'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
+  'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
 try {
   await step('real login, workspace opt-in, browser consent and PKCE', async () => {
     await requireIngestE2EJson(await owner.request.post('/api/auth/sign-in/email', {
@@ -149,6 +150,9 @@ try {
   });
   await step('complete Markdown replacement, retry and revision conflict', async () => {
     await verifyReplaceAcceptance(call, document, `${runId}-replace`);
+  });
+  await step('manifest original-byte hashes, authoritative Markdown and continuation', async () => {
+    await verifyManifestAcceptance(call, documents.map(row => row.path));
   });
   await step('direct document link opens the real editor and survives reload', async () => {
     const page = await owner.newPage();
