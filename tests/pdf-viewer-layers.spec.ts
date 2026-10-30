@@ -130,7 +130,7 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
   }
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(markdownName)}`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: /^(Read|Lesen)$/u }).click();
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
     await expect(page.getByRole('link', { name: 'Open lifecycle PDF', exact: true })).toBeVisible();
     await page.evaluate((identity) => { (window as PdfLifecycleWindow).pdfLifecycleIdentity = identity; }, suffix);
     const baselineListeners = await page.evaluate(() => (window as PdfLifecycleWindow).activePdfSelectionListeners!());
@@ -149,7 +149,9 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
         await page.getByRole('treeitem', { name: pdfName, exact: true }).click({ timeout: 15_000 });
       }
       await expect(page.locator('[data-pdf-page="1"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-pdf-page="1"] canvas')).toHaveCSS('opacity', '1', { timeout: 30_000 });
       if (iteration === 0) {
+        await page.screenshot({ path: info.outputPath('pdf-opened.png') });
         await expect(page.locator('[data-pdf-page="1"] .textLayer')).toContainText('Alpha Bravo Charlie');
         const selectedPdfText = await page.locator('[data-pdf-page="1"] .textLayer').evaluate((element) => {
           const range = document.createRange(); range.selectNodeContents(element);
@@ -169,7 +171,6 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
       await expect(page.locator('[data-pdf-page]')).toHaveCount(0);
       await expect(page.getByRole('tab', { name: markdownName, exact: true })).toHaveAttribute('aria-selected', 'true');
       expect(await page.evaluate(() => (window as PdfLifecycleWindow).pdfLifecycleIdentity)).toBe(suffix);
-      await page.getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor).toHaveAttribute('contenteditable', 'true');
       const selected = await editor.locator('p').first().evaluate((element) => {
@@ -180,7 +181,6 @@ test('closing a multi-page PDF leaves Markdown selection usable in the same note
       });
       expect(selected).toBe('Markdown remains selectable.');
       await expect.poll(() => page.evaluate(() => (window as PdfLifecycleWindow).activePdfSelectionListeners!())).toBe(baselineListeners);
-      await page.getByRole('button', { name: /^(Read|Lesen)$/u }).click();
     }
     await page.screenshot({ path: info.outputPath('pdf-closed-markdown-usable.png') });
     expect(pageErrors).toEqual([]);

@@ -394,6 +394,7 @@ export const oauthAccessToken = pgTable("oauth_access_token", {
   refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
   expiresAt: pgTimestamp("expires_at").notNull(),
   createdAt: pgTimestamp("created_at").notNull(),
+  revoked: pgTimestamp("revoked"),
   confirmation: text("confirmation").$type<Record<string, unknown>>(),
   scopes: jsonText<string[]>("scopes").notNull(),
 }, (table) => ({

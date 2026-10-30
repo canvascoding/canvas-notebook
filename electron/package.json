@@ -12,7 +12,7 @@
   "build": {
     "appId": "io.canvasstudios.notebook",
     "productName": "Canvas Notebook",
-    "electronVersion": "42.11.10",
+    "electronVersion": "42.11.18",
     "buildVersion": "2026.10.3.1",
     "icon": "assets/icon",
     "artifactName": "Canvas-Notebook-${buildVersion}-${os}-${arch}.${ext}",

@@ -47,8 +47,9 @@ async function main() {
     const browserPath = process.env.CHROMIUM_PATH;
     assert.ok(browserPath, 'Set CHROMIUM_PATH to the existing local test browser for real Marp PDF/PNG/PPTX checks');
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="140" height="80"><rect width="140" height="80" fill="#246b9a"/></svg>';
+    const math = process.env.TEST_EXPORT_MATH === 'katex' ? 'katex' : 'mathjax';
     await fs.writeFile(path.join(temporary, 'local.svg'), svg);
-    await fs.writeFile(path.join(temporary, 'deck.md'), '---\nmarp: true\nmath: mathjax\n---\n# Export fixture\n\n$E=mc^2$\n\n![width:90px](https://www.w3.org/Icons/w3c_home.png)\n\n---\n# Relative image\n\n![width:140px](./local.svg)\n');
+    await fs.writeFile(path.join(temporary, 'deck.md'), '---\nmarp: true\nmath: ' + math + '\n---\n# Export fixture\n\n$E=mc^2$\n\n![width:90px](https://www.w3.org/Icons/w3c_home.png)\n\n---\n# Relative image\n\n![width:140px](./local.svg)\n');
     const cli = path.resolve('node_modules/@marp-team/marp-cli/marp-cli.js');
     for (const [flag, extension] of [['--pdf', 'pdf'], ['--images=png', 'png'], ['--pptx', 'pptx']]) {
       await exec(process.execPath, [cli, path.join(temporary, 'deck.md'), flag, '--no-stdin', '--allow-local-files', '--browser-path', browserPath, '-o', path.join(temporary, 'deck.' + extension)], {
@@ -60,7 +61,7 @@ async function main() {
     assert.equal(Object.keys(marpZip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/u.test(p)).length, 2);
     const pngs = (await fs.readdir(temporary)).filter(p => /^deck.*\.png$/u.test(p)); assert.equal(pngs.length, 2);
     if (process.env.TEST_EXPORT_OUTPUT) await fs.cp(temporary, process.env.TEST_EXPORT_OUTPUT, { recursive: true });
-    console.log('Dependency regressions passed: MIME/HTML/attachment, XML injection rejection, PptxGenJS image deck, real Marp PDF/PNG/PPTX with MathJax and local/public images');
+    console.log('Dependency regressions passed: MIME/HTML/attachment, XML injection rejection, PptxGenJS image deck, real Marp PDF/PNG/PPTX with ' + math + ' and local/public images');
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

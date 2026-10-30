@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
-test('image size and alignment checkpoint, undo, reload and render in Read mode', async ({ page }, info) => {
+test('image size and alignment checkpoint, undo, reload and responsive editing', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(90_000);
   page.setDefaultTimeout(10_000);
@@ -17,7 +17,7 @@ test('image size and alignment checkpoint, undo, reload and render in Read mode'
   const path = `editor-image-${randomUUID()}.md`;
   const asset = `editor-image-${randomUUID()}.svg`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
-  expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+  expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file', requestId: randomUUID() } })).ok()).toBe(true);
   const read = async () => (await (await page.request.get(`/api/files/read?path=${path}`, { headers })).json()).data?.content as string;
   try {
     await page.goto(`/notebook?path=${path}`);
@@ -70,12 +70,11 @@ test('image size and alignment checkpoint, undo, reload and render in Read mode'
     await expect(image).toHaveCSS('width', '304px');
     expect(await read()).toContain('width="304"');
 
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    const readImage = page.getByRole('img', { name: 'Diagram', exact: true });
-    await expect(readImage).toHaveCSS('width', '304px');
-    await expect(page.getByRole('toolbar', { name: 'Image tools' })).toHaveCount(0);
+    // Readers receive read-only mode through permissions; writers stay editable.
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+    await expect(editor).toHaveAttribute('contenteditable', 'true');
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(async () => (await readImage.boundingBox())!.width).toBeLessThanOrEqual(390);
+    await expect.poll(async () => (await image.boundingBox())!.width).toBeLessThanOrEqual(390);
     expect(pageErrors).toEqual([]);
   } finally {
     await page.close();

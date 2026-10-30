@@ -261,6 +261,17 @@ export async function applyDirectMcpRevocation(
         SET revoked = COALESCE(revoked, $1)
         WHERE id = $2 AND user_id = $3 AND client_id = $4
       `, [revokedAt, candidate.refreshId, candidate.userId, candidate.clientId]);
+      // JWT access tokens are verified against the local grant marker rather
+      // than oauth_access_token. Revoking only the refresh/opaque rows would
+      // leave already-issued bearer JWTs usable until their expiry.
+      if (candidate.sessionId) {
+        await database.run(`
+          INSERT INTO mcp_direct_grant_revocation (client_id, session_id, user_id, revoked_at)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT(client_id, session_id, user_id)
+          DO UPDATE SET revoked_at = GREATEST(mcp_direct_grant_revocation.revoked_at, excluded.revoked_at)
+        `, [candidate.clientId, candidate.sessionId, candidate.userId, revokedAt]);
+      }
       await database.run(`
         UPDATE oauth_access_token
         SET expires_at = CASE WHEN expires_at > $1 THEN $2 ELSE expires_at END

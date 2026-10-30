@@ -6,6 +6,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { betterAuth } from 'better-auth';
 import { jwt } from 'better-auth/plugins';
 import { drizzle } from 'drizzle-orm/pglite';
+import { eq } from 'drizzle-orm';
 
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import * as schema from '../app/lib/db/schema';
@@ -86,6 +87,24 @@ async function main(): Promise<void> {
     assert.equal(storedClient.rows.length, 1);
     assert.equal(storedClient.rows[0]?.client_secret, null);
     assert.equal(storedClient.rows[0]?.token_endpoint_auth_method, 'none');
+
+    // Simulate an existing installation before the provider added revocation.
+    await postgres.exec('ALTER TABLE oauth_access_token DROP COLUMN revoked');
+    await postgres.query(`INSERT INTO oauth_access_token
+      (id, token, client_id, expires_at, created_at, scopes)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+    ['existing-access', 'hashed-existing-access', clientId, Date.now() + 60_000, Date.now(), '["openid"]']);
+    await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    const [preserved] = await database.select().from(schema.oauthAccessToken)
+      .where(eq(schema.oauthAccessToken.id, 'existing-access'));
+    assert.equal(preserved.token, 'hashed-existing-access');
+    assert.equal(preserved.revoked, null);
+    const revokedAt = new Date();
+    await database.update(schema.oauthAccessToken).set({ revoked: revokedAt })
+      .where(eq(schema.oauthAccessToken.id, 'existing-access'));
+    const [revoked] = await database.select().from(schema.oauthAccessToken)
+      .where(eq(schema.oauthAccessToken.id, 'existing-access'));
+    assert.equal(revoked.revoked?.getTime(), revokedAt.getTime());
 
     const clientResources = await postgres.query<{ resource_id: string }>(`
       SELECT client_id AS resource_id

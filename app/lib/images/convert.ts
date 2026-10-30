@@ -12,11 +12,9 @@ const execFileAsync = promisify(execFile);
 const PYTHON_HEIC_SCRIPT = `
 import sys
 import io
-from pillow_heif import HeifFile
-from PIL import Image
+from pillow_heif import open_heif
 buf = sys.stdin.buffer.read()
-heif = HeifFile.from_bytes(buf)
-img = Image.frombytes(heif[0].mode, heif[0].size, heif[0].data, "raw", heif[0].mode)
+img = open_heif(io.BytesIO(buf)).to_pillow()
 out = io.BytesIO()
 img.save(out, "PNG")
 sys.stdout.buffer.write(out.getvalue())
