@@ -1,0 +1,1261 @@
+{
+  "capturedAt": "2026-10-30T07:14:07.641322+00:00",
+  "baseCommit": "08bce484ab0bd52c59c2d593852704b9e4800631",
+  "source": "https://github.com/canvascoding/canvas-notebook/security/dependabot",
+  "summary": {
+    "alerts": 124,
+    "severity": {
+      "critical": 12,
+      "medium": 49,
+      "low": 11,
+      "high": 52
+    },
+    "manifests": {
+      "requirements/runtime-python.txt": 53,
+      "requirements/dictation-python.txt": 14,
+      "package-lock.json": 57
+    }
+  },
+  "alerts": [
+    {
+      "number": 137,
+      "ghsaId": "GHSA-c8x8-7fp4-3x9w",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "prosemirror-view",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 1.42.3",
+      "firstPatchedVersion": "1.42.3"
+    },
+    {
+      "number": 139,
+      "ghsaId": "GHSA-jqcg-44mw-7w3h",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "proxy-addr",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.1.0, < 2.0.8",
+      "firstPatchedVersion": "2.0.8"
+    },
+    {
+      "number": 140,
+      "ghsaId": "GHSA-68fv-2mgg-jv7q",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "source-map-js",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.0.0, < 1.2.2",
+      "firstPatchedVersion": "1.2.2"
+    },
+    {
+      "number": 141,
+      "ghsaId": "GHSA-238p-pmpm-9mq7",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "katex",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 0.11.0, < 0.18.2",
+      "firstPatchedVersion": "0.18.2"
+    },
+    {
+      "number": 143,
+      "ghsaId": "GHSA-wq5f-xc86-pv6w",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "sharp",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 0.35.5",
+      "firstPatchedVersion": "0.35.5"
+    },
+    {
+      "number": 144,
+      "ghsaId": "GHSA-6qxp-vccf-f47h",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.12.0, < 1.31.0",
+      "firstPatchedVersion": "1.31.0"
+    },
+    {
+      "number": 145,
+      "ghsaId": "GHSA-6qxp-vccf-f47h",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/client",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.2.0",
+      "firstPatchedVersion": "2.2.0"
+    },
+    {
+      "number": 146,
+      "ghsaId": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/client",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.3.0",
+      "firstPatchedVersion": "2.3.0"
+    },
+    {
+      "number": 147,
+      "ghsaId": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/server",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.3.0",
+      "firstPatchedVersion": "2.3.0"
+    },
+    {
+      "number": 148,
+      "ghsaId": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/server",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.3.0",
+      "firstPatchedVersion": "2.3.0"
+    },
+    {
+      "number": 149,
+      "ghsaId": "GHSA-jm63-cq47-j5jp",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/server",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.3.0",
+      "firstPatchedVersion": "2.3.0"
+    },
+    {
+      "number": 150,
+      "ghsaId": "GHSA-22jm-h49p-29qw",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.24.0, < 1.32.0",
+      "firstPatchedVersion": "1.32.0"
+    },
+    {
+      "number": 151,
+      "ghsaId": "GHSA-5r4p-p66f-jhc7",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "hono",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 4.12.4, < 4.13.11",
+      "firstPatchedVersion": "4.13.11"
+    },
+    {
+      "number": 152,
+      "ghsaId": "GHSA-6prh-2h8m-c8cw",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 1.32.0",
+      "firstPatchedVersion": "1.32.0"
+    },
+    {
+      "number": 153,
+      "ghsaId": "GHSA-rvq5-wwqv-78pq",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.6.0, < 1.32.0",
+      "firstPatchedVersion": "1.32.0"
+    },
+    {
+      "number": 154,
+      "ghsaId": "GHSA-46jr-4wx8-v453",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.3.0, < 1.32.0",
+      "firstPatchedVersion": "1.32.0"
+    },
+    {
+      "number": 155,
+      "ghsaId": "GHSA-gfr2-rv44-r23c",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "markdown-it",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 14.1.0, < 14.3.3",
+      "firstPatchedVersion": "14.3.3"
+    },
+    {
+      "number": 156,
+      "ghsaId": "GHSA-vfgh-jcmw-g37q",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "markdown-it",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 14.3.3",
+      "firstPatchedVersion": "14.3.3"
+    },
+    {
+      "number": 157,
+      "ghsaId": "GHSA-p3m5-59mp-jv5r",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "next",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 16.0.0, <= 16.4.0",
+      "firstPatchedVersion": "16.4.1"
+    },
+    {
+      "number": 158,
+      "ghsaId": "GHSA-2464-fhr4-w9xw",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "next",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 16.0.0, <= 16.4.0",
+      "firstPatchedVersion": "16.4.1"
+    },
+    {
+      "number": 159,
+      "ghsaId": "GHSA-mchm-gjx6-7h55",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "@sentry/nextjs",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 10.0.0-alpha.0, < 10.75.2",
+      "firstPatchedVersion": "10.75.2"
+    },
+    {
+      "number": 160,
+      "ghsaId": "GHSA-rxp7-6hxx-x8q5",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "ip-address",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "<= 10.7.3",
+      "firstPatchedVersion": "10.7.4"
+    },
+    {
+      "number": 161,
+      "ghsaId": "GHSA-c6gr-qvv4-5v3f",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "dompurify",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "<= 3.4.16",
+      "firstPatchedVersion": "3.4.17"
+    },
+    {
+      "number": 162,
+      "ghsaId": "GHSA-mrv2-3pqr-j5jr",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "dompurify",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "<= 3.4.16",
+      "firstPatchedVersion": "3.4.17"
+    },
+    {
+      "number": 163,
+      "ghsaId": "GHSA-cg2g-xh64-v4q7",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "dompurify",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.4.4, <= 3.4.16",
+      "firstPatchedVersion": "3.4.17"
+    },
+    {
+      "number": 164,
+      "ghsaId": "GHSA-673q-mjm6-r5xr",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "next",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 16.0.0, <= 16.4.0",
+      "firstPatchedVersion": "16.4.1"
+    },
+    {
+      "number": 166,
+      "ghsaId": "GHSA-8g5g-8vmr-9782",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 167,
+      "ghsaId": "GHSA-c6hw-5grf-ff96",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 8.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 168,
+      "ghsaId": "GHSA-462x-pgg6-55fp",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 8.2.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 169,
+      "ghsaId": "GHSA-p4wg-p73j-c528",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 170,
+      "ghsaId": "GHSA-pchr-8j38-3x4p",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 171,
+      "ghsaId": "GHSA-q45j-58j2-45rg",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.3.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 172,
+      "ghsaId": "GHSA-vx6w-vv9f-6gvg",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 2.3.0, <= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 173,
+      "ghsaId": "GHSA-65qm-jvmh-6pqg",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 9.2.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 174,
+      "ghsaId": "GHSA-58r4-6rv3-gfh8",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 175,
+      "ghsaId": "GHSA-7mh2-4gg2-979f",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.20.0",
+      "firstPatchedVersion": "6.20.0"
+    },
+    {
+      "number": 176,
+      "ghsaId": "GHSA-39mj-jf6j-2qj3",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.20.0",
+      "firstPatchedVersion": "6.20.0"
+    },
+    {
+      "number": 177,
+      "ghsaId": "GHSA-9mx8-4j7g-633p",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.20.1",
+      "firstPatchedVersion": "6.20.1"
+    },
+    {
+      "number": 178,
+      "ghsaId": "GHSA-qfv9-64jg-mh7p",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.20.1",
+      "firstPatchedVersion": "6.20.1"
+    },
+    {
+      "number": 179,
+      "ghsaId": "GHSA-5hx5-vpf9-5wcv",
+      "severity": "low",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.1",
+      "firstPatchedVersion": "6.21.1"
+    },
+    {
+      "number": 180,
+      "ghsaId": "GHSA-w889-685w-c8fh",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 2.6.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 181,
+      "ghsaId": "GHSA-4558-3h8r-v8xp",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 182,
+      "ghsaId": "GHSA-7mwm-ghpf-9vrm",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 183,
+      "ghsaId": "GHSA-j4m9-6w36-pw47",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 10.0.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 184,
+      "ghsaId": "GHSA-cp9v-662q-vvx9",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 12.0.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 185,
+      "ghsaId": "GHSA-27h8-gf7j-v5hc",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 186,
+      "ghsaId": "GHSA-fc9g-5qg7-mf45",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 9.2.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 187,
+      "ghsaId": "GHSA-22hg-r758-rrw9",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 7.2.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 188,
+      "ghsaId": "GHSA-74r2-7ff9-mjj2",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.4.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 189,
+      "ghsaId": "GHSA-rfgq-q3w2-pmv2",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 9.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 190,
+      "ghsaId": "GHSA-xgh8-jp6q-p5x8",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 191,
+      "ghsaId": "GHSA-254f-3936-288h",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 192,
+      "ghsaId": "GHSA-jg86-v3jv-hrpm",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 193,
+      "ghsaId": "GHSA-gg2r-wvfm-q9rx",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 4.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 194,
+      "ghsaId": "GHSA-5xm2-6676-qcp9",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 8.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 195,
+      "ghsaId": "GHSA-f2g6-542v-9j58",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 196,
+      "ghsaId": "GHSA-4rr5-89j8-mwwm",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 11.3.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 197,
+      "ghsaId": "GHSA-332p-7hrc-92wf",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 2.0.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 198,
+      "ghsaId": "GHSA-xvh5-g6gv-559v",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 199,
+      "ghsaId": "GHSA-p8hx-v2p6-rp84",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 200,
+      "ghsaId": "GHSA-g842-9rc4-69pw",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 201,
+      "ghsaId": "GHSA-24rc-8hj2-v98c",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 9.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 202,
+      "ghsaId": "GHSA-v9pv-5gc8-w2m6",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 11.0.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 203,
+      "ghsaId": "GHSA-mrfp-p49p-3hf2",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 5.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 204,
+      "ghsaId": "GHSA-4rm8-3hmm-39fg",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 205,
+      "ghsaId": "GHSA-3j72-p6qg-6xp7",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 206,
+      "ghsaId": "GHSA-g4qv-2jxx-769h",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 11.0.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 207,
+      "ghsaId": "GHSA-9v9v-9qvf-h2hj",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 208,
+      "ghsaId": "GHSA-g7cr-3p24-7wf7",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 9.4.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 209,
+      "ghsaId": "GHSA-cgf9-327m-v77c",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.0",
+      "firstPatchedVersion": "6.21.0"
+    },
+    {
+      "number": 210,
+      "ghsaId": "GHSA-f54x-cmq8-qg57",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.0",
+      "firstPatchedVersion": "6.21.0"
+    },
+    {
+      "number": 211,
+      "ghsaId": "GHSA-6vvc-x485-93v7",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.0",
+      "firstPatchedVersion": "6.21.0"
+    },
+    {
+      "number": 212,
+      "ghsaId": "GHSA-78g4-xqwv-q3g8",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 11.1.0, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 213,
+      "ghsaId": "GHSA-mrhx-c7xc-m3w5",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "zod",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 4.6.6",
+      "firstPatchedVersion": "4.6.6"
+    },
+    {
+      "number": 214,
+      "ghsaId": "GHSA-27r3-jxmh-p828",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "body-parser",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.4.0",
+      "firstPatchedVersion": "2.4.0"
+    },
+    {
+      "number": 215,
+      "ghsaId": "GHSA-jr5w-w6x2-84p9",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "electron",
+      "manifest": "package-lock.json",
+      "vulnerableRange": "< 42.11.16",
+      "firstPatchedVersion": "42.11.16"
+    },
+    {
+      "number": 216,
+      "ghsaId": "GHSA-333x-w4r6-6crp",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "fast-uri",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 3.1.9",
+      "firstPatchedVersion": "3.1.9"
+    },
+    {
+      "number": 217,
+      "ghsaId": "GHSA-wjr9-j795-jxcr",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "fast-uri",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.1.3, < 3.1.9",
+      "firstPatchedVersion": "3.1.9"
+    },
+    {
+      "number": 218,
+      "ghsaId": "GHSA-xhq7-xmqj-769h",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "fast-uri",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 3.1.9",
+      "firstPatchedVersion": "3.1.9"
+    },
+    {
+      "number": 219,
+      "ghsaId": "GHSA-w74x-v6f9-j3xg",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "fast-uri",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 3.1.9",
+      "firstPatchedVersion": "3.1.9"
+    },
+    {
+      "number": 220,
+      "ghsaId": "GHSA-85x2-q946-cp5h",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "nodemailer",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 10.1.4",
+      "firstPatchedVersion": "10.1.4"
+    },
+    {
+      "number": 221,
+      "ghsaId": "GHSA-m943-m63m-w62w",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "nodemailer",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 10.1.4",
+      "firstPatchedVersion": "10.1.4"
+    },
+    {
+      "number": 222,
+      "ghsaId": "GHSA-8c8m-p3m8-cjg8",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "nodemailer",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 3.0.0, < 10.1.4",
+      "firstPatchedVersion": "10.1.4"
+    },
+    {
+      "number": 223,
+      "ghsaId": "GHSA-f72v-6w45-q472",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.15.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 225,
+      "ghsaId": "GHSA-4qv8-2p9j-2685",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 226,
+      "ghsaId": "GHSA-xjj6-f33q-929c",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 6.23.0, < 6.29.1",
+      "firstPatchedVersion": "6.29.1"
+    },
+    {
+      "number": 227,
+      "ghsaId": "GHSA-xjj6-f33q-929c",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.18.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 228,
+      "ghsaId": "GHSA-v4x8-3wr5-3wq8",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.20.4, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 229,
+      "ghsaId": "GHSA-567q-5qvw-pf92",
+      "severity": "low",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.22.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 230,
+      "ghsaId": "GHSA-9vhv-jxww-xfm5",
+      "severity": "low",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.20.4, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 231,
+      "ghsaId": "GHSA-gmh7-3g9r-mjh5",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.2",
+      "firstPatchedVersion": "6.21.2"
+    },
+    {
+      "number": 232,
+      "ghsaId": "GHSA-jr96-gvgh-j3r4",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.2",
+      "firstPatchedVersion": "6.21.2"
+    },
+    {
+      "number": 233,
+      "ghsaId": "GHSA-6c7f-9265-g8fw",
+      "severity": "high",
+      "ecosystem": "pip",
+      "package": "pypdf",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "< 6.21.2",
+      "firstPatchedVersion": "6.21.2"
+    },
+    {
+      "number": 234,
+      "ghsaId": "GHSA-654x-cwwv-5j9c",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "Pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 11.2.1, < 13.0.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 235,
+      "ghsaId": "GHSA-5x8w-8jj5-q52h",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "pillow",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": "<= 12.3.0",
+      "firstPatchedVersion": "13.0.0"
+    },
+    {
+      "number": 236,
+      "ghsaId": "GHSA-rj75-hqrm-r3gf",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "postcss-selector-parser",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.1.6",
+      "firstPatchedVersion": "7.1.6"
+    },
+    {
+      "number": 237,
+      "ghsaId": "GHSA-965c-763c-88jm",
+      "severity": "critical",
+      "ecosystem": "npm",
+      "package": "better-auth",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.4.0-beta.18, < 1.7.7",
+      "firstPatchedVersion": "1.7.7"
+    },
+    {
+      "number": 238,
+      "ghsaId": "GHSA-r4xp-prcw-77qf",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "better-auth",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.5.0-beta.12, < 1.7.7",
+      "firstPatchedVersion": "1.7.7"
+    },
+    {
+      "number": 239,
+      "ghsaId": "GHSA-44jh-23m7-hpcf",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "@better-auth/drizzle-adapter",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.6.17, < 1.7.7",
+      "firstPatchedVersion": "1.7.7"
+    },
+    {
+      "number": 240,
+      "ghsaId": "GHSA-44jh-23m7-hpcf",
+      "severity": "low",
+      "ecosystem": "npm",
+      "package": "better-auth",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.6.17, < 1.7.7",
+      "firstPatchedVersion": "1.7.7"
+    },
+    {
+      "number": 241,
+      "ghsaId": "GHSA-6pq8-jhm2-2vcw",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "qs",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 6.7.0, <= 6.16.0",
+      "firstPatchedVersion": "6.16.1"
+    },
+    {
+      "number": 242,
+      "ghsaId": "GHSA-f897-62hf-6gxq",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/sdk",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.10.0, < 1.30.1",
+      "firstPatchedVersion": "1.30.1"
+    },
+    {
+      "number": 243,
+      "ghsaId": "GHSA-f897-62hf-6gxq",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "@modelcontextprotocol/server",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 2.0.0, < 2.1.0",
+      "firstPatchedVersion": "2.1.0"
+    },
+    {
+      "number": 244,
+      "ghsaId": "GHSA-55wc-3pg8-jfw6",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.15.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 245,
+      "ghsaId": "GHSA-9fm3-97px-rjf6",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 5.15.0, < 6.29.1",
+      "firstPatchedVersion": "6.29.1"
+    },
+    {
+      "number": 246,
+      "ghsaId": "GHSA-9fm3-97px-rjf6",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 247,
+      "ghsaId": "GHSA-qrxm-fqhp-jwvm",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 4.2.1, < 6.29.1",
+      "firstPatchedVersion": "6.29.1"
+    },
+    {
+      "number": 248,
+      "ghsaId": "GHSA-qrxm-fqhp-jwvm",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 249,
+      "ghsaId": "GHSA-2m5v-pch6-74hx",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 4.0.0, < 6.29.1",
+      "firstPatchedVersion": "6.29.1"
+    },
+    {
+      "number": 250,
+      "ghsaId": "GHSA-2m5v-pch6-74hx",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 251,
+      "ghsaId": "GHSA-4w7w-5xrc-9h26",
+      "severity": "high",
+      "ecosystem": "npm",
+      "package": "undici",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 7.0.0, < 7.30.1",
+      "firstPatchedVersion": "7.30.1"
+    },
+    {
+      "number": 252,
+      "ghsaId": "GHSA-rmxm-3fg6-px4f",
+      "severity": "medium",
+      "ecosystem": "npm",
+      "package": "@hono/node-server",
+      "manifest": "package-lock.json",
+      "vulnerableRange": ">= 1.19.10, < 2.1.3",
+      "firstPatchedVersion": "2.1.3"
+    },
+    {
+      "number": 253,
+      "ghsaId": "GHSA-fq56-3cx3-fjxp",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.22.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 254,
+      "ghsaId": "GHSA-fj95-fr6c-h845",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 4.0.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 255,
+      "ghsaId": "GHSA-m462-7rxw-wvpg",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.30.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 256,
+      "ghsaId": "GHSA-j8f7-rjxc-mr56",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.20.4, <= 4.0.8",
+      "firstPatchedVersion": "4.0.9"
+    },
+    {
+      "number": 257,
+      "ghsaId": "GHSA-69hj-f68j-2879",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": "<= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 258,
+      "ghsaId": "GHSA-9j6q-wvj5-jgjg",
+      "severity": "low",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.32.6, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 259,
+      "ghsaId": "GHSA-rfpc-qcw5-3pc4",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.22.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 260,
+      "ghsaId": "GHSA-cwqr-hh33-gh44",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.20.4, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 261,
+      "ghsaId": "GHSA-8mx5-7m5m-r77g",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.10.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 262,
+      "ghsaId": "GHSA-9c4x-gm8v-wgc4",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.30.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 263,
+      "ghsaId": "GHSA-6627-m3xw-93mp",
+      "severity": "medium",
+      "ecosystem": "pip",
+      "package": "filelock",
+      "manifest": "requirements/dictation-python.txt",
+      "vulnerableRange": ">= 3.30.0, <= 4.2.0",
+      "firstPatchedVersion": "4.2.1"
+    },
+    {
+      "number": 264,
+      "ghsaId": "GHSA-6q48-6c7w-9gw2",
+      "severity": "critical",
+      "ecosystem": "pip",
+      "package": "certifi",
+      "manifest": "requirements/runtime-python.txt",
+      "vulnerableRange": ">= 2019.03.09, < 2026.10.18",
+      "firstPatchedVersion": "2026.10.18"
+    }
+  ]
+}

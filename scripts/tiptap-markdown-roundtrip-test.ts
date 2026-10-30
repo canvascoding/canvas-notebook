@@ -34,7 +34,7 @@ import {
   setCanvasBlockDragData,
 } from '../app/lib/editor/reorderable-blocks';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>');
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost:3100' });
 
 for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement'] as const) {
   Object.defineProperty(globalThis, key, {

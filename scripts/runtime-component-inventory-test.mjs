@@ -40,7 +40,7 @@ assert.match(inventory.evidence.pythonRequirementsSha256, /^[a-f0-9]{64}$/u);
 assert.equal(inventory.evidence.dockerfileSha256, sha256File('Dockerfile'));
 assert.equal(inventory.evidence.nativeDistributionPolicySha256, sha256File(nativePolicyPath));
 assert.equal(inventory.evidence.pythonRequirementsSha256, sha256File(requirementsPath));
-assert.equal(inventory.nativeComponents.length, 3);
+assert.equal(inventory.nativeComponents.length, 3 + nativePolicy.libvips.svgDependencies.length);
 const nodeRuntime = inventory.nativeComponents.find((component) => component.name === 'node');
 assert.equal(nodeRuntime?.version, nativePolicy.baseImage.nodeVersion);
 assert(
@@ -56,6 +56,15 @@ assert.equal(libvips.sourceUrl, nativePolicy.libvips.sourceUrl);
 assert.equal(libvips.sourceArchiveSha256, nativePolicy.libvips.sourceSha256);
 assert.equal(libvips.license, 'LGPL-2.1-or-later');
 assert.equal(libvips.linkage, 'shared');
+for (const dependency of nativePolicy.libvips.svgDependencies) {
+  const component = inventory.nativeComponents.find((candidate) => candidate.name === dependency.name);
+  assert(component, `${dependency.name} must retain corresponding-source evidence`);
+  assert.equal(component.version, dependency.version);
+  assert.equal(component.sourceUrl, dependency.sourceUrl);
+  assert.equal(component.sourceArchiveSha256, dependency.sourceSha256);
+  assert.equal(component.license, dependency.license);
+  assert.equal(component.linkage, 'shared');
+}
 const dictationPolicy = JSON.parse(fs.readFileSync('docs/compliance/dictation-cpp-policy.json', 'utf8'));
 const dictation = inventory.nativeComponents.find((component) => component.name === 'whisper-cpp');
 assert(dictation, 'the source-built dictation executable needs native runtime evidence');

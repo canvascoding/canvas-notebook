@@ -314,7 +314,10 @@ jobs:
           docker cp "$container_id:/app/docs/compliance/third-party-components.json" runtime-compliance/amd64/third-party-components.json
           docker cp "$container_id:/app/requirements/dictation-python.txt" runtime-compliance/amd64/dictation-python.txt
           docker cp "$container_id:/app/native/dictation" runtime-compliance/amd64/dictation
-          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz" runtime-compliance/amd64/vips-8.18.6.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.7.tar.xz" runtime-compliance/amd64/vips-8.18.7.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/cairo-1.18.6.tar.xz" runtime-compliance/amd64/cairo-1.18.6.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/librsvg-2.57.5.tar.xz" runtime-compliance/amd64/librsvg-2.57.5.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/librsvg-rust-source.tar.xz" runtime-compliance/amd64/librsvg-rust-source.tar.xz
           docker rm "$container_id"
           trap - EXIT
           node scripts/runtime-component-inventory-test.mjs \
@@ -327,7 +330,9 @@ jobs:
           cmp docs/compliance/license-texts/whisper-cpp-1.9.4.txt runtime-compliance/amd64/dictation/LICENSE.txt
           cmp docs/compliance/license-texts/whisper-models.txt runtime-compliance/amd64/dictation/MODEL-LICENSE.txt
           echo "57e280cee375ab02425b806ad5146b99f6eb9357e3c2b31357c8a6af2e2e44ae  runtime-compliance/amd64/dictation/whisper.cpp-source.tar.gz" | sha256sum -c -
-          echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/amd64/vips-8.18.6.tar.xz" | sha256sum -c -
+          echo "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94  runtime-compliance/amd64/vips-8.18.7.tar.xz" | sha256sum -c -
+          echo "1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4  runtime-compliance/amd64/cairo-1.18.6.tar.xz" | sha256sum -c -
+          echo "5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f  runtime-compliance/amd64/librsvg-2.57.5.tar.xz" | sha256sum -c -
 
       - name: Push verified amd64 image
         id: publish
@@ -459,7 +464,10 @@ jobs:
           docker cp "$container_id:/app/docs/compliance/third-party-components.json" runtime-compliance/arm64/third-party-components.json
           docker cp "$container_id:/app/requirements/dictation-python.txt" runtime-compliance/arm64/dictation-python.txt
           docker cp "$container_id:/app/native/dictation" runtime-compliance/arm64/dictation
-          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz" runtime-compliance/arm64/vips-8.18.6.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.7.tar.xz" runtime-compliance/arm64/vips-8.18.7.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/cairo-1.18.6.tar.xz" runtime-compliance/arm64/cairo-1.18.6.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/librsvg-2.57.5.tar.xz" runtime-compliance/arm64/librsvg-2.57.5.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/librsvg-rust-source.tar.xz" runtime-compliance/arm64/librsvg-rust-source.tar.xz
           docker rm "$container_id"
           trap - EXIT
           node scripts/runtime-component-inventory-test.mjs \
@@ -472,7 +480,9 @@ jobs:
           cmp docs/compliance/license-texts/whisper-cpp-1.9.4.txt runtime-compliance/arm64/dictation/LICENSE.txt
           cmp docs/compliance/license-texts/whisper-models.txt runtime-compliance/arm64/dictation/MODEL-LICENSE.txt
           echo "57e280cee375ab02425b806ad5146b99f6eb9357e3c2b31357c8a6af2e2e44ae  runtime-compliance/arm64/dictation/whisper.cpp-source.tar.gz" | sha256sum -c -
-          echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/arm64/vips-8.18.6.tar.xz" | sha256sum -c -
+          echo "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94  runtime-compliance/arm64/vips-8.18.7.tar.xz" | sha256sum -c -
+          echo "1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4  runtime-compliance/arm64/cairo-1.18.6.tar.xz" | sha256sum -c -
+          echo "5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f  runtime-compliance/arm64/librsvg-2.57.5.tar.xz" | sha256sum -c -
 
       - name: Push verified arm64 image
         id: publish
@@ -560,7 +570,10 @@ jobs:
           cmp runtime-compliance/amd64/THIRD_PARTY_NOTICES.md runtime-compliance/arm64/THIRD_PARTY_NOTICES.md
           cmp runtime-compliance/amd64/third-party-components.json runtime-compliance/arm64/third-party-components.json
           cmp runtime-compliance/amd64/dictation-python.txt runtime-compliance/arm64/dictation-python.txt
-          cmp runtime-compliance/amd64/vips-8.18.6.tar.xz runtime-compliance/arm64/vips-8.18.6.tar.xz
+          cmp runtime-compliance/amd64/vips-8.18.7.tar.xz runtime-compliance/arm64/vips-8.18.7.tar.xz
+          cmp runtime-compliance/amd64/cairo-1.18.6.tar.xz runtime-compliance/arm64/cairo-1.18.6.tar.xz
+          cmp runtime-compliance/amd64/librsvg-2.57.5.tar.xz runtime-compliance/arm64/librsvg-2.57.5.tar.xz
+          cmp runtime-compliance/amd64/librsvg-rust-source.tar.xz runtime-compliance/arm64/librsvg-rust-source.tar.xz
           cmp runtime-compliance/amd64/dictation/whisper.cpp-source.tar.gz runtime-compliance/arm64/dictation/whisper.cpp-source.tar.gz
           cmp runtime-compliance/amd64/dictation/LICENSE.txt runtime-compliance/arm64/dictation/LICENSE.txt
           cmp runtime-compliance/amd64/dictation/MODEL-LICENSE.txt runtime-compliance/arm64/dictation/MODEL-LICENSE.txt
@@ -574,7 +587,7 @@ jobs:
           cp runtime-compliance/amd64/sharp-linkage-linux-amd64.json "dist-native-compliance/${asset}/linux-amd64/"
           cp runtime-compliance/arm64/runtime-components-linux-arm64.json "dist-native-compliance/${asset}/linux-arm64/"
           cp runtime-compliance/arm64/sharp-linkage-linux-arm64.json "dist-native-compliance/${asset}/linux-arm64/"
-          cp runtime-compliance/amd64/vips-8.18.6.tar.xz "dist-native-compliance/${asset}/"
+          cp runtime-compliance/amd64/vips-8.18.7.tar.xz runtime-compliance/amd64/cairo-1.18.6.tar.xz runtime-compliance/amd64/librsvg-2.57.5.tar.xz runtime-compliance/amd64/librsvg-rust-source.tar.xz "dist-native-compliance/${asset}/"
           cp -R runtime-compliance/amd64/dictation "dist-native-compliance/${asset}/linux-amd64/"
           cp -R runtime-compliance/arm64/dictation "dist-native-compliance/${asset}/linux-arm64/"
           cp docs/compliance/dictation-cpp-policy.json docs/compliance/container-local-dictation-review-2026-10-04.md "dist-native-compliance/${asset}/"
@@ -583,6 +596,7 @@ jobs:
              docs/compliance/docker-native-distribution-policy.json \
              docs/compliance/sharp-libvips-relinking.md \
              docs/compliance/license-texts/LGPL-2.1-or-later.txt \
+             docs/compliance/license-texts/cairo-1.18.6-LGPL-2.1.txt \
              "dist-native-compliance/${asset}/"
           tar -C dist-native-compliance -czf "dist-native-compliance/${asset}.tar.gz" "${asset}"
           (cd dist-native-compliance && sha256sum "${asset}.tar.gz" > "${asset}.sha256")

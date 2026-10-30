@@ -117,7 +117,7 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   entfernt. Die 28 unvollstaendig belegten Positionen bleiben transparent im
   Gesamtinventar `review_required`, sind aber keine Canvas-Binaerlieferung und
   daher keine Release-Blocker.
-- Canvas baut libvips 8.18.6 unveraendert aus dem exakt gehashten
+- Canvas baut libvips 8.18.7 unveraendert aus dem exakt gehashten
   Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.4
   dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
@@ -269,7 +269,7 @@ als rechtlich geklaert umetikettiert.
 
 Canvas loest dies auf der Auslieferungsebene: Kein vorgebautes
 `@img/sharp-*`-Archiv landet im Docker-Image. Stattdessen wird das
-unveraenderte libvips-Archiv 8.18.6 mit SHA-256-Pruefung als Shared Library
+unveraenderte libvips-Archiv 8.18.7 mit SHA-256-Pruefung als Shared Library
 gebaut und als vollstaendiger Quellcode zusammen mit LGPL-2.1-or-later und
 Austauschanleitung ausgeliefert. Sharp 0.35.4 wird lokal dagegen gebaut.
 Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet wird,

@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.29.1
-- Lockfile SHA-256: `df67549a5689f6a0729f4f4a8d2fb18f13af4c4bae91cf51a0f97fba1ab3c449`
-- Distributed components: 1453
+- Lockfile SHA-256: `206b97a8d281e6bf73d3276cecee39598d3c4c7bed36705cb2a4168dec20ef30`
+- Distributed components: 1460
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -26,7 +26,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | seed-skill:skill-creator | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:theme-factory | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:web-artifacts-builder | repository-version | asset | Apache-2.0 | allowed |
-| canvas-built-libvips | 8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e | native | LGPL-2.1-or-later | allowed |
+| canvas-built-cairo | 1.18.6 / 1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4 | native | LGPL-2.1-only | allowed |
+| canvas-built-librsvg | 2.57.5 / 5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f | native | LGPL-2.1-or-later | allowed |
+| canvas-built-libvips | 8.18.7 / 5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94 | native | LGPL-2.1-or-later | allowed |
 | canvas-built-whisper-cpp | 1.9.4 / 927cfce34f31707e17f2bff35c349632fb9e2c3a | native | MIT AND MIT-0 | allowed |
 | docker-global-npm:@npmcli/agent | 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367 | native | ISC | allowed |
 | docker-global-npm:@sigstore/verify | 3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3 | native | Apache-2.0 | allowed |
@@ -37,14 +39,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
-| electron-runtime | 42.11.10 | native | MIT | allowed |
+| electron-runtime | 42.11.18 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | optional-whisper-ggml-models | 5359861c739e955e79d9a303bcbc70fb988958b1 | native | MIT | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
 | @anthropic-ai/sdk | 0.129.0 | runtime | MIT | allowed |
-| @apm-js-collab/code-transformer-bundler-plugins | 0.5.0 | runtime | MIT | allowed |
-| @apm-js-collab/code-transformer | 0.15.0 | runtime | Apache-2.0 | allowed |
-| @apm-js-collab/tracing-hooks | 0.10.1 | runtime | Apache-2.0 | allowed |
 | @asamuzakjp/css-color | 5.1.11 | runtime | MIT | allowed |
 | @asamuzakjp/dom-selector | 7.1.1 | runtime | MIT | allowed |
 | @asamuzakjp/generational-cache | 1.0.1 | runtime | MIT | allowed |
@@ -86,18 +85,17 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @babel/template | 7.29.7 | runtime | MIT | allowed |
 | @babel/traverse | 7.29.7 | runtime | MIT | allowed |
 | @babel/types | 7.29.7 | runtime | MIT | allowed |
-| @better-auth/core | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/drizzle-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/expo | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/kysely-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/memory-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/mongo-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/oauth-provider | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/prisma-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/telemetry | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
-| @better-auth/utils | 0.5.0 | runtime | MIT | allowed |
-| @better-fetch/fetch | 1.3.1 | runtime | MIT | allowed |
+| @better-auth/core | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/drizzle-adapter | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/expo | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/kysely-adapter | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/memory-adapter | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/mongo-adapter | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/oauth-provider | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/prisma-adapter | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/telemetry | 1.7.14 | runtime | MIT | allowed |
+| @better-auth/utils | 0.5.1 | runtime | MIT | allowed |
+| @better-fetch/fetch | 1.3.3 | runtime | MIT | allowed |
 | @borewit/text-codec | 0.2.2 | runtime | MIT | allowed |
 | @braintree/sanitize-url | 6.0.2 | runtime | MIT | allowed |
 | @braintree/sanitize-url | 7.1.2 | runtime | MIT | allowed |
@@ -193,7 +191,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @hocuspocus/provider | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/server | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/transformer | 4.4.0 | runtime | MIT | allowed |
-| @hono/node-server | 2.0.12 | runtime | MIT | allowed |
+| @hono/node-server | 2.1.5 | runtime | MIT | allowed |
 | @iconify/types | 2.0.0 | runtime | MIT | allowed |
 | @iconify/utils | 3.1.4 | runtime | MIT | allowed |
 | @img/colour | 1.1.0 | runtime | MIT | allowed |
@@ -238,11 +236,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @mermaid-js/parser | 0.6.3 | runtime | MIT | allowed |
 | @mermaid-js/parser | 1.2.0 | runtime | MIT | allowed |
 | @mixmark-io/domino | 2.2.0 | runtime | BSD-2-Clause | allowed |
-| @modelcontextprotocol/client | 2.0.0 | runtime | MIT | allowed |
-| @modelcontextprotocol/core | 2.0.0 | runtime | MIT | allowed |
+| @modelcontextprotocol/client | 2.4.0 | runtime | Apache-2.0 | allowed |
+| @modelcontextprotocol/core | 2.4.0 | runtime | Apache-2.0 | allowed |
 | @modelcontextprotocol/ext-apps | 2.0.0 | runtime | MIT | allowed |
-| @modelcontextprotocol/sdk | 1.29.0 | runtime | MIT | allowed |
-| @modelcontextprotocol/server | 2.0.0 | runtime | MIT | allowed |
+| @modelcontextprotocol/sdk | 1.32.2 | runtime | MIT | allowed |
+| @modelcontextprotocol/server | 2.4.0 | runtime | Apache-2.0 | allowed |
 | @mozilla/readability | 0.6.0 | runtime | Apache-2.0 | allowed |
 | @napi-rs/canvas-android-arm64 | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas-android-arm64 | 1.0.2 | runtime | MIT | allowed |
@@ -267,27 +265,24 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-darwin-arm64 | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-darwin-x64 | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-gnu | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-musl | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-linux-x64-gnu | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-linux-x64-musl | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-win32-arm64-msvc | 16.3.8 | runtime | MIT | allowed |
-| @next/swc-win32-x64-msvc | 16.3.8 | runtime | MIT | allowed |
+| @next/env | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.4.3 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.4.3 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/api | 1.9.0 | runtime | Apache-2.0 | allowed |
 | @opentelemetry/api | 1.9.1 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/api | 1.9.1 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/api | 1.9.1 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/core | 2.9.0 | runtime | Apache-2.0 | allowed |
+| @opentelemetry/core | 2.12.0 | runtime | Apache-2.0 | allowed |
 | @opentelemetry/instrumentation | 0.220.0 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/resources | 2.9.0 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/sdk-trace-base | 2.9.0 | runtime | Apache-2.0 | allowed |
-| @opentelemetry/sdk-trace | 2.9.0 | runtime | Apache-2.0 | allowed |
+| @opentelemetry/resources | 2.12.0 | runtime | Apache-2.0 | allowed |
+| @opentelemetry/sdk-trace-base | 2.12.0 | runtime | Apache-2.0 | allowed |
+| @opentelemetry/sdk-trace | 2.12.0 | runtime | Apache-2.0 | allowed |
 | @opentelemetry/semantic-conventions | 1.43.0 | runtime | Apache-2.0 | allowed |
 | @parcel/watcher-android-arm64 | 2.5.6 | runtime | MIT | allowed |
 | @parcel/watcher-darwin-arm64 | 2.5.6 | runtime | MIT | allowed |
@@ -314,7 +309,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @protobufjs/path | 1.1.2 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/pool | 1.1.0 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/utf8 | 1.1.2 | runtime | BSD-3-Clause | allowed |
-| @puppeteer/browsers | 3.0.6 | runtime | Apache-2.0 | allowed |
+| @puppeteer/browsers | 3.2.6 | runtime | Apache-2.0 | allowed |
 | @radix-ui/number | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/primitive | 1.0.0 | runtime | MIT | allowed |
 | @radix-ui/primitive | 1.1.1 | runtime | MIT | allowed |
@@ -446,22 +441,46 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @schummar/icu-type-parser | 1.21.5 | runtime | MIT | allowed |
 | @selderee/plugin-htmlparser2 | 0.12.0 | runtime | MIT | allowed |
 | @sentry/babel-plugin-component-annotate | 5.3.0 | runtime | MIT | allowed |
-| @sentry/browser-utils | 10.65.0 | runtime | MIT | allowed |
-| @sentry/browser | 10.65.0 | runtime | MIT | allowed |
+| @sentry/browser-utils | 10.75.2 | runtime | MIT | allowed |
+| @sentry/browser | 10.75.2 | runtime | MIT | allowed |
 | @sentry/bundler-plugin-core | 5.3.0 | runtime | MIT | allowed |
 | @sentry/bundler-plugins | 10.65.0 | runtime | MIT | allowed |
 | @sentry/conventions | 0.15.1 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
+| @sentry/conventions | 0.16.0 | runtime | MIT | allowed |
 | @sentry/core | 10.65.0 | runtime | MIT | allowed |
-| @sentry/feedback | 10.65.0 | runtime | MIT | allowed |
-| @sentry/nextjs | 10.65.0 | runtime | MIT | allowed |
-| @sentry/node-core | 10.65.0 | runtime | MIT | allowed |
-| @sentry/node | 10.65.0 | runtime | MIT | allowed |
-| @sentry/opentelemetry | 10.65.0 | runtime | MIT | allowed |
-| @sentry/react | 10.65.0 | runtime | MIT | allowed |
-| @sentry/replay-canvas | 10.65.0 | runtime | MIT | allowed |
-| @sentry/replay | 10.65.0 | runtime | MIT | allowed |
-| @sentry/server-utils | 10.65.0 | runtime | MIT | allowed |
-| @sentry/vercel-edge | 10.65.0 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/feedback | 10.75.2 | runtime | MIT | allowed |
+| @sentry/nextjs | 10.75.2 | runtime | MIT | allowed |
+| @sentry/node-core | 10.75.2 | runtime | MIT | allowed |
+| @sentry/node | 10.75.2 | runtime | MIT | allowed |
+| @sentry/opentelemetry | 10.75.2 | runtime | MIT | allowed |
+| @sentry/react | 10.75.2 | runtime | MIT | allowed |
+| @sentry/replay-canvas | 10.75.2 | runtime | MIT | allowed |
+| @sentry/replay | 10.75.2 | runtime | MIT | allowed |
+| @sentry/server-utils | 10.75.2 | runtime | MIT | allowed |
+| @sentry/vercel-edge | 10.75.2 | runtime | MIT | allowed |
 | @sentry/webpack-plugin | 5.4.0 | runtime | MIT | allowed |
 | @smithy/core | 3.35.0 | runtime | Apache-2.0 | allowed |
 | @smithy/credential-provider-imds | 4.5.2 | runtime | Apache-2.0 | allowed |
@@ -622,7 +641,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @xtuc/ieee754 | 1.2.0 | runtime | BSD-3-Clause | allowed |
 | @xtuc/long | 4.2.2 | runtime | Apache-2.0 | allowed |
 | @zone-eu/mailsplit | 5.4.16 | runtime | MIT | allowed |
-| @zone-eu/mailsplit | 5.4.19 | runtime | MIT | allowed |
+| @zone-eu/mailsplit | 5.4.29 | runtime | MIT | allowed |
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
@@ -633,7 +652,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | ajv-keywords | 5.1.0 | runtime | MIT | allowed |
 | ajv | 8.20.0 | runtime | MIT | allowed |
 | ansi-regex | 5.0.1 | runtime | MIT | allowed |
-| ansi-regex | 6.3.0 | runtime | MIT | allowed |
+| ansi-regex | 6.5.0 | runtime | MIT | allowed |
 | ansi-styles | 5.2.0 | runtime | MIT | allowed |
 | ansi-styles | 6.2.3 | runtime | MIT | allowed |
 | anymatch | 3.1.3 | runtime | ISC | allowed |
@@ -642,7 +661,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | argparse | 2.0.1 | runtime | Python-2.0 | allowed |
 | aria-hidden | 1.2.6 | runtime | MIT | allowed |
 | aria-query | 5.3.0 | runtime | Apache-2.0 | allowed |
-| astring | 1.9.0 | runtime | MIT | allowed |
 | async-mutex | 0.5.0 | runtime | MIT | allowed |
 | async | 3.2.6 | runtime | MIT | allowed |
 | atomic-sleep | 1.0.0 | runtime | MIT | allowed |
@@ -658,14 +676,14 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | baseline-browser-mapping | 2.11.20 | runtime | Apache-2.0 | allowed |
 | batch | 0.6.1 | runtime | MIT | allowed |
 | bcryptjs | 3.0.3 | runtime | BSD-3-Clause | allowed |
-| better-auth | 1.7.1 | runtime | MIT | allowed |
-| better-call | 1.4.0 | runtime | MIT | allowed |
+| better-auth | 1.7.14 | runtime | MIT | allowed |
+| better-call | 1.4.4 | runtime | MIT | allowed |
 | bidi-js | 1.0.3 | runtime | MIT | allowed |
 | bignumber.js | 9.3.1 | runtime | MIT | allowed |
 | binary-extensions | 2.3.0 | runtime | MIT | allowed |
 | bluebird | 3.4.7 | runtime | MIT | allowed |
 | bluebird | 3.7.2 | runtime | MIT | allowed |
-| body-parser | 2.3.0 | runtime | MIT | allowed |
+| body-parser | 2.4.0 | runtime | MIT | allowed |
 | bowser | 2.14.1 | runtime | MIT | allowed |
 | brace-expansion | 5.0.12 | runtime | MIT | allowed |
 | braces | 3.0.3 | runtime | MIT | allowed |
@@ -693,8 +711,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | chokidar | 3.6.0 | runtime | MIT | allowed |
 | chokidar | 4.0.3 | runtime | MIT | allowed |
 | chrome-trace-event | 1.0.4 | runtime | MIT | allowed |
-| chromium-bidi | 16.0.1 | runtime | Apache-2.0 | allowed |
-| cjs-module-lexer | 2.2.0 | runtime | MIT | allowed |
+| chromium-bidi | 157.0.8090-0 | runtime | Apache-2.0 | allowed |
+| cjs-module-lexer | 2.3.0 | runtime | MIT | allowed |
 | class-variance-authority | 0.7.1 | runtime | Apache-2.0 | allowed |
 | client-only | 0.0.1 | runtime | MIT | allowed |
 | cliui | 9.0.1 | runtime | ISC | allowed |
@@ -704,19 +722,16 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | codemirror | 6.0.2 | runtime | MIT | allowed |
 | comma-separated-tokens | 2.0.3 | runtime | MIT | allowed |
 | commander | 13.1.0 | runtime | MIT | allowed |
+| commander | 15.0.0 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
 | commander | 7.2.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
 | commondir | 1.0.1 | runtime | MIT | allowed |
 | compress-commons | 7.0.1 | runtime | MIT | allowed |
 | content-disposition | 1.1.0 | runtime | MIT | allowed |
 | content-type | 1.0.5 | runtime | MIT | allowed |
 | content-type | 2.0.0 | runtime | MIT | allowed |
-| content-type | 2.0.0 | runtime | MIT | allowed |
+| content-type | 2.1.0 | runtime | MIT | allowed |
 | convert-source-map | 2.0.0 | runtime | MIT | allowed |
 | cookie-signature | 1.2.2 | runtime | MIT | allowed |
 | cookie | 0.7.2 | runtime | MIT | allowed |
@@ -793,13 +808,13 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | detect-libc | 2.1.2 | runtime | Apache-2.0 | allowed |
 | detect-node-es | 1.1.0 | runtime | MIT | allowed |
 | devlop | 1.1.0 | runtime | MIT | allowed |
-| devtools-protocol | 0.0.1638949 | runtime | BSD-3-Clause | allowed |
+| devtools-protocol | 0.0.1704951 | runtime | BSD-3-Clause | allowed |
 | dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | allowed |
 | dom-accessibility-api | 0.5.16 | runtime | MIT | allowed |
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
 | domelementtype | 2.3.0 | runtime | BSD-2-Clause | allowed |
 | domhandler | 5.0.3 | runtime | BSD-2-Clause | allowed |
-| dompurify | 3.4.16 | runtime | Apache-2.0 | allowed |
+| dompurify | 3.4.17 | runtime | Apache-2.0 | allowed |
 | domutils | 3.2.2 | runtime | BSD-2-Clause | allowed |
 | dotenv | 16.6.1 | runtime | BSD-2-Clause | allowed |
 | dotenv | 17.4.2 | runtime | BSD-2-Clause | allowed |
@@ -825,6 +840,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | es-define-property | 1.0.1 | runtime | MIT | allowed |
 | es-errors | 1.3.0 | runtime | MIT | allowed |
 | es-module-lexer | 2.3.1 | runtime | MIT | allowed |
+| es-module-lexer | 3.0.4 | runtime | MIT | allowed |
 | es-object-atoms | 1.1.2 | runtime | MIT | allowed |
 | es-toolkit | 1.49.0 | runtime | MIT | allowed |
 | es6-promise-pool | 2.5.0 | runtime | MIT | allowed |
@@ -834,8 +850,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | escape-string-regexp | 5.0.0 | runtime | MIT | allowed |
 | escape-string-regexp | 5.0.0 | runtime | MIT | allowed |
 | esm | 3.2.25 | runtime | MIT | allowed |
-| esquery | 1.7.0 | runtime | BSD-3-Clause | allowed |
-| estraverse | 5.3.0 | runtime | BSD-2-Clause | allowed |
 | estree-util-is-identifier-name | 3.0.0 | runtime | MIT | allowed |
 | estree-walker | 2.0.2 | runtime | MIT | allowed |
 | etag | 1.8.1 | runtime | MIT | allowed |
@@ -852,7 +866,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
 | fast-sha256 | 1.3.0 | runtime | Unlicense | allowed |
-| fast-uri | 3.1.8 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.9 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fdir | 6.5.0 | runtime | MIT | allowed |
@@ -876,7 +890,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | gcp-metadata | 8.1.2 | runtime | Apache-2.0 | allowed |
 | gensync | 1.0.0-beta.2 | runtime | MIT | allowed |
 | get-caller-file | 2.0.5 | runtime | ISC | allowed |
-| get-east-asian-width | 1.6.0 | runtime | MIT | allowed |
+| get-east-asian-width | 1.7.0 | runtime | MIT | allowed |
 | get-intrinsic | 1.3.0 | runtime | MIT | allowed |
 | get-nonce | 1.0.1 | runtime | MIT | allowed |
 | get-proto | 1.0.1 | runtime | MIT | allowed |
@@ -911,7 +925,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | highlight.js | 10.7.3 | runtime | BSD-3-Clause | allowed |
 | highlight.js | 11.11.1 | runtime | BSD-3-Clause | allowed |
 | highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | allowed |
-| hono | 4.13.8 | runtime | MIT | allowed |
+| hono | 4.13.14 | runtime | MIT | allowed |
 | html-encoding-sniffer | 6.0.0 | runtime | MIT | allowed |
 | html-to-text | 10.0.1 | runtime | MIT | allowed |
 | html-url-attributes | 3.0.1 | runtime | MIT | allowed |
@@ -937,14 +951,14 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | immer | 11.1.11 | runtime | MIT | allowed |
 | immutable | 4.3.9 | runtime | MIT | allowed |
 | import-fresh | 3.3.1 | runtime | MIT | allowed |
-| import-in-the-middle | 3.3.1 | runtime | Apache-2.0 | allowed |
+| import-in-the-middle | 3.5.3 | runtime | Apache-2.0 | allowed |
 | import-meta-resolve | 4.2.0 | runtime | MIT | allowed |
 | inherits | 2.0.4 | runtime | ISC | allowed |
 | inline-style-parser | 0.2.7 | runtime | MIT | allowed |
 | internmap | 1.0.1 | runtime | ISC | allowed |
 | internmap | 2.0.3 | runtime | ISC | allowed |
 | intl-messageformat | 11.2.11 | runtime | BSD-3-Clause | allowed |
-| ip-address | 10.7.2 | runtime | MIT | allowed |
+| ip-address | 10.7.5 | runtime | MIT | allowed |
 | ipaddr.js | 1.9.1 | runtime | MIT | allowed |
 | iron-session | 8.0.4 | runtime | MIT | allowed |
 | iron-webcrypto | 1.2.1 | runtime | MIT | allowed |
@@ -990,10 +1004,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | jszip | 3.10.1 | runtime | MIT | allowed |
 | jwa | 2.0.1 | runtime | MIT | allowed |
 | jws | 4.0.1 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.17.0 | runtime | MIT | allowed |
+| katex | 0.18.11 | runtime | MIT | allowed |
 | khroma | 2.1.0 | runtime | MIT | allowed |
 | kleur | 4.1.5 | runtime | MIT | allowed |
 | kysely | 0.29.3 | runtime | MIT | allowed |
@@ -1006,11 +1017,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lemonadejs | 5.3.6 | runtime | MIT | allowed |
 | lib0 | 0.2.117 | runtime | MIT | allowed |
 | libbase64 | 1.3.0 | runtime | MIT | allowed |
-| libbase64 | 1.3.1 | runtime | MIT | allowed |
+| libbase64 | 1.4.1 | runtime | MIT | allowed |
 | libmime | 5.4.3 | runtime | MIT | allowed |
-| libmime | 5.4.6 | runtime | MIT | allowed |
+| libmime | 5.6.3 | runtime | MIT | allowed |
 | libqp | 2.1.1 | runtime | MIT | allowed |
-| libqp | 2.1.2 | runtime | MIT | allowed |
+| libqp | 3.0.1 | runtime | MIT | allowed |
 | lie | 3.3.0 | runtime | MIT | allowed |
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
 | linkify-it | 5.0.2 | runtime | MIT | allowed |
@@ -1033,10 +1044,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | lz-string | 1.5.0 | runtime | MIT | allowed |
 | magic-string | 0.30.21 | runtime | MIT | allowed |
-| mailparser | 3.9.32 | runtime | MIT | allowed |
+| mailparser | 3.14.1 | runtime | MIT | allowed |
 | mammoth | 1.12.0 | runtime | BSD-2-Clause | allowed |
 | markdown-it-front-matter | 0.2.4 | runtime | MIT | allowed |
-| markdown-it | 14.3.2 | runtime | MIT | allowed |
+| markdown-it | 14.3.3 | runtime | MIT | allowed |
 | markdown-table | 3.0.4 | runtime | MIT | allowed |
 | marked-katex-extension | 5.1.10 | runtime | MIT | allowed |
 | marked | 16.4.2 | runtime | MIT | allowed |
@@ -1067,7 +1078,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | media-typer | 1.1.0 | runtime | MIT | allowed |
 | merge-descriptors | 2.0.0 | runtime | MIT | allowed |
 | merge-stream | 2.0.0 | runtime | MIT | allowed |
-| meriyah | 6.1.4 | runtime | ISC | allowed |
 | mermaid | 11.16.1 | runtime | MIT | allowed |
 | mhchemparser | 4.2.1 | runtime | Apache-2.0 | allowed |
 | micromark-core-commonmark | 2.0.3 | runtime | MIT | allowed |
@@ -1109,7 +1119,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | minipass | 7.1.3 | runtime | BlueOak-1.0.0 | allowed |
 | mitt | 3.0.1 | runtime | MIT | allowed |
 | mj-context-menu | 0.6.1 | runtime | Apache-2.0 | allowed |
-| modern-tar | 0.7.7 | runtime | MIT | allowed |
+| modern-tar | 0.8.6 | runtime | MIT | allowed |
 | module-details-from-path | 1.0.4 | runtime | MIT | allowed |
 | ms | 2.0.0 | runtime | MIT | allowed |
 | ms | 2.1.3 | runtime | MIT | allowed |
@@ -1122,7 +1132,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
-| next | 16.3.8 | runtime | MIT | allowed |
+| next | 16.4.3 | runtime | MIT | allowed |
 | node-addon-api | 7.1.1 | runtime | MIT | allowed |
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
@@ -1130,7 +1140,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-int64 | 0.4.0 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
-| nodemailer | 10.0.13 | runtime | MIT-0 | allowed |
+| nodemailer | 10.3.1 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | e2f8a0731bf26e95b31e35d73e71e183a1045b81 | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
@@ -1199,7 +1209,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | points-on-curve | 1.0.1 | runtime | MIT | allowed |
 | points-on-path | 0.2.1 | runtime | MIT | allowed |
 | postcss-nesting | 13.0.2 | runtime | MIT-0 | allowed |
-| postcss-selector-parser | 7.1.4 | runtime | MIT | allowed |
+| postcss-selector-parser | 7.1.7 | runtime | MIT | allowed |
 | postcss | 8.5.23 | runtime | MIT | allowed |
 | postgres-array | 2.0.0 | runtime | MIT | allowed |
 | postgres-bytea | 1.0.1 | runtime | MIT | allowed |
@@ -1221,23 +1231,23 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | prosemirror-history | 1.5.0 | runtime | MIT | allowed |
 | prosemirror-inputrules | 1.5.1 | runtime | MIT | allowed |
 | prosemirror-keymap | 1.2.3 | runtime | MIT | allowed |
-| prosemirror-model | 1.25.11 | runtime | MIT | allowed |
+| prosemirror-model | 1.25.12 | runtime | MIT | allowed |
 | prosemirror-schema-list | 1.5.1 | runtime | MIT | allowed |
 | prosemirror-state | 1.4.4 | runtime | MIT | allowed |
 | prosemirror-tables | 1.8.5 | runtime | MIT | allowed |
 | prosemirror-transform | 1.12.0 | runtime | MIT | allowed |
-| prosemirror-view | 1.42.1 | runtime | MIT | allowed |
+| prosemirror-view | 1.42.8 | runtime | MIT | allowed |
 | protobufjs | 7.6.5 | runtime | BSD-3-Clause | allowed |
-| proxy-addr | 2.0.7 | runtime | MIT | allowed |
+| proxy-addr | 2.0.8 | runtime | MIT | allowed |
 | proxy-agent-negotiate | 1.1.0 | runtime | MIT | allowed |
 | proxy-from-env | 1.1.0 | runtime | MIT | allowed |
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
-| puppeteer-core | 25.3.0 | runtime | Apache-2.0 | allowed |
+| puppeteer-core | 25.16.0 | runtime | Apache-2.0 | allowed |
 | pusher-js | 8.6.0 | runtime | MIT | allowed |
 | pwacompat | 2.0.17 | runtime | Apache-2.0 | allowed |
 | qrcode.react | 4.2.0 | runtime | ISC | allowed |
-| qs | 6.16.0 | runtime | BSD-3-Clause | allowed |
+| qs | 6.17.1 | runtime | BSD-3-Clause | allowed |
 | quick-format-unescaped | 4.0.4 | runtime | MIT | allowed |
 | radix-ui | 1.6.2 | runtime | MIT | allowed |
 | range-parser | 1.3.0 | runtime | MIT | allowed |
@@ -1298,7 +1308,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | scheduler | 0.27.0 | runtime | MIT | allowed |
 | schema-utils | 4.5.0 | runtime | MIT | allowed |
 | selderee | 0.12.0 | runtime | MIT | allowed |
-| semifies | 1.0.0 | runtime | Apache-2.0 | allowed |
 | semver | 6.3.1 | runtime | ISC | allowed |
 | semver | 6.3.1 | runtime | ISC | allowed |
 | semver | 7.7.4 | runtime | ISC | allowed |
@@ -1310,7 +1319,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | set-cookie-parser | 3.1.2 | runtime | MIT | allowed |
 | setimmediate | 1.0.5 | runtime | MIT | allowed |
 | setprototypeof | 1.2.0 | runtime | ISC | allowed |
-| sharp | 0.35.4 | runtime | Apache-2.0 | allowed |
+| sharp | 0.35.5 | runtime | Apache-2.0 | allowed |
 | shebang-command | 2.0.0 | runtime | MIT | allowed |
 | shebang-regex | 3.0.0 | runtime | MIT | allowed |
 | side-channel-list | 1.0.1 | runtime | MIT | allowed |
@@ -1323,7 +1332,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | socks | 2.8.9 | runtime | MIT | allowed |
 | sonic-boom | 4.2.1 | runtime | MIT | allowed |
 | sonner | 2.0.7 | runtime | MIT | allowed |
-| source-map-js | 1.2.1 | runtime | BSD-3-Clause | allowed |
+| source-map-js | 1.2.2 | runtime | BSD-3-Clause | allowed |
 | source-map-support | 0.5.21 | runtime | MIT | allowed |
 | source-map | 0.6.1 | runtime | BSD-3-Clause | allowed |
 | space-separated-tokens | 2.0.2 | runtime | MIT | allowed |
@@ -1341,7 +1350,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | string_decoder | 1.3.0 | runtime | MIT | allowed |
 | string-width | 7.2.0 | runtime | MIT | allowed |
 | string-width | 7.2.0 | runtime | MIT | allowed |
-| string-width | 8.2.2 | runtime | MIT | allowed |
+| string-width | 8.3.0 | runtime | MIT | allowed |
 | stringify-entities | 4.0.4 | runtime | MIT | allowed |
 | strip-ansi | 7.2.0 | runtime | MIT | allowed |
 | strtok3 | 10.3.5 | runtime | MIT | allowed |
@@ -1385,7 +1394,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | type-fest | 0.7.1 | runtime | (MIT OR CC0-1.0) | allowed |
 | type-is | 2.1.0 | runtime | MIT | allowed |
 | typebox | 1.3.27 | runtime | MIT | allowed |
-| typed-query-selector | 2.12.2 | runtime | MIT | allowed |
+| typed-query-selector | 2.12.3 | runtime | MIT | allowed |
 | typescript | 6.0.3 | runtime | Apache-2.0 | allowed |
 | uc.micro | 2.1.0 | runtime | MIT | allowed |
 | uint8array-extras | 1.5.0 | runtime | MIT | allowed |
@@ -1393,7 +1402,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | underscore | 1.13.8 | runtime | MIT | allowed |
 | undici-types | 6.21.0 | runtime | MIT | allowed |
 | undici-types | 8.3.0 | runtime | MIT | allowed |
-| undici | 7.30.0 | runtime | MIT | allowed |
+| undici | 7.30.1 | runtime | MIT | allowed |
 | unified | 11.0.5 | runtime | MIT | allowed |
 | unist-util-find-after | 5.0.0 | runtime | MIT | allowed |
 | unist-util-is | 6.0.1 | runtime | MIT | allowed |
@@ -1428,7 +1437,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | watchpack | 2.5.2 | runtime | MIT | allowed |
 | web-namespaces | 2.0.1 | runtime | MIT | allowed |
 | web-streams-polyfill | 3.3.3 | runtime | MIT | allowed |
-| webdriver-bidi-protocol | 0.4.2 | runtime | Apache-2.0 | allowed |
+| webdriver-bidi-protocol | 1.0.1 | runtime | Apache-2.0 | allowed |
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
 | webpack-sources | 3.5.1 | runtime | MIT | allowed |
@@ -1441,9 +1450,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | wicked-good-xpath | 1.3.0 | runtime | MIT | allowed |
 | wrap-ansi | 9.0.2 | runtime | MIT | allowed |
 | wrappy | 1.0.2 | runtime | ISC | allowed |
-| ws | 8.21.0 | runtime | MIT | allowed |
 | ws | 8.21.3 | runtime | MIT | allowed |
-| ws | 8.21.3 | runtime | MIT | allowed |
+| ws | 8.22.0 | runtime | MIT | allowed |
 | xlsx | 0.20.3 | runtime | Apache-2.0 | allowed |
 | xml-name-validator | 5.0.0 | runtime | Apache-2.0 | allowed |
 | xmlbuilder | 10.1.1 | runtime | MIT | allowed |
@@ -1458,13 +1466,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | yallist | 3.1.1 | runtime | ISC | allowed |
 | yaml | 2.9.0 | runtime | ISC | allowed |
 | yargs-parser | 22.0.0 | runtime | ISC | allowed |
-| yargs | 18.1.0 | runtime | MIT | allowed |
+| yargs | 18.2.0 | runtime | MIT | allowed |
 | yjs | 13.6.31 | runtime | MIT | allowed |
 | yocto-queue | 0.1.0 | runtime | MIT | allowed |
 | zip-stream | 7.0.5 | runtime | MIT | allowed |
 | zod-to-json-schema | 3.25.2 | runtime | ISC | allowed |
-| zod | 3.25.76 | runtime | MIT | allowed |
-| zod | 4.4.3 | runtime | MIT | allowed |
+| zod | 4.6.7 | runtime | MIT | allowed |
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
@@ -1845,7 +1852,7 @@ SOFTWARE.
 
 ### License text 0382b0057770
 
-Applies to @modelcontextprotocol/client@2.0.0, @modelcontextprotocol/core@2.0.0, @modelcontextprotocol/ext-apps@2.0.0, @modelcontextprotocol/server@2.0.0.
+Applies to @modelcontextprotocol/client@2.4.0, @modelcontextprotocol/core@2.4.0, @modelcontextprotocol/ext-apps@2.0.0, @modelcontextprotocol/server@2.4.0.
 
 Copyright notices:
 
@@ -2109,7 +2116,7 @@ SOFTWARE.
 
 ### License text 04512a63dce4
 
-Applies to commander@13.1.0, commander@2.20.3, commander@2.20.3, commander@7.2.0, commander@8.3.0, commander@8.3.0, commander@8.3.0, commander@8.3.0.
+Applies to commander@13.1.0, commander@15.0.0, commander@2.20.3, commander@2.20.3, commander@7.2.0.
 
 Copyright notices:
 
@@ -3456,32 +3463,6 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 0e74697a68ce
-
-Applies to estraverse@5.3.0.
-
-```text
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-  * Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-  * Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
 ### License text 0e80a2d229d2
 
 Applies to @radix-ui/number@1.1.2, @radix-ui/primitive@1.0.0, @radix-ui/primitive@1.1.1, @radix-ui/primitive@1.1.5, @radix-ui/react-accessible-icon@1.1.11, @radix-ui/react-accordion@1.2.16, @radix-ui/react-alert-dialog@1.1.19, @radix-ui/react-arrow@1.1.11, @radix-ui/react-arrow@1.1.2, @radix-ui/react-aspect-ratio@1.1.11, @radix-ui/react-avatar@1.2.2, @radix-ui/react-checkbox@1.3.7, @radix-ui/react-collapsible@1.1.16, @radix-ui/react-collection@1.0.1, @radix-ui/react-collection@1.1.12, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.1.1, @radix-ui/react-compose-refs@1.1.3, @radix-ui/react-context-menu@2.3.3, @radix-ui/react-context@1.0.0, @radix-ui/react-context@1.1.1, @radix-ui/react-context@1.2.0, @radix-ui/react-dialog@1.1.19, @radix-ui/react-direction@1.0.0, @radix-ui/react-direction@1.1.2, @radix-ui/react-dismissable-layer@1.1.15, @radix-ui/react-dismissable-layer@1.1.5, @radix-ui/react-dropdown-menu@2.1.20, @radix-ui/react-focus-guards@1.1.1, @radix-ui/react-focus-guards@1.1.4, @radix-ui/react-focus-scope@1.1.12, @radix-ui/react-focus-scope@1.1.2, @radix-ui/react-form@0.1.12, @radix-ui/react-hover-card@1.1.19, @radix-ui/react-id@1.0.0, @radix-ui/react-id@1.1.0, @radix-ui/react-id@1.1.2, @radix-ui/react-label@2.1.11, @radix-ui/react-menu@2.1.20, @radix-ui/react-menubar@1.1.20, @radix-ui/react-navigation-menu@1.2.18, @radix-ui/react-one-time-password-field@0.1.12, @radix-ui/react-password-toggle-field@0.1.7, @radix-ui/react-popover@1.1.19, @radix-ui/react-popover@1.1.6, @radix-ui/react-popper@1.2.2, @radix-ui/react-popper@1.3.3, @radix-ui/react-portal@1.1.13, @radix-ui/react-portal@1.1.4, @radix-ui/react-presence@1.0.0, @radix-ui/react-presence@1.1.2, @radix-ui/react-presence@1.1.7, @radix-ui/react-primitive@1.0.1, @radix-ui/react-primitive@2.0.2, @radix-ui/react-primitive@2.1.7, @radix-ui/react-progress@1.1.12, @radix-ui/react-radio-group@1.4.3, @radix-ui/react-roving-focus@1.0.2, @radix-ui/react-roving-focus@1.1.15, @radix-ui/react-scroll-area@1.2.14, @radix-ui/react-select@2.3.3, @radix-ui/react-separator@1.1.11, @radix-ui/react-slider@1.4.3, @radix-ui/react-slot@1.0.1, @radix-ui/react-slot@1.0.1, @radix-ui/react-slot@1.1.2, @radix-ui/react-slot@1.3.0, @radix-ui/react-switch@1.3.3, @radix-ui/react-tabs@1.0.2, @radix-ui/react-tabs@1.1.17, @radix-ui/react-toast@1.2.19, @radix-ui/react-toggle-group@1.1.15, @radix-ui/react-toggle@1.1.14, @radix-ui/react-toolbar@1.1.15, @radix-ui/react-tooltip@1.2.12, @radix-ui/react-use-callback-ref@1.0.0, @radix-ui/react-use-callback-ref@1.0.0, @radix-ui/react-use-callback-ref@1.1.0, @radix-ui/react-use-callback-ref@1.1.2, @radix-ui/react-use-controllable-state@1.0.0, @radix-ui/react-use-controllable-state@1.1.0, @radix-ui/react-use-controllable-state@1.2.3, @radix-ui/react-use-effect-event@0.0.3, @radix-ui/react-use-escape-keydown@1.1.0, @radix-ui/react-use-escape-keydown@1.1.3, @radix-ui/react-use-is-hydrated@0.1.1, @radix-ui/react-use-layout-effect@1.0.0, @radix-ui/react-use-layout-effect@1.0.0, @radix-ui/react-use-layout-effect@1.1.0, @radix-ui/react-use-layout-effect@1.1.2, @radix-ui/react-use-previous@1.1.2, @radix-ui/react-use-rect@1.1.0, @radix-ui/react-use-rect@1.1.2, @radix-ui/react-use-size@1.1.0, @radix-ui/react-use-size@1.1.2, @radix-ui/react-visually-hidden@1.2.7, @radix-ui/rect@1.1.0, @radix-ui/rect@1.1.2, radix-ui@1.6.2.
@@ -3516,7 +3497,7 @@ SOFTWARE.
 
 ### License text 0f2482bc8520
 
-Applies to libmime@5.4.3, libmime@5.4.6.
+Applies to libmime@5.4.3, libmime@5.6.3.
 
 Copyright notices:
 
@@ -5316,7 +5297,7 @@ THE SOFTWARE.
 
 ### License text 23d466b1b134
 
-Applies to body-parser@2.3.0, type-is@2.1.0.
+Applies to body-parser@2.4.0, type-is@2.1.0.
 
 Copyright notices:
 
@@ -5518,7 +5499,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 257aed989141
 
-Applies to content-type@1.0.5, content-type@2.0.0, content-type@2.0.0.
+Applies to content-type@1.0.5, content-type@2.0.0, content-type@2.1.0.
 
 Copyright notices:
 
@@ -5671,7 +5652,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 27d7db274ef1
 
-Applies to libbase64@1.3.0, libbase64@1.3.1.
+Applies to libbase64@1.3.0, libbase64@1.4.1.
 
 Copyright notices:
 
@@ -5898,7 +5879,7 @@ SOFTWARE.
 
 ### License text 2998094b38f7
 
-Applies to postcss-selector-parser@7.1.4.
+Applies to postcss-selector-parser@7.1.7.
 
 Copyright notices:
 
@@ -6081,7 +6062,7 @@ SOFTWARE.
 
 ### License text 2b29dcfe0d64
 
-Applies to ws@8.21.0, ws@8.21.3, ws@8.21.3.
+Applies to ws@8.21.3, ws@8.22.0.
 
 Copyright notices:
 
@@ -6453,7 +6434,7 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### License text 2dd95346123a
 
-Applies to libqp@2.1.1, libqp@2.1.2.
+Applies to libqp@2.1.1, libqp@3.0.1.
 
 Copyright notices:
 
@@ -6545,7 +6526,7 @@ SOFTWARE.
 
 ### License text 2f1a503bfab8
 
-Applies to yargs@18.1.0.
+Applies to yargs@18.2.0.
 
 Copyright notices:
 
@@ -6577,7 +6558,7 @@ THE SOFTWARE.
 
 ### License text 2fd433bea68e
 
-Applies to mailparser@3.9.32.
+Applies to mailparser@3.14.1.
 
 Copyright notices:
 
@@ -7416,7 +7397,7 @@ THIS SOFTWARE.
 
 ### License text 3f1189b28e38
 
-Applies to zod@3.25.76, zod@4.4.3.
+Applies to zod@4.6.7.
 
 Copyright notices:
 
@@ -8517,7 +8498,7 @@ SOFTWARE.
 
 ### License text 497d5a703622
 
-Applies to @sentry/server-utils@10.65.0.
+Applies to @sentry/server-utils@10.75.2.
 
 Copyright notices:
 
@@ -9239,7 +9220,7 @@ SOFTWARE.
 
 ### License text 4f814dcacd2d
 
-Applies to nodemailer@10.0.13.
+Applies to nodemailer@10.3.1.
 
 Copyright notices:
 
@@ -9552,7 +9533,7 @@ THE SOFTWARE.
 
 ### License text 5154e165bd6c
 
-Applies to electron-runtime@42.11.10.
+Applies to electron-runtime@42.11.18.
 
 Copyright notices:
 
@@ -9955,7 +9936,7 @@ THE SOFTWARE.
 
 ### License text 54d710e643b5
 
-Applies to @better-fetch/fetch@1.3.1.
+Applies to @better-fetch/fetch@1.3.3.
 
 Copyright notices:
 
@@ -10273,7 +10254,11 @@ THE SOFTWARE.
 
 ### License text 592987e85102
 
-Applies to canvas-built-libvips@8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e.
+Applies to canvas-built-librsvg@2.57.5 / 5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f, canvas-built-libvips@8.18.7 / 5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94.
+
+Copyright notices:
+
+- Federico Mena Quintero and the librsvg authors; per-file notices are retained in the exact source archive.
 
 ```text
                   GNU LESSER GENERAL PUBLIC LICENSE
@@ -11150,7 +11135,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 ### License text 5c932d88256b
 
-Applies to ansi-regex@6.3.0, ansi-styles@6.2.3, escape-string-regexp@5.0.0, escape-string-regexp@5.0.0, file-type@22.0.1, find-up@5.0.0, get-east-asian-width@1.6.0, import-fresh@3.3.1, is-plain-obj@4.1.0, is-stream@4.0.1, locate-path@6.0.0, p-limit@3.1.0, p-locate@5.0.0, parse-json@5.2.0, string-width@7.2.0, string-width@7.2.0, string-width@8.2.2, strip-ansi@7.2.0, supports-color@8.1.1, uint8array-extras@1.5.0, wrap-ansi@9.0.2, yocto-queue@0.1.0.
+Applies to ansi-regex@6.5.0, ansi-styles@6.2.3, escape-string-regexp@5.0.0, escape-string-regexp@5.0.0, file-type@22.0.1, find-up@5.0.0, get-east-asian-width@1.7.0, import-fresh@3.3.1, is-plain-obj@4.1.0, is-stream@4.0.1, locate-path@6.0.0, p-limit@3.1.0, p-locate@5.0.0, parse-json@5.2.0, string-width@7.2.0, string-width@7.2.0, string-width@8.3.0, strip-ansi@7.2.0, supports-color@8.1.1, uint8array-extras@1.5.0, wrap-ansi@9.0.2, yocto-queue@0.1.0.
 
 Copyright notices:
 
@@ -11235,7 +11220,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 5e13dbbc1d12
 
-Applies to @modelcontextprotocol/sdk@1.29.0.
+Applies to @modelcontextprotocol/sdk@1.32.2.
 
 Copyright notices:
 
@@ -12284,7 +12269,7 @@ SOFTWARE.
 
 ### License text 6895190430d8
 
-Applies to @hono/node-server@2.0.12.
+Applies to @hono/node-server@2.1.5.
 
 Copyright notices:
 
@@ -12523,7 +12508,7 @@ SOFTWARE.
 
 ### License text 6b0c1f98ec71
 
-Applies to cjs-module-lexer@2.2.0.
+Applies to cjs-module-lexer@2.3.0.
 
 Copyright notices:
 
@@ -12737,7 +12722,7 @@ SOFTWARE.
 
 ### License text 6c459083310e
 
-Applies to @sentry/conventions@0.15.1.
+Applies to @sentry/conventions@0.15.1, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0, @sentry/conventions@0.16.0.
 
 Copyright notices:
 
@@ -12769,7 +12754,7 @@ SOFTWARE.
 
 ### License text 6cb0631f71c7
 
-Applies to source-map-js@1.2.1, source-map@0.6.1.
+Applies to source-map-js@1.2.2, source-map@0.6.1.
 
 Copyright notices:
 
@@ -13289,7 +13274,7 @@ THE SOFTWARE.
 
 ### License text 73ba74dfaa52
 
-Applies to sharp@0.35.4.
+Applies to sharp@0.35.5.
 
 ```text
 Apache License
@@ -13487,7 +13472,7 @@ third-party archives.
 
 ### License text 7434a3912443
 
-Applies to @sentry/node-core@10.65.0.
+Applies to @sentry/node-core@10.75.2.
 
 Copyright notices:
 
@@ -13639,7 +13624,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 766ccc1f306c
 
-Applies to katex@0.16.47, katex@0.16.47, katex@0.16.47, katex@0.17.0.
+Applies to katex@0.18.11.
 
 Copyright notices:
 
@@ -13813,7 +13798,7 @@ SOFTWARE.
 
 ### License text 792c48c5a849
 
-Applies to markdown-it@14.3.2.
+Applies to markdown-it@14.3.3.
 
 Copyright notices:
 
@@ -13846,7 +13831,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 7a07f7d9085c
 
-Applies to @better-auth/core@1.7.1, @better-auth/drizzle-adapter@1.7.1, @better-auth/expo@1.7.1, @better-auth/kysely-adapter@1.7.1, @better-auth/memory-adapter@1.7.1, @better-auth/mongo-adapter@1.7.1, @better-auth/oauth-provider@1.7.1, @better-auth/prisma-adapter@1.7.1, @better-auth/telemetry@1.7.1, better-auth@1.7.1.
+Applies to @better-auth/core@1.7.14, @better-auth/drizzle-adapter@1.7.14, @better-auth/expo@1.7.14, @better-auth/kysely-adapter@1.7.14, @better-auth/memory-adapter@1.7.14, @better-auth/mongo-adapter@1.7.14, @better-auth/oauth-provider@1.7.14, @better-auth/prisma-adapter@1.7.14, @better-auth/telemetry@1.7.14, better-auth@1.7.14.
 
 Copyright notices:
 
@@ -13877,7 +13862,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### License text 7a209dd1b94c
 
-Applies to devtools-protocol@0.0.1638949.
+Applies to devtools-protocol@0.0.1704951.
 
 Copyright notices:
 
@@ -14098,7 +14083,7 @@ SOFTWARE.
 
 ### License text 7d6562781128
 
-Applies to @sentry/replay-canvas@10.65.0.
+Applies to @sentry/replay-canvas@10.75.2.
 
 Copyright notices:
 
@@ -15638,7 +15623,7 @@ IN THE SOFTWARE.
 
 ### License text 87cbf7419896
 
-Applies to @sentry/nextjs@10.65.0.
+Applies to @sentry/nextjs@10.75.2.
 
 Copyright notices:
 
@@ -15969,7 +15954,7 @@ software or this license, under any kind of legal claim.***
 
 ### License text 8a4b6c44eebf
 
-Applies to es-module-lexer@2.3.1.
+Applies to es-module-lexer@2.3.1, es-module-lexer@3.0.4.
 
 Copyright notices:
 
@@ -18894,7 +18879,7 @@ THE SOFTWARE.
 
 ### License text 9d45329f27ee
 
-Applies to @sentry/browser-utils@10.65.0.
+Applies to @sentry/browser-utils@10.75.2.
 
 Copyright notices:
 
@@ -19056,222 +19041,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-```
-
-### License text 9ea62e27e6c6
-
-Applies to @apm-js-collab/code-transformer@0.15.0, @apm-js-collab/tracing-hooks@0.10.1.
-
-Copyright notices:
-
-- (c) You must retain, in the Source form of any Derivative Works
-- Copyright 2025-present Datadog, Inc.
-- Copyright 2025-Present Datadog, Inc.
-- that You distribute, all copyright, patent, trademark, and
-
-```text
-
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright 2025-present Datadog, Inc.
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
 ```
 
 ### License text 9ea8903938da
@@ -19773,7 +19542,7 @@ THE SOFTWARE.
 
 ### License text a27ca07269b3
 
-Applies to @puppeteer/browsers@3.0.6, puppeteer-core@25.3.0.
+Applies to @puppeteer/browsers@3.2.6, puppeteer-core@25.16.0.
 
 Copyright notices:
 
@@ -20301,7 +20070,7 @@ SOFTWARE.
 
 ### License text a6ab98e5c77b
 
-Applies to hono@4.13.8.
+Applies to hono@4.13.14.
 
 Copyright notices:
 
@@ -20521,7 +20290,7 @@ Copyright notices:
 
 ### License text a6db8096b270
 
-Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.0.
+Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.1.
 
 Copyright notices:
 
@@ -20585,7 +20354,7 @@ SOFTWARE.
 
 ### License text a7996721249a
 
-Applies to etag@1.8.1, proxy-addr@2.0.7.
+Applies to etag@1.8.1, proxy-addr@2.0.8.
 
 Copyright notices:
 
@@ -20655,7 +20424,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text a7e7ce843788
 
-Applies to @sentry/replay@10.65.0.
+Applies to @sentry/replay@10.75.2.
 
 Copyright notices:
 
@@ -20918,36 +20687,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text abede4317453
-
-Applies to astring@1.9.0.
-
-Copyright notices:
-
-- Copyright (c) 2015, David Bonnet <david@bonnet.cc>
-
-```text
-Copyright (c) 2015, David Bonnet <david@bonnet.cc>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
-
 ### License text abf9fc421169
 
 Applies to pptxviewjs@1.1.9.
@@ -20978,41 +20717,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text ac68116ae737
-
-Applies to esquery@1.7.0.
-
-Copyright notices:
-
-- Copyright (c) 2013, Joel Feenstra
-
-```text
-Copyright (c) 2013, Joel Feenstra
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the ESQuery nor the names of its contributors may
-      be used to endorse or promote products derived from this software without
-      specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL JOEL FEENSTRA BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text ac9deab2fc85
@@ -21792,7 +21496,7 @@ Repository: https://github.com/yargs/yargs-parser.git
 
 ### License text ad800a5024c6
 
-Applies to better-call@1.4.0.
+Applies to better-call@1.4.4.
 
 Copyright notices:
 
@@ -21928,7 +21632,7 @@ THE SOFTWARE.
 
 ### License text b08840544230
 
-Applies to docker-global-npm:@sigstore/verify@3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3, docker-python:flatbuffers@25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953, docker-python:magika@0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767, webdriver-bidi-protocol@0.4.2.
+Applies to docker-global-npm:@sigstore/verify@3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3, docker-python:flatbuffers@25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953, docker-python:magika@0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767, webdriver-bidi-protocol@1.0.1.
 
 Copyright notices:
 
@@ -22496,6 +22200,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text b5052b5db9a8
+
+Applies to @better-auth/utils@0.5.1.
+
+Copyright notices:
+
+- Copyright (c) 2024 - present, Bereket Engida
+
+```text
+MIT License
+
+Copyright (c) 2024 - present, Bereket Engida
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text b569f629d00f
 
 Applies to @xterm/xterm@6.0.0.
@@ -22911,6 +22647,527 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License text b8b7cfe50807
+
+Applies to canvas-built-cairo@1.18.6 / 1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4.
+
+Copyright notices:
+
+- Additional Cairo authors and contributors; per-file notices are retained in the exact source archive.
+- Copyright 2002 University of Southern California
+- Copyright 2005 Red Hat, Inc.
+
+```text
+
+                  GNU LESSER GENERAL PUBLIC LICENSE
+                       Version 2.1, February 1999
+
+ Copyright (C) 1991, 1999 Free Software Foundation, Inc.
+     51 Franklin Street, Suite 500, Boston, MA 02110-1335, USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+[This is the first released version of the Lesser GPL.  It also counts
+ as the successor of the GNU Library Public License, version 2, hence
+ the version number 2.1.]
+
+                            Preamble
+
+  The licenses for most software are designed to take away your
+freedom to share and change it.  By contrast, the GNU General Public
+Licenses are intended to guarantee your freedom to share and change
+free software--to make sure the software is free for all its users.
+
+  This license, the Lesser General Public License, applies to some
+specially designated software packages--typically libraries--of the
+Free Software Foundation and other authors who decide to use it.  You
+can use it too, but we suggest you first think carefully about whether
+this license or the ordinary General Public License is the better
+strategy to use in any particular case, based on the explanations
+below.
+
+  When we speak of free software, we are referring to freedom of use,
+not price.  Our General Public Licenses are designed to make sure that
+you have the freedom to distribute copies of free software (and charge
+for this service if you wish); that you receive source code or can get
+it if you want it; that you can change the software and use pieces of
+it in new free programs; and that you are informed that you can do
+these things.
+
+  To protect your rights, we need to make restrictions that forbid
+distributors to deny you these rights or to ask you to surrender these
+rights.  These restrictions translate to certain responsibilities for
+you if you distribute copies of the library or if you modify it.
+
+  For example, if you distribute copies of the library, whether gratis
+or for a fee, you must give the recipients all the rights that we gave
+you.  You must make sure that they, too, receive or can get the source
+code.  If you link other code with the library, you must provide
+complete object files to the recipients, so that they can relink them
+with the library after making changes to the library and recompiling
+it.  And you must show them these terms so they know their rights.
+
+  We protect your rights with a two-step method: (1) we copyright the
+library, and (2) we offer you this license, which gives you legal
+permission to copy, distribute and/or modify the library.
+
+  To protect each distributor, we want to make it very clear that
+there is no warranty for the free library.  Also, if the library is
+modified by someone else and passed on, the recipients should know
+that what they have is not the original version, so that the original
+author's reputation will not be affected by problems that might be
+introduced by others.
+
+  Finally, software patents pose a constant threat to the existence of
+any free program.  We wish to make sure that a company cannot
+effectively restrict the users of a free program by obtaining a
+restrictive license from a patent holder.  Therefore, we insist that
+any patent license obtained for a version of the library must be
+consistent with the full freedom of use specified in this license.
+
+  Most GNU software, including some libraries, is covered by the
+ordinary GNU General Public License.  This license, the GNU Lesser
+General Public License, applies to certain designated libraries, and
+is quite different from the ordinary General Public License.  We use
+this license for certain libraries in order to permit linking those
+libraries into non-free programs.
+
+  When a program is linked with a library, whether statically or using
+a shared library, the combination of the two is legally speaking a
+combined work, a derivative of the original library.  The ordinary
+General Public License therefore permits such linking only if the
+entire combination fits its criteria of freedom.  The Lesser General
+Public License permits more lax criteria for linking other code with
+the library.
+
+  We call this license the "Lesser" General Public License because it
+does Less to protect the user's freedom than the ordinary General
+Public License.  It also provides other free software developers Less
+of an advantage over competing non-free programs.  These disadvantages
+are the reason we use the ordinary General Public License for many
+libraries.  However, the Lesser license provides advantages in certain
+special circumstances.
+
+  For example, on rare occasions, there may be a special need to
+encourage the widest possible use of a certain library, so that it
+becomes a de-facto standard.  To achieve this, non-free programs must
+be allowed to use the library.  A more frequent case is that a free
+library does the same job as widely used non-free libraries.  In this
+case, there is little to gain by limiting the free library to free
+software only, so we use the Lesser General Public License.
+
+  In other cases, permission to use a particular library in non-free
+programs enables a greater number of people to use a large body of
+free software.  For example, permission to use the GNU C Library in
+non-free programs enables many more people to use the whole GNU
+operating system, as well as its variant, the GNU/Linux operating
+system.
+
+  Although the Lesser General Public License is Less protective of the
+users' freedom, it does ensure that the user of a program that is
+linked with the Library has the freedom and the wherewithal to run
+that program using a modified version of the Library.
+
+  The precise terms and conditions for copying, distribution and
+modification follow.  Pay close attention to the difference between a
+"work based on the library" and a "work that uses the library".  The
+former contains code derived from the library, whereas the latter must
+be combined with the library in order to run.
+
+                  GNU LESSER GENERAL PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. This License Agreement applies to any software library or other
+program which contains a notice placed by the copyright holder or
+other authorized party saying it may be distributed under the terms of
+this Lesser General Public License (also called "this License").
+Each licensee is addressed as "you".
+
+  A "library" means a collection of software functions and/or data
+prepared so as to be conveniently linked with application programs
+(which use some of those functions and data) to form executables.
+
+  The "Library", below, refers to any such software library or work
+which has been distributed under these terms.  A "work based on the
+Library" means either the Library or any derivative work under
+copyright law: that is to say, a work containing the Library or a
+portion of it, either verbatim or with modifications and/or translated
+straightforwardly into another language.  (Hereinafter, translation is
+included without limitation in the term "modification".)
+
+  "Source code" for a work means the preferred form of the work for
+making modifications to it.  For a library, complete source code means
+all the source code for all modules it contains, plus any associated
+interface definition files, plus the scripts used to control
+compilation and installation of the library.
+
+  Activities other than copying, distribution and modification are not
+covered by this License; they are outside its scope.  The act of
+running a program using the Library is not restricted, and output from
+such a program is covered only if its contents constitute a work based
+on the Library (independent of the use of the Library in a tool for
+writing it).  Whether that is true depends on what the Library does
+and what the program that uses the Library does.
+
+  1. You may copy and distribute verbatim copies of the Library's
+complete source code as you receive it, in any medium, provided that
+you conspicuously and appropriately publish on each copy an
+appropriate copyright notice and disclaimer of warranty; keep intact
+all the notices that refer to this License and to the absence of any
+warranty; and distribute a copy of this License along with the
+Library.
+
+  You may charge a fee for the physical act of transferring a copy,
+and you may at your option offer warranty protection in exchange for a
+fee.
+
+  2. You may modify your copy or copies of the Library or any portion
+of it, thus forming a work based on the Library, and copy and
+distribute such modifications or work under the terms of Section 1
+above, provided that you also meet all of these conditions:
+
+    a) The modified work must itself be a software library.
+
+    b) You must cause the files modified to carry prominent notices
+    stating that you changed the files and the date of any change.
+
+    c) You must cause the whole of the work to be licensed at no
+    charge to all third parties under the terms of this License.
+
+    d) If a facility in the modified Library refers to a function or a
+    table of data to be supplied by an application program that uses
+    the facility, other than as an argument passed when the facility
+    is invoked, then you must make a good faith effort to ensure that,
+    in the event an application does not supply such function or
+    table, the facility still operates, and performs whatever part of
+    its purpose remains meaningful.
+
+    (For example, a function in a library to compute square roots has
+    a purpose that is entirely well-defined independent of the
+    application.  Therefore, Subsection 2d requires that any
+    application-supplied function or table used by this function must
+    be optional: if the application does not supply it, the square
+    root function must still compute square roots.)
+
+These requirements apply to the modified work as a whole.  If
+identifiable sections of that work are not derived from the Library,
+and can be reasonably considered independent and separate works in
+themselves, then this License, and its terms, do not apply to those
+sections when you distribute them as separate works.  But when you
+distribute the same sections as part of a whole which is a work based
+on the Library, the distribution of the whole must be on the terms of
+this License, whose permissions for other licensees extend to the
+entire whole, and thus to each and every part regardless of who wrote
+it.
+
+Thus, it is not the intent of this section to claim rights or contest
+your rights to work written entirely by you; rather, the intent is to
+exercise the right to control the distribution of derivative or
+collective works based on the Library.
+
+In addition, mere aggregation of another work not based on the Library
+with the Library (or with a work based on the Library) on a volume of
+a storage or distribution medium does not bring the other work under
+the scope of this License.
+
+  3. You may opt to apply the terms of the ordinary GNU General Public
+License instead of this License to a given copy of the Library.  To do
+this, you must alter all the notices that refer to this License, so
+that they refer to the ordinary GNU General Public License, version 2,
+instead of to this License.  (If a newer version than version 2 of the
+ordinary GNU General Public License has appeared, then you can specify
+that version instead if you wish.)  Do not make any other change in
+these notices.
+
+  Once this change is made in a given copy, it is irreversible for
+that copy, so the ordinary GNU General Public License applies to all
+subsequent copies and derivative works made from that copy.
+
+  This option is useful when you wish to copy part of the code of
+the Library into a program that is not a library.
+
+  4. You may copy and distribute the Library (or a portion or
+derivative of it, under Section 2) in object code or executable form
+under the terms of Sections 1 and 2 above provided that you accompany
+it with the complete corresponding machine-readable source code, which
+must be distributed under the terms of Sections 1 and 2 above on a
+medium customarily used for software interchange.
+
+  If distribution of object code is made by offering access to copy
+from a designated place, then offering equivalent access to copy the
+source code from the same place satisfies the requirement to
+distribute the source code, even though third parties are not
+compelled to copy the source along with the object code.
+
+  5. A program that contains no derivative of any portion of the
+Library, but is designed to work with the Library by being compiled or
+linked with it, is called a "work that uses the Library".  Such a
+work, in isolation, is not a derivative work of the Library, and
+therefore falls outside the scope of this License.
+
+  However, linking a "work that uses the Library" with the Library
+creates an executable that is a derivative of the Library (because it
+contains portions of the Library), rather than a "work that uses the
+library".  The executable is therefore covered by this License.
+Section 6 states terms for distribution of such executables.
+
+  When a "work that uses the Library" uses material from a header file
+that is part of the Library, the object code for the work may be a
+derivative work of the Library even though the source code is not.
+Whether this is true is especially significant if the work can be
+linked without the Library, or if the work is itself a library.  The
+threshold for this to be true is not precisely defined by law.
+
+  If such an object file uses only numerical parameters, data
+structure layouts and accessors, and small macros and small inline
+functions (ten lines or less in length), then the use of the object
+file is unrestricted, regardless of whether it is legally a derivative
+work.  (Executables containing this object code plus portions of the
+Library will still fall under Section 6.)
+
+  Otherwise, if the work is a derivative of the Library, you may
+distribute the object code for the work under the terms of Section 6.
+Any executables containing that work also fall under Section 6,
+whether or not they are linked directly with the Library itself.
+
+  6. As an exception to the Sections above, you may also combine or
+link a "work that uses the Library" with the Library to produce a
+work containing portions of the Library, and distribute that work
+under terms of your choice, provided that the terms permit
+modification of the work for the customer's own use and reverse
+engineering for debugging such modifications.
+
+  You must give prominent notice with each copy of the work that the
+Library is used in it and that the Library and its use are covered by
+this License.  You must supply a copy of this License.  If the work
+during execution displays copyright notices, you must include the
+copyright notice for the Library among them, as well as a reference
+directing the user to the copy of this License.  Also, you must do one
+of these things:
+
+    a) Accompany the work with the complete corresponding
+    machine-readable source code for the Library including whatever
+    changes were used in the work (which must be distributed under
+    Sections 1 and 2 above); and, if the work is an executable linked
+    with the Library, with the complete machine-readable "work that
+    uses the Library", as object code and/or source code, so that the
+    user can modify the Library and then relink to produce a modified
+    executable containing the modified Library.  (It is understood
+    that the user who changes the contents of definitions files in the
+    Library will not necessarily be able to recompile the application
+    to use the modified definitions.)
+
+    b) Use a suitable shared library mechanism for linking with the
+    Library.  A suitable mechanism is one that (1) uses at run time a
+    copy of the library already present on the user's computer system,
+    rather than copying library functions into the executable, and (2)
+    will operate properly with a modified version of the library, if
+    the user installs one, as long as the modified version is
+    interface-compatible with the version that the work was made with.
+
+    c) Accompany the work with a written offer, valid for at least
+    three years, to give the same user the materials specified in
+    Subsection 6a, above, for a charge no more than the cost of
+    performing this distribution.
+
+    d) If distribution of the work is made by offering access to copy
+    from a designated place, offer equivalent access to copy the above
+    specified materials from the same place.
+
+    e) Verify that the user has already received a copy of these
+    materials or that you have already sent this user a copy.
+
+  For an executable, the required form of the "work that uses the
+Library" must include any data and utility programs needed for
+reproducing the executable from it.  However, as a special exception,
+the materials to be distributed need not include anything that is
+normally distributed (in either source or binary form) with the major
+components (compiler, kernel, and so on) of the operating system on
+which the executable runs, unless that component itself accompanies
+the executable.
+
+  It may happen that this requirement contradicts the license
+restrictions of other proprietary libraries that do not normally
+accompany the operating system.  Such a contradiction means you cannot
+use both them and the Library together in an executable that you
+distribute.
+
+  7. You may place library facilities that are a work based on the
+Library side-by-side in a single library together with other library
+facilities not covered by this License, and distribute such a combined
+library, provided that the separate distribution of the work based on
+the Library and of the other library facilities is otherwise
+permitted, and provided that you do these two things:
+
+    a) Accompany the combined library with a copy of the same work
+    based on the Library, uncombined with any other library
+    facilities.  This must be distributed under the terms of the
+    Sections above.
+
+    b) Give prominent notice with the combined library of the fact
+    that part of it is a work based on the Library, and explaining
+    where to find the accompanying uncombined form of the same work.
+
+  8. You may not copy, modify, sublicense, link with, or distribute
+the Library except as expressly provided under this License.  Any
+attempt otherwise to copy, modify, sublicense, link with, or
+distribute the Library is void, and will automatically terminate your
+rights under this License.  However, parties who have received copies,
+or rights, from you under this License will not have their licenses
+terminated so long as such parties remain in full compliance.
+
+  9. You are not required to accept this License, since you have not
+signed it.  However, nothing else grants you permission to modify or
+distribute the Library or its derivative works.  These actions are
+prohibited by law if you do not accept this License.  Therefore, by
+modifying or distributing the Library (or any work based on the
+Library), you indicate your acceptance of this License to do so, and
+all its terms and conditions for copying, distributing or modifying
+the Library or works based on it.
+
+  10. Each time you redistribute the Library (or any work based on the
+Library), the recipient automatically receives a license from the
+original licensor to copy, distribute, link with or modify the Library
+subject to these terms and conditions.  You may not impose any further
+restrictions on the recipients' exercise of the rights granted herein.
+You are not responsible for enforcing compliance by third parties with
+this License.
+
+  11. If, as a consequence of a court judgment or allegation of patent
+infringement or for any other reason (not limited to patent issues),
+conditions are imposed on you (whether by court order, agreement or
+otherwise) that contradict the conditions of this License, they do not
+excuse you from the conditions of this License.  If you cannot
+distribute so as to satisfy simultaneously your obligations under this
+License and any other pertinent obligations, then as a consequence you
+may not distribute the Library at all.  For example, if a patent
+license would not permit royalty-free redistribution of the Library by
+all those who receive copies directly or indirectly through you, then
+the only way you could satisfy both it and this License would be to
+refrain entirely from distribution of the Library.
+
+If any portion of this section is held invalid or unenforceable under
+any particular circumstance, the balance of the section is intended to
+apply, and the section as a whole is intended to apply in other
+circumstances.
+
+It is not the purpose of this section to induce you to infringe any
+patents or other property right claims or to contest validity of any
+such claims; this section has the sole purpose of protecting the
+integrity of the free software distribution system which is
+implemented by public license practices.  Many people have made
+generous contributions to the wide range of software distributed
+through that system in reliance on consistent application of that
+system; it is up to the author/donor to decide if he or she is willing
+to distribute software through any other system and a licensee cannot
+impose that choice.
+
+This section is intended to make thoroughly clear what is believed to
+be a consequence of the rest of this License.
+
+  12. If the distribution and/or use of the Library is restricted in
+certain countries either by patents or by copyrighted interfaces, the
+original copyright holder who places the Library under this License
+may add an explicit geographical distribution limitation excluding those
+countries, so that distribution is permitted only in or among
+countries not thus excluded.  In such case, this License incorporates
+the limitation as if written in the body of this License.
+
+  13. The Free Software Foundation may publish revised and/or new
+versions of the Lesser General Public License from time to time.
+Such new versions will be similar in spirit to the present version,
+but may differ in detail to address new problems or concerns.
+
+Each version is given a distinguishing version number.  If the Library
+specifies a version number of this License which applies to it and
+"any later version", you have the option of following the terms and
+conditions either of that version or of any later version published by
+the Free Software Foundation.  If the Library does not specify a
+license version number, you may choose any version ever published by
+the Free Software Foundation.
+
+  14. If you wish to incorporate parts of the Library into other free
+programs whose distribution conditions are incompatible with these,
+write to the author to ask for permission.  For software which is
+copyrighted by the Free Software Foundation, write to the Free
+Software Foundation; we sometimes make exceptions for this.  Our
+decision will be guided by the two goals of preserving the free status
+of all derivatives of our free software and of promoting the sharing
+and reuse of software generally.
+
+                            NO WARRANTY
+
+  15. BECAUSE THE LIBRARY IS LICENSED FREE OF CHARGE, THERE IS NO
+WARRANTY FOR THE LIBRARY, TO THE EXTENT PERMITTED BY APPLICABLE LAW.
+EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR
+OTHER PARTIES PROVIDE THE LIBRARY "AS IS" WITHOUT WARRANTY OF ANY
+KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE
+LIBRARY IS WITH YOU.  SHOULD THE LIBRARY PROVE DEFECTIVE, YOU ASSUME
+THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+  16. IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN
+WRITING WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY
+AND/OR REDISTRIBUTE THE LIBRARY AS PERMITTED ABOVE, BE LIABLE TO YOU
+FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR
+CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE
+LIBRARY (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING
+RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A
+FAILURE OF THE LIBRARY TO OPERATE WITH ANY OTHER SOFTWARE), EVEN IF
+SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGES.
+
+                     END OF TERMS AND CONDITIONS
+
+           How to Apply These Terms to Your New Libraries
+
+  If you develop a new library, and you want it to be of the greatest
+possible use to the public, we recommend making it free software that
+everyone can redistribute and change.  You can do so by permitting
+redistribution under these terms (or, alternatively, under the terms
+of the ordinary General Public License).
+
+  To apply these terms, attach the following notices to the library.
+It is safest to attach them to the start of each source file to most
+effectively convey the exclusion of warranty; and each file should
+have at least the "copyright" line and a pointer to where the full
+notice is found.
+
+
+    <one line to give the library's name and a brief idea of what it does.>
+    Copyright (C) <year>  <name of author>
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin Street, Suite 500, Boston, MA 02110-1335, USA
+
+Also add information on how to contact you by electronic and paper mail.
+
+You should also get your employer (if you work as a programmer) or
+your school, if any, to sign a "copyright disclaimer" for the library,
+if necessary.  Here is a sample; alter the names:
+
+  Yoyodyne, Inc., hereby disclaims all copyright interest in the
+  library `Frob' (a library for tweaking knobs) written by James
+  Random Hacker.
+
+  <signature of Ty Coon>, 1 April 1990
+  Ty Coon, President of Vice
+
+That's all there is to it!
 ```
 
 ### License text b8fa28a7285e
@@ -24125,7 +24382,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
 
 ### License text c71d239df917
 
-Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
+Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.1, @opentelemetry/core@2.12.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.12.0, @opentelemetry/sdk-trace-base@2.12.0, @opentelemetry/sdk-trace@2.12.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@157.0.8090-0, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.5.3, pdf-parse@2.4.5, standardwebhooks@1.1.1, text-decoder@1.2.7.
 
 Copyright notices:
 
@@ -25176,7 +25433,7 @@ SOFTWARE.
 
 ### License text cfc7749b96f6
 
-Applies to @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@2.21.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.16, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
+Applies to @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@2.21.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.17, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
 
 Copyright notices:
 
@@ -25733,7 +25990,7 @@ END OF TERMS AND CONDITIONS
 
 ### License text d1cc09bdab06
 
-Applies to @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.19.
+Applies to @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.29.
 
 Copyright notices:
 
@@ -26393,7 +26650,7 @@ SOFTWARE.
 
 ### License text dbcbef54fa7e
 
-Applies to modern-tar@0.7.7.
+Applies to modern-tar@0.8.6.
 
 Copyright notices:
 
@@ -27240,7 +27497,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.8.
+Applies to fast-uri@3.1.9.
 
 Copyright notices:
 
@@ -27966,7 +28223,7 @@ THIS SOFTWARE.
 
 ### License text e580c7d30024
 
-Applies to @sentry/feedback@10.65.0, @sentry/node@10.65.0, @sentry/opentelemetry@10.65.0, @sentry/vercel-edge@10.65.0.
+Applies to @sentry/feedback@10.75.2, @sentry/node@10.75.2, @sentry/opentelemetry@10.75.2, @sentry/vercel-edge@10.75.2.
 
 Copyright notices:
 
@@ -27998,7 +28255,7 @@ SOFTWARE.
 
 ### License text e5a82d3d14a3
 
-Applies to typed-query-selector@2.12.2.
+Applies to typed-query-selector@2.12.3.
 
 Copyright notices:
 
@@ -28556,7 +28813,7 @@ THE SOFTWARE.
 
 ### License text e7dc37bf662d
 
-Applies to qs@6.16.0.
+Applies to qs@6.17.1.
 
 Copyright notices:
 
@@ -28656,24 +28913,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text e9a5df5a6ae5
-
-Applies to meriyah@6.1.4.
-
-Copyright notices:
-
-- Copyright (c) 2019 and later, KFlash and others.
-
-```text
-ISC License
-
-Copyright (c) 2019 and later, KFlash and others.
-
-Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 ### License text e9d17962dac7
@@ -28925,7 +29164,7 @@ SOFTWARE.**
 
 ### License text ee765244e2d5
 
-Applies to @next/env@16.3.8, @next/swc-darwin-arm64@16.3.8, @next/swc-darwin-x64@16.3.8, @next/swc-linux-arm64-gnu@16.3.8, @next/swc-linux-arm64-musl@16.3.8, @next/swc-linux-x64-gnu@16.3.8, @next/swc-linux-x64-musl@16.3.8, @next/swc-win32-arm64-msvc@16.3.8, @next/swc-win32-x64-msvc@16.3.8, next@16.3.8.
+Applies to @next/env@16.4.3, @next/swc-darwin-arm64@16.4.3, @next/swc-darwin-x64@16.4.3, @next/swc-linux-arm64-gnu@16.4.3, @next/swc-linux-arm64-musl@16.4.3, @next/swc-linux-x64-gnu@16.4.3, @next/swc-linux-x64-musl@16.4.3, @next/swc-win32-arm64-msvc@16.4.3, @next/swc-win32-x64-msvc@16.4.3, next@16.4.3.
 
 Copyright notices:
 
@@ -28957,7 +29196,7 @@ SOFTWARE.
 
 ### License text ef0b452ced63
 
-Applies to prosemirror-commands@1.7.1, prosemirror-dropcursor@1.8.3, prosemirror-gapcursor@1.4.1, prosemirror-history@1.5.0, prosemirror-inputrules@1.5.1, prosemirror-keymap@1.2.3, prosemirror-model@1.25.11, prosemirror-schema-list@1.5.1, prosemirror-state@1.4.4, prosemirror-transform@1.12.0, prosemirror-view@1.42.1.
+Applies to prosemirror-commands@1.7.1, prosemirror-dropcursor@1.8.3, prosemirror-gapcursor@1.4.1, prosemirror-history@1.5.0, prosemirror-inputrules@1.5.1, prosemirror-keymap@1.2.3, prosemirror-model@1.25.12, prosemirror-schema-list@1.5.1, prosemirror-state@1.4.4, prosemirror-transform@1.12.0, prosemirror-view@1.42.8.
 
 Copyright notices:
 
@@ -29019,7 +29258,7 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @better-auth/utils@0.5.0, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, proxy-agent-negotiate@1.1.0, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, proxy-agent-negotiate@1.1.0, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
 
 Copyright notices:
 
@@ -29027,8 +29266,6 @@ Copyright notices:
 - Copyright (c) 2013 Gary Court, Jens Taylor
 - Copyright (c) 2020 Excalidraw
 - Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>
-- Copyright (c) Bereket Engida and contributors
-- Copyright (c) contributors to @apm-js-collab/code-transformer-bundler-plugins
 - Copyright (c) EigenPal and contributors
 - Copyright (c) IndigoUnited and contributors
 - Copyright (c) Microsoft Corporation.
@@ -29234,7 +29471,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ### License text f3df0b92efcd
 
-Applies to @sentry/browser@10.65.0, @sentry/core@10.65.0, @sentry/react@10.65.0.
+Applies to @sentry/browser@10.75.2, @sentry/core@10.65.0, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/core@10.75.2, @sentry/react@10.75.2.
 
 Copyright notices:
 
@@ -29659,7 +29896,7 @@ SOFTWARE.
 
 ### License text f8d791359a50
 
-Applies to ip-address@10.7.2.
+Applies to ip-address@10.7.5.
 
 Copyright notices:
 

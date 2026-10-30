@@ -1,18 +1,18 @@
 # Rebuilding and replacing libvips in the Canvas Docker image
 
-Stand: 2026-07-17
+Stand: 2026-10-30
 
 Canvas Docker releases do not distribute the prebuilt `@img/sharp-libvips-*`
-archives. The release image builds libvips 8.18.3 as shared libraries from the
-unmodified upstream source archive and builds both shipped sharp addons against
+archives. The release image builds libvips 8.18.7 as shared libraries from the
+unmodified upstream source archive and builds all shipped sharp addons against
 that shared installation.
 
 ## Source and build definition
 
 - libvips source:
-  `https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz`
+  `https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz`
 - expected SHA-256:
-  `f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146`
+  `5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94`
 - complete Canvas build definition: the `libvips-build` stage in `Dockerfile`
 - Debian build and runtime dependencies: the immutable snapshot identified in
   `docs/compliance/docker-native-distribution-policy.json`
@@ -23,14 +23,23 @@ Tagged releases additionally publish the verified source archive and a native
 compliance archive containing the Dockerfile, the per-platform runtime
 inventories and linkage-test results.
 
+The same Docker stage first builds Cairo 1.18.6 and librsvg 2.57.5 as shared
+libraries. The latter contains the upstream CVE-2026-96889 fix; Debian Bookworm
+librsvg 2.54.7 remains vulnerable. The exact source URLs and SHA-256 values
+are recorded under `libvips.svgDependencies` in the native distribution policy.
+A deterministic `librsvg-rust-source.tar.xz` also retains every Cargo.lock-pinned
+Rust dependency source and its packaged license notices. These archives accompany the libvips source in the image and release
+evidence. Rebuild these dependencies with the tagged Dockerfile before libvips,
+and retain the `/usr/local/lib` linkage verified by the runtime test.
+
 ## Rebuild
 
 Use a Debian Bookworm environment and the exact source archive above. The
 authoritative flags are kept in the tagged Dockerfile. The essential build is:
 
 ```sh
-tar -xJf vips-8.18.3.tar.xz
-meson setup vips-8.18.3/build \
+tar -xJf vips-8.18.7.tar.xz
+meson setup vips-8.18.7/build \
   --prefix=/usr/local \
   --libdir=lib \
   --buildtype=release \
@@ -39,8 +48,8 @@ meson setup vips-8.18.3/build \
   -Ddocs=false \
   -Dintrospection=disabled \
   -Dmodules=disabled
-meson compile -C vips-8.18.3/build
-meson install -C vips-8.18.3/build
+meson compile -C vips-8.18.7/build
+meson install -C vips-8.18.7/build
 ```
 
 Use the remaining explicit feature flags from the tagged Dockerfile so the

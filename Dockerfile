@@ -3,8 +3,10 @@
 ARG NPM_VERSION=11.11.0
 ARG NODE_BASE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG DEBIAN_SNAPSHOT=20260716T000000Z
-ARG LIBVIPS_VERSION=8.18.6
-ARG LIBVIPS_SHA256=3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e
+ARG LIBVIPS_VERSION=8.18.7
+ARG LIBVIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
+
+FROM rust:1.94.0-slim-bookworm@sha256:a86cada82e36ebd7a9bffed7548792c55a952fdb20718eea9278a936bcb76e62 AS svg-rust-toolchain
 
 FROM ${NODE_BASE_IMAGE} AS canvas-base
 ARG DEBIAN_SNAPSHOT
@@ -27,6 +29,11 @@ RUN set -eux; \
 FROM canvas-base AS libvips-build
 ARG LIBVIPS_VERSION
 ARG LIBVIPS_SHA256
+COPY --from=svg-rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=svg-rust-toolchain /usr/local/rustup /usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:/opt/native-build/bin:$PATH \
+    PKG_CONFIG_PATH=/usr/local/lib/pkgconfig LD_LIBRARY_PATH=/usr/local/lib
 
 # Build a replaceable shared libvips from its exact upstream source instead of
 # distributing the statically aggregated @img/sharp-libvips binaries.
@@ -36,7 +43,36 @@ RUN set -eux; \
     build-essential ca-certificates curl meson ninja-build pkg-config \
     libarchive-dev libexif-dev libexpat1-dev libglib2.0-dev libheif-dev \
     libjpeg62-turbo-dev liblcms2-dev libpango1.0-dev libpng-dev \
-    librsvg2-dev libtiff-dev libwebp-dev; \
+    librsvg2-dev libtiff-dev libwebp-dev libpixman-1-dev libgdk-pixbuf-2.0-dev libxml2-dev \
+    python3-venv libtool libx11-dev libx11-xcb-dev libxext-dev libxrender-dev \
+    libxcb1-dev libxcb-render0-dev libxcb-shm0-dev; \
+  python3 -m venv /opt/native-build; \
+  curl -fsSL --retry 3 -o /tmp/meson.whl \
+    https://files.pythonhosted.org/packages/e5/2b/46bda4ef5a7ae4135dbfe27fc0368c44e5a349a897a54fdf2cedb8dcb66e/meson-1.7.2-py3-none-any.whl; \
+  echo '82c6818dc81743c96de3a458f06175776ebfde4081195ea31ea6971838f25e38  /tmp/meson.whl' | sha256sum -c -; \
+  mv /tmp/meson.whl /tmp/meson-1.7.2-py3-none-any.whl; \
+  /opt/native-build/bin/pip install --no-index --no-deps /tmp/meson-1.7.2-py3-none-any.whl; \
+  curl -fsSL --retry 3 -o /tmp/cairo-1.18.6.tar.xz https://cairographics.org/releases/cairo-1.18.6.tar.xz; \
+  echo '1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4  /tmp/cairo-1.18.6.tar.xz' | sha256sum -c -; \
+  tar -xJf /tmp/cairo-1.18.6.tar.xz -C /tmp; \
+  meson setup /tmp/cairo-build /tmp/cairo-1.18.6 --prefix=/usr/local --libdir=lib --buildtype=release \
+    -Dtests=disabled -Dgtk_doc=false -Dxlib=enabled -Dxcb=enabled -Dxlib-xcb=enabled; \
+  meson compile -C /tmp/cairo-build; \
+  meson install -C /tmp/cairo-build; \
+  DESTDIR=/opt/libvips-root meson install -C /tmp/cairo-build; \
+  curl -fsSL --retry 3 -o /tmp/librsvg-2.57.5.tar.xz https://download.gnome.org/sources/librsvg/2.57/librsvg-2.57.5.tar.xz; \
+  echo '5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f  /tmp/librsvg-2.57.5.tar.xz' | sha256sum -c -; \
+  tar -xJf /tmp/librsvg-2.57.5.tar.xz -C /tmp; \
+  cd /tmp/librsvg-2.57.5; \
+  mkdir -p .cargo; \
+  cargo vendor --locked --versioned-dirs /tmp/librsvg-vendor > .cargo/config.toml; \
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+    -C /tmp -cJf /tmp/librsvg-rust-source.tar.xz librsvg-vendor; \
+  ./configure --prefix=/usr/local --libdir=/usr/local/lib --disable-gtk-doc --disable-introspection --disable-vala --disable-pixbuf-loader; \
+  make -j4; \
+  make install; \
+  make DESTDIR=/opt/libvips-root install; \
+  ldconfig; \
   curl -fsSL --retry 3 \
     -o /tmp/vips-${LIBVIPS_VERSION}.tar.xz \
     "https://github.com/libvips/libvips/releases/download/v${LIBVIPS_VERSION}/vips-${LIBVIPS_VERSION}.tar.xz"; \
@@ -81,11 +117,11 @@ RUN set -eux; \
   apt-get install -y --no-install-recommends \
     libarchive13 libexif12 libexpat1 libfontconfig1 libglib2.0-0 libheif1 \
     libjpeg62-turbo liblcms2-2 libpango-1.0-0 libpangocairo-1.0-0 \
-    libpng16-16 librsvg2-2 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 zlib1g; \
+    libpng16-16 librsvg2-2 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 libx11-xcb1 zlib1g; \
   rm -rf /var/lib/apt/lists/*
 COPY --from=libvips-build /opt/libvips-root/usr/local/ /usr/local/
-COPY --from=libvips-build /tmp/vips-8.18.6.tar.xz /usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz
-RUN ldconfig && vips --version | grep -Fx vips-8.18.6
+COPY --from=libvips-build /tmp/vips-8.18.7.tar.xz /tmp/cairo-1.18.6.tar.xz /tmp/librsvg-2.57.5.tar.xz /tmp/librsvg-rust-source.tar.xz /usr/share/canvas-notebook/corresponding-source/
+RUN ldconfig && vips --version | grep -Fx vips-8.18.7
 
 FROM app-base AS deps
 WORKDIR /app
@@ -103,7 +139,7 @@ RUN apt-get update \
     python3 make g++ pkg-config \
     libarchive-dev libexif-dev libexpat1-dev libglib2.0-dev libheif-dev \
     libjpeg62-turbo-dev liblcms2-dev libpango1.0-dev libpng-dev \
-    librsvg2-dev libtiff-dev libwebp-dev \
+    librsvg2-dev libtiff-dev libwebp-dev libx11-xcb-dev \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION} node-addon-api@8.9.0 node-gyp@12.4.0
 
@@ -114,6 +150,7 @@ COPY patches ./patches
 # omits locked peers needed by the typecheck and compliance inventory. Force
 # tolerates existing upstream React peer ranges without changing the lockfile.
 RUN npm ci --force --loglevel=warn \
+  && pkg-config --exists vips-cpp vips glib-2.0 \
   && npm --prefix node_modules/sharp run build \
   && find node_modules -type d -path '*/@img/sharp-*' -prune -exec rm -rf '{}' +
 
