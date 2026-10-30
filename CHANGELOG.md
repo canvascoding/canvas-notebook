@@ -11,16 +11,19 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.30.1] - 2026-10-30
+## [2026.10.31.1] - 2026-10-31
 
 ### Added
 
 - MCP workspace capabilities and a paginated file manifest with verified content hashes.
+- Reuse bounded document-link target resolution results when their source and dependencies are unchanged.
+- Reuse the HTTP document reader’s source connection for its native read transaction while retaining authorization checks.
 - Guarded complete Markdown replacement and durable upload recovery with verified status and retry receipts.
 
 ### Fixed
 
 - Corrected MCP connector read and search schemas, pagination, and continuation handling.
+- Restore Linux CLI release builds by making the dependency lockfile compatible with Node 22 and validating it early in CI.
 - Improved HEIF image conversion fallback and revoked MCP bearer grants atomically when OAuth grants are revoked.
 
 ### Security

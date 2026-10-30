@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "60fc211fba62a1f9ead084c13e40567f07ab5f6a87212f8b640f85efa9bfa641",
+  "lockfileSha256": "8861ea27f09195fe8d2817c07bbac11c0968572cf556b1a6e699c4436e7bbe03",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.74": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -114,6 +114,24 @@
       "noticeTexts": [],
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
+      ]
+    },
+    "node_modules/@earendil-works/pi-ai/node_modules/undici@6.29.1": {
+      "packagePath": "node_modules/@earendil-works/pi-ai/node_modules/undici",
+      "name": "undici",
+      "version": "6.29.1",
+      "packageResolved": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz",
+      "packageIntegrity": "sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/nodejs/undici/tree/8c57f6c68c95465338ae97bfc991cb1513d2f76e",
+      "sourceRevision": "8c57f6c68c95465338ae97bfc991cb1513d2f76e",
+      "verificationSource": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz#LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) Matteo Collina and Undici contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) Matteo Collina and Undici contributors"
       ]
     },
     "node_modules/@earendil-works/pi-telemetry@1.0.4": {
@@ -6382,24 +6400,6 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
-      ]
-    },
-    "node_modules/@earendil-works/pi-ai/node_modules/undici@6.29.1": {
-      "packagePath": "node_modules/@earendil-works/pi-ai/node_modules/undici",
-      "name": "undici",
-      "version": "6.29.1",
-      "packageResolved": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz",
-      "packageIntegrity": "sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/nodejs/undici/tree/8c57f6c68c95465338ae97bfc991cb1513d2f76e",
-      "sourceRevision": "8c57f6c68c95465338ae97bfc991cb1513d2f76e",
-      "verificationSource": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz#LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) Matteo Collina and Undici contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) Matteo Collina and Undici contributors"
       ]
     }
   }
