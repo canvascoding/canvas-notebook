@@ -121,4 +121,28 @@ Package 1 is complete.
 
 Package 2 is complete.
 
-Packages 3–7 have not started.
+## Python document runtime
+
+- Pillow 13.0.0, certifi 2026.10.23 and pypdf 6.21.4, retaining wheel hashes
+  for both Linux amd64 and arm64 on Python 3.11.
+- Both complete platform resolutions download successfully with
+  `--only-binary=:all: --require-hashes`. pip-audit 2.10.1 reports zero known
+  vulnerabilities across all 51 locked packages, with none skipped.
+- The installed pillow-heif runtime has no `HeifFile.from_bytes` method,
+  although the image converter's existing Python fallback called it. The
+  fallback now uses `open_heif(...).to_pillow()`. The regression executes that
+  actual embedded Python source against a generated HEIF image.
+- Full host production build and the Linux arm64 image build pass. The installed
+  runtime passes PNG/JPEG/TIFF/WebP/HEIF round trips, the actual HEIF fallback,
+  CA loading, PDF image extraction, AES-256 encryption, rotation and splitting.
+  The application's PDF runtime adapter also passes conversion and page editing.
+- All three Playwright cases pass: PDF lifecycle/Markdown selection recovery;
+  private and public PDF selection, links, zoom and rotation; real HEIF upload
+  converted to JPEG and displayed at 80×40. Screenshots wait for completed image
+  and canvas rendering and were visually inspected. Stale author Read/Edit
+  switches were removed from the existing PDF fixture; all lifecycle assertions
+  remain.
+
+Package 3 is complete.
+
+Packages 4–7 have not started.
