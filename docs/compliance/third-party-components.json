@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.29.1",
-  "lockfileSha256": "3f6bde10aa57afe87d24a74c893d8fc66af216de8da9434904313046ee0f9482",
+  "lockfileSha256": "ec99f120173c51d1af517e4bc99ba8c54937b2b124a4c278259ea8539e079f2a",
   "summary": {
-    "totalComponents": 1984,
-    "npmComponents": 1956,
+    "totalComponents": 1983,
+    "npmComponents": 1955,
     "nonNpmComponents": 28,
-    "runtimeComponents": 1469,
-    "developmentOnlyComponents": 515,
-    "allowed": 1948,
+    "runtimeComponents": 1456,
+    "developmentOnlyComponents": 527,
+    "allowed": 1947,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -294,6 +294,26 @@
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "node_modules/@electric-sql/pglite-pgvector/LICENSE",
+      "licenseTextSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@electric-sql/pglite",
+      "versionOrCommit": "0.5.4",
+      "sourceUrl": "https://github.com/electric-sql/pglite",
+      "packagePathOrArtifact": "node_modules/@electric-sql/pglite",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@electric-sql/pglite/LICENSE",
       "licenseTextSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -1672,6 +1692,29 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@playwright/test",
+      "versionOrCommit": "1.61.1",
+      "sourceUrl": "https://github.com/microsoft/playwright",
+      "packagePathOrArtifact": "node_modules/@playwright/test",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@playwright/test/LICENSE",
+      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) Microsoft Corporation",
+        "Portions Copyright (c) Microsoft Corporation.",
+        "Portions Copyright 2017 Google Inc.",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@rtsao/scc",
       "versionOrCommit": "1.1.0",
       "sourceUrl": "rtsao/scc",
@@ -2405,6 +2448,25 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/@types/pdf-parse/LICENSE",
+      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@types/react-dom",
+      "versionOrCommit": "19.2.3",
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "packagePathOrArtifact": "node_modules/@types/react-dom",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@types/react-dom/LICENSE",
       "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
       "copyrightNotices": [
         "Copyright (c) Microsoft Corporation."
@@ -3239,6 +3301,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "acorn",
+      "versionOrCommit": "8.17.0",
+      "sourceUrl": "https://github.com/acornjs/acorn",
+      "packagePathOrArtifact": "node_modules/acorn",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/acorn/LICENSE",
+      "licenseTextSha256": "76a876cf886ff9be2a8b5e2e86514fed06223c8c9f0c1e9ee9606e93841e00b7",
+      "copyrightNotices": [
+        "Copyright (C) 2012-2022 by various contributors (see AUTHORS)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "agent-base",
       "versionOrCommit": "6.0.2",
       "sourceUrl": "https://github.com/TooTallNate/node-agent-base/tree/c4b8ea2e1a11bae023bb09b708050a50418204e9",
@@ -3720,6 +3801,25 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "License text source: https://registry.npmjs.org/boolean/-/boolean-3.2.0.tgz#LICENSE.txt Published source revision: 919d80f7c987e809270671bbfa99e14da8bdc477"
+    },
+    {
+      "name": "buffer-from",
+      "versionOrCommit": "1.1.2",
+      "sourceUrl": "LinusU/buffer-from",
+      "packagePathOrArtifact": "node_modules/buffer-from",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/buffer-from/LICENSE",
+      "licenseTextSha256": "14275f5c8139d02054c5259d52a88ccbba662a86af18c30f071c8d082dc6004c",
+      "copyrightNotices": [
+        "Copyright (c) 2016, 2018 Linus Unnebäck"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
     },
     {
       "name": "builder-util",
@@ -5926,6 +6026,25 @@
       "licenseTextSha256": "cfc3f455254c0af0655cc3ff46a41ed644b67599f6043346169d285bf2b3cf3b",
       "copyrightNotices": [
         "Copyright (c) 2019 Jordan Harband"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "has-flag",
+      "versionOrCommit": "4.0.0",
+      "sourceUrl": "sindresorhus/has-flag",
+      "packagePathOrArtifact": "node_modules/has-flag",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/has-flag/license",
+      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -8215,6 +8334,52 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "playwright-core",
+      "versionOrCommit": "1.61.1",
+      "sourceUrl": "https://github.com/microsoft/playwright",
+      "packagePathOrArtifact": "node_modules/playwright-core",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/playwright-core/LICENSE",
+      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) Microsoft Corporation",
+        "Portions Copyright (c) Microsoft Corporation.",
+        "Portions Copyright 2017 Google Inc.",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "playwright",
+      "versionOrCommit": "1.61.1",
+      "sourceUrl": "https://github.com/microsoft/playwright",
+      "packagePathOrArtifact": "node_modules/playwright",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/playwright/LICENSE",
+      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) Microsoft Corporation",
+        "Portions Copyright (c) Microsoft Corporation.",
+        "Portions Copyright 2017 Google Inc.",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "plist",
       "versionOrCommit": "3.1.0",
       "sourceUrl": "https://github.com/TooTallNate/node-plist",
@@ -9122,6 +9287,44 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "source-map-support",
+      "versionOrCommit": "0.5.21",
+      "sourceUrl": "https://github.com/evanw/node-source-map-support",
+      "packagePathOrArtifact": "node_modules/source-map-support",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/source-map-support/LICENSE.md",
+      "licenseTextSha256": "3a7d3bb198e909ed642bd68bd29a7d7c09a636d27a51ec663d35f00c4760ec42",
+      "copyrightNotices": [
+        "Copyright (c) 2014 Evan Wallace"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "source-map",
+      "versionOrCommit": "0.6.1",
+      "sourceUrl": "http://github.com/mozilla/source-map",
+      "packagePathOrArtifact": "node_modules/source-map",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "BSD-3-Clause",
+      "verifiedLicense": "BSD-3-Clause",
+      "licenseTextRef": "node_modules/source-map/LICENSE",
+      "licenseTextSha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd",
+      "copyrightNotices": [
+        "Copyright (c) 2009-2011, Mozilla Foundation and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "sprintf-js",
       "versionOrCommit": "1.1.3",
       "sourceUrl": "https://github.com/alexei/sprintf.js/tree/3a0d8c26d291b5bd9f1974877ecc50739921d6f5",
@@ -9465,6 +9668,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "tapable",
+      "versionOrCommit": "2.3.3",
+      "sourceUrl": "http://github.com/webpack/tapable",
+      "packagePathOrArtifact": "node_modules/tapable",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/tapable/LICENSE",
+      "licenseTextSha256": "824ef6c33ae5ecbbab65d37f2b37da2bfc81d76cf7676ec0f59d00a0a38bdb75",
+      "copyrightNotices": [
+        "Copyright JS Foundation and other contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "tar",
       "versionOrCommit": "7.5.22",
       "sourceUrl": "https://github.com/isaacs/node-tar",
@@ -9800,6 +10022,23 @@
       "copyrightNotices": [
         "Copyright (c) 2019 typescript-eslint and other contributors"
       ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "typescript",
+      "versionOrCommit": "6.0.3",
+      "sourceUrl": "https://github.com/microsoft/TypeScript",
+      "packagePathOrArtifact": "node_modules/typescript",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/typescript/LICENSE.txt",
+      "licenseTextSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed"
     },
@@ -11608,7 +11847,7 @@
     },
     {
       "name": "@better-auth/core",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/core",
       "usage": "runtime",
@@ -11630,7 +11869,7 @@
     },
     {
       "name": "@better-auth/drizzle-adapter",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/drizzle-adapter",
       "usage": "runtime",
@@ -11652,7 +11891,7 @@
     },
     {
       "name": "@better-auth/expo",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/expo",
       "usage": "runtime",
@@ -11674,7 +11913,7 @@
     },
     {
       "name": "@better-auth/kysely-adapter",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/kysely-adapter",
       "usage": "runtime",
@@ -11696,7 +11935,7 @@
     },
     {
       "name": "@better-auth/memory-adapter",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/memory-adapter",
       "usage": "runtime",
@@ -11718,7 +11957,7 @@
     },
     {
       "name": "@better-auth/mongo-adapter",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/mongo-adapter",
       "usage": "runtime",
@@ -11740,7 +11979,7 @@
     },
     {
       "name": "@better-auth/oauth-provider",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/oauth-provider",
       "usage": "runtime",
@@ -11762,7 +12001,7 @@
     },
     {
       "name": "@better-auth/prisma-adapter",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/prisma-adapter",
       "usage": "runtime",
@@ -11784,7 +12023,7 @@
     },
     {
       "name": "@better-auth/telemetry",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/telemetry",
       "usage": "runtime",
@@ -11806,8 +12045,8 @@
     },
     {
       "name": "@better-auth/utils",
-      "versionOrCommit": "0.4.2",
-      "sourceUrl": "https://github.com/better-auth/utils/tree/b20329a32d78f1f9bcc088bbd6f982b28c4192f1",
+      "versionOrCommit": "0.5.1",
+      "sourceUrl": "https://github.com/better-auth/utils",
       "packagePathOrArtifact": "node_modules/@better-auth/utils",
       "usage": "runtime",
       "distributedIn": [
@@ -11818,45 +12057,17 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
-      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "licenseTextRef": "node_modules/@better-auth/utils/LICENSE",
+      "licenseTextSha256": "b5052b5db9a8720634e5243aaf019269ddd93c2e43f46a09f72b99e0004c8680",
       "copyrightNotices": [
-        "Copyright (c) Bereket Engida and contributors"
+        "Copyright (c) 2024 - present, Bereket Engida"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares MIT and signed provenance maps v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-07-17"
-    },
-    {
-      "name": "@better-auth/utils",
-      "versionOrCommit": "0.5.0",
-      "sourceUrl": "https://github.com/better-auth/utils/tree/aae93c6618c22bee39e867055e61fa310fefb46c",
-      "packagePathOrArtifact": "node_modules/better-call/node_modules/@better-auth/utils",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
-      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [
-        "Copyright (c) Bereket Engida and contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares MIT, has signed npm provenance, and the matching v0.5.0 tag resolves to aae93c6618c22bee39e867055e61fa310fefb46c, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-08-13 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/better-auth/utils/blob/v0.5.0/package.json",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-08-13"
+      "policyDecision": "allowed"
     },
     {
       "name": "@better-fetch/fetch",
-      "versionOrCommit": "1.3.1",
+      "versionOrCommit": "1.3.3",
       "sourceUrl": "https://github.com/better-auth/better-fetch",
       "packagePathOrArtifact": "node_modules/@better-fetch/fetch",
       "usage": "runtime",
@@ -12924,29 +13135,6 @@
       "reviewNotes": "The exact npm release declares MIT, displays an MIT badge and has signed provenance for commit e06dfceae557f8c1607a28618a99a34be8fed1fb, but the tarball omits a LICENSE and explicit copyright statement and the historical repository is unavailable. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the exact publisher author metadata, EigenPal, with a contributors qualifier. The Apache-2.0 successor is not treated as retroactive evidence. Any version change requires a new review. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
-    },
-    {
-      "name": "@electric-sql/pglite",
-      "versionOrCommit": "0.5.4",
-      "sourceUrl": "https://github.com/electric-sql/pglite",
-      "packagePathOrArtifact": "node_modules/@electric-sql/pglite",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@electric-sql/pglite/LICENSE",
-      "licenseTextSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
     },
     {
       "name": "@emnapi/runtime",
@@ -16464,32 +16652,6 @@
       "licenseTextSha256": "58d4023bfbed5fb530c5bb8d44641299eac62c850267415ec939cc42dea87e4f",
       "copyrightNotices": [
         "Copyright (c) 2025 pinojs contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@playwright/test",
-      "versionOrCommit": "1.61.1",
-      "sourceUrl": "https://github.com/microsoft/playwright",
-      "packagePathOrArtifact": "node_modules/@playwright/test",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@playwright/test/LICENSE",
-      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright (c) Microsoft Corporation",
-        "Portions Copyright (c) Microsoft Corporation.",
-        "Portions Copyright 2017 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -23848,28 +24010,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@types/react-dom",
-      "versionOrCommit": "19.2.3",
-      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
-      "packagePathOrArtifact": "node_modules/@types/react-dom",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@types/react-dom/LICENSE",
-      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-      "copyrightNotices": [
-        "Copyright (c) Microsoft Corporation."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@types/react-syntax-highlighter",
       "versionOrCommit": "15.5.13",
       "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
@@ -24765,28 +24905,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "acorn",
-      "versionOrCommit": "8.17.0",
-      "sourceUrl": "https://github.com/acornjs/acorn",
-      "packagePathOrArtifact": "node_modules/acorn",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/acorn/LICENSE",
-      "licenseTextSha256": "76a876cf886ff9be2a8b5e2e86514fed06223c8c9f0c1e9ee9606e93841e00b7",
-      "copyrightNotices": [
-        "Copyright (C) 2012-2022 by various contributors (see AUTHORS)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "agent-base",
       "versionOrCommit": "7.1.4",
       "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
@@ -25465,7 +25583,7 @@
     },
     {
       "name": "better-auth",
-      "versionOrCommit": "1.7.1",
+      "versionOrCommit": "1.7.14",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/better-auth",
       "usage": "runtime",
@@ -25487,7 +25605,7 @@
     },
     {
       "name": "better-call",
-      "versionOrCommit": "1.4.0",
+      "versionOrCommit": "1.4.4",
       "sourceUrl": "https://github.com/better-auth/better-call",
       "packagePathOrArtifact": "node_modules/better-call",
       "usage": "runtime",
@@ -25793,28 +25911,6 @@
       "licenseTextSha256": "751d0e80fb5c828f8c3de198cc760e1e05377e47c8263ab6ee2f10cdc19ba658",
       "copyrightNotices": [
         "Copyright (c) 2013, GoInstant Inc., a salesforce.com company"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "buffer-from",
-      "versionOrCommit": "1.1.2",
-      "sourceUrl": "LinusU/buffer-from",
-      "packagePathOrArtifact": "node_modules/buffer-from",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/buffer-from/LICENSE",
-      "licenseTextSha256": "14275f5c8139d02054c5259d52a88ccbba662a86af18c30f071c8d082dc6004c",
-      "copyrightNotices": [
-        "Copyright (c) 2016, 2018 Linus Unnebäck"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -30679,28 +30775,6 @@
       "licenseTextSha256": "5e807b516a9be9229ed459880bf353a336e2d947867247290680d437017be391",
       "copyrightNotices": [
         "Copyright (c) 2023 Preet Shihn"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "has-flag",
-      "versionOrCommit": "4.0.0",
-      "sourceUrl": "sindresorhus/has-flag",
-      "packagePathOrArtifact": "node_modules/has-flag",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/has-flag/license",
-      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -37222,58 +37296,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "playwright-core",
-      "versionOrCommit": "1.61.1",
-      "sourceUrl": "https://github.com/microsoft/playwright",
-      "packagePathOrArtifact": "node_modules/playwright-core",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/playwright-core/LICENSE",
-      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright (c) Microsoft Corporation",
-        "Portions Copyright (c) Microsoft Corporation.",
-        "Portions Copyright 2017 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "playwright",
-      "versionOrCommit": "1.61.1",
-      "sourceUrl": "https://github.com/microsoft/playwright",
-      "packagePathOrArtifact": "node_modules/playwright",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/playwright/LICENSE",
-      "licenseTextSha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright (c) Microsoft Corporation",
-        "Portions Copyright (c) Microsoft Corporation.",
-        "Portions Copyright 2017 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "png-chunk-text",
       "versionOrCommit": "1.0.0",
       "sourceUrl": "https://github.com/hughsk/png-chunk-text",
@@ -40308,50 +40330,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "source-map-support",
-      "versionOrCommit": "0.5.21",
-      "sourceUrl": "https://github.com/evanw/node-source-map-support",
-      "packagePathOrArtifact": "node_modules/source-map-support",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/source-map-support/LICENSE.md",
-      "licenseTextSha256": "3a7d3bb198e909ed642bd68bd29a7d7c09a636d27a51ec663d35f00c4760ec42",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Evan Wallace"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "source-map",
-      "versionOrCommit": "0.6.1",
-      "sourceUrl": "http://github.com/mozilla/source-map",
-      "packagePathOrArtifact": "node_modules/source-map",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-3-Clause",
-      "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/source-map/LICENSE",
-      "licenseTextSha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd",
-      "copyrightNotices": [
-        "Copyright (c) 2009-2011, Mozilla Foundation and contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "space-separated-tokens",
       "versionOrCommit": "2.0.2",
       "sourceUrl": "wooorm/space-separated-tokens",
@@ -40950,28 +40928,6 @@
       "licenseTextSha256": "d4c70c7ce38cea8778f0aed3fc0bef0a9dbd27f13bd8b6773cbd6d37941971e5",
       "copyrightNotices": [
         "Copyright (c) 2021 Dany Castillo"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "tapable",
-      "versionOrCommit": "2.3.3",
-      "sourceUrl": "http://github.com/webpack/tapable",
-      "packagePathOrArtifact": "node_modules/tapable",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tapable/LICENSE",
-      "licenseTextSha256": "824ef6c33ae5ecbbab65d37f2b37da2bfc81d76cf7676ec0f59d00a0a38bdb75",
-      "copyrightNotices": [
-        "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41681,26 +41637,6 @@
       "copyrightNotices": [
         "Copyright (c) 2020-present Pig Fang"
       ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "typescript",
-      "versionOrCommit": "6.0.3",
-      "sourceUrl": "https://github.com/microsoft/TypeScript",
-      "packagePathOrArtifact": "node_modules/typescript",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/typescript/LICENSE.txt",
-      "licenseTextSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
-      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed"
     },
@@ -43419,7 +43355,7 @@
     },
     {
       "name": "zod",
-      "versionOrCommit": "4.4.3",
+      "versionOrCommit": "4.6.7",
       "sourceUrl": "https://github.com/colinhacks/zod",
       "packagePathOrArtifact": "node_modules/zod",
       "usage": "runtime",

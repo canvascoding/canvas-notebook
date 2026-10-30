@@ -268,7 +268,7 @@
     "test:mcp:icons": "tsx --conditions react-server scripts/mcp-icons-test.ts",
     "test:mcp:storage": "tsx --conditions react-server scripts/mcp-storage-lock-test.ts && tsx --conditions react-server scripts/mcp-secret-store-test.ts && tsx --conditions react-server scripts/mcp-connection-identity-test.ts && tsx --conditions react-server scripts/mcp-credential-migration-test.ts",
     "test:mcp:server-upgrade": "tsx --conditions react-server scripts/mcp-server-oauth-upgrade-test.ts",
-    "test:mcp:server-postgres-provider": "tsx scripts/mcp-server-oauth-postgres-provider-test.ts",
+    "test:mcp:server-postgres-provider": "tsx --conditions react-server scripts/mcp-server-oauth-postgres-provider-test.ts",
     "test:mcp:server-diagnostics": "tsx --conditions react-server scripts/mcp-server-diagnostics-test.ts",
     "test:mcp:server-request-history": "tsx --conditions react-server scripts/mcp-server-request-history-test.ts",
     "test:mcp:server-settings": "node scripts/mcp-server-runtime-bootstrap-test.mjs && tsx --conditions react-server scripts/mcp-server-settings-test.ts",
@@ -1031,8 +1031,8 @@
     "test:server:standalone-imports": "node scripts/collaboration-standalone-import-test.mjs"
   },
   "dependencies": {
-    "@better-auth/expo": "1.7.1",
-    "@better-auth/oauth-provider": "1.7.1",
+    "@better-auth/expo": "1.7.14",
+    "@better-auth/oauth-provider": "1.7.14",
     "@canvas/decision-models": "file:packages/decision-models",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -1113,7 +1113,7 @@
     "ajv-formats": "3.0.1",
     "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
-    "better-auth": "1.7.1",
+    "better-auth": "1.7.14",
     "canvas-markdown-parser": "npm:marked@18.0.3",
     "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",

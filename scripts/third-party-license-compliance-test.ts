@@ -408,7 +408,6 @@ assert.deepEqual(
 assert.match(highlightjsVue.sourceUrl, /2a0d197ec24ba70e019e12a13bd42f006124506a/u);
 
 for (const [name, version] of [
-  ['@better-auth/utils', '0.4.2'],
   ['@eigenpal/docx-js-editor', '0.5.3'],
   ['client-only', '0.0.1'],
   ['dingbat-to-unicode', '1.0.1'],

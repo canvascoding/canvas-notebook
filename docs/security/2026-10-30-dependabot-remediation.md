@@ -83,4 +83,42 @@ Further validation completed:
 - npm audit confirms that Next.js, Sentry, DOMPurify and Sharp advisories are
   cleared. Other packages remain for the subsequent fix packages.
 
-Package 1 is complete. Remaining dependency fix packages have not started.
+Package 1 is complete.
+
+## Better Auth and OAuth provider
+
+- Better Auth, Expo, OAuth provider, core and database adapters updated together
+  to 1.7.14. A normal `npm ci` succeeds without extra resolver flags.
+- The provider requires a nullable access-token revocation timestamp. The
+  existing schema-driven PostgreSQL migration adds it to existing databases.
+  A regression simulates the old table, preserves an existing token and verifies
+  the timestamp through the real Drizzle PostgreSQL adapter.
+- Secret validation, session expiry and React invalidation races, owner
+  bootstrap, seat limits, PostgreSQL client registration, MCP access-token
+  verification, desktop/browser OAuth boundaries and Pi revocation tests pass.
+- The old `test:mcp:server-upgrade` command points to a file absent from the
+  starting checkout. The current PostgreSQL provider migration test is run
+  directly; the missing historical test is not reported as passing.
+- npm audit no longer reports Better Auth advisories; license inventory has
+  zero blockers. The normal production build and full lint pass (zero errors;
+  639 existing repository warnings).
+- Browser login/logout, Secrets/legal settings, desktop/mobile Notebook and
+  rich Markdown pass against the first upgraded Linux image.
+- The full live OAuth regression exposed an existing refresh-revocation gap:
+  the endpoint expired stored opaque tokens but did not invalidate previously
+  issued JWTs. Refresh revocation now atomically records the existing local
+  client/session/user grant marker, which the MCP JWT verifier checks on each
+  protected call. This is a runtime fix in addition to the dependency upgrades.
+- The regression uses real browser consent, a real loopback callback listener,
+  the actual token endpoint, refresh rotation and protected MCP `auth_probe`
+  calls. It initially reproduced HTTP 200 after revocation. The corrected
+  production image returns HTTP 401 immediately and rejects reuse of both
+  original and rotated refresh tokens. All five selected Playwright tests pass;
+  the configured-off onboarding-only test is skipped.
+- The final browser acceptance also passes, waiting for the shared file tree
+  and Secrets data to finish loading before capturing desktop/mobile evidence.
+  Screenshots of Notebook, Secrets and the OAuth consent screen were inspected.
+
+Package 2 is complete.
+
+Packages 3–7 have not started.
