@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 29.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 30.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -40,6 +40,18 @@ zwei Live-Editoren und einer frischen Ansicht mit Leserechten. 15 Linux-Speicher
 Originaldaten und die elf übrigen Container sind geprüft. Die Buildlaufzeit ist
 höher; die Ursache bleibt zu untersuchen. Die Leistungsbudgets und übrigen Pakete
 bleiben offen.
+
+Die [inkrementelle Zielauflösung](architecture/document-link-resolution-projection-2026-10-30.md)
+ist am kombinierten Produktstand `64532d709` einschließlich der MCP- und
+Sicherheitsänderungen geprüft. Bei 200 warmen Quellen werden null Links neu
+aufgelöst; eine einzelne Quellenänderung löst nur deren zwei Links neu auf.
+102 gezielte Fälle, der echte PostgreSQL-/HTTP-Vergleich und zwölf zusätzliche
+kodierte Zielfälle entsprechen dem vollständigen Neuaufbau. Host-/Linux-Build,
+gesunder Start, 15 Linux-Speicherfälle, die reguläre Gesamtsuite (331/0/269) und
+sieben Recovery-/Linkfälle plus HEIF bestehen ohne Browser-Retries. Originaldaten,
+Speicheranker und die elf anderen laufenden Container sind erhalten. Die
+SQL-Anzahl bleibt bei 36 / sieben Ausleihen; native Body-Lesungen, weitere
+Faktenbündelung und sämtliche übrigen Paketabnahmen bleiben offen.
 
 ## Priorität und Umsetzungspakete
 
