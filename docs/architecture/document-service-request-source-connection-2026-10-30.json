@@ -1,0 +1,466 @@
+{
+  "version": 1,
+  "scope": "HTTP-document-read-source-connection-handoff-prototype",
+  "testedBase": "8a381dc73ae4b907e29c3cf112cf4b3751713417",
+  "testedWorkingPatchSha256": "f7ad1cd88247a5b98801d396e9d570d825d946bf1c45526f1b5fcc415fea4156",
+  "sourceHashes": {
+    "app/lib/workspaces/request-principal.ts": "a7f44029bf3f76ca3b601db5685376ca3192212464a1ec53a1e28c535c955a46",
+    "app/lib/documents/service.ts": "15249aefb643d866924bd655d65ebd02ec653b188502a25383048f5c204fc155",
+    "scripts/document-read-service-postgres-test.ts": "089510df1cdb0c992626bd9762889cf9c88f1b60dc088766d4019f4d51f7962b",
+    "scripts/authenticated-native-session-reader-postgres-test.ts": "3f82e4e67733b87c5eaaa7897d4496a939c91af4aefb1df7729b9e8bacf516e3",
+    "scripts/document-adapter-matrix-baseline-postgres-entry.ts": "541bf73a11918d9c280dc090262d2874df94bdcee3a448cee3868a41d01ef9e6",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "4a5584e9bdaca50baf079c49fdbf99a7a785084e274aff239d02262a6950941b",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "6571a9dd2864f8c41ebe292436a23b51a80042b43e2b59b8d03aa3b088c8d340",
+    "scripts/helpers/document-physical-connection-profiler.mjs": "be974910037067e58bc40919fc6f49396fc23ddc4e52a6b58bab0c438a0c8df5",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "72aa50b2d2ece544b98438990ae2bc3133b8d8204ebd8874e029d7f957a6554e"
+  },
+  "testHookCommit": "e8236f4769c46dd913dcced9e4830833c31c1c98",
+  "finishedAt": "2026-10-30T21:32:48.774Z",
+  "passed": true,
+  "fullGoalComplete": false,
+  "sqlReductionClaimed": false,
+  "latencyImprovementClaimed": false,
+  "hostBuildPassedAtThisMilestone": true,
+  "browserAcceptancePassedAtThisMilestone": true,
+  "regularTestAllPassedAtThisMilestone": true,
+  "released": false,
+  "originalRowsXminBytesAnchorsAndContainersPreserved": true,
+  "observationReportSha256": "0ee2b3cd8e399aece6f373356c71665a9ffde02415ae3c225269b86d6bbb3ae6",
+  "suites": [
+    {
+      "name": "workspace-request-principal-postgres-test",
+      "passed": true,
+      "logSha256": "d908d02622a5fb6cd3969020a86adc61689cafae9619f4d0d7dcf8d47c0781c4"
+    },
+    {
+      "name": "authenticated-native-session-reader-postgres-test",
+      "passed": true,
+      "logSha256": "2eec188460171e39a208a94f730e2417a98cac9ff6fc8c4200d66a6f1a552eae"
+    },
+    {
+      "name": "native-document-read-postgres-test",
+      "passed": true,
+      "logSha256": "d2fc2d894122e82cebe017b09550e4f6a1f78cb0112a8e7626e29f7dc6fcdf48"
+    },
+    {
+      "name": "document-read-service-postgres-test",
+      "passed": true,
+      "logSha256": "b913c5e98bd1bfc7d905be1c88415bc191d1b580bc110b045ba7879bc37e9c56"
+    },
+    {
+      "name": "native-document-search-service-postgres-test",
+      "passed": true,
+      "logSha256": "a2471ae99af43e42ee66a5e9742a8ed1ba442f5bab83af70ff0fcf7a552665ee"
+    },
+    {
+      "name": "document-read-tool-dispatch-postgres-test",
+      "passed": true,
+      "logSha256": "f846cc1a413387fba40e81542227cb27b20bc055fd287e9f8f619c2db5147216"
+    }
+  ],
+  "windows": [
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 11,
+          "previousSql": 62,
+          "previousCheckouts": 12,
+          "wallMs": 263.86,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 93.32,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 87.94,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 11,
+          "previousSql": 62,
+          "previousCheckouts": 12,
+          "wallMs": 254.13,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 81.03,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 83.26,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 204,
+          "checkouts": 37,
+          "previousSql": 204,
+          "previousCheckouts": 37,
+          "wallMs": 612.2,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 99,
+          "checkouts": 3,
+          "previousSql": 99,
+          "previousCheckouts": 3,
+          "wallMs": 73.39,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 99,
+          "checkouts": 3,
+          "previousSql": 99,
+          "previousCheckouts": 3,
+          "wallMs": 75.51,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 233,
+          "checkouts": 37,
+          "previousSql": 233,
+          "previousCheckouts": 37,
+          "wallMs": 600.1,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 117,
+          "checkouts": 3,
+          "previousSql": 117,
+          "previousCheckouts": 3,
+          "wallMs": 84.51,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 117,
+          "checkouts": 3,
+          "previousSql": 117,
+          "previousCheckouts": 3,
+          "wallMs": 86.72,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 95,
+          "checkouts": 32,
+          "previousSql": 95,
+          "previousCheckouts": 32,
+          "wallMs": 345.08,
+          "peakReady": 3,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 74,
+          "checkouts": 19,
+          "previousSql": 74,
+          "previousCheckouts": 19,
+          "wallMs": 78.55,
+          "peakReady": 3,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 74,
+          "checkouts": 19,
+          "previousSql": 74,
+          "previousCheckouts": 19,
+          "wallMs": 81.47,
+          "peakReady": 4,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    }
+  ],
+  "typecheck": {
+    "sourceFiles": 5117,
+    "typescript": "6.0.3",
+    "diagnostics": 0,
+    "reportSha256": "707ddac079df9b6e9123dc7efbc20a5b65d960a3b1145f9ea29a63fc86609497"
+  },
+  "preexistingRegression": {
+    "base": "8a381dc73ae4b907e29c3cf112cf4b3751713417",
+    "unchangedMainProductFailsOldSqlTrigger": true,
+    "correctedActualReplyTriggerPasses": true,
+    "mainControlReportSha256": "075c9887d5d9a2aea2d4372212ed95d16b997a22c15bbb001c3fe763df36fa29"
+  },
+  "hostBuild": {
+    "sourceSha": "23c58fbc31320e8be87bd7c5635d184e02a707cf",
+    "treeSha": "4469cdb0287ad460779d3a76b1a439e01a79b9b0",
+    "finishedAt": "2026-10-30T21:41:11.956Z",
+    "exitCode": 0,
+    "sameSource": true,
+    "buildId": "build-TfctsWXpff2fKS",
+    "manifestSha256": "3120c24d84447d965f0851aad7f01655c7ab70785d95dfd6225f838edab23ad4",
+    "reportSha256": "bb9278c7126f2bcca0b9f51bdf5873cf53b8286cbb8c9d7f9d0d871235c3d105",
+    "intentionalBuildTimeDatabaseDisabledDiagnosticsMatchPreviousBuild": true
+  },
+  "linuxAcceptance": {
+    "sourceSha": "04332be415fd8bee2c9bc821075f9f0b92385560",
+    "hostSourceSha": "23c58fbc31320e8be87bd7c5635d184e02a707cf",
+    "verifiedHostDocumentationOnlyDelta": [
+      "docs/architecture/document-service-request-source-connection-2026-10-30.json",
+      "docs/architecture/document-service-request-source-connection-2026-10-30.md",
+      "docs/document-write-database-performance-plan.md"
+    ],
+    "imageId": "sha256:f739a8abaf9abc8cceaa626e9eac0d4879496c8b7f7baabf1b4e03ca2cf142e8",
+    "containerId": "3c8c2edef69bebd2663439d1111682fa6e0a9937586cdf93e1bb59c5330421a4",
+    "finishedAt": "2026-10-30T22:50:26.425Z",
+    "buildPassed": true,
+    "startupHealthy": true,
+    "birthStorageCases": 15,
+    "actualCommand": "npm run test:all",
+    "regularPassed": 331,
+    "regularFailed": 0,
+    "regularConditionalSkipped": 269,
+    "regularRetries": 0,
+    "focusedStats": {
+      "startTime": "2026-10-30T22:45:30.601Z",
+      "duration": 295101.962,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "focusedCases": [
+      {
+        "file": "editor-first-session-recovery.spec.ts",
+        "title": "a known tab reopens after the first collaboration session was interrupted",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 24054
+      },
+      {
+        "file": "editor-manual-create-recovery.spec.ts",
+        "title": "home: server completes the genuine POST, lost reply stays closed across reload until same UUID is explicitly checked",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 15859
+      },
+      {
+        "file": "editor-manual-create-recovery.spec.ts",
+        "title": "file-browser: server completes the genuine POST, lost reply stays closed across reload until same UUID is explicitly checked",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 14990
+      },
+      {
+        "file": "mobile-notebook-save-recovery.spec.ts",
+        "title": "mobile HTTP edit survives export failure and retries without replacing later peer edits",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 24192
+      },
+      {
+        "file": "peer-status-live-access.spec.ts",
+        "title": "owned current peer status synchronizes users and enforces real revoked write access",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 34812
+      },
+      {
+        "file": "security-heif-upload.spec.ts",
+        "title": "HEIF workspace uploads convert to a JPEG that opens in the image viewer",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 4833
+      },
+      {
+        "file": "workspace-link-frontmatter.spec.ts",
+        "title": "rich emoji YAML Wiki and Markdown links navigate after managed UI rename and enforce the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 94222
+      },
+      {
+        "file": "workspace-link-lifecycle.spec.ts",
+        "title": "never-opened Markdown target rename persists repairs and enforces the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 40738
+      },
+      {
+        "file": "workspace-link-lifecycle.spec.ts",
+        "title": "never-opened Markdown source move persists repairs and enforces the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 40609
+      }
+    ],
+    "actualLivePeerResults": {
+      "realUsers": 2,
+      "realWebSocketFrames": {
+        "owner": 24,
+        "member": 17
+      },
+      "realPermissionRevocation": true,
+      "revokedSessionDenied": true,
+      "ownerStillWrites": true,
+      "freshLoginReadOnly": true,
+      "physicalContentPreserved": true,
+      "authenticatedDocumentReadFromBothLiveEditorsAndFreshReader": true,
+      "documentReviewEnabled": false
+    },
+    "compiledHttpDeniedOldSession": true,
+    "liveAccessUiSourceSha256": "b43632211ed50bf8344f855ac1460342bdd3ab1e1daa841e8dc3915d418b6dbf",
+    "screenshotSha256": {
+      "desktop-live-editors.png": "67d4098fac1e01e3639288f2b10bc556ebae622ee5cfa2330974f67fc7426918",
+      "mobile-read-only.png": "64b105048ee2e217179943aa1f34aea835c35f917426d138ba0c3d32f3a8173d"
+    },
+    "screenshotsVisuallyInspected": true,
+    "runtimeSourceHashes": {
+      "app/lib/workspaces/request-principal.ts": "a7f44029bf3f76ca3b601db5685376ca3192212464a1ec53a1e28c535c955a46",
+      "app/lib/documents/service.ts": "15249aefb643d866924bd655d65ebd02ec653b188502a25383048f5c204fc155",
+      "app/lib/collaboration/native-document-read.ts": "6f4cac07add929c0d454749e42cca23390207f466ce3d172f738b6155e80d31c",
+      "app/lib/collaboration/room-admission-predicates.ts": "099d344f6a45a315c6397b0ffa3c09096698f348605684ebc94553e2939d5c1a",
+      "app/lib/collaboration/room-admission.ts": "9a53acbd4d26948f58c5f20b9ae32525ea490901e51751eca647f730ccc7e4c3",
+      "app/lib/collaboration/authenticated-native-peer.ts": "5c08e1cdb05e6142cd258a0a2ccd018ad0f2a91b43f02cb5c2f45b36d0d14b2f",
+      "app/lib/collaboration/authenticated-native-session-transport.ts": "d95352b179f27a833dedb442fc224b774df08dbef9d0cc13d03ec718eb4f59ae",
+      "server/collaboration-server.ts": "3cc9fbafe56c17bfb3319e645142cf86d7e7c9aa22dd4eab9f55f352ba3ab63d",
+      "app/lib/mobile/notebook.ts": "cbcb8f0e06cd077ae12251e9dadaf91fa55f9f77599bfd5bd465b8e41dcc3bd8",
+      "app/lib/mobile/notebook-route.ts": "91b9c65342f8a222714eaeae8403d360bcc7a3e1e893a8c8fd5f0543b7c1c3ac"
+    },
+    "originalRowsXminNativeBytesReceiptsAndAnchorsPreserved": true,
+    "otherElevenContainersUnchanged": true,
+    "temporaryProxyAndDriverProcessesClosed": true,
+    "runtimeHealth": {
+      "app": "ok",
+      "databaseProvider": "ok",
+      "auth": "ok",
+      "mcp": "ok",
+      "db": "ok",
+      "collaboration": "ok"
+    },
+    "localMcpStatus": {
+      "status": "disabled",
+      "code": "MCP_DISABLED"
+    },
+    "mcpAcceptanceScope": "Separate genuine registered dispatcher/PostgreSQL controls; this Linux fixture has Direct MCP disabled, so no new compiled OAuth acceptance is claimed.",
+    "acceptanceReportSha256": "bc148286acd1f20ab9a82cb2da2ff9a86ea5ca1fdc7e3025f3c69e8ecfdb0154",
+    "browserReportSha256": "aa7ebae8a28888712ffdb6dfd4ef3b5a43072b2b71c853abfcd2226e5af98ab3",
+    "postAcceptanceReportSha256": "90b1b7495fe00a90a35e3920b9fd66780640819a4c8969f7572dbf5900c369a2"
+  },
+  "ciAtApplicationHead": {
+    "head": "04332be415fd8bee2c9bc821075f9f0b92385560",
+    "allSixPassed": true,
+    "checks": [
+      {
+        "name": "CodeQL",
+        "conclusion": "success"
+      },
+      {
+        "name": "Linux agent sandbox",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (c-cpp)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (actions)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (python)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (javascript-typescript)",
+        "conclusion": "success"
+      }
+    ],
+    "reviews": 0,
+    "reviewThreads": 0,
+    "actionableFindings": 0,
+    "runnerNoticesOnly": true,
+    "proofSha256": "7bb252c5cc359d01ef2770428d7aaf18e800588d6a433c62d221abfaff3fc57a"
+  }
+}

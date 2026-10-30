@@ -284,7 +284,10 @@ async function main(): Promise<void> {
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{
             const row=(await client.query(sql,args)).rows[0];
             if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-            if(armed&&reads===2&&sql.includes('SELECT expires_at FROM')&&++finalAuthChecks===finalWindow){
+            // The actual Member check now returns account/session facts in
+            // the joint snapshot. Observe that real reply, not its old SQL.
+            const memberReply=sql.includes('SELECT header.*,account.*,')&&sql.includes(' AS token_hash');
+            if(armed&&reads===2&&memberReply&&++finalAuthChecks===finalWindow){
               attempted=true;
               if(variant==='getter'||variant==='prior-getter')assert.throws(()=>retained.snapshot,code('NATIVE_SESSION_REQUIRED'));
               else if(variant==='inspect')assert.throws(()=>inspect(wrapped,retained,()=>assert.fail()),code('NATIVE_SESSION_REQUIRED'));

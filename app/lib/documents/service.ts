@@ -14,6 +14,7 @@ import { DirectMcpAuthorizationError } from '../mcp/server/access-token-verifier
 import { withDirectMcpDocumentReadPrincipal, withDirectMcpDocumentReadPrincipalOnConnection,
   DirectMcpDocumentReadPrincipalError, type DirectMcpDocumentReadHistoricalOrigin } from '../mcp/server/document-read-principal';
 import { withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
+  withWorkspaceDocumentReadRequestPrincipalOriginalOrigin,
   withWorkspaceAgentToolPrincipalOriginalOrigin, withWorkspaceAgentToolPrincipalOnConnection,
   WorkspaceRequestPrincipalError, type WorkspaceRequestHistoricalOrigin,
   type WorkspaceAgentToolHistoricalOrigin } from '../workspaces/request-principal';
@@ -248,7 +249,12 @@ function normalizeError(error: unknown): Error {
 /** Fixed actual connection owner. No fake principal/SQL adapter or retry hook
  * can be supplied. Successful output waits for both COMMIT and disposal. */
 async function transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-  const connection = await openDb(); let beginAttempted = false, began = false, committing = false, discard: Error | undefined;
+  return transactionOnConnection(await openDb(), operation);
+}
+
+/** Takes ownership of an actual connection, including all disposal failures. */
+async function transactionOnConnection<T>(connection: SqlConnection, operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
+  let beginAttempted = false, began = false, committing = false, discard: Error | undefined;
   try {
     beginAttempted = true; await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
     const result = await operation(connection);
@@ -298,8 +304,8 @@ export async function readDocumentForRequest(request: Request, input: unknown): 
     if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
     const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
     const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-    try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
-      value => observe(historical, value), principal => transaction(async connection => {
+    try { return await withWorkspaceDocumentReadRequestPrincipalOriginalOrigin(captured, selection.workspaceId,
+      value => observe(historical, value), (principal, sourceConnection) => transactionOnConnection(sourceConnection, async connection => {
         const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
           connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
         return finish(held);

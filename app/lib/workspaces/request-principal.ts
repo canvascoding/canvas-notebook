@@ -214,9 +214,23 @@ export async function withWorkspaceRequestPrincipalOriginalOrigin<T>(request: Ne
   return withRequestPrincipal(request, options, operation, observe);
 }
 
+/** Fixed HTTP document-read path. Authentication and source observation retain
+ * their original order. The callback takes ownership of the actual source
+ * connection and must finish its transaction and close it before returning. */
+export async function withWorkspaceDocumentReadRequestPrincipalOriginalOrigin<T>(request: NextRequest,
+  workspaceId: string, observe: WorkspaceRequestHistoricalOriginObserver,
+  operation: (principal: WorkspaceRequestPrincipal, connection: SqlConnection) => Promise<T>): Promise<T> {
+  if (!id(workspaceId) || typeof observe !== 'function' || typeof operation !== 'function') fail('PRINCIPAL_INVALID');
+  return withRequestPrincipal(request, { workspaceId, permission: 'canRead' }, (principal, connection) => {
+    if (!connection) fail('PRINCIPAL_REQUIRED');
+    return operation(principal, connection);
+  }, observe, true);
+}
+
 async function withRequestPrincipal<T>(request: NextRequest,
   options: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
-  operation: (principal: WorkspaceRequestPrincipal) => Promise<T>, observe?: WorkspaceRequestHistoricalOriginObserver): Promise<T> {
+  operation: (principal: WorkspaceRequestPrincipal, connection?: SqlConnection) => Promise<T>,
+  observe?: WorkspaceRequestHistoricalOriginObserver, retainSourceConnection = false): Promise<T> {
   if (!(request instanceof NextRequest) || !options || !['canRead','canWrite'].includes(options.permission)
     || options.workspaceId !== undefined && !id(options.workspaceId) || typeof operation !== 'function') fail('PRINCIPAL_INVALID');
   const permission = options.permission, workspaceId = options.workspaceId;
@@ -238,34 +252,47 @@ async function withRequestPrincipal<T>(request: NextRequest,
   const license = freeze(structuredClone(await getLicenseStatus()));
   const pool = getPostgresRuntimeQueryable();
   if (!pool) fail('PRINCIPAL_REQUIRED');
-  const source = (await pool.query(observe
+  const sourceSql = observe
     ? `SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
       to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path`
     : `SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database
-    WHERE datname=current_database()) AS database`)).rows[0];
-  if (!source || typeof source.schema !== 'string' || !source.schema || !number(source.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
-  if (observe && (!number(source.schema_oid, 1) || typeof source.search_path !== 'string'
-    || !source.search_path || source.search_path.length > 4096)) fail('PRINCIPAL_SCOPE_CHANGED');
-  const captured: RequestCapture = { kind: 'member', active: true, accepting: true, pending: new Set(), userId: session.user.id,
-    sessionId: session.session.id, tokenHash: hash(session.session.token), impersonatedBy: Reflect.get(session.session,'impersonatedBy') ?? null,
-    workspace: freeze(workspace), permission, license, database: Number(source.database), schema: source.schema,
-    enterBefore: performance.now()+MAX_PHASE_MS,
-    ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(source.schema_oid), searchPath: String(source.search_path) }) } } : {}) };
-  const principal = Object.freeze({}) as WorkspaceRequestPrincipal; requests.set(principal,captured);
+    WHERE datname=current_database()) AS database`;
+  let sourceConnection: SqlConnection | undefined, transferred = false;
   try {
-    let result: T | undefined, operationFailure: unknown;
-    try { result = await operation(principal); }
-    catch (error) { operationFailure = reason(error); captured.failure ??= operationFailure; }
-    captured.accepting = false;
-    if (captured.pending.size) {
-      captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
-      await Promise.allSettled([...captured.pending]);
-    }
-    // Preserve later transaction cleanup failures after draining held work.
-    if (operationFailure !== undefined) throw operationFailure;
-    if (captured.failure !== undefined) throw captured.failure;
-    return result as T;
-  } finally { captured.active = false; captured.accepting = false; requests.delete(principal); }
+    if (retainSourceConnection) sourceConnection = await openDb();
+    const source = (sourceConnection ? await sourceConnection.get(sourceSql) : (await pool.query(sourceSql)).rows[0]) as Record<string, unknown> | undefined;
+    if (!source || typeof source.schema !== 'string' || !source.schema || !number(source.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
+    if (observe && (!number(source.schema_oid, 1) || typeof source.search_path !== 'string'
+      || !source.search_path || source.search_path.length > 4096)) fail('PRINCIPAL_SCOPE_CHANGED');
+    const captured: RequestCapture = { kind: 'member', active: true, accepting: true, pending: new Set(), userId: session.user.id,
+      sessionId: session.session.id, tokenHash: hash(session.session.token), impersonatedBy: Reflect.get(session.session,'impersonatedBy') ?? null,
+      workspace: freeze(workspace), permission, license, database: Number(source.database), schema: source.schema,
+      enterBefore: performance.now()+MAX_PHASE_MS,
+      ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(source.schema_oid), searchPath: String(source.search_path) }) } } : {}) };
+    const principal = Object.freeze({}) as WorkspaceRequestPrincipal; requests.set(principal,captured);
+    try {
+      let result: T | undefined, operationFailure: unknown;
+      try {
+        // Only the fixed document-read consumer receives this connection. Its
+        // transaction helper owns disposal from this point, including failures.
+        transferred = sourceConnection !== undefined;
+        result = sourceConnection ? await operation(principal, sourceConnection) : await operation(principal);
+      }
+      catch (error) { operationFailure = reason(error); captured.failure ??= operationFailure; }
+      captured.accepting = false;
+      if (captured.pending.size) {
+        captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
+        await Promise.allSettled([...captured.pending]);
+      }
+      // Preserve later transaction cleanup failures after draining held work.
+      if (operationFailure !== undefined) throw operationFailure;
+      if (captured.failure !== undefined) throw captured.failure;
+      return result as T;
+    } finally { captured.active = false; captured.accepting = false; requests.delete(principal); }
+  } finally {
+    // Before handoff (e.g. failed source capture) no consumer can clean up.
+    if (sourceConnection && !transferred) await sourceConnection.close();
+  }
 }
 
 function active(phase: Phase): void {
