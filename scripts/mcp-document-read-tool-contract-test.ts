@@ -132,26 +132,26 @@ test('native exotic prototypes and live or revoked Proxies are refused without t
   assert.equal(traps, 0);
 });
 
-test('actual descriptor keeps existing tool/scope and requires exactly one unmixed selector', async () => {
+test('actual descriptor exposes every input without host-dependent selector branches', async () => {
   const descriptor = await actualReadDescriptor();
   assert.equal(descriptor.name, 'read_knowledge_source'); assert.deepEqual(descriptor.securitySchemes[0].scopes, ['knowledge:read']);
   assert.deepEqual(descriptor.inputSchema.required, ['workspace_id']); assert.equal(descriptor.inputSchema.additionalProperties, false);
-  assert(Array.isArray(descriptor.inputSchema.oneOf)); assert.equal(descriptor.inputSchema.oneOf.length, 2);
+  assert.equal(descriptor.inputSchema.oneOf, undefined);
   const properties = descriptor.inputSchema.properties as Record<string, unknown>;
   for (const key of ['workspace_id', 'path', 'offset', 'max_characters', 'document_id', 'format', 'expected_version', 'max_bytes', 'cursor']) assert(Object.hasOwn(properties, key));
   const validate = ajv.compile(descriptor.inputSchema);
   assert(validate({ workspace_id: 'workspace', path: 'fixture.md', offset: 2, max_characters: 20 }));
   assert(validate({ ...selection(), format: 'text', max_bytes: 4, expected_version: version }));
   assert(validate({ ...selection(), workspace_id: 'x'.repeat(256) }));
-  assert.equal(validate({ ...selection(), workspace_id: 'x'.repeat(257) }), false);
-  assert.equal(validate({ workspace_id: 'workspace' }), false);
-  assert.equal(validate({ workspace_id: 'workspace', offset: 0 }), false);
+  // Selector exclusivity and the native ID bound belong to the strict runtime
+  // decoder. The public schema must not hide parent fields from connectors.
+  assert.throws(() => decode({ ...selection(), workspace_id: 'x'.repeat(257) }), invalid);
   const nativeValues: Record<string, unknown> = { document_id: 'document', format: 'native', expected_version: version, max_bytes: 4, cursor: 'fixture' };
   for (const key of ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor']) {
-    assert.equal(validate({ workspace_id: 'workspace', path: 'fixture.md', [key]: nativeValues[key] }), false);
+    assert.throws(() => decode({ workspace_id: 'workspace', path: 'fixture.md', [key]: nativeValues[key] }), invalid);
   }
   for (const key of ['path', 'offset', 'max_characters']) {
-    assert.equal(validate({ ...selection(), [key]: key === 'path' ? 'fixture.md' : 1 }), false);
+    assert.throws(() => decode({ ...selection(), [key]: key === 'path' ? 'fixture.md' : 1 }), invalid);
   }
   assert.equal(validate({ ...selection(), unknown: true }), false);
 });

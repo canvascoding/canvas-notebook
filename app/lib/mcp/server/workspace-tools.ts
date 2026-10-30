@@ -445,11 +445,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         },
         required: ['workspace_id', 'query'],
-        oneOf: [
-          { not: { anyOf: ['api_version', 'cursor'].map(key => ({ required: [key] })) } },
-          { properties: { api_version: { const: 1 }, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } },
-            required: ['api_version'] },
-        ],
+        // Hosts may project oneOf branches without their parent properties.
+        // Keep the transport flat; the strict decoder owns native selection.
         additionalProperties: false,
       },
       outputSchema: {
@@ -663,14 +660,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         ...DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES,
       },
       required: ['workspace_id'],
-      oneOf: [
-        { properties: { path: {} }, required: ['path'],
-          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor', 'include_edit_targets']
-            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
-        { properties: { document_id: {}, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } }, required: ['document_id'],
-          not: { anyOf: ['path', 'offset', 'max_characters']
-            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
-      ],
+      // Do not put selectors in oneOf: host projection can discard workspace,
+      // format, limits and even expected_version. The handler validates exactly
+      // one selector before any authorization or I/O.
       additionalProperties: false,
     },
     outputSchema: {
@@ -1054,6 +1046,9 @@ async function executeSearchKnowledge(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const query = requiredString(parsed, 'query', 200);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'query', 'path', 'max_results'].includes(key))) {
+    invalidParams('Legacy search accepts only workspace_id, query, path and max_results.');
+  }
   if (query.length < 2) invalidParams('query must contain at least 2 characters.');
   const startPath = optionalString(parsed, 'path', '.', MAX_PATH_LENGTH);
   assertVisibleWorkspacePath(startPath);
@@ -1161,6 +1156,9 @@ async function executeReadKnowledgeSource(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'offset', 'max_characters'].includes(key))) {
+    invalidParams('Legacy read accepts only workspace_id, path, offset and max_characters.');
+  }
   assertVisibleWorkspacePath(filePath);
   const offset = optionalInteger(parsed, 'offset', 0, 0, Number.MAX_SAFE_INTEGER);
   const maxCharacters = optionalInteger(

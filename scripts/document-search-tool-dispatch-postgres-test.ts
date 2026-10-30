@@ -84,7 +84,7 @@ export async function documentSearchToolDispatchPostgresTest(): Promise<void> {
       await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'owned-search-dispatch', version: '1' } });
       const listed = await rpc('tools/list', {}), tools = record(listed.result).tools; assert(Array.isArray(tools));
       const tool = record(tools.find(value => record(value).name === 'search_knowledge'));
-      const input = record(tool.inputSchema); assert.equal(input.additionalProperties, false); assert(Array.isArray(input.oneOf));
+      const input = record(tool.inputSchema); assert.equal(input.additionalProperties, false); assert.equal(input.oneOf, undefined);
       assert.equal(record(record(input.properties).api_version).const, 1);
       const output = record(tool.outputSchema); assert(Array.isArray(output.oneOf)); assert.equal(output.oneOf.length, 3);
       assert.deepEqual(output.oneOf[1], DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1);
