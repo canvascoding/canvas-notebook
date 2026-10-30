@@ -45,12 +45,13 @@ async function main(): Promise<void> {
   const runtimeLeases: Lease[] = [];
   const ownedDocuments = new Set<{ destroy: () => void }>();
   type Lease = {
-    client: Client; pid: number; queries: number; begins: number; commits: number; rollbacks: number;
+    client: Client; pid: number; queries: number; sourceObservations: number; begins: number; commits: number; rollbacks: number;
     released: number; transactions: Set<string>; steps: string[];
     originalRelease?: (error?: Error | boolean) => void;
     installedRelease?: (error?: Error | boolean) => void;
   };
   type Hook = {
+    includeSource?: boolean;
     before?: (lease: Lease, sql: string) => Promise<void> | void;
     after?: (lease: Lease, sql: string) => Promise<void> | void;
     afterRelease?: (lease: Lease) => void;
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
     Promise.resolve(Reflect.apply(rawQuery, lease.client, [sql, values]));
   const sqlText = (args: unknown[]): string => typeof args[0] === 'string' ? args[0].trim()
     : args[0] && typeof args[0] === 'object' && typeof Reflect.get(args[0], 'text') === 'string' ? Reflect.get(args[0], 'text').trim() : '';
+  const sourceQuery = (sql: string) => sql.includes("to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path");
   const audit = async <T>(operation: (leases: Lease[]) => Promise<T>, hook: Hook = {}): Promise<T> => {
     assert.equal(Client.prototype.query, rawQuery);
     const leases: Lease[] = [], active = new Map<Client, Lease>();
@@ -81,11 +83,21 @@ async function main(): Promise<void> {
         return Reflect.apply(rawQuery, this, args);
       }
       const sql = sqlText(args);
-      if (sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE') {
+      if (!active.has(this) && (hook.includeSource && sourceQuery(sql) || sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE')) {
         const lease: Lease = { client: this, pid: Number(Reflect.get(this, 'processID')), queries: 0,
-          begins: 0, commits: 0, rollbacks: 0, released: 0, transactions: new Set(), steps: [] };
+          sourceObservations: 0, begins: 0, commits: 0, rollbacks: 0, released: 0, transactions: new Set(), steps: [] };
         assert(Number.isSafeInteger(lease.pid) && lease.pid > 0);
         active.set(this, lease); leases.push(lease); runtimeLeases.push(lease);
+        const release = Reflect.get(this, 'release') as ((error?: Error | boolean) => void) | undefined;
+        assert.equal(typeof release, 'function'); lease.originalRelease = release;
+        const afterRelease = (error?: Error | boolean) => {
+          Reflect.apply(release!, this, [error]);
+          lease.released++; lease.steps.push('actual-release-completed'); active.delete(this);
+          if (Reflect.get(this, 'release') === afterRelease) Reflect.set(this, 'release', release);
+          hook.afterRelease?.(lease);
+        };
+        lease.installedRelease = afterRelease;
+        assert.equal(Reflect.set(this, 'release', afterRelease), true);
       }
       const lease = active.get(this);
       if (!lease) return Reflect.apply(rawQuery, this, args);
@@ -93,18 +105,9 @@ async function main(): Promise<void> {
         await hook.before?.(lease, sql);
         const result = await Reflect.apply(rawQuery, this, args);
         lease.queries++;
+        if (sourceQuery(sql)) { lease.sourceObservations++; lease.steps.push('actual-source'); }
         if (sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE') {
           lease.begins++; lease.steps.push('actual-BEGIN');
-          const release = Reflect.get(this, 'release') as ((error?: Error | boolean) => void) | undefined;
-          assert.equal(typeof release, 'function'); lease.originalRelease = release;
-          const afterRelease = (error?: Error | boolean) => {
-            Reflect.apply(release!, this, [error]);
-            lease.released++; lease.steps.push('actual-release-completed'); active.delete(this);
-            if (Reflect.get(this, 'release') === afterRelease) Reflect.set(this, 'release', release);
-            hook.afterRelease?.(lease);
-          };
-          lease.installedRelease = afterRelease;
-          assert.equal(Reflect.set(this, 'release', afterRelease), true);
           const realm = await Reflect.apply(rawQuery, this, ['SELECT current_schema() AS schema,pg_backend_pid() AS pid']);
           assert.equal(realm.rows[0].schema, schema); assert.equal(Number(realm.rows[0].pid), lease.pid);
         }
@@ -307,7 +310,9 @@ async function main(): Promise<void> {
           assert.equal(page.document.organizationId, 'principal-org');
           assert.equal(page.currency.observedDurable, true); assert.equal(page.projection.status, 'pending');
           assertClosed(leases, 'commit');
-        });
+          assert.equal(leases[0].sourceObservations, 1, 'Actual source observation and B use one owned checkout.');
+          assert(leases[0].steps.indexOf('actual-source') < leases[0].steps.indexOf('actual-BEGIN'));
+        }, { includeSource: true });
         const headersSource = await request('owner', auth);
         const ordinary = new Request(headersSource.url, { method: headersSource.method, headers: new Headers(headersSource.headers) });
         assert(ordinary instanceof Request); assert.equal(ordinary instanceof NextRequest, false);
@@ -318,6 +323,32 @@ async function main(): Promise<void> {
           assertClosed(leases, 'commit');
         });
       }
+      assert.deepEqual(await nativeRows(target), before);
+    });
+    await check('source observation failure releases the actual checkout before ownership transfer and never begins B', async () => {
+      const target = await seed('source-ack'); const before = await nativeRows(target); let injected = false;
+      await audit(async leases => {
+        await assert.rejects(read(target), expected('DOCUMENT_READ_UNAVAILABLE'));
+        assert.equal(injected, true); assert.equal(leases.length, 1);
+        const lease = leases[0]; assert.equal(lease.sourceObservations, 1); assert.equal(lease.begins, 0);
+        assert.equal(lease.commits, 0); assert.equal(lease.rollbacks, 0); assert.equal(lease.released, 1);
+      }, { includeSource: true, after: (_lease, sql) => {
+        if (sourceQuery(sql)) { injected = true; throw new Error('Owned actual source acknowledgement loss'); }
+      } });
+      assert.deepEqual(await nativeRows(target), before);
+    });
+    await check('unconfirmed BEGIN on the transferred source connection discards it once without replay or ROLLBACK', async () => {
+      const target = await seed('begin-ack'); const before = await nativeRows(target); let injected = false;
+      await audit(async leases => {
+        await assert.rejects(read(target), expected('READ_OUTCOME_UNCONFIRMED'));
+        assert.equal(injected, true); assert.equal(leases.length, 1);
+        const lease = leases[0]; assert.equal(lease.sourceObservations, 1); assert.equal(lease.begins, 1);
+        assert.equal(lease.commits, 0); assert.equal(lease.rollbacks, 0); assert.equal(lease.released, 1);
+      }, { includeSource: true, after: (_lease, sql) => {
+        if (sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE') {
+          injected = true; throw new Error('Owned actual BEGIN acknowledgement loss');
+        }
+      } });
       assert.deepEqual(await nativeRows(target), before);
     });
     await check('projection status requires the exact finalized durable SQL receipt rather than equal zero sequences', async () => {
@@ -632,7 +663,7 @@ async function main(): Promise<void> {
       }, { afterRelease: () => { injected = true; throw new Error('Owned close acknowledgement failure after actual pool release'); } });
       assert.equal(pool!.idleCount, pool!.totalCount);
     });
-    assert.equal(passed, 21); assert.equal(fetches, 0); await own();
+    assert.equal(passed, 23); assert.equal(fetches, 0); await own();
     console.log('Document public read service SQL assertions complete:', JSON.stringify({ passed, fetches,
       observedLeases: runtimeLeases.length, allObservedLeasesReleased: runtimeLeases.every(lease => lease.released === 1) }));
   } catch (error) { primaryFailure = error; }

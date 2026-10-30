@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "scope": "HTTP-document-read-source-connection-handoff-prototype",
+  "testedBase": "8a381dc73ae4b907e29c3cf112cf4b3751713417",
+  "testedWorkingPatchSha256": "f7ad1cd88247a5b98801d396e9d570d825d946bf1c45526f1b5fcc415fea4156",
+  "sourceHashes": {
+    "app/lib/workspaces/request-principal.ts": "a7f44029bf3f76ca3b601db5685376ca3192212464a1ec53a1e28c535c955a46",
+    "app/lib/documents/service.ts": "15249aefb643d866924bd655d65ebd02ec653b188502a25383048f5c204fc155",
+    "scripts/document-read-service-postgres-test.ts": "089510df1cdb0c992626bd9762889cf9c88f1b60dc088766d4019f4d51f7962b",
+    "scripts/authenticated-native-session-reader-postgres-test.ts": "3f82e4e67733b87c5eaaa7897d4496a939c91af4aefb1df7729b9e8bacf516e3",
+    "scripts/document-adapter-matrix-baseline-postgres-entry.ts": "541bf73a11918d9c280dc090262d2874df94bdcee3a448cee3868a41d01ef9e6",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "4a5584e9bdaca50baf079c49fdbf99a7a785084e274aff239d02262a6950941b",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "6571a9dd2864f8c41ebe292436a23b51a80042b43e2b59b8d03aa3b088c8d340",
+    "scripts/helpers/document-physical-connection-profiler.mjs": "be974910037067e58bc40919fc6f49396fc23ddc4e52a6b58bab0c438a0c8df5",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "72aa50b2d2ece544b98438990ae2bc3133b8d8204ebd8874e029d7f957a6554e"
+  },
+  "testHookCommit": "e8236f4769c46dd913dcced9e4830833c31c1c98",
+  "finishedAt": "2026-10-30T21:32:48.774Z",
+  "passed": true,
+  "fullGoalComplete": false,
+  "sqlReductionClaimed": false,
+  "latencyImprovementClaimed": false,
+  "hostBuildPassedAtThisMilestone": false,
+  "browserAcceptancePassedAtThisMilestone": false,
+  "regularTestAllPassedAtThisMilestone": false,
+  "released": false,
+  "originalRowsXminBytesAnchorsAndContainersPreserved": true,
+  "observationReportSha256": "0ee2b3cd8e399aece6f373356c71665a9ffde02415ae3c225269b86d6bbb3ae6",
+  "suites": [
+    {
+      "name": "workspace-request-principal-postgres-test",
+      "passed": true,
+      "logSha256": "d908d02622a5fb6cd3969020a86adc61689cafae9619f4d0d7dcf8d47c0781c4"
+    },
+    {
+      "name": "authenticated-native-session-reader-postgres-test",
+      "passed": true,
+      "logSha256": "2eec188460171e39a208a94f730e2417a98cac9ff6fc8c4200d66a6f1a552eae"
+    },
+    {
+      "name": "native-document-read-postgres-test",
+      "passed": true,
+      "logSha256": "d2fc2d894122e82cebe017b09550e4f6a1f78cb0112a8e7626e29f7dc6fcdf48"
+    },
+    {
+      "name": "document-read-service-postgres-test",
+      "passed": true,
+      "logSha256": "b913c5e98bd1bfc7d905be1c88415bc191d1b580bc110b045ba7879bc37e9c56"
+    },
+    {
+      "name": "native-document-search-service-postgres-test",
+      "passed": true,
+      "logSha256": "a2471ae99af43e42ee66a5e9742a8ed1ba442f5bab83af70ff0fcf7a552665ee"
+    },
+    {
+      "name": "document-read-tool-dispatch-postgres-test",
+      "passed": true,
+      "logSha256": "f846cc1a413387fba40e81542227cb27b20bc055fd287e9f8f619c2db5147216"
+    }
+  ],
+  "windows": [
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 11,
+          "previousSql": 62,
+          "previousCheckouts": 12,
+          "wallMs": 263.86,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 93.32,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 87.94,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 11,
+          "previousSql": 62,
+          "previousCheckouts": 12,
+          "wallMs": 254.13,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 81.03,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 8,
+          "previousSql": 59,
+          "previousCheckouts": 9,
+          "wallMs": 83.26,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 204,
+          "checkouts": 37,
+          "previousSql": 204,
+          "previousCheckouts": 37,
+          "wallMs": 612.2,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 99,
+          "checkouts": 3,
+          "previousSql": 99,
+          "previousCheckouts": 3,
+          "wallMs": 73.39,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 99,
+          "checkouts": 3,
+          "previousSql": 99,
+          "previousCheckouts": 3,
+          "wallMs": 75.51,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 233,
+          "checkouts": 37,
+          "previousSql": 233,
+          "previousCheckouts": 37,
+          "wallMs": 600.1,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 117,
+          "checkouts": 3,
+          "previousSql": 117,
+          "previousCheckouts": 3,
+          "wallMs": 84.51,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 117,
+          "checkouts": 3,
+          "previousSql": 117,
+          "previousCheckouts": 3,
+          "wallMs": 86.72,
+          "peakReady": 2,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 95,
+          "checkouts": 32,
+          "previousSql": 95,
+          "previousCheckouts": 32,
+          "wallMs": 345.08,
+          "peakReady": 3,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 74,
+          "checkouts": 19,
+          "previousSql": 74,
+          "previousCheckouts": 19,
+          "wallMs": 78.55,
+          "peakReady": 3,
+          "observedFromStart": true,
+          "closed": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 74,
+          "checkouts": 19,
+          "previousSql": 74,
+          "previousCheckouts": 19,
+          "wallMs": 81.47,
+          "peakReady": 4,
+          "observedFromStart": true,
+          "closed": true
+        }
+      ]
+    }
+  ],
+  "typecheck": {
+    "sourceFiles": 5117,
+    "typescript": "6.0.3",
+    "diagnostics": 0,
+    "reportSha256": "707ddac079df9b6e9123dc7efbc20a5b65d960a3b1145f9ea29a63fc86609497"
+  },
+  "preexistingRegression": {
+    "base": "8a381dc73ae4b907e29c3cf112cf4b3751713417",
+    "unchangedMainProductFailsOldSqlTrigger": true,
+    "correctedActualReplyTriggerPasses": true,
+    "mainControlReportSha256": "075c9887d5d9a2aea2d4372212ed95d16b997a22c15bbb001c3fe763df36fa29"
+  }
+}

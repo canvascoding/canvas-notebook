@@ -5,6 +5,14 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+Ein erster kleiner [HTTP-Verbindungsschritt in Paket 2](architecture/document-service-request-source-connection-2026-10-30.md)
+verwendet die tatsächliche Herkunftsverbindung für die folgende native
+Lesetransaktion weiter. Fünf frische Fixtures mit 15 Messfenstern und sechs echte
+PostgreSQL-Suiten bestehen. Bei zehn und 200 Dokumenten sinken warme HTTP-Ausleihen
+von neun auf acht; SQL bleibt bei 59. Agent-/MCP-Kontrollen bleiben unverändert.
+Dies ist noch keine SQL-Bündelung oder Abnahme von Paket 2; Build-, UI-, Gesamt-
+suite- und Release-Gates bleiben für den neuen Produktstand offen.
+
 Die [reguläre Linux-Gesamtsuite](architecture/document-service-regular-suite-2026-10-28.md)
 ist inzwischen als Regressionstest-Grundlage bestanden (329/0/268, neun erfolgreiche
 CI-Prüfungen am dokumentierten Teststand). Die Leistungsbudgets und die übrigen
