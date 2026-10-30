@@ -10,8 +10,9 @@ verwendet die tatsächliche Herkunftsverbindung für die folgende native
 Lesetransaktion weiter. Fünf frische Fixtures mit 15 Messfenstern und sechs echte
 PostgreSQL-Suiten bestehen. Bei zehn und 200 Dokumenten sinken warme HTTP-Ausleihen
 von neun auf acht; SQL bleibt bei 59. Agent-/MCP-Kontrollen bleiben unverändert.
-Dies ist noch keine SQL-Bündelung oder Abnahme von Paket 2; Build-, UI-, Gesamt-
-suite- und Release-Gates bleiben für den neuen Produktstand offen.
+Der vollständige Host-Produktbuild des Commits `23c58fbc3` besteht. Dies ist noch
+keine SQL-Bündelung oder Abnahme von Paket 2; Containerstart, UI-, Gesamtsuite-
+und Release-Gates bleiben für den neuen Produktstand offen.
 
 Die [reguläre Linux-Gesamtsuite](architecture/document-service-regular-suite-2026-10-28.md)
 ist inzwischen als Regressionstest-Grundlage bestanden (329/0/268, neun erfolgreiche

@@ -57,8 +57,14 @@ Abschlussfenster und alle sechs Missbrauchsvarianten bleiben geprüft; die
 Beobachter der neuen Verbindungsprüfung und ein falscher temporärer Runner-Eintrag
 wurden ebenfalls korrigiert; die fehlgeschlagenen privaten Berichte bleiben erhalten.
 
+Der vollständige Host-Produktbuild des Commits `23c58fbc3` besteht mit unverändertem
+Quellstand: Kompilierung, Release-Typprüfung, Artefakterzeugung und gemeinsame
+Yjs-/Browser-ESM-Prüfung sind erfolgreich. Die bekannten Better-Auth-Meldungen
+über die während des Builds ausdrücklich gesperrte Datenbank entsprechen dem
+vorherigen erfolgreichen Build; sie belegen keinen Runtime-Start.
+
 Die SQL-Ziele, weitere gemeinsame Fakten, selektive native Body-Lesungen und
-Schreibmechanik bleiben offen. Ein neuer Produktbuild, die Browserabnahme,
-reguläres `test:all`, erforderliche CI-/Review-Prüfungen und das abschließende
-Release sind durch diesen lokalen Nachweis nicht als bestanden ausgewiesen.
+Schreibmechanik bleiben offen. Containerstart, Browserabnahme, reguläres
+`test:all`, erforderliche CI-/Review-Prüfungen und das abschließende Release
+sind für diesen neuen Produktstand noch nicht als bestanden ausgewiesen.
 Review Center und Undo erhalten keine Funktionserweiterung.

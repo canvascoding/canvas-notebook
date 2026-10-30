@@ -20,7 +20,7 @@
   "fullGoalComplete": false,
   "sqlReductionClaimed": false,
   "latencyImprovementClaimed": false,
-  "hostBuildPassedAtThisMilestone": false,
+  "hostBuildPassedAtThisMilestone": true,
   "browserAcceptancePassedAtThisMilestone": false,
   "regularTestAllPassedAtThisMilestone": false,
   "released": false,
@@ -271,5 +271,16 @@
     "unchangedMainProductFailsOldSqlTrigger": true,
     "correctedActualReplyTriggerPasses": true,
     "mainControlReportSha256": "075c9887d5d9a2aea2d4372212ed95d16b997a22c15bbb001c3fe763df36fa29"
+  },
+  "hostBuild": {
+    "sourceSha": "23c58fbc31320e8be87bd7c5635d184e02a707cf",
+    "treeSha": "4469cdb0287ad460779d3a76b1a439e01a79b9b0",
+    "finishedAt": "2026-10-30T21:41:11.956Z",
+    "exitCode": 0,
+    "sameSource": true,
+    "buildId": "build-TfctsWXpff2fKS",
+    "manifestSha256": "3120c24d84447d965f0851aad7f01655c7ab70785d95dfd6225f838edab23ad4",
+    "reportSha256": "bb9278c7126f2bcca0b9f51bdf5873cf53b8286cbb8c9d7f9d0d871235c3d105",
+    "intentionalBuildTimeDatabaseDisabledDiagnosticsMatchPreviousBuild": true
   }
 }
