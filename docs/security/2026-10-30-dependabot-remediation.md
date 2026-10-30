@@ -5,6 +5,9 @@ Baseline: 124 open repository alerts (12 critical, 52 high, 49 medium,
 main at `08bce484ab0bd52c59c2d593852704b9e4800631`. Alert counts are a
 dated dependency snapshot, not proof that every advisory is exploitable.
 
+The remediation commits were rebased onto `a4d82e20f` after the MCP reliability
+PR #189 merged. Final MCP build/runtime acceptance uses that current main base.
+
 ## Sequential fix packages
 
 1. Web platform, image processing and HTML sanitization.
@@ -145,4 +148,30 @@ Package 2 is complete.
 
 Package 3 is complete.
 
-Packages 4–7 have not started.
+## MCP transports, HTTP and validation
+
+- MCP SDK 1.32.2 and modular client/server/core 2.4.0; Hono 4.13.14 and
+  Node adapter 2.1.5; proxy-addr 2.0.8, body-parser 2.4.0, qs 6.17.1,
+  ip-address 10.7.5, Undici 6.29.1 and 7.30.1 in their respective major trees.
+- Puppeteer Core 25.16.0 (including Marp's override) brings a compatible
+  Chromium BiDi using Zod 4.6.7, removing the vulnerable nested Zod 3 branch.
+- MCP configuration, real stdio/HTTP fixtures, proxy, manager, apps/host,
+  API routes, OAuth lifecycle, direct tools and scoped URL/argument secrets
+  tests pass. Request-identity and HTML-preview boundaries also pass.
+- PDF network tests retain private-network/worker/WebSocket blocking and
+  public images. Real Marp PDF/PNG/PPTX exports pass; both slide images,
+  including MathJax and relative SVG content, were visually inspected.
+- npm audit has zero critical vulnerabilities. Remaining renderer/email and
+  Electron findings belong to the following packages.
+- Full production builds pass on the current main base, both host and Linux
+  arm64. The installed Linux runtime also passes the actual export regression;
+  both rendered slides were inspected.
+- Managed HTTP smoke passes discovery/metadata, legacy/current protocol,
+  authentication challenges, CORS and method boundaries. Live browser PKCE
+  consent, refresh and immediate JWT/refresh revocation pass on that image.
+- After rebasing, the changed upstream MCP capability/settings/direct-tool
+  tests were rerun successfully with the updated dependencies.
+
+Package 4 is complete.
+
+Packages 5–7 have not started.
