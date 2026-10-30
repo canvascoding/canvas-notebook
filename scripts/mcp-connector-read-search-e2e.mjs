@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
+import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
@@ -32,7 +33,7 @@ async function step(name, run) {
   steps.push({ name, passed: true, durationMs: Date.now() - start });
   console.log(`PASS ${name}`);
 }
-const tools = ['auth_probe', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
+const tools = ['auth_probe', 'get_workspace_overview', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
   'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
 try {
   await step('real login, workspace opt-in, browser consent and PKCE', async () => {
@@ -51,6 +52,7 @@ try {
     mcp = await authorizeIngestE2EMcp(owner, baseURL, workspace.id, settings.data.protocolVersion);
   });
   const call = (name, args) => mcp.call(name, { workspace_id: workspace.id, ...args });
+  await step('workspace rights, versions and limits', async () => { await verifyCapabilitiesAcceptance(call); });
   await step('HTTP tools/list exposes every read and search argument at top level', async () => {
     const listed = await mcp.rpc('tools/list');
     for (const [name, keys] of [

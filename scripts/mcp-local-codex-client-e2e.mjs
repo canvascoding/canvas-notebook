@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-local-codex-client-e2e.mjs <report.json>
  */
 import assert from 'node:assert/strict';
+import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
@@ -80,6 +81,7 @@ try {
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-tool-catalog.json'), JSON.stringify(listed, null, 2), { mode: 0o600 });
   const call = (tool, args) => rpc('mcpServer/tool/call', { threadId, server: serverName, tool,
     arguments: { workspace_id: fixture.workspaceId, ...args } });
+  await verifyCapabilitiesAcceptance(call);
   const document = fixture.documents[0];
   const legacy = await call('read_knowledge_source', { path: document.path, max_characters: 37 });
   assert.notEqual(legacy.isError, true); assert.equal(legacy.structuredContent.content.length, 37);

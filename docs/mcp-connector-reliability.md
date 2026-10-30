@@ -183,3 +183,17 @@ not prove that earlier pages stayed unchanged.
 Real PostgreSQL/public MCP dispatch tests pass binary hash/size/revision/link,
 pagination, cursor invalidation, hidden/symlink exclusion, oversized files and
 revoked access. Production typecheck, settings tests and scoped ESLint pass.
+
+## Step 6 workspace capability report
+
+`get_workspace_overview` now includes the actual release/schema/protocol versions,
+a SHA-256 of published tool schemas, upload size/chunk/TTL and Markdown limits,
+and the selected workspace's current permissions. Every tool reports required
+scopes, effective workspace/connection permission and explicit denial reasons.
+Document policy, destination rights, native mutation gates and revision checks
+remain operation-time conditions and are stated separately.
+
+Capability tests cover read-only workspaces, missing OAuth scopes, disabled tools,
+delete rights and stable schema hashing. Production typecheck and scoped ESLint
+pass. Combined fresh-container OAuth/HTTP/browser and installed-Codex acceptance
+is the remaining release gate; no Knowledge sync is performed.

@@ -1,6 +1,11 @@
 import 'server-only';
 
 import path from 'node:path';
+import { describeWorkspaceCapabilities } from './workspace-capabilities';
+import { getDirectMcpRuntimeSettings } from './runtime-settings';
+import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
+import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
+import { getDirectMcpAuthProbeToolDescriptor } from './auth-probe';
 import { readManifestFile, ManifestReadError, MANIFEST_MAX_FILE_BYTES } from './file-manifest';
 import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from './legacy-pagination';
 import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
@@ -367,7 +372,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Get workspace overview',
-      description: 'Shows a compact overview of one accessible Canvas workspace and its top-level contents.',
+      description: 'Shows one accessible workspace, current connection/workspace rights per tool, schema and server versions, schema hash, upload limits and top-level contents.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -381,8 +386,10 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         properties: {
           workspace: { type: 'object' },
           contents: { type: 'object' },
+          capabilities: { type: 'object' },
+          limits: { type: 'object' },
         },
-        required: ['workspace', 'contents'],
+        required: ['workspace', 'contents', 'capabilities', 'limits'],
         additionalProperties: false,
       },
       annotations: {
@@ -1008,7 +1015,15 @@ async function executeGetWorkspaceOverview(
       .filter(Boolean))]
       .sort()
       .slice(0, 20);
+    const runtime = await getDirectMcpRuntimeSettings();
+    const descriptors = [getDirectMcpAuthProbeToolDescriptor(), ...getDirectMcpWorkspaceToolDefinitions().map(tool => tool.descriptor),
+      ...getDirectMcpIngestToolDefinitions().map(tool => tool.descriptor), ...getDirectMcpExcalidrawToolDefinitions().map(tool => tool.descriptor)];
     const structuredContent = {
+      capabilities: describeWorkspaceCapabilities({ workspace, scopes: authorization.principal.scopes,
+        enabled: runtime.enabled, enabledTools: runtime.tools, descriptors }),
+      limits: { upload_max_bytes: DIRECT_MCP_UPLOAD_MAX_BYTES, upload_chunk_max_bytes: DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
+        upload_chunk_max_base64_characters: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, upload_ttl_seconds: 900,
+        markdown_replace_max_characters: MAX_EDIT_TEXT_LENGTH, manifest_max_file_bytes: MANIFEST_MAX_FILE_BYTES },
       workspace: workspaceSummary(workspace),
       contents: {
         top_level_files: files.length,
