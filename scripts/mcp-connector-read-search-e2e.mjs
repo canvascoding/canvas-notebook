@@ -8,6 +8,8 @@ import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +52,26 @@ try {
       data: { workspaceId: workspace.id, enabled: true },
     }), 'Enable only test workspace');
     mcp = await authorizeIngestE2EMcp(owner, baseURL, workspace.id, settings.data.protocolVersion);
+  });
+  await step('settings UI shows and persists manifest and replacement controls', async () => {
+    const page = await owner.newPage();
+    await page.goto('/en/settings?tab=mcp', { waitUntil: 'domcontentloaded', timeout: 120000 });
+    const replacement = page.getByRole('switch', { name: 'Replace complete Markdown', exact: true });
+    await expect(replacement).toHaveAttribute('aria-checked', 'true', { timeout: 60000 });
+    await expect(page.getByRole('switch', { name: 'Read file manifest', exact: true })).toHaveAttribute('aria-checked', 'true');
+    for (let index = 0; index < 2; index++) {
+      await replacement.click();
+      const receipt = page.waitForResponse(response => response.request().method() === 'PATCH'
+        && new URL(response.url()).pathname === '/api/integrations/mcp-server');
+      await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+      await requireIngestE2EJson(await receipt, 'Persist capability selection');
+      await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
+    }
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(replacement).toHaveAttribute('aria-checked', 'true', { timeout: 60000 });
+    await replacement.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(artifacts, 'settings.png') });
+    await page.close();
   });
   const call = (name, args) => mcp.call(name, { workspace_id: workspace.id, ...args });
   await step('workspace rights, versions and limits', async () => { await verifyCapabilitiesAcceptance(call); });
@@ -148,7 +170,15 @@ try {
     }
   });
   await step('binary upload retries, status and original SHA-256', async () => {
-    await verifyUploadAcceptance(call, runId);
+    await verifyUploadAcceptance(call, runId, async () => {
+      const { stdout } = await promisify(execFile)('docker', ['inspect', '--format', '{{.Config.Image}}', 'canvas-local-prod-notebook']);
+      assert.match(stdout.trim(), /^canvas-notebook:mcp-connector-fdd3-/u, 'Never restart another chat test image.');
+      await promisify(execFile)('docker', ['restart', 'canvas-local-prod-notebook']);
+      await expect.poll(async () => {
+        try { return (await fetch(`${baseURL}/api/health`, { signal: AbortSignal.timeout(3000) })).ok; }
+        catch { return false; }
+      }, { timeout: 180000, intervals: [1000, 2000, 5000] }).toBe(true);
+    });
   });
   await step('complete Markdown replacement, retry and revision conflict', async () => {
     await verifyReplaceAcceptance(call, document, `${runId}-replace`);

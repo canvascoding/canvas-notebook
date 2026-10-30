@@ -197,3 +197,11 @@ Capability tests cover read-only workspaces, missing OAuth scopes, disabled tool
 delete rights and stable schema hashing. Production typecheck and scoped ESLint
 pass. Combined fresh-container OAuth/HTTP/browser and installed-Codex acceptance
 is the remaining release gate; no Knowledge sync is performed.
+
+The extended registered-edit suite also verifies full Markdown replacement with
+a real PostgreSQL room owner: both native Markdown and physical checkpoint match,
+retries return the same operation, stale guards and changed-key payloads fail.
+All nine groups pass. One run exposed an existing test timing race: background
+projection completed during the suite's broad read-only row snapshot assertion.
+The unchanged assertion passed on the subsequent isolated run; no assertion was
+weakened. The complete host `npm run build` passed before the fresh image build.
