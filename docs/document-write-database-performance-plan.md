@@ -78,6 +78,15 @@ Alle SQL-Zähler stimmen exakt überein, Originaldaten bleiben erhalten. Aktuell
 Anlage-, Editor- und Pfadvergleiche mit vollständiger Verbindungszählung sowie
 die Leistungsoptimierung und die übrigen Abnahmen bleiben offen.
 
+Die [aktuelle Anlage im Standardmodus](architecture/document-service-current-create-default-2026-10-30.md)
+besteht bei zehn Quellen in zwölf Fenstern für Hauptagent, Organisationsagent
+und MCP. Der Messlauf erzwingt den früheren Schattenmodus nicht mehr; Version-
+Center-Modus, Review Center und Undo sind ausgeschaltet. Warme Anlagen benötigen
+1058 / 1220 / 675 SQL-Aufrufe bei maximal vier bereiten Verbindungen. Original-
+Retries und sämtliche vorhandenen Quelldaten bleiben erhalten. Dies ist eine
+korrekt abgegrenzte Default-Messung, keine Produktoptimierung. Die 200er-Anlagen
+und übrigen aktuellen Prozessvergleiche sowie alle Leistungsbudgets bleiben offen.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
