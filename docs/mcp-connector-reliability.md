@@ -147,3 +147,19 @@ conflict, partial resume, chunk retries/hashes, original bytes, complete retry,
 changed destination, wrong final hash, abort, revoked workspace grant, a durable
 receipt read by a fresh Node process, and a lost-acknowledgement boundary.
 The HTTP and installed-Codex acceptance scripts include the same upload flow.
+
+## Step 4 complete Markdown replacement
+
+`replace_knowledge_source` is a separate explicitly enabled write capability.
+Its flat contract requires workspace, path, complete content, expected SHA-256
+and caller idempotency key. Existing `create_knowledge_source` remains the create
+entry point. Replacement uses the authoritative Yjs write preparation, persisted
+operation receipt, current OAuth authority and physical checkpoint verification.
+It refuses filesystem-only documents and unsupported structural/metadata changes;
+review outcomes are never reported as applied. Retry fingerprints include the
+original request rather than the changed current content.
+
+Seven edit/checkpoint/authority tests, three existing edit-contract tests,
+settings migration tests, scoped ESLint and production TypeScript check pass.
+HTTP/Codex scripts now check full replacement, retry, conflict, SHA-256 and editor
+reload. Their combined rebuilt-container run is still pending.

@@ -31,7 +31,7 @@ test('edit tool advertises review-aware receipts and stable retries', async () =
   // branch. Native Edit/Status and its failure are separate public outputs.
   const output = outputSchema.oneOf[0];
 
-  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 7);
+  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 8);
   assert.ok(input.properties.idempotency_key);
   for (const field of [
     'status',

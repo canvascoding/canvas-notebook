@@ -145,7 +145,7 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
       const { handleDirectMcpPost } = await import('../app/lib/mcp/server/streamable-http');
       const { DIRECT_MCP_PROTOCOL_VERSION: protocol, DIRECT_MCP_DEFAULT_TOOL_IDS, DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS,
         DIRECT_MCP_TOOL_CONFIGURATION_VERSION } = await import('../app/lib/mcp/server/config');
-      assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 7);
+      assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 8);
       assert.equal((DIRECT_MCP_DEFAULT_TOOL_IDS as readonly string[]).includes('copy_knowledge_source'), false);
       assert((DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes('copy_knowledge_source'));
       let id = 0;

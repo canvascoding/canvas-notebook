@@ -35,6 +35,7 @@ const TOOL_NAMES = new Set([
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'replace_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
   'create_knowledge_source',

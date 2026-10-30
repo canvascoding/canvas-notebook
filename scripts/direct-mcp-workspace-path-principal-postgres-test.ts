@@ -132,7 +132,7 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
         DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS, DIRECT_MCP_TOOL_CONFIGURATION_VERSION } = await import('../app/lib/mcp/server/config');
       const { buildDirectMcpServerSettingsStatus } = await import('../app/lib/mcp/server/settings-status');
       const { handleDirectMcpPost } = await import('../app/lib/mcp/server/streamable-http');
-      assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 7);
+      assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 8);
       const settings = buildDirectMcpServerSettingsStatus(null); let rpcId = 0;
       const rpc = async (method: string, params: Record<string, unknown>, name?: string) => {
         const id = ++rpcId;

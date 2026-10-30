@@ -5956,6 +5956,10 @@
             "title": "Edit file contents",
             "description": "Allows exact, conflict-protected edits to visible text files after an explicit administrator enablement."
           },
+          "replace_knowledge_source": {
+            "title": "Replace complete Markdown",
+            "description": "Replaces Markdown with revision protection through the authoritative document service. Requires explicit opt-in."
+          },
           "copy_knowledge_source": {
             "title": "Copy files and documents",
             "description": "Copies visible files, folders and native documents through the central service, with preview, recorded status and explicit recovery. Requires source read and destination write access."

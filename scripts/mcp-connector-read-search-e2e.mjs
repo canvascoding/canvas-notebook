@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
+import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
 import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -31,7 +32,7 @@ async function step(name, run) {
   console.log(`PASS ${name}`);
 }
 const tools = ['auth_probe', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
-  'search_knowledge', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
+  'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
 try {
   await step('real login, workspace opt-in, browser consent and PKCE', async () => {
     await requireIngestE2EJson(await owner.request.post('/api/auth/sign-in/email', {
@@ -146,6 +147,9 @@ try {
   await step('binary upload retries, status and original SHA-256', async () => {
     await verifyUploadAcceptance(call, runId);
   });
+  await step('complete Markdown replacement, retry and revision conflict', async () => {
+    await verifyReplaceAcceptance(call, document, `${runId}-replace`);
+  });
   await step('direct document link opens the real editor and survives reload', async () => {
     const page = await owner.newPage();
     await page.goto(document.document_url, { waitUntil: 'domcontentloaded', timeout: 120_000 });
@@ -154,9 +158,9 @@ try {
     if (!await page.locator('.tiptap-editor-shell .ProseMirror').isVisible()) {
       await views.getByRole('button', { name: 'Edit', exact: true }).click();
     }
-    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toContainText(marker, { timeout: 90_000 });
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toContainText('Replaced via complete Markdown', { timeout: 90_000 });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toContainText(marker, { timeout: 90_000 });
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toContainText('Replaced via complete Markdown', { timeout: 90_000 });
     await page.screenshot({ path: path.join(artifacts, 'document.png') });
     await page.close();
   });

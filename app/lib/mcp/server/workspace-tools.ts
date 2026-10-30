@@ -48,6 +48,7 @@ import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationContentEditInDocument,
   prepareCollaborationTextEdit,
+  prepareCollaborationWrite,
   readCurrentCollaborationTextSnapshot,
 } from '@/app/lib/collaboration/agent-file-edits';
 import { confirmCollaborativeFileCheckpoint, CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
@@ -131,6 +132,7 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'replace_knowledge_source',
   'copy_knowledge_source',
   'move_knowledge_source',
   'delete_knowledge_source',
@@ -473,6 +475,29 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         openWorldHint: false,
       },
       ...getToolSecurity('knowledge:search'),
+    };
+  }
+
+  if (tool === 'replace_knowledge_source') {
+    return {
+      name: tool,
+      title: 'Replace Markdown document',
+      description: 'Replace the complete content of an existing authoritative Markdown document. Read it first and supply its SHA-256 plus a stable idempotency_key. Uses the same live Yjs, revision, permission and review safeguards as editing. Inspect status and authoritative_updated; a review proposal is not an applied change. Unsupported structural or metadata changes fail closed. Create new documents with create_knowledge_source.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          workspace_id: { type: 'string' },
+          path: { type: 'string', description: 'Existing workspace-relative .md or .markdown path.' },
+          content: { type: 'string', maxLength: MAX_EDIT_TEXT_LENGTH, description: 'Complete replacement Markdown, including any existing frontmatter.' },
+          expected_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$' },
+          idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$' },
+        },
+        required: ['workspace_id', 'path', 'content', 'expected_sha256', 'idempotency_key'],
+        additionalProperties: false,
+      },
+      outputSchema: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source').outputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      ...getToolSecurity('knowledge:write'),
     };
   }
 
@@ -844,6 +869,10 @@ function result(content: Record<string, unknown>, text: string): CallToolResult 
       ? `${text}\nOpen file: ${content.document_url}` : text }],
     structuredContent: content,
   };
+}
+
+function structuredErrorResult(code: string, message: string): CallToolResult {
+  return { isError: true, structuredContent: { code, message }, content: [{ type: 'text', text: `${code}: ${message}` }] };
 }
 
 function errorResult(message: string): CallToolResult {
@@ -1573,9 +1602,12 @@ function editErrorResult(error: unknown): CallToolResult {
 async function executeEditKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
+  mode: 'edit' | 'replace' = 'edit',
 ): Promise<CallToolResult> {
+  const fullReplace = mode === 'replace';
+  const tool = fullReplace ? 'replace_knowledge_source' : 'edit_knowledge_source';
   let nativeSelection: ReturnType<typeof decodeDirectMcpNativeDocumentEditSelection>;
-  try { nativeSelection = decodeDirectMcpNativeDocumentEditSelection(args); }
+  try { nativeSelection = fullReplace ? null : decodeDirectMcpNativeDocumentEditSelection(args); }
   catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
   if (nativeSelection) {
     try {
@@ -1590,8 +1622,15 @@ async function executeEditKnowledgeSource(
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
   assertVisibleWorkspacePath(filePath);
-  const oldText = requiredText(parsed, 'old_text', MAX_EDIT_TEXT_LENGTH);
-  const newText = requiredText(parsed, 'new_text', MAX_EDIT_TEXT_LENGTH, true);
+  if (fullReplace) {
+    const allowed = new Set(['workspace_id', 'path', 'content', 'expected_sha256', 'idempotency_key']);
+    if (Object.keys(parsed).some(key => !allowed.has(key))) invalidParams('Unsupported replacement argument.');
+    if (!/\.m(?:d|arkdown)$/iu.test(filePath)) invalidParams('Replacement requires a Markdown document.');
+    if (parsed.idempotency_key === undefined) invalidParams('idempotency_key is required.');
+  }
+  const replacement = fullReplace ? requiredText(parsed, 'content', MAX_EDIT_TEXT_LENGTH, true) : null;
+  const oldText = fullReplace ? '' : requiredText(parsed, 'old_text', MAX_EDIT_TEXT_LENGTH);
+  const newText = fullReplace ? replacement! : requiredText(parsed, 'new_text', MAX_EDIT_TEXT_LENGTH, true);
   const expectedSha256 = normalizeExpectedSha256(requiredString(parsed, 'expected_sha256', 80));
   if (!expectedSha256) invalidParams('expected_sha256 must be a SHA-256 hash returned by read_knowledge_source.');
   const replaceAll = optionalBoolean(parsed, 'replace_all');
@@ -1631,6 +1670,9 @@ async function executeEditKnowledgeSource(
       buffer,
       principal: authorization.principal,
     });
+    if (fullReplace && (current.source !== 'live_yjs' || !current.documentId)) {
+      return structuredErrorResult('REPLACE_REQUIRES_NATIVE_DOCUMENT', 'Full replacement requires an authoritative live Markdown document.');
+    }
     const fileLink = directMcpFileLinkFields({ workspaceId: workspace.workspaceId,
       path: current.nativeIdentity?.path ?? filePath,
       documentId: current.nativeIdentity?.documentId ?? null, lineageId: current.nativeIdentity?.lineageId ?? null });
@@ -1638,6 +1680,7 @@ async function executeEditKnowledgeSource(
     const authorityForSnapshot = (snapshot: { documentId: string; lifecycleGeneration: number }) =>
       createDirectMcpEditAuthority({
         token: authInfo!.token,
+        tool,
         scope: {
           userId: authorization.principal.userId,
           clientId: authorization.principal.clientId,
@@ -1653,12 +1696,13 @@ async function executeEditKnowledgeSource(
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
     const edits: ExactTextEdit[] = [{
-      oldText,
+      oldText: fullReplace ? current.content : oldText,
       newText,
       expectedOccurrences,
       replaceAll,
     }];
-    const mutation = {
+    const mutation = fullReplace ? { operation: tool, workspaceId: workspace.workspaceId, path: filePath,
+      expectedSha256, content: replacement } : {
       operation: 'edit_knowledge_source',
       workspaceId: workspace.workspaceId,
       path: filePath,
@@ -1702,9 +1746,9 @@ async function executeEditKnowledgeSource(
               expectedSha256,
               groupId: 'direct_mcp_edit',
               plan: (content) => ({
-                proposedContent: applyExactTextEdits(content, edits, filePath),
+                proposedContent: fullReplace ? replacement! : applyExactTextEdits(content, edits, filePath),
                 edits,
-                richMode: 'exact_text',
+                richMode: fullReplace ? 'markdown_structure' : 'exact_text',
               }),
             });
             const preparedValidation = validateTextFileContent(filePath, prepared.proposedContent);
@@ -1762,7 +1806,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: 1,
         path: filePath,
@@ -1850,17 +1894,19 @@ async function executeEditKnowledgeSource(
           size: Buffer.byteLength(after.content, 'utf8'),
           modified_at: toIsoDate(afterStats.modified),
         };
-        await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'edit_knowledge_source',
+        await auditWorkspaceToolCall({ principal: authorization.principal, tool,
           workspace, resultCount: 0, path: filePath, beforeSha256: request.beforeSha256,
           afterSha256: after.sha256, changed: false, reviewRequired });
         return result(structuredContent, message);
       }
     }
     if (current.sha256 !== expectedSha256) {
-      return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
+      return fullReplace
+        ? structuredErrorResult('FILE_REVISION_CONFLICT', 'The document changed. Read its current content before retrying.')
+        : errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
     }
 
-    const proposedContent = applyExactTextEdits(current.content, edits, filePath);
+    const proposedContent = fullReplace ? replacement! : applyExactTextEdits(current.content, edits, filePath);
     if (Buffer.byteLength(proposedContent, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The updated file would exceed the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
@@ -1913,7 +1959,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: 0,
         path: filePath,
@@ -1929,7 +1975,10 @@ async function executeEditKnowledgeSource(
       const policyProposal = await createReviewProposal!({});
       if (policyProposal) return reviewResult(policyProposal);
 
-      const prepared = await prepareCollaborationTextEdit({
+      const prepared = fullReplace ? await prepareCollaborationWrite({
+        documentId: current.documentId, workspace, path: filePath, content: replacement!,
+        expectedSha256, groupId: 'direct_mcp_replace',
+      }) : await prepareCollaborationTextEdit({
         documentId: current.documentId,
         workspace,
         path: filePath,
@@ -2036,7 +2085,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: changed ? 1 : 0,
         path: filePath,
@@ -2119,7 +2168,7 @@ async function executeEditKnowledgeSource(
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
-      tool: 'edit_knowledge_source',
+      tool,
       workspace,
       resultCount: 1,
       path: filePath,
@@ -2203,6 +2252,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'edit_knowledge_source',
       descriptor: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source'),
       execute: executeEditKnowledgeSource,
+    },
+    {
+      id: 'replace_knowledge_source',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('replace_knowledge_source'),
+      execute: (args, authInfo) => executeEditKnowledgeSource(args, authInfo, 'replace'),
     },
     {
       id: 'copy_knowledge_source',

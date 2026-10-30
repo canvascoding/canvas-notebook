@@ -51,8 +51,11 @@ export function isDirectMcpEditAuthority(value: unknown): value is DirectMcpEdit
 
 export async function createDirectMcpEditAuthority(input: {
   token: string;
+  tool?: 'edit_knowledge_source' | 'replace_knowledge_source';
   scope: DirectMcpEditAuthorityScope;
 }): Promise<DirectMcpEditAuthority> {
+  const tool = input.tool ?? 'edit_knowledge_source';
+  if (tool !== 'edit_knowledge_source' && tool !== 'replace_knowledge_source') throw new DirectMcpEditAuthorityError();
   const scope = Object.freeze({ ...input.scope });
   if (scope.actorId !== `direct-mcp:${createHash('sha256').update(scope.clientId).digest('hex').slice(0, 32)}`
     || !scope.userId || !scope.sessionId || !scope.workspaceId || !scope.documentId || !scope.path
@@ -71,7 +74,7 @@ export async function createDirectMcpEditAuthority(input: {
           verifyDirectMcpAccessToken(input.token, ['knowledge:write']),
           getDirectMcpRuntimeSettings(),
         ]);
-        if (!settings.enabled || !settings.tools.includes('edit_knowledge_source')
+        if (!settings.enabled || !settings.tools.includes(tool)
           || principal.userId !== scope.userId || principal.clientId !== scope.clientId
           || principal.sessionId !== scope.sessionId) throw new DirectMcpEditAuthorityError();
         expiresAt = principal.expiresAt * 1000;
