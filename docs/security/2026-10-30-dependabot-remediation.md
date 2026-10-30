@@ -174,4 +174,38 @@ Package 3 is complete.
 
 Package 4 is complete.
 
-Packages 5–7 have not started.
+## Renderer, editor and mail
+
+- KaTeX 0.18.11 is shared across the application, Marp and Mermaid trees;
+  Markdown-it 14.3.3, ProseMirror View 1.42.8, mailparser 3.14.1,
+  Nodemailer 10.3.1, fast-uri 3.1.9, source-map-js 1.2.2 and
+  postcss-selector-parser 7.1.7 remove all remaining web/mail audit findings.
+- npm audit now reports one high Electron finding and no critical, moderate
+  or low findings. Electron belongs to package 6.
+- Markdown math, rich-block round trips and collaboration, preservation and
+  17 clipboard cases pass. The JSDOM round-trip fixture now has a real HTTP
+  origin, as required by Better Auth; application origin checks remain active.
+- Real Nodemailer MIME generation and mailparser parsing preserve Unicode
+  subject/body/attachment bytes and reject CRLF header/envelope injection.
+  Mail HTML, accounts, recipient policy/routes, replies and system notification
+  regressions pass. The accounts npm command now selects server imports.
+  Tests use an in-memory stream transport; no external email is sent.
+- Real Marp PDF/PNG/PPTX exports pass separately with MathJax and KaTeX.
+  Both KaTeX slides were visually checked, including formula and SVG image.
+- The exact new mailsplit release retains the previously elected MIT terms;
+  installed and upstream license bytes and source commit were verified.
+  The regenerated license inventory has zero blockers; compliance tests pass.
+
+- Full host and Linux arm64 production builds pass. The installed Linux
+  runtime passes real KaTeX PDF/PNG/PPTX exports; both slides were inspected.
+- All three Playwright cases pass: image sizing/alignment/undo/reload/mobile,
+  rich-block editing and serialization, and actual Mermaid math rendering
+  before and after reload. Formula and diagram screenshots were inspected.
+- Browser login/logout, protected pages, native image conversion, Secrets,
+  legal inventory and desktop/mobile layout pass with no page errors.
+- The legacy MIME fixture now intercepts the current Pi-AI compatibility import;
+  its Unicode encoded-word and CRLF injection assertions pass unchanged.
+- The production-only npm audit reports zero known vulnerabilities.
+
+Package 5 is complete.
+Packages 6–7 have not started.

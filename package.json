@@ -461,6 +461,7 @@
     "test:internal:scheduler": "tsx --conditions react-server scripts/internal-scheduler-proxy-test.ts",
     "test:email:html-content": "tsx scripts/email-html-content-test.ts",
     "test:email:html-conversion": "tsx scripts/email-html-conversion-test.ts",
+    "test:email:mime-roundtrip": "tsx scripts/email-mime-roundtrip-test.ts",
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:addresses": "tsx scripts/email-addresses-test.ts",
     "test:email:recipients": "tsx --conditions react-server scripts/email-recipient-discovery-test.ts && tsx --conditions react-server scripts/email-recipient-route-test.ts",
@@ -469,7 +470,7 @@
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:attachment-preview": "tsx scripts/email-attachment-preview-test.ts",
     "test:email:inbound-attachments": "tsx --conditions react-server scripts/email-inbound-attachments-test.ts && tsx --conditions react-server scripts/email-attachment-batch-test.ts",
-    "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
+    "test:email:accounts": "tsx --conditions react-server scripts/email-accounts-service-test.ts",
     "test:email:mailboxes": "tsx --conditions react-server scripts/email-mailbox-access-test.ts && tsx --conditions react-server scripts/email-mailbox-mutation-route-test.ts && tsx --conditions react-server scripts/email-ai-mailbox-actor-test.ts && tsx --conditions react-server scripts/email-tool-mailbox-context-test.ts && tsx --conditions react-server scripts/email-browser-attachments-test.ts",
     "test:email:personal-boundaries": "tsx --conditions react-server scripts/email-personal-boundaries-test.ts",
     "test:email:agent-profile": "tsx --conditions react-server scripts/email-agent-profile-test.ts",
@@ -1133,10 +1134,10 @@
     "jspreadsheet-ce": "^5.0.4",
     "jsuites": "^6.3.1",
     "jszip": "^3.10.1",
-    "katex": "^0.17.0",
+    "katex": "0.18.11",
     "lib0": "0.2.117",
     "lucide-react": "^1.21.0",
-    "mailparser": "3.9.32",
+    "mailparser": "3.14.1",
     "mammoth": "^1.11.0",
     "marked": "^18.0.3",
     "marked-katex-extension": "^5.1.10",
@@ -1146,7 +1147,7 @@
     "next-intl": "^4.8.3",
     "next-themes": "^0.4.6",
     "node-pty": "^1.1.0",
-    "nodemailer": "^10.0.13",
+    "nodemailer": "10.3.1",
     "openai": "^6.34.0",
     "opensrc": "^0.7.3",
     "parse5": "8.0.1",
@@ -1163,7 +1164,7 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-tables": "^1.8.5",
     "prosemirror-transform": "^1.12.0",
-    "prosemirror-view": "^1.41.8",
+    "prosemirror-view": "1.42.8",
     "puppeteer-core": "25.16.0",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.5.0",
@@ -1232,7 +1233,7 @@
     "@excalidraw/mermaid-to-excalidraw": {
       "nanoid": "5.1.16"
     },
-    "fast-uri": "3.1.8",
+    "fast-uri": "3.1.9",
     "lodash-es": "4.18.1",
     "minimatch": "10.2.5",
     "next": {
@@ -1255,6 +1256,10 @@
     "qs": "6.17.1",
     "ip-address": "10.7.5",
     "undici@^6.0.0": "6.29.1",
-    "undici@^7.0.0": "7.30.1"
+    "undici@^7.0.0": "7.30.1",
+    "katex": "$katex",
+    "markdown-it": "14.3.3",
+    "source-map-js": "1.2.2",
+    "postcss-selector-parser": "7.1.7"
   }
 }

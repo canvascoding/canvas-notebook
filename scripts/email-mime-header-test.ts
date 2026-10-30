@@ -9,7 +9,7 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
   }
-  if (request === '@earendil-works/pi-ai') {
+  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
       completeSimple: async () => {
         throw new Error('pi-ai should not be called by the email MIME header test.');

@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.29.1
-- Lockfile SHA-256: `6f11720ad1ea471d48f31e265f4293a205c474124969271d6f41ad2f541b326f`
-- Distributed components: 1466
+- Lockfile SHA-256: `6d7aedb237e94d158b18d69c058664df1595b79e3ab1b7cc968592528d376895`
+- Distributed components: 1460
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -641,7 +641,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @xtuc/ieee754 | 1.2.0 | runtime | BSD-3-Clause | allowed |
 | @xtuc/long | 4.2.2 | runtime | Apache-2.0 | allowed |
 | @zone-eu/mailsplit | 5.4.16 | runtime | MIT | allowed |
-| @zone-eu/mailsplit | 5.4.19 | runtime | MIT | allowed |
+| @zone-eu/mailsplit | 5.4.29 | runtime | MIT | allowed |
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
@@ -722,13 +722,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | codemirror | 6.0.2 | runtime | MIT | allowed |
 | comma-separated-tokens | 2.0.3 | runtime | MIT | allowed |
 | commander | 13.1.0 | runtime | MIT | allowed |
+| commander | 15.0.0 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
 | commander | 7.2.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 8.3.0 | runtime | MIT | allowed |
 | commondir | 1.0.1 | runtime | MIT | allowed |
 | compress-commons | 7.0.1 | runtime | MIT | allowed |
 | content-disposition | 1.1.0 | runtime | MIT | allowed |
@@ -869,7 +866,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
 | fast-sha256 | 1.3.0 | runtime | Unlicense | allowed |
-| fast-uri | 3.1.8 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.9 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fdir | 6.5.0 | runtime | MIT | allowed |
@@ -1007,10 +1004,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | jszip | 3.10.1 | runtime | MIT | allowed |
 | jwa | 2.0.1 | runtime | MIT | allowed |
 | jws | 4.0.1 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.16.47 | runtime | MIT | allowed |
-| katex | 0.17.0 | runtime | MIT | allowed |
+| katex | 0.18.11 | runtime | MIT | allowed |
 | khroma | 2.1.0 | runtime | MIT | allowed |
 | kleur | 4.1.5 | runtime | MIT | allowed |
 | kysely | 0.29.3 | runtime | MIT | allowed |
@@ -1023,11 +1017,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lemonadejs | 5.3.6 | runtime | MIT | allowed |
 | lib0 | 0.2.117 | runtime | MIT | allowed |
 | libbase64 | 1.3.0 | runtime | MIT | allowed |
-| libbase64 | 1.3.1 | runtime | MIT | allowed |
+| libbase64 | 1.4.1 | runtime | MIT | allowed |
 | libmime | 5.4.3 | runtime | MIT | allowed |
-| libmime | 5.4.6 | runtime | MIT | allowed |
+| libmime | 5.6.3 | runtime | MIT | allowed |
 | libqp | 2.1.1 | runtime | MIT | allowed |
-| libqp | 2.1.2 | runtime | MIT | allowed |
+| libqp | 3.0.1 | runtime | MIT | allowed |
 | lie | 3.3.0 | runtime | MIT | allowed |
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
 | linkify-it | 5.0.2 | runtime | MIT | allowed |
@@ -1050,10 +1044,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | lz-string | 1.5.0 | runtime | MIT | allowed |
 | magic-string | 0.30.21 | runtime | MIT | allowed |
-| mailparser | 3.9.32 | runtime | MIT | allowed |
+| mailparser | 3.14.1 | runtime | MIT | allowed |
 | mammoth | 1.12.0 | runtime | BSD-2-Clause | allowed |
 | markdown-it-front-matter | 0.2.4 | runtime | MIT | allowed |
-| markdown-it | 14.3.2 | runtime | MIT | allowed |
+| markdown-it | 14.3.3 | runtime | MIT | allowed |
 | markdown-table | 3.0.4 | runtime | MIT | allowed |
 | marked-katex-extension | 5.1.10 | runtime | MIT | allowed |
 | marked | 16.4.2 | runtime | MIT | allowed |
@@ -1146,7 +1140,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-int64 | 0.4.0 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
-| nodemailer | 10.0.13 | runtime | MIT-0 | allowed |
+| nodemailer | 10.3.1 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | e2f8a0731bf26e95b31e35d73e71e183a1045b81 | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
@@ -1215,7 +1209,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | points-on-curve | 1.0.1 | runtime | MIT | allowed |
 | points-on-path | 0.2.1 | runtime | MIT | allowed |
 | postcss-nesting | 13.0.2 | runtime | MIT-0 | allowed |
-| postcss-selector-parser | 7.1.4 | runtime | MIT | allowed |
+| postcss-selector-parser | 7.1.7 | runtime | MIT | allowed |
 | postcss | 8.5.23 | runtime | MIT | allowed |
 | postgres-array | 2.0.0 | runtime | MIT | allowed |
 | postgres-bytea | 1.0.1 | runtime | MIT | allowed |
@@ -1237,12 +1231,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | prosemirror-history | 1.5.0 | runtime | MIT | allowed |
 | prosemirror-inputrules | 1.5.1 | runtime | MIT | allowed |
 | prosemirror-keymap | 1.2.3 | runtime | MIT | allowed |
-| prosemirror-model | 1.25.11 | runtime | MIT | allowed |
+| prosemirror-model | 1.25.12 | runtime | MIT | allowed |
 | prosemirror-schema-list | 1.5.1 | runtime | MIT | allowed |
 | prosemirror-state | 1.4.4 | runtime | MIT | allowed |
 | prosemirror-tables | 1.8.5 | runtime | MIT | allowed |
 | prosemirror-transform | 1.12.0 | runtime | MIT | allowed |
-| prosemirror-view | 1.42.1 | runtime | MIT | allowed |
+| prosemirror-view | 1.42.8 | runtime | MIT | allowed |
 | protobufjs | 7.6.5 | runtime | BSD-3-Clause | allowed |
 | proxy-addr | 2.0.8 | runtime | MIT | allowed |
 | proxy-agent-negotiate | 1.1.0 | runtime | MIT | allowed |
@@ -1338,7 +1332,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | socks | 2.8.9 | runtime | MIT | allowed |
 | sonic-boom | 4.2.1 | runtime | MIT | allowed |
 | sonner | 2.0.7 | runtime | MIT | allowed |
-| source-map-js | 1.2.1 | runtime | BSD-3-Clause | allowed |
+| source-map-js | 1.2.2 | runtime | BSD-3-Clause | allowed |
 | source-map-support | 0.5.21 | runtime | MIT | allowed |
 | source-map | 0.6.1 | runtime | BSD-3-Clause | allowed |
 | space-separated-tokens | 2.0.2 | runtime | MIT | allowed |
@@ -2122,7 +2116,7 @@ SOFTWARE.
 
 ### License text 04512a63dce4
 
-Applies to commander@13.1.0, commander@2.20.3, commander@2.20.3, commander@7.2.0, commander@8.3.0, commander@8.3.0, commander@8.3.0, commander@8.3.0.
+Applies to commander@13.1.0, commander@15.0.0, commander@2.20.3, commander@2.20.3, commander@7.2.0.
 
 Copyright notices:
 
@@ -3503,7 +3497,7 @@ SOFTWARE.
 
 ### License text 0f2482bc8520
 
-Applies to libmime@5.4.3, libmime@5.4.6.
+Applies to libmime@5.4.3, libmime@5.6.3.
 
 Copyright notices:
 
@@ -5658,7 +5652,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 27d7db274ef1
 
-Applies to libbase64@1.3.0, libbase64@1.3.1.
+Applies to libbase64@1.3.0, libbase64@1.4.1.
 
 Copyright notices:
 
@@ -5885,7 +5879,7 @@ SOFTWARE.
 
 ### License text 2998094b38f7
 
-Applies to postcss-selector-parser@7.1.4.
+Applies to postcss-selector-parser@7.1.7.
 
 Copyright notices:
 
@@ -6440,7 +6434,7 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### License text 2dd95346123a
 
-Applies to libqp@2.1.1, libqp@2.1.2.
+Applies to libqp@2.1.1, libqp@3.0.1.
 
 Copyright notices:
 
@@ -6564,7 +6558,7 @@ THE SOFTWARE.
 
 ### License text 2fd433bea68e
 
-Applies to mailparser@3.9.32.
+Applies to mailparser@3.14.1.
 
 Copyright notices:
 
@@ -9226,7 +9220,7 @@ SOFTWARE.
 
 ### License text 4f814dcacd2d
 
-Applies to nodemailer@10.0.13.
+Applies to nodemailer@10.3.1.
 
 Copyright notices:
 
@@ -12760,7 +12754,7 @@ SOFTWARE.
 
 ### License text 6cb0631f71c7
 
-Applies to source-map-js@1.2.1, source-map@0.6.1.
+Applies to source-map-js@1.2.2, source-map@0.6.1.
 
 Copyright notices:
 
@@ -13630,7 +13624,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 766ccc1f306c
 
-Applies to katex@0.16.47, katex@0.16.47, katex@0.16.47, katex@0.17.0.
+Applies to katex@0.18.11.
 
 Copyright notices:
 
@@ -13804,7 +13798,7 @@ SOFTWARE.
 
 ### License text 792c48c5a849
 
-Applies to markdown-it@14.3.2.
+Applies to markdown-it@14.3.3.
 
 Copyright notices:
 
@@ -25996,7 +25990,7 @@ END OF TERMS AND CONDITIONS
 
 ### License text d1cc09bdab06
 
-Applies to @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.19.
+Applies to @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.29.
 
 Copyright notices:
 
@@ -27503,7 +27497,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.8.
+Applies to fast-uri@3.1.9.
 
 Copyright notices:
 
@@ -29202,7 +29196,7 @@ SOFTWARE.
 
 ### License text ef0b452ced63
 
-Applies to prosemirror-commands@1.7.1, prosemirror-dropcursor@1.8.3, prosemirror-gapcursor@1.4.1, prosemirror-history@1.5.0, prosemirror-inputrules@1.5.1, prosemirror-keymap@1.2.3, prosemirror-model@1.25.11, prosemirror-schema-list@1.5.1, prosemirror-state@1.4.4, prosemirror-transform@1.12.0, prosemirror-view@1.42.1.
+Applies to prosemirror-commands@1.7.1, prosemirror-dropcursor@1.8.3, prosemirror-gapcursor@1.4.1, prosemirror-history@1.5.0, prosemirror-inputrules@1.5.1, prosemirror-keymap@1.2.3, prosemirror-model@1.25.12, prosemirror-schema-list@1.5.1, prosemirror-state@1.4.4, prosemirror-transform@1.12.0, prosemirror-view@1.42.8.
 
 Copyright notices:
 

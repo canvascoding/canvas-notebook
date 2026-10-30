@@ -741,6 +741,16 @@
       "sourceUrl": "https://github.com/cure53/DOMPurify/tree/a307c2ac04d751cde8870191d6af503141e8c58a",
       "verificationSource": "https://github.com/cure53/DOMPurify/blob/3.4.17/LICENSE",
       "reason": "The exact npm release declares (MPL-2.0 OR Apache-2.0). The matching 3.4.17 tag resolves to a307c2ac04d751cde8870191d6af503141e8c58a. Canvas elects Apache-2.0 and retains the complete license and package header. The package is unmodified."
+    },
+    "@zone-eu/mailsplit@5.4.29": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media O\u00dc"
+      ],
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/cfe7974d73d1a36cfcaeb8323e1cd9a99e906dc1",
+      "verificationSource": "https://github.com/zone-eu/mailsplit/blob/cfe7974d73d1a36cfcaeb8323e1cd9a99e906dc1/LICENSE.MIT",
+      "reason": "Technical package review by Codex on 2026-10-30: npm gitHead and the lightweight v5.4.29 tag identify cfe7974d73d1a36cfcaeb8323e1cd9a99e906dc1. The installed and upstream LICENSE.MIT are byte-identical to the previously elected MIT alternative (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete terms and copyright notice. The package is unmodified; this records source/license evidence, not a new legal or product release approval."
     }
   },
   "additionalComponents": [
