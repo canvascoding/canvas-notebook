@@ -63,8 +63,43 @@ Yjs-/Browser-ESM-Prüfung sind erfolgreich. Die bekannten Better-Auth-Meldungen
 über die während des Builds ausdrücklich gesperrte Datenbank entsprechen dem
 vorherigen erfolgreichen Build; sie belegen keinen Runtime-Start.
 
+Der anschließende Linux-Build und gesunde Neustart am Produktstand `04332be41`
+bestehen. Gegenüber dem Hostbuild ändern sich nur drei Dokumentationsdateien;
+Runtime-, Test- und Paketquellen sind identisch. 15 Linux-Speicherfälle und das
+tatsächliche `npm run test:all` bestehen mit 331 erfolgreichen Fällen, null
+Fehlern und 269 vorgesehenen bedingten Skips. Der reguläre Browserlauf braucht
+47,6 Minuten und verwendet keine automatischen Wiederholungen.
+
+Die anschließende echte Browserabnahme besteht mit neun Fällen ohne Skips oder
+Retries: erste unterbrochene Editorsitzung, beide Varianten der manuellen
+Neuanlage mit verlorener Antwort, mobiler Speicherabschluss, zwei Live-Editoren
+mit Rechteentzug und frischer schreibgeschützter Anmeldung, HEIF-Upload sowie
+Frontmatter-/Wiki-/Markdown-Linknavigation nach Rename und Move. Die beiden
+Editoren und die neue Lesesitzung rufen den kompilierten Dokument-Endpunkt mit
+echten Cookies auf. Die widerrufene Sitzung erhält dort ausdrücklich HTTP 401
+mit `AUTHENTICATION_REQUIRED`; die verbleibenden Leser erhalten den aktuellen
+vollständigen Inhalt. Die echten WebSocket-Verbindungen, ursprünglichen
+Dokument-IDs und physischen Inhalte bleiben geprüft.
+
+![Desktop: aktueller Inhalt im Live-Editor](../testing/document-request-source-2026-10-30/desktop-live-editors.png)
+
+![Mobil: neue Lesesitzung nach Rechteentzug](../testing/document-request-source-2026-10-30/mobile-read-only.png)
+
+Der abschließende unabhängige Vergleich bestätigt denselben gesunden Container,
+die erwarteten Runtime-Quellen, erhaltene Originalzeilen/`xmin`, native Bytes,
+Operationsbelege und Dateianker sowie elf unveränderte andere Container.
+Temporärer Testproxy und Testprozesse sind beendet. Die sechs CI-Prüfungen des
+geprüften Produktstands sind erfolgreich; Reviews, allgemeine und Inline-
+Kommentare sowie Review-Threads enthalten keine offenen Punkte. Die drei
+Runner-Hinweise betreffen ausschließlich den angekündigten Ubuntu-Imagewechsel.
+Der abschließende Dokumentationscommit ändert keine Runtime- oder Testquellen;
+seine PR-CI wird vor einem Merge gesondert vollständig geprüft.
+
+Der Linux-Teststack hat Direct MCP deaktiviert. Die ausgewiesenen Agenten-/MCP-
+Kontrollen stammen aus den separaten echten registrierten PostgreSQL-Dispatch-
+Fixtures; dieser Schritt behauptet keine neue kompilierte OAuth-/Connectorabnahme.
+
 Die SQL-Ziele, weitere gemeinsame Fakten, selektive native Body-Lesungen und
-Schreibmechanik bleiben offen. Containerstart, Browserabnahme, reguläres
-`test:all`, erforderliche CI-/Review-Prüfungen und das abschließende Release
-sind für diesen neuen Produktstand noch nicht als bestanden ausgewiesen.
+Schreibmechanik sowie die gemeinsame Schlussabnahme und das abschließende Release
+bleiben offen. Diese bestandene lokale Abnahme schließt Paket 2 noch nicht ab.
 Review Center und Undo erhalten keine Funktionserweiterung.

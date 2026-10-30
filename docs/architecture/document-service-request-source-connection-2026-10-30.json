@@ -21,8 +21,8 @@
   "sqlReductionClaimed": false,
   "latencyImprovementClaimed": false,
   "hostBuildPassedAtThisMilestone": true,
-  "browserAcceptancePassedAtThisMilestone": false,
-  "regularTestAllPassedAtThisMilestone": false,
+  "browserAcceptancePassedAtThisMilestone": true,
+  "regularTestAllPassedAtThisMilestone": true,
   "released": false,
   "originalRowsXminBytesAnchorsAndContainersPreserved": true,
   "observationReportSha256": "0ee2b3cd8e399aece6f373356c71665a9ffde02415ae3c225269b86d6bbb3ae6",
@@ -282,5 +282,185 @@
     "manifestSha256": "3120c24d84447d965f0851aad7f01655c7ab70785d95dfd6225f838edab23ad4",
     "reportSha256": "bb9278c7126f2bcca0b9f51bdf5873cf53b8286cbb8c9d7f9d0d871235c3d105",
     "intentionalBuildTimeDatabaseDisabledDiagnosticsMatchPreviousBuild": true
+  },
+  "linuxAcceptance": {
+    "sourceSha": "04332be415fd8bee2c9bc821075f9f0b92385560",
+    "hostSourceSha": "23c58fbc31320e8be87bd7c5635d184e02a707cf",
+    "verifiedHostDocumentationOnlyDelta": [
+      "docs/architecture/document-service-request-source-connection-2026-10-30.json",
+      "docs/architecture/document-service-request-source-connection-2026-10-30.md",
+      "docs/document-write-database-performance-plan.md"
+    ],
+    "imageId": "sha256:f739a8abaf9abc8cceaa626e9eac0d4879496c8b7f7baabf1b4e03ca2cf142e8",
+    "containerId": "3c8c2edef69bebd2663439d1111682fa6e0a9937586cdf93e1bb59c5330421a4",
+    "finishedAt": "2026-10-30T22:50:26.425Z",
+    "buildPassed": true,
+    "startupHealthy": true,
+    "birthStorageCases": 15,
+    "actualCommand": "npm run test:all",
+    "regularPassed": 331,
+    "regularFailed": 0,
+    "regularConditionalSkipped": 269,
+    "regularRetries": 0,
+    "focusedStats": {
+      "startTime": "2026-10-30T22:45:30.601Z",
+      "duration": 295101.962,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "focusedCases": [
+      {
+        "file": "editor-first-session-recovery.spec.ts",
+        "title": "a known tab reopens after the first collaboration session was interrupted",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 24054
+      },
+      {
+        "file": "editor-manual-create-recovery.spec.ts",
+        "title": "home: server completes the genuine POST, lost reply stays closed across reload until same UUID is explicitly checked",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 15859
+      },
+      {
+        "file": "editor-manual-create-recovery.spec.ts",
+        "title": "file-browser: server completes the genuine POST, lost reply stays closed across reload until same UUID is explicitly checked",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 14990
+      },
+      {
+        "file": "mobile-notebook-save-recovery.spec.ts",
+        "title": "mobile HTTP edit survives export failure and retries without replacing later peer edits",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 24192
+      },
+      {
+        "file": "peer-status-live-access.spec.ts",
+        "title": "owned current peer status synchronizes users and enforces real revoked write access",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 34812
+      },
+      {
+        "file": "security-heif-upload.spec.ts",
+        "title": "HEIF workspace uploads convert to a JPEG that opens in the image viewer",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 4833
+      },
+      {
+        "file": "workspace-link-frontmatter.spec.ts",
+        "title": "rich emoji YAML Wiki and Markdown links navigate after managed UI rename and enforce the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 94222
+      },
+      {
+        "file": "workspace-link-lifecycle.spec.ts",
+        "title": "never-opened Markdown target rename persists repairs and enforces the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 40738
+      },
+      {
+        "file": "workspace-link-lifecycle.spec.ts",
+        "title": "never-opened Markdown source move persists repairs and enforces the Undo release policy",
+        "status": "passed",
+        "retry": 0,
+        "durationMs": 40609
+      }
+    ],
+    "actualLivePeerResults": {
+      "realUsers": 2,
+      "realWebSocketFrames": {
+        "owner": 24,
+        "member": 17
+      },
+      "realPermissionRevocation": true,
+      "revokedSessionDenied": true,
+      "ownerStillWrites": true,
+      "freshLoginReadOnly": true,
+      "physicalContentPreserved": true,
+      "authenticatedDocumentReadFromBothLiveEditorsAndFreshReader": true,
+      "documentReviewEnabled": false
+    },
+    "compiledHttpDeniedOldSession": true,
+    "liveAccessUiSourceSha256": "b43632211ed50bf8344f855ac1460342bdd3ab1e1daa841e8dc3915d418b6dbf",
+    "screenshotSha256": {
+      "desktop-live-editors.png": "67d4098fac1e01e3639288f2b10bc556ebae622ee5cfa2330974f67fc7426918",
+      "mobile-read-only.png": "64b105048ee2e217179943aa1f34aea835c35f917426d138ba0c3d32f3a8173d"
+    },
+    "screenshotsVisuallyInspected": true,
+    "runtimeSourceHashes": {
+      "app/lib/workspaces/request-principal.ts": "a7f44029bf3f76ca3b601db5685376ca3192212464a1ec53a1e28c535c955a46",
+      "app/lib/documents/service.ts": "15249aefb643d866924bd655d65ebd02ec653b188502a25383048f5c204fc155",
+      "app/lib/collaboration/native-document-read.ts": "6f4cac07add929c0d454749e42cca23390207f466ce3d172f738b6155e80d31c",
+      "app/lib/collaboration/room-admission-predicates.ts": "099d344f6a45a315c6397b0ffa3c09096698f348605684ebc94553e2939d5c1a",
+      "app/lib/collaboration/room-admission.ts": "9a53acbd4d26948f58c5f20b9ae32525ea490901e51751eca647f730ccc7e4c3",
+      "app/lib/collaboration/authenticated-native-peer.ts": "5c08e1cdb05e6142cd258a0a2ccd018ad0f2a91b43f02cb5c2f45b36d0d14b2f",
+      "app/lib/collaboration/authenticated-native-session-transport.ts": "d95352b179f27a833dedb442fc224b774df08dbef9d0cc13d03ec718eb4f59ae",
+      "server/collaboration-server.ts": "3cc9fbafe56c17bfb3319e645142cf86d7e7c9aa22dd4eab9f55f352ba3ab63d",
+      "app/lib/mobile/notebook.ts": "cbcb8f0e06cd077ae12251e9dadaf91fa55f9f77599bfd5bd465b8e41dcc3bd8",
+      "app/lib/mobile/notebook-route.ts": "91b9c65342f8a222714eaeae8403d360bcc7a3e1e893a8c8fd5f0543b7c1c3ac"
+    },
+    "originalRowsXminNativeBytesReceiptsAndAnchorsPreserved": true,
+    "otherElevenContainersUnchanged": true,
+    "temporaryProxyAndDriverProcessesClosed": true,
+    "runtimeHealth": {
+      "app": "ok",
+      "databaseProvider": "ok",
+      "auth": "ok",
+      "mcp": "ok",
+      "db": "ok",
+      "collaboration": "ok"
+    },
+    "localMcpStatus": {
+      "status": "disabled",
+      "code": "MCP_DISABLED"
+    },
+    "mcpAcceptanceScope": "Separate genuine registered dispatcher/PostgreSQL controls; this Linux fixture has Direct MCP disabled, so no new compiled OAuth acceptance is claimed.",
+    "acceptanceReportSha256": "bc148286acd1f20ab9a82cb2da2ff9a86ea5ca1fdc7e3025f3c69e8ecfdb0154",
+    "browserReportSha256": "aa7ebae8a28888712ffdb6dfd4ef3b5a43072b2b71c853abfcd2226e5af98ab3",
+    "postAcceptanceReportSha256": "90b1b7495fe00a90a35e3920b9fd66780640819a4c8969f7572dbf5900c369a2"
+  },
+  "ciAtApplicationHead": {
+    "head": "04332be415fd8bee2c9bc821075f9f0b92385560",
+    "allSixPassed": true,
+    "checks": [
+      {
+        "name": "CodeQL",
+        "conclusion": "success"
+      },
+      {
+        "name": "Linux agent sandbox",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (c-cpp)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (actions)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (python)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Analyze (javascript-typescript)",
+        "conclusion": "success"
+      }
+    ],
+    "reviews": 0,
+    "reviewThreads": 0,
+    "actionableFindings": 0,
+    "runnerNoticesOnly": true,
+    "proofSha256": "7bb252c5cc359d01ef2770428d7aaf18e800588d6a433c62d221abfaff3fc57a"
   }
 }
