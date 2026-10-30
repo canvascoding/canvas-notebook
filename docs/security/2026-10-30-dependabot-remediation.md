@@ -269,4 +269,52 @@ Package 6 is complete.
 
 Reference: [Filelock planted-inode advisory](https://github.com/tox-dev/filelock/security/advisories/GHSA-69hj-f68j-2879).
 
-Package 7 is complete. Final cumulative checks and PR remain.
+Package 7 is complete.
+
+## Final cumulative acceptance
+
+- A normal clean `npm ci` passes without resolver flags. All-level npm audit
+  reports zero known vulnerabilities. Both Python locks together audit all
+  64 packages with zero findings and none skipped.
+- Every stored baseline range was checked against every matching resolved npm
+  version and the respective Python pin: all 57 npm and 67 Python alerts are
+  outside their vulnerable ranges (124 total). Sharp's separate native SVG
+  dependency is additionally covered by the patched source/linkage checks.
+- Final managed Playwright run: 10 passed, one configured-off onboarding-only
+  case skipped. Coverage includes public/bootstrap authentication, live PKCE
+  consent/refresh/immediate revocation, rich blocks, image editing, private and
+  public PDFs, HEIF conversion and Mermaid math before/after reload.
+- Final UI login/logout, protected-page redirect, Secrets, legal inventory,
+  desktop/mobile layout and native image conversion pass with no page errors.
+  Smoke and file-operation integration tests and the managed MCP HTTP smoke pass.
+- The final Linux runtime repeats real image/PDF/HEIF/CA/crypto regressions and
+  Sharp native linkage/conversion successfully. Its immutable tested image is
+  `sha256:fbaa2078d903f077b49d4440b4cf11054e51b37778c50e883040d89da8ab1e85`.
+- HTML preview boundaries, PDF security/network isolation, Markdown rendering,
+  real MIME round trip and complete compliance tests pass after the clean install.
+  Full lint finishes with zero errors and 729 warnings; changed test files pass
+  focused lint without warnings. Host production compilation/type checking and
+  the compiled Yjs canary pass before the final Linux build.
+- New PR/main CI audits all npm levels, checks license inventory and independently
+  resolves/hash-checks both Python locks for amd64/arm64 before pip-audit. Actions
+  and the audit tool are pinned; the workflow has read-only repository permission.
+- GitNexus comparison against current `origin/main` reports the expected schema,
+  HEIF fallback, grant-revocation and test/inventory changes with low change risk.
+  Its stale/duplicate test-symbol mappings were checked against source and real
+  regressions; an empty affected-flow list is not treated as complete proof.
+
+Scope and limits:
+
+- Native application/image runtime acceptance was on Linux arm64 and macOS arm64.
+  Linux amd64 Python wheels were fully resolved and hash-verified; an amd64 image
+  was not executed locally. Existing release CI retains both image architectures.
+- Electron 42 support and production Developer ID/notarization remain the
+  explicitly described follow-ups above. No release, tag, production deployment
+  or merge is part of this change.
+- The historical missing MCP-upgrade test and the intentional onboarding skip
+  are not reported as passing. Current provider migration and live OAuth behavior
+  have direct regression coverage.
+- GitHub alert closure requires merging the lock changes into the default branch
+  and dependency-graph reanalysis. The 124-alert baseline is retained for review;
+  local zero-result audits do not themselves close GitHub alerts.
+- Remote PR check results are reported separately from this local evidence.
