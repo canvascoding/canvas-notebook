@@ -4,7 +4,7 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.29.1
-- Lockfile SHA-256: `6d7aedb237e94d158b18d69c058664df1595b79e3ab1b7cc968592528d376895`
+- Lockfile SHA-256: `206b97a8d281e6bf73d3276cecee39598d3c4c7bed36705cb2a4168dec20ef30`
 - Distributed components: 1460
 - Release gate: **approved**
 
@@ -39,7 +39,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
-| electron-runtime | 42.11.10 | native | MIT | allowed |
+| electron-runtime | 42.11.18 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | optional-whisper-ggml-models | 5359861c739e955e79d9a303bcbc70fb988958b1 | native | MIT | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
@@ -9533,7 +9533,7 @@ THE SOFTWARE.
 
 ### License text 5154e165bd6c
 
-Applies to electron-runtime@42.11.10.
+Applies to electron-runtime@42.11.18.
 
 Copyright notices:
 

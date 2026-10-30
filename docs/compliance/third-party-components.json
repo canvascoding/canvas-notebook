@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.29.1",
-  "lockfileSha256": "6d7aedb237e94d158b18d69c058664df1595b79e3ab1b7cc968592528d376895",
+  "lockfileSha256": "206b97a8d281e6bf73d3276cecee39598d3c4c7bed36705cb2a4168dec20ef30",
   "summary": {
     "totalComponents": 1975,
     "npmComponents": 1947,
@@ -4590,7 +4590,7 @@
     },
     {
       "name": "electron",
-      "versionOrCommit": "42.11.10",
+      "versionOrCommit": "42.11.18",
       "sourceUrl": "https://github.com/electron/electron",
       "packagePathOrArtifact": "node_modules/electron",
       "usage": "development-only",
@@ -10556,8 +10556,8 @@
     },
     {
       "name": "electron-runtime",
-      "versionOrCommit": "42.11.10",
-      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.10",
+      "versionOrCommit": "42.11.18",
+      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.18",
       "packagePathOrArtifact": "Electron desktop runtime",
       "usage": "native",
       "distributedIn": [

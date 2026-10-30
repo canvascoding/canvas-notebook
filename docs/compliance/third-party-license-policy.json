@@ -801,8 +801,8 @@
     },
     {
       "name": "electron-runtime",
-      "versionOrCommit": "42.11.10",
-      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.10",
+      "versionOrCommit": "42.11.18",
+      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.18",
       "packagePathOrArtifact": "Electron desktop runtime",
       "usage": "native",
       "distributedIn": [

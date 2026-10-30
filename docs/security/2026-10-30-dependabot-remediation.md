@@ -208,4 +208,31 @@ Package 4 is complete.
 - The production-only npm audit reports zero known vulnerabilities.
 
 Package 5 is complete.
-Packages 6–7 have not started.
+## Electron desktop runtime
+
+- Electron npm dependency and electron-builder runtime pin are both 42.11.18.
+  This includes the vendor's compromised eMudhra intermediate-certificate
+  mitigation (42.11.16 minimum). No application version or release tag changes.
+- All-level npm audit reports zero known vulnerabilities, including dev tools.
+- The real Electron binary reports 42.11.18. A new Playwright native-runtime
+  regression imports the actual desktop main/preload code with an isolated
+  profile and owned loopback fixtures. It verifies setup, URL validation,
+  connection, persistence after relaunch, Node and Chromium rejection of a
+  self-signed TLS certificate, sandbox/context isolation and remote IPC denial.
+  The setup screenshot was visually inspected. The compromised certificate
+  itself is not replayed; coverage of its block relies on the patched vendor
+  runtime, independently of these TLS rejection regressions.
+- Local macOS arm64 packaging passes. A local-only ad-hoc signature allows
+  the existing signed-bundle microphone/Hardened Runtime checks to inspect
+  the app and every helper: all 38 Electron tests pass, none skipped.
+  This is not Developer ID signing, notarization or a published release.
+- Electron's exact MIT license matches the installed/upstream bytes; regenerated
+  compliance inventory and tests pass with zero blockers. New test lint passes.
+- Follow-up: Electron 42 is outside upstream support. This scoped security patch
+  retains the existing major; a supported-major upgrade needs separate desktop
+  compatibility acceptance.
+
+References: [Electron advisory](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9),
+[42.11.18 release](https://releases.electronjs.org/release/v42.11.18).
+
+Package 6 is complete. Package 7 has not started.
