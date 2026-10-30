@@ -4,13 +4,14 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
-import { measureDocumentOperation, withDocumentOperationMetricObserver, type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
+import { measureDocumentDatabaseActivity, measureDocumentOperation, withDocumentOperationMetricObserver,
+  type DocumentDatabaseActivityMeasurement, type DocumentOperationMeasurement } from '../app/lib/observability/document-operation-metrics';
 
 let completed = false;
 process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
 async function main() {
   const samples: Array<{ phase: string; documents: number; measurement: DocumentOperationMeasurement;
-    resolution: { linksResolved: number; sourcesResolved: number; sourcesReused: number } }> = [];
+    activityMeasurement: DocumentDatabaseActivityMeasurement; resolution: { linksResolved: number; sourcesResolved: number; sourcesReused: number } }> = [];
   await withDocumentReadToolDispatchFixture(async fixture => {
     const { GET } = await import('../app/api/markdown/link-index/route');
     const { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } =
@@ -29,9 +30,12 @@ async function main() {
     });
     const read = async (phase: string, documents: number, fresh = false, sourcesComplete = true) => {
       let observed: DocumentOperationMeasurement | undefined;
+      let activityMeasurement: DocumentDatabaseActivityMeasurement | undefined;
       const beforeResolution = documentLinkResolutionProjectionStatistics();
-      const execute = () => withDocumentOperationMetricObserver(value => { assert.equal(observed, undefined); observed = value; },
-        () => measureDocumentOperation('links', 'request', () => GET(request())));
+      const execute = () => measureDocumentDatabaseActivity('links', 'request',
+        () => withDocumentOperationMetricObserver(value => { assert.equal(observed, undefined); observed = value; },
+          () => measureDocumentOperation('links', 'request', () => GET(request()))),
+        value => { assert.equal(activityMeasurement, undefined); activityMeasurement = value; });
       const response = await (fresh ? withFreshDocumentLinkReadProjection(execute) : execute());
       assert.equal(response.status, 200);
       const body = await response.json(); assert(body.index);
@@ -40,8 +44,12 @@ async function main() {
       assert.equal(semantic.diagnostics.sourcesComplete, sourcesComplete);
       assert(observed); assert.equal(observed.unsupportedQueryForms, 0);
       assert.equal(observed.openQueriesAtCompletion, 0); assert.equal(observed.openConnectionsAtCompletion, 0);
+      assert(activityMeasurement); assert.equal(activityMeasurement.unsupportedQueryForms, 0);
+      assert.equal(activityMeasurement.failedStatements, 0);
+      assert.equal(activityMeasurement.openQueriesAtCompletion, 0);
+      assert.equal(activityMeasurement.openConnectionsAtCompletion, 0);
       const afterResolution = documentLinkResolutionProjectionStatistics();
-      samples.push({ phase, documents, measurement: observed, resolution: {
+      samples.push({ phase, documents, measurement: observed, activityMeasurement, resolution: {
         linksResolved: afterResolution.linksResolved - beforeResolution.linksResolved,
         sourcesResolved: afterResolution.sourcesResolved - beforeResolution.sourcesResolved,
         sourcesReused: afterResolution.sourcesReused - beforeResolution.sourcesReused } });

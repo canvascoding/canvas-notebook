@@ -53,6 +53,67 @@ Speicheranker und die elf anderen laufenden Container sind erhalten. Die
 SQL-Anzahl bleibt bei 36 / sieben Ausleihen; native Body-Lesungen, weitere
 Faktenbündelung und sämtliche übrigen Paketabnahmen bleiben offen.
 
+Die [Editor-Messung vor der genauen Verbindungsdiagnose](architecture/document-service-editor-current-baseline-2026-10-30.md)
+am Produktstand `6302d6403` besteht mit zehn und 200 regulär angelegten Dokumenten.
+Erstes Öffnen benötigt in diesem Lauf in beiden Größen 690 SQL-Aufrufe; die Prozessfenster enthalten
+weiterhin erhebliche Hintergrundarbeit. Alle zehn SQL-Callsite-Zähler stimmen
+exakt überein. Zwei zusätzliche echte Planproben der oft wiederholten Member-
+Beobachtung zeigen hier mehr Planungs- als Ausführungszeit. Originaldaten und
+alle laufenden Container bleiben erhalten. Das ist eine aktuelle Messgrundlage,
+keine Produktoptimierung oder Abnahme der Leistungsbudgets.
+
+Die [genaue Verbindungsdiagnose](architecture/document-service-physical-connections-2026-10-30.md)
+erfasst jetzt bereite direkte und gepoolte Laufzeitverbindungen einschließlich
+ruhender Clients; laufende Anmeldeversuche stehen separat. 14 echte PostgreSQL-
+Kontrollfenster bestehen, auch kombiniert mit der vorhandenen SQL-Diagnose.
+Produktcode, Originaldaten und laufende Container bleiben unverändert. Die
+nachfolgenden aktuellen Lese-, Anlage-, Editor-, Backlink- und Pfadvergleiche
+wenden diese Diagnose an. Die Leistungsbudgets sind damit nicht als erreicht erklärt.
+
+Die [aktuelle Lese-Matrix](architecture/document-service-current-read-matrix-2026-10-30.md)
+besteht mit HTTP, Hauptagent, Organisationsagent und MCP bei zehn und 200
+Quellen in allen 24 Fenstern. Warme Reader benötigen 59 / 99 / 117 / 74 SQL-
+Aufrufe; die genaue Diagnose misst zwei bis vier bereite Laufzeitverbindungen.
+Alle SQL-Zähler stimmen exakt überein, Originaldaten bleiben erhalten. Die
+nachfolgende vollständige Prozessmatrix ergänzt Anlage, Editor und Pfadoperationen.
+Leistungsoptimierung und die übrigen Abnahmen bleiben offen.
+
+Die [aktuelle Anlage im Standardmodus](architecture/document-service-current-create-default-2026-10-30.md)
+besteht bei zehn Quellen in zwölf Fenstern für Hauptagent, Organisationsagent
+und MCP. Der Messlauf erzwingt den früheren Schattenmodus nicht mehr; Version-
+Center-Modus, Review Center und Undo sind ausgeschaltet. Warme Anlagen benötigen
+1058 / 1220 / 675 SQL-Aufrufe bei maximal vier bereiten Verbindungen. Original-
+Retries und sämtliche vorhandenen Quelldaten bleiben erhalten. Dies ist eine
+korrekt abgegrenzte Default-Messung, keine Produktoptimierung. Die 200er-Anlagen
+und übrigen aktuellen Prozessvergleiche sind in der folgenden Matrix enthalten;
+die Leistungsbudgets bleiben offen.
+
+Die [vollständige Prozessmatrix](architecture/document-service-current-operation-matrix-2026-10-30.md)
+besteht mit zwölf getrennten Fixtures und 42 vollständig beobachteten Fenstern.
+Alle Anlage-, Editor- und Rename-/Move-Vergleiche liegen bei zehn und 200 regulär
+angelegten Dokumenten vor. Beim großen Umbenennen/Verschieben wachsen die
+SQL-Aufrufe von etwa 4.050 auf etwa 19.700, während höchstens vier bereite
+Laufzeitverbindungen bestehen. Die Stackbelege grenzen wiederholte Storage-,
+Claim-, Current- und dokumentweise Quieszenzprüfungen als wesentliche Aufrufer ein.
+Die weiterleitende Owner-Fassade ist dabei nicht allein eine Berechtigungsprüfung.
+
+Die [gemeinsamen Dokument- und Linkverträge](architecture/document-service-shared-contracts-2026-10-30.md)
+sind zusätzlich über die tatsächlichen HTTP-, registrierten Agenten- und MCP-Wege
+geprüft: 20 Backlink-Fenster und je 26 Fenster mit Haupt- und Organisationsagent
+bestehen. Die nativen Leseseiten sind gleich; Linkentscheidungen, Diagnosen und
+die Wirkung einer MCP-Neuanlage entsprechen dem gemeinsamen Index. Warme Caches
+verdecken keine inaktiven oder beschädigten Quellen. Backlinks benötigen bei zehn
+und 200 Quellen warm weiterhin 36 SQL-Aufrufe, sieben Ausleihen und zwei bereite
+Verbindungen. Die vollständige gezielte Typprüfung umfasst 5.140 Importdateien.
+Originaldaten, Dateibytes und laufende Container bleiben erhalten; absichtliche
+Fehler betreffen ausschließlich die eigene Test-Fixture und werden exakt behoben.
+
+Damit sind Messbasis und vorhandene gemeinsame Leseverträge lokal nachgewiesen.
+Die PR-/CI-/Review-Freigabe erfolgt auf dem endgültigen Commit des Pakets.
+Die weitere Faktenbündelung,
+Header-/Body-Lesungen, gemeinsamen Änderungspfade und endgültigen Leistungsgrenzen
+sind damit nicht abgeschlossen.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
@@ -543,16 +604,17 @@ Testgruppen prüfen native Agent-/MCP-Bearbeitungen über die registrierten
 Tool-Einstiege mit PostgreSQL; diese sind keine Behauptung über produktive
 Modellaufrufe oder die OAuth-Ausstellung.
 
-Die weitere inkrementelle Zielauflösung bleibt ein lokaler Folgezweig. Am Produktstand
-`80c85950034362fb3549b96a13b35ef216887aaf` bestehen 102 gezielte Tests,
-12 zusätzliche Fälle mit kodierten relativen Dateinamen, die echte Cookie-/PostgreSQL-
-Route mit 10/200 Dokumenten, Host-/Linux-Build und der Containerstart. Bei 200
+Die weitere inkrementelle Zielauflösung ist inzwischen über PR #191 auf `main`
+integriert (`6302d6403755e581f0eae9e83a10e1c016aa918c`). Die kombinierte Abnahme
+am Produktstand `64532d709` umfasst 102 gezielte Tests, zwölf zusätzliche Fälle
+mit kodierten relativen Dateinamen, die echte Cookie-/PostgreSQL-Route mit 10/200
+Dokumenten, beide Builds, Start und die reguläre Gesamtsuite (331/0/269).
+Recovery-/Linkfälle und HEIF bestehen ebenfalls ohne Browser-Retries. Bei 200
 Dokumenten benötigt ein warmer Indexabruf keine neue Zielauflösung; eine geänderte
 Quelle löst nur ihre zwei Links neu auf. Das gemessene warme Routenfenster bleibt
-bei 36 SQL-Anweisungen und sieben Ausleihen. Dies ist keine SQL-Reduktion dieses
-Pakets. Die reguläre Gesamtsuite dieses Folgestands ist wegen eines offenen
-Benachrichtigungs-Testfalls und eines unterbrochenen lokalen Laufs noch nicht grün;
-die zusätzliche UI-Abnahme bleibt ausstehend.
+bei 36 SQL-Aufrufen und sieben Ausleihen. Dies ist keine SQL-Reduktion und keine
+Gesamtabnahme des Serviceumbaus; die Ergebnisse stehen im
+[Bericht](architecture/document-link-resolution-projection-2026-10-30.md).
 
 Der vollständige Serviceumbau, die inkrementellen Header-/Body-Lesungen, die übrige
 Bündelung und Vereinheitlichung der Änderungspfade sowie die endgültigen

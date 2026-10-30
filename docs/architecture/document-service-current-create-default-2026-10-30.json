@@ -1,0 +1,1943 @@
+{
+  "version": 1,
+  "productBase": "6302d6403755e581f0eae9e83a10e1c016aa918c",
+  "diagnosticBase": "6175d84cc7cacef2b955cc558184497837ea754f",
+  "diagnosticSourceSha256": {
+    "scripts/document-create-matrix-baseline-postgres-entry.ts": "7f9e0180def687915ab7e41082436be0fea4f9aa32dc5e50aa8a86f38ad46603",
+    "scripts/helpers/document-physical-connection-profiler.mjs": "be974910037067e58bc40919fc6f49396fc23ddc4e52a6b58bab0c438a0c8df5",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "72aa50b2d2ece544b98438990ae2bc3133b8d8204ebd8874e029d7f957a6554e",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "6571a9dd2864f8c41ebe292436a23b51a80042b43e2b59b8d03aa3b088c8d340",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "880bf7c6498b66770dfe59bdd3cb4f8364bef25fb1decc978db0bfacd08057f5",
+    "app/lib/observability/document-operation-metrics.ts": "8f79487ecf780fa1900f6e9b007266c60d12765e9fa2a12c41d5cc16c6adfe97"
+  },
+  "diagnosticWorkingPatchSha256": "f7ad3272e38632520860e01c3849ab13db80e1ec4ece08c58f968ab1e60667a7",
+  "fileVersionCenterMode": "off",
+  "reviewCenterEnabled": false,
+  "fileUndoEnabled": false,
+  "scope": "10 real native upload sources; original registered Agent or MCP entry, three creations and explicit original receipt retry; private PostgreSQL fixtures, no model turn or production OAuth issuance",
+  "results": [
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 1163,
+          "checkouts": 68,
+          "wallMs": 2632.39,
+          "databaseMs": 1204.63,
+          "poolWaitMs": 78.96,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 0,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1238,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 27,
+              "databaseMs": 14.28,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 93,
+              "databaseMs": 80.34,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 113,
+              "databaseMs": 104.99,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 64,
+              "databaseMs": 39.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 107,
+              "databaseMs": 101.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 39,
+              "databaseMs": 24.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 43,
+              "databaseMs": 17.63,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 745.88,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 63.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 7.52,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 4.33,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 56,
+              "catalogue": 56,
+              "lines": [
+                325
+              ]
+            }
+          ],
+          "poolConnectStarts": 68
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 1058,
+          "checkouts": 34,
+          "wallMs": 1983.17,
+          "databaseMs": 961.51,
+          "poolWaitMs": 7.1,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 1,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1099,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 82,
+              "databaseMs": 52.23,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 693.99,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 24,
+              "databaseMs": 10.17,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 32,
+              "databaseMs": 11.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 56,
+              "databaseMs": 21.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 40,
+              "databaseMs": 16.63,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 46,
+              "databaseMs": 25.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 101,
+              "databaseMs": 65.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 54.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 6.25,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.42,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 56,
+              "catalogue": 56,
+              "lines": [
+                325
+              ]
+            }
+          ],
+          "poolConnectStarts": 34
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 1058,
+          "checkouts": 34,
+          "wallMs": 1949.91,
+          "databaseMs": 939.55,
+          "poolWaitMs": 6.3,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 2,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1099,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 82,
+              "databaseMs": 47.05,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 683.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 24,
+              "databaseMs": 9.21,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 32,
+              "databaseMs": 10.14,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 56,
+              "databaseMs": 19.58,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 40,
+              "databaseMs": 15.01,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 46,
+              "databaseMs": 23.03,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 101,
+              "databaseMs": 68.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 54.1,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 5.57,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.74,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 56,
+              "catalogue": 56,
+              "lines": [
+                325
+              ]
+            }
+          ],
+          "poolConnectStarts": 34
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 168,
+          "checkouts": 7,
+          "wallMs": 253.56,
+          "databaseMs": 190.79,
+          "poolWaitMs": 0.71,
+          "peakPooledLeases": 2,
+          "physical": {
+            "index": 3,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 177,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 12,
+              "databaseMs": 6.59,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 69,
+              "databaseMs": 127.23,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 6,
+              "databaseMs": 3.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 8,
+              "databaseMs": 4.04,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 14,
+              "databaseMs": 6.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 10,
+              "databaseMs": 5.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 10,
+              "databaseMs": 6.05,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 27,
+              "databaseMs": 22.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 8,
+              "databaseMs": 5.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 2,
+              "databaseMs": 1.33,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 2,
+              "databaseMs": 1.53,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 18,
+              "catalogue": 6,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 16,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:withWorkspaceFileLifecycleGuard",
+              "calls": 8,
+              "catalogue": 2,
+              "lines": [
+                391,
+                408,
+                409,
+                415,
+                431,
+                434,
+                456
+              ]
+            }
+          ],
+          "poolConnectStarts": 7
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 1336,
+          "checkouts": 68,
+          "wallMs": 2685.55,
+          "databaseMs": 1277.12,
+          "poolWaitMs": 83.45,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 0,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1411,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 27,
+              "databaseMs": 15.27,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 113,
+              "databaseMs": 99.29,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 113,
+              "databaseMs": 99.45,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 84,
+              "databaseMs": 59.59,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 107,
+              "databaseMs": 86.88,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 172,
+              "databaseMs": 116.75,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 43,
+              "databaseMs": 17.35,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 701,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 69.46,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 7.7,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 4.38,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentAccessInCreatePhase",
+              "calls": 114,
+              "catalogue": 0,
+              "lines": [
+                984
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            }
+          ],
+          "poolConnectStarts": 68
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 1220,
+          "checkouts": 34,
+          "wallMs": 2086.84,
+          "databaseMs": 1056.31,
+          "poolWaitMs": 6.7,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 1,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1261,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 82,
+              "databaseMs": 50.32,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 673.16,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 24,
+              "databaseMs": 9.77,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 162,
+              "databaseMs": 97.94,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 72,
+              "databaseMs": 25.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 40,
+              "databaseMs": 15.07,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 62,
+              "databaseMs": 30.01,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 101,
+              "databaseMs": 78.26,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 65.54,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 6.65,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.62,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentAccessInCreatePhase",
+              "calls": 114,
+              "catalogue": 0,
+              "lines": [
+                984
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            }
+          ],
+          "poolConnectStarts": 34
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 1220,
+          "checkouts": 34,
+          "wallMs": 2028.06,
+          "databaseMs": 1013.47,
+          "poolWaitMs": 6.47,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 2,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 1261,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 82,
+              "databaseMs": 51.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 581,
+              "databaseMs": 659.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 24,
+              "databaseMs": 9.15,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 162,
+              "databaseMs": 93.75,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 72,
+              "databaseMs": 26.28,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 40,
+              "databaseMs": 15.77,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 62,
+              "databaseMs": 29.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 101,
+              "databaseMs": 58.03,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 76,
+              "databaseMs": 60.61,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 5.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.6,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentAccessInCreatePhase",
+              "calls": 114,
+              "catalogue": 0,
+              "lines": [
+                984
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 114,
+              "catalogue": 114,
+              "lines": [
+                1186,
+                1194
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 106,
+              "catalogue": 106,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 72,
+              "catalogue": 24,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 64,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            }
+          ],
+          "poolConnectStarts": 34
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 194,
+          "checkouts": 7,
+          "wallMs": 233.58,
+          "databaseMs": 175.29,
+          "poolWaitMs": 0.56,
+          "peakPooledLeases": 2,
+          "physical": {
+            "index": 3,
+            "operation": "create",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 203,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 12,
+              "databaseMs": 5.23,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 69,
+              "databaseMs": 108.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 6,
+              "databaseMs": 2.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 26,
+              "databaseMs": 19.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 18,
+              "databaseMs": 6.9,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 10,
+              "databaseMs": 4.64,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 14,
+              "databaseMs": 6.46,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 27,
+              "databaseMs": 13.55,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 8,
+              "databaseMs": 4.86,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 2,
+              "databaseMs": 1.18,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 2,
+              "databaseMs": 1.47,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:schema",
+              "calls": 18,
+              "catalogue": 6,
+              "lines": [
+                402,
+                408,
+                410
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 16,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentCreateScopeFacts",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                1090
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readAgentAccessInCreatePhase",
+              "calls": 14,
+              "catalogue": 0,
+              "lines": [
+                984
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:currentAgentWithOriginalOrigin",
+              "calls": 14,
+              "catalogue": 14,
+              "lines": [
+                1186,
+                1194
+              ]
+            }
+          ],
+          "poolConnectStarts": 7
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-create",
+          "sql": 696,
+          "checkouts": 38,
+          "wallMs": 1803.84,
+          "databaseMs": 578.88,
+          "poolWaitMs": 98.5,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 0,
+            "operation": "create",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 741,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 79,
+              "databaseMs": 69.54,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 3,
+              "databaseMs": 7.55,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 6,
+              "databaseMs": 2.3,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 9,
+              "databaseMs": 4.14,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 439,
+              "databaseMs": 380.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 62,
+              "databaseMs": 38.78,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 72,
+              "databaseMs": 58.35,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 7.24,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 6.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.6,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 120,
+              "catalogue": 120,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 100,
+              "catalogue": 100,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 71,
+              "catalogue": 71,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 43,
+              "catalogue": 0,
+              "lines": [
+                1856
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 36,
+              "catalogue": 36,
+              "lines": [
+                1486
+              ]
+            },
+            {
+              "owner": "collaboration/projection-identity.ts:assertCurrentCollaborationProjectionIdentity",
+              "calls": 30,
+              "catalogue": 6,
+              "lines": [
+                31,
+                42,
+                48,
+                58,
+                70
+              ]
+            }
+          ],
+          "poolConnectStarts": 38
+        },
+        {
+          "label": "warm-fresh-create-1",
+          "sql": 675,
+          "checkouts": 25,
+          "wallMs": 1659.28,
+          "databaseMs": 680.18,
+          "poolWaitMs": 6.17,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 1,
+            "operation": "create",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 707,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 1,
+              "databaseMs": 0.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 70,
+              "databaseMs": 44.28,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 2,
+              "databaseMs": 4.81,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 3,
+              "databaseMs": 23.1,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 439,
+              "databaseMs": 490.3,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 62,
+              "databaseMs": 48.7,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 72,
+              "databaseMs": 54.26,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 5.58,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 4.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.47,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 120,
+              "catalogue": 120,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 100,
+              "catalogue": 100,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 71,
+              "catalogue": 71,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 43,
+              "catalogue": 0,
+              "lines": [
+                1856
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 36,
+              "catalogue": 36,
+              "lines": [
+                1486
+              ]
+            },
+            {
+              "owner": "collaboration/projection-identity.ts:assertCurrentCollaborationProjectionIdentity",
+              "calls": 30,
+              "catalogue": 6,
+              "lines": [
+                31,
+                42,
+                48,
+                58,
+                70
+              ]
+            }
+          ],
+          "poolConnectStarts": 25
+        },
+        {
+          "label": "warm-fresh-create-2",
+          "sql": 675,
+          "checkouts": 25,
+          "wallMs": 1504.09,
+          "databaseMs": 523.41,
+          "poolWaitMs": 5.59,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 2,
+            "operation": "create",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 707,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 1,
+              "databaseMs": 0.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 70,
+              "databaseMs": 43.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 2,
+              "databaseMs": 0.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 3,
+              "databaseMs": 1.6,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 439,
+              "databaseMs": 361.52,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 62,
+              "databaseMs": 44.31,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 72,
+              "databaseMs": 55.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 13,
+              "databaseMs": 6.26,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 5.07,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 7,
+              "databaseMs": 3.74,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:readCurrentWorkspaceFileLifecycleOwnerSnapshot",
+              "calls": 120,
+              "catalogue": 120,
+              "lines": [
+                80
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 100,
+              "catalogue": 100,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 71,
+              "catalogue": 71,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 43,
+              "catalogue": 0,
+              "lines": [
+                1856
+              ]
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:assertAuthenticatedCreateOriginCurrent",
+              "calls": 36,
+              "catalogue": 36,
+              "lines": [
+                1486
+              ]
+            },
+            {
+              "owner": "collaboration/projection-identity.ts:assertCurrentCollaborationProjectionIdentity",
+              "calls": 30,
+              "catalogue": 6,
+              "lines": [
+                31,
+                42,
+                48,
+                58,
+                70
+              ]
+            }
+          ],
+          "poolConnectStarts": 25
+        },
+        {
+          "label": "same-original-idempotent-retry",
+          "sql": 91,
+          "checkouts": 12,
+          "wallMs": 130.08,
+          "databaseMs": 73.07,
+          "poolWaitMs": 1.1,
+          "peakPooledLeases": 2,
+          "physical": {
+            "index": 3,
+            "operation": "create",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 107,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 1,
+              "databaseMs": 0.82,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 13,
+              "databaseMs": 6.95,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 2,
+              "databaseMs": 0.66,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 3,
+              "databaseMs": 1.32,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 43,
+              "databaseMs": 47.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 19,
+              "databaseMs": 10.24,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 6,
+              "databaseMs": 3,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-registry",
+              "statements": 2,
+              "databaseMs": 1.1,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-projection",
+              "statements": 2,
+              "databaseMs": 1.15,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 12,
+              "catalogue": 12,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 12,
+              "catalogue": 12,
+              "lines": [
+                393
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "files/workspace-file-lifecycle-guard.ts:withWorkspaceFileLifecycleGuard",
+              "calls": 8,
+              "catalogue": 2,
+              "lines": [
+                391,
+                408,
+                409,
+                415,
+                431,
+                434,
+                456
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 7,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "collaboration/markdown-file-import-persistence.ts:authenticatedUploadReads",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                1856
+              ]
+            }
+          ],
+          "poolConnectStarts": 12
+        }
+      ]
+    }
+  ],
+  "originalsPreserved": true,
+  "allRunningContainersUnchanged": true,
+  "fullPlanComplete": false
+}

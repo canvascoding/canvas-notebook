@@ -15,6 +15,9 @@ import { documentBaselineSize, fillDocumentBaselineFixture } from './helpers/doc
 assert.equal(process.env.NODE_ENV, 'test');
 const adapter = process.env.CANVAS_DOCUMENT_BASELINE_ADAPTER;
 assert(adapter === 'http' || adapter === 'agent' || adapter === 'mcp');
+const agentKind = process.env.CANVAS_DOCUMENT_BASELINE_AGENT_KIND ?? 'main';
+assert(agentKind === 'main' || agentKind === 'organization-member');
+assert(adapter === 'agent' || agentKind === 'main');
 const size = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 10);
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
 assert(output && path.isAbsolute(output));
@@ -107,12 +110,12 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     assert.deepEqual(next, first, 'All adapters preserve the same complete stable read through repeated entry.');
   }
   assert.deepEqual(await h.snapshot(), before, 'Read measurements preserve native bytes, identities, metadata, revisions and projection rows.');
-  console.log(JSON.stringify({ documentAdapterMatrix: true, adapter, nativeDocuments: size, windows: profiles.length,
+  console.log(JSON.stringify({ documentAdapterMatrix: true, adapter, agentKind, nativeDocuments: size, windows: profiles.length,
     nativeIdentityAndBytesUnchanged: true, completeCanonicalMarkdown: true }));
-}));
+}, { agentKind }));
 assert.equal(profiles.length, 3);
 assert(profiles.every(item => item.measurement.unsupportedQueryForms === 0 && item.measurement.failedStatements === 0));
-await fs.writeFile(output, JSON.stringify({ version: 1, fixture: 'document-adapter-matrix', adapter, nativeDocuments: size,
+await fs.writeFile(output, JSON.stringify({ version: 1, fixture: 'document-adapter-matrix', adapter, agentKind, nativeDocuments: size,
   scope: 'fresh-fixture-process-per-adapter-first-entry-and-two-warm-reads',
   exclusions: ['not-browser-or-TCP-acceptance', 'not-a-live-agent-turn-or-production-OAuth-issuance'],
   nativeIdentityAndBytesUnchanged: true, completeCanonicalMarkdown: true, profiles, operations }, null, 2) + '\n',

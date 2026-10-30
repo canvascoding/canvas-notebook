@@ -18,6 +18,8 @@ const adapter: 'agent' | 'mcp' = configuredAdapter;
 const agentKind = process.env.CANVAS_DOCUMENT_BASELINE_AGENT_KIND as 'main' | 'organization-member' | undefined ?? 'main';
 assert(agentKind === 'main' || agentKind === 'organization-member');
 assert(adapter === 'agent' || agentKind === 'main');
+const fileVersionCenterMode = process.env.FILE_VERSION_CENTER_MODE ?? 'off';
+assert(fileVersionCenterMode === 'off' || fileVersionCenterMode === 'shadow');
 const requestedSize = documentBaselineSize(process.env.CANVAS_DOCUMENT_BASELINE_DOCUMENTS, 10);
 const output = process.env.CANVAS_DOCUMENT_OPERATION_BASELINE_OUTPUT;
 assert(output && path.isAbsolute(output));
@@ -37,7 +39,7 @@ async function documentCreateMatrixBaseline(): Promise<void> {
     // All authority is real fixture data, checked by the ordinary handlers.
     // This is neither production OAuth issuance nor a live model invocation.
     process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1';
-    process.env.FILE_VERSION_CENTER_MODE = 'shadow';
+    assert.equal(process.env.FILE_VERSION_CENTER_MODE ?? 'off', fileVersionCenterMode);
     process.env.CANVAS_MCP_DIRECT_TOOLS = 'read_knowledge_source,search_knowledge,create_knowledge_source';
     assert.equal((await h.admin.query(`UPDATE organization_user_permissions SET can_write_team_workspace=1
       WHERE organization_id='tool-dispatch-org' AND user_id='reader' AND status='active'`)).rowCount, 1);
@@ -176,7 +178,7 @@ async function documentCreateMatrixBaseline(): Promise<void> {
     assert(profiles.every(item => item.measurement.failedStatements === 0 && item.measurement.unsupportedQueryForms === 0
       && item.measurement.openQueriesAtCompletion === 0 && item.measurement.openConnectionsAtCompletion === 0));
     console.log(JSON.stringify({ documentCreateMatrix: true, adapter, normalUploadSources: seededDocuments,
-      windows: profiles.length, unrelatedNativeAndPhysicalUnchanged: true, originalRetryIdentityPreserved: true }));
+      windows: profiles.length, fileVersionCenterMode, unrelatedNativeAndPhysicalUnchanged: true, originalRetryIdentityPreserved: true }));
   }, { agentKind });
 }
 
@@ -184,7 +186,7 @@ try {
   await withDocumentOperationMetricObserver(value => operations.push(value), documentCreateMatrixBaseline);
   completed = true;
 } finally {
-  await fs.writeFile(output, JSON.stringify({ version: 1, passed: completed, fixture: 'document-create-matrix', adapter, agentKind,
+  await fs.writeFile(output, JSON.stringify({ version: 1, passed: completed, fixture: 'document-create-matrix', adapter, agentKind, fileVersionCenterMode,
     nativeDocumentsBeforeFirstCreate: seededDocuments, normalUploadSources: true,
     scope: 'fresh-process-per-adapter-first-entry-two-warm-fresh-creates-and-separate-original-retry',
     exclusions: ['no-live-model-turn', 'no-production-OAuth-issuance', 'no-browser-or-Next-middleware', 'not-a-cold-PostgreSQL-buffer-cache'],

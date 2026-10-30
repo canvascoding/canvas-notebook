@@ -1,0 +1,3559 @@
+{
+  "version": 1,
+  "productBase": "6302d6403755e581f0eae9e83a10e1c016aa918c",
+  "diagnosticBase": "c93a04acc0029b3b932b0c7d5e9ac45e622e4696",
+  "diagnosticSourceSha256": {
+    "scripts/document-adapter-matrix-baseline-postgres-entry.ts": "541bf73a11918d9c280dc090262d2874df94bdcee3a448cee3868a41d01ef9e6",
+    "scripts/helpers/document-physical-connection-profiler.mjs": "be974910037067e58bc40919fc6f49396fc23ddc4e52a6b58bab0c438a0c8df5",
+    "scripts/helpers/document-query-callsite-profiler.mjs": "72aa50b2d2ece544b98438990ae2bc3133b8d8204ebd8874e029d7f957a6554e",
+    "scripts/helpers/document-read-tool-dispatch-fixture.ts": "6571a9dd2864f8c41ebe292436a23b51a80042b43e2b59b8d03aa3b088c8d340",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "880bf7c6498b66770dfe59bdd3cb4f8364bef25fb1decc978db0bfacd08057f5",
+    "app/lib/observability/document-operation-metrics.ts": "8f79487ecf780fa1900f6e9b007266c60d12765e9fa2a12c41d5cc16c6adfe97"
+  },
+  "diagnosticWorkingPatchSha256": "b2dacb8c96cc43239a0c97de2b5b904aed6b7bd42bcd659f3c6dab443d5cfe28",
+  "scope": "Actual HTTP handler, registered Agent and MCP dispatch; private PostgreSQL schemas and complete source-bound Markdown; 10/200 sources, first entry and two warm reads; no Browser/Next middleware, model turn, production OAuth issuance or latency benchmark claim",
+  "results": [
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 12,
+          "wallMs": 299.05,
+          "databaseMs": 120.52,
+          "poolWaitMs": 47.32,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 76,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 3,
+              "databaseMs": 5.66,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 21.09,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 6,
+              "databaseMs": 7.78,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 4.53,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 4.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 62.4,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 8.94,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 5.98,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 9,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 12,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 9,
+          "wallMs": 83.31,
+          "databaseMs": 68.95,
+          "poolWaitMs": 0.99,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 70,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 1.12,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 4.6,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 4,
+              "databaseMs": 1.61,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 2.7,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 2.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 47.55,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 4.4,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.04,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 6,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 9,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 9,
+          "wallMs": 74.18,
+          "databaseMs": 62.28,
+          "poolWaitMs": 0.78,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 70,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 0.68,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 3.73,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 4,
+              "databaseMs": 1.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 1.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 2.58,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 43.4,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 4.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.68,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 6,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 9,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 204,
+          "checkouts": 37,
+          "wallMs": 665.23,
+          "databaseMs": 239.35,
+          "poolWaitMs": 52.39,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 243,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 10,
+              "databaseMs": 8.24,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 56,
+              "databaseMs": 68.07,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 20,
+              "databaseMs": 20.94,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 34,
+              "databaseMs": 21.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 27,
+              "databaseMs": 38.61,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 13,
+              "databaseMs": 12.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 14,
+              "databaseMs": 7.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 56.38,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 5.28,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:authority",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                78,
+                79,
+                80,
+                85
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:findPostgresUserById",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                375
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:readReadyPostgresOrganizationBootstrapForUser",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                1312,
+                1316,
+                1361
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": []
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            }
+          ],
+          "poolConnectStarts": 37,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 99,
+          "checkouts": 3,
+          "wallMs": 78.14,
+          "databaseMs": 68.92,
+          "poolWaitMs": 0.26,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 104,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 36.48,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.53,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 6,
+              "databaseMs": 1.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 19,
+              "databaseMs": 6.21,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.18,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 16,
+              "databaseMs": 8.39,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 5.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.47,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 5,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 99,
+          "checkouts": 3,
+          "wallMs": 78,
+          "databaseMs": 68.5,
+          "poolWaitMs": 0.2,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 104,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 36.68,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.52,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 6,
+              "databaseMs": 1.79,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 19,
+              "databaseMs": 5.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 16,
+              "databaseMs": 8.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 4.32,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.68,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 5,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 233,
+          "checkouts": 37,
+          "wallMs": 689.86,
+          "databaseMs": 350,
+          "poolWaitMs": 52.21,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 272,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 10,
+              "databaseMs": 49.73,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 66,
+              "databaseMs": 80.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 20,
+              "databaseMs": 57.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 44,
+              "databaseMs": 27.56,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 27,
+              "databaseMs": 51.55,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 22,
+              "databaseMs": 17.25,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 14,
+              "databaseMs": 6.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 53.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 5.14,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 15,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 13,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:readPostgresWorkspaceForActorInSingleSnapshotOnConnection",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                2461
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:authority",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                78,
+                79,
+                80,
+                85
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 11,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:findPostgresUserById",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                375
+              ]
+            }
+          ],
+          "poolConnectStarts": 37,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 117,
+          "checkouts": 3,
+          "wallMs": 85.74,
+          "databaseMs": 75.84,
+          "poolWaitMs": 0.28,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 122,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.82,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 35.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 12,
+              "databaseMs": 4.12,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 25,
+              "databaseMs": 8.57,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.06,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 22,
+              "databaseMs": 11.83,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 4.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.39,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 10,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 117,
+          "checkouts": 3,
+          "wallMs": 83.16,
+          "databaseMs": 74.12,
+          "poolWaitMs": 0.21,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 122,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 35.9,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 12,
+              "databaseMs": 3.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 25,
+              "databaseMs": 8.22,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 3.99,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 22,
+              "databaseMs": 10.81,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 4.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.44,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 10,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "documents": 10,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 95,
+          "checkouts": 32,
+          "wallMs": 340.46,
+          "databaseMs": 121.65,
+          "poolWaitMs": 78.73,
+          "peakPooledLeases": 3,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 132,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 20,
+              "databaseMs": 23.07,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 4,
+              "databaseMs": 19.97,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 14,
+              "databaseMs": 8.26,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 12,
+              "databaseMs": 6.55,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 42.16,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 12.68,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 4.05,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 19,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "mcp/server/access-token-verifier.ts:loadDirectMcpGrantStateOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                318
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:requireUserAccount",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                237
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:getTeamSeatReconciliationSeatLimit",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                184
+              ]
+            }
+          ],
+          "poolConnectStarts": 32,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 74,
+          "checkouts": 19,
+          "wallMs": 87.11,
+          "databaseMs": 58.73,
+          "poolWaitMs": 5.6,
+          "peakPooledLeases": 3,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 98,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 4,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 1.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 11,
+              "databaseMs": 8.57,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 5.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 6,
+              "databaseMs": 2.58,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 24.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 6.06,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 5.68,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 10,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                393
+              ]
+            }
+          ],
+          "poolConnectStarts": 19,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 74,
+          "checkouts": 19,
+          "wallMs": 71.23,
+          "databaseMs": 48.8,
+          "poolWaitMs": 1.75,
+          "peakPooledLeases": 4,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 4,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 95,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 4,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 1.89,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 11,
+              "databaseMs": 8.12,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 3.63,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 6,
+              "databaseMs": 2.96,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 19.18,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 5.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.45,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 3.81,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 10,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                393
+              ]
+            }
+          ],
+          "poolConnectStarts": 19,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "http",
+      "agentKind": "main",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 62,
+          "checkouts": 12,
+          "wallMs": 205.39,
+          "databaseMs": 99.58,
+          "poolWaitMs": 39.88,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 76,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 3,
+              "databaseMs": 4.94,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 12.75,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 6,
+              "databaseMs": 5.64,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 3.4,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 3.37,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 56.95,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 7.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.82,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 9,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 12,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 59,
+          "checkouts": 9,
+          "wallMs": 74.61,
+          "databaseMs": 62.73,
+          "poolWaitMs": 0.88,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 70,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 0.78,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 4.14,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 4,
+              "databaseMs": 1.56,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 2.54,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 2.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 43.1,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 4.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.29,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 6,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 9,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 59,
+          "checkouts": 9,
+          "wallMs": 77.82,
+          "databaseMs": 66.28,
+          "poolWaitMs": 0.8,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "request",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 70,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 0.84,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 3.94,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 4,
+              "databaseMs": 1.43,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 5,
+              "databaseMs": 1.88,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 4,
+              "databaseMs": 2.91,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 46.92,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 7,
+              "databaseMs": 4.49,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.88,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 6,
+              "catalogue": 1,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:readMemberScopeSnapshot",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                557
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 3,
+              "catalogue": 3,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "documents/service.ts:headerWitness",
+              "calls": 3,
+              "catalogue": 0,
+              "lines": [
+                151
+              ]
+            }
+          ],
+          "poolConnectStarts": 9,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "main",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 204,
+          "checkouts": 37,
+          "wallMs": 574.6,
+          "databaseMs": 237.75,
+          "poolWaitMs": 50.25,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 243,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 10,
+              "databaseMs": 7.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 56,
+              "databaseMs": 64.66,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 20,
+              "databaseMs": 29.89,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 34,
+              "databaseMs": 20.8,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 27,
+              "databaseMs": 31.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 13,
+              "databaseMs": 13.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 14,
+              "databaseMs": 7.86,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 56.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 5.23,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:authority",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                78,
+                79,
+                80,
+                85
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:findPostgresUserById",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                375
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:readReadyPostgresOrganizationBootstrapForUser",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                1312,
+                1316,
+                1361
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "unattributed",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": []
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            }
+          ],
+          "poolConnectStarts": 37,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 99,
+          "checkouts": 3,
+          "wallMs": 81.35,
+          "databaseMs": 71.69,
+          "poolWaitMs": 0.27,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 104,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 1,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 38.89,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.66,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 6,
+              "databaseMs": 1.76,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 19,
+              "databaseMs": 6.29,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.25,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 16,
+              "databaseMs": 8.73,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 4.25,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.88,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 5,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 99,
+          "checkouts": 3,
+          "wallMs": 108.01,
+          "databaseMs": 98.72,
+          "poolWaitMs": 0.21,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 104,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 41.21,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 4.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 6,
+              "databaseMs": 3.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 19,
+              "databaseMs": 10.27,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 5.75,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 16,
+              "databaseMs": 12.6,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 15.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.17,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 7,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 5,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "agent",
+      "agentKind": "organization-member",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 233,
+          "checkouts": 37,
+          "wallMs": 572.17,
+          "databaseMs": 246.5,
+          "poolWaitMs": 50.54,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 272,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 10,
+              "databaseMs": 7.12,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 66,
+              "databaseMs": 70.5,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 20,
+              "databaseMs": 24.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 44,
+              "databaseMs": 24.43,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 27,
+              "databaseMs": 33.3,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 22,
+              "databaseMs": 17.52,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 14,
+              "databaseMs": 6.87,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 57.67,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.97,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 15,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 13,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:readPostgresWorkspaceForActorInSingleSnapshotOnConnection",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                2461
+              ]
+            },
+            {
+              "owner": "capabilities/scope-authority.ts:authority",
+              "calls": 12,
+              "catalogue": 0,
+              "lines": [
+                78,
+                79,
+                80,
+                85
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 11,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/postgres-runtime.ts:findPostgresUserById",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                375
+              ]
+            }
+          ],
+          "poolConnectStarts": 37,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 117,
+          "checkouts": 3,
+          "wallMs": 84.01,
+          "databaseMs": 75.24,
+          "poolWaitMs": 0.24,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 122,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.83,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 35.8,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 12,
+              "databaseMs": 3.78,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 25,
+              "databaseMs": 8.4,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.27,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 22,
+              "databaseMs": 11.05,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 5.08,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.52,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 10,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 117,
+          "checkouts": 3,
+          "wallMs": 85.9,
+          "databaseMs": 76.84,
+          "poolWaitMs": 0.23,
+          "peakPooledLeases": 1,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "agent",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 2,
+            "peakPooled": 2,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 122,
+            "closed": true,
+            "end": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 2,
+              "databaseMs": 0.68,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 25,
+              "databaseMs": 36.63,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 7,
+              "databaseMs": 2.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "agent",
+              "statements": 12,
+              "databaseMs": 4.14,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 25,
+              "databaseMs": 8.56,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 11,
+              "databaseMs": 4.92,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 22,
+              "databaseMs": 11.44,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 8,
+              "databaseMs": 4.51,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.5,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "capabilities/scope-authority.ts:readActorMembershipAuthorityOnConnection",
+              "calls": 10,
+              "catalogue": 0,
+              "lines": [
+                40,
+                41,
+                42,
+                48
+              ]
+            },
+            {
+              "owner": "agents/access.ts:getAgentAccessForNormalizedId",
+              "calls": 9,
+              "catalogue": 0,
+              "lines": [
+                241,
+                259,
+                267
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:checkIdentity",
+              "calls": 9,
+              "catalogue": 9,
+              "lines": [
+                325
+              ]
+            },
+            {
+              "owner": "agents/actor-context.ts:resolveVerifiedAgentActorContextOnConnection",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                121,
+                126
+              ]
+            },
+            {
+              "owner": "workspaces/request-principal.ts:locks",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                448,
+                449,
+                457,
+                463,
+                471,
+                486,
+                497,
+                507
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 6,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            }
+          ],
+          "poolConnectStarts": 3,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    },
+    {
+      "adapter": "mcp",
+      "agentKind": "main",
+      "documents": 200,
+      "profiles": [
+        {
+          "label": "first-adapter-entry-and-read",
+          "sql": 95,
+          "checkouts": 32,
+          "wallMs": 315.96,
+          "databaseMs": 118.88,
+          "poolWaitMs": 71.76,
+          "peakPooledLeases": 3,
+          "physical": {
+            "index": 0,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 2,
+              "pooled": 2,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 132,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "other",
+              "statements": 20,
+              "databaseMs": 21.59,
+              "failedStatements": 0
+            },
+            {
+              "group": "session",
+              "statements": 4,
+              "databaseMs": 18.2,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 14,
+              "databaseMs": 7.81,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 12,
+              "databaseMs": 6.13,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 41.33,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 13.93,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 4.89,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 4.99,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 19,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 8,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "mcp/server/access-token-verifier.ts:loadDirectMcpGrantStateOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                318
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:requireUserAccount",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                237
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:getTeamSeatReconciliationSeatLimit",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                184
+              ]
+            }
+          ],
+          "poolConnectStarts": 32,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-1",
+          "sql": 74,
+          "checkouts": 19,
+          "wallMs": 81.32,
+          "databaseMs": 59.54,
+          "poolWaitMs": 1.67,
+          "peakPooledLeases": 3,
+          "physical": {
+            "index": 1,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 3,
+            "peakPooled": 3,
+            "peakDedicated": 0,
+            "peakConnecting": 0,
+            "observations": 95,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 1.61,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 11,
+              "databaseMs": 9.32,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 4.85,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 6,
+              "databaseMs": 2.38,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 25.65,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 6.73,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.48,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 5.51,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 10,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                393
+              ]
+            }
+          ],
+          "poolConnectStarts": 19,
+          "poolStartsEqualCompletions": true
+        },
+        {
+          "label": "warm-read-2",
+          "sql": 74,
+          "checkouts": 19,
+          "wallMs": 81.11,
+          "databaseMs": 54.64,
+          "poolWaitMs": 6.01,
+          "peakPooledLeases": 3,
+          "physical": {
+            "index": 2,
+            "operation": "read",
+            "actor": "mcp",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 3,
+              "dedicated": 0,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 4,
+            "peakDedicated": 0,
+            "peakConnecting": 1,
+            "observations": 98,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 4,
+              "dedicated": 0,
+              "connecting": 0
+            }
+          },
+          "queryGroups": [
+            {
+              "group": "session",
+              "statements": 2,
+              "databaseMs": 1.71,
+              "failedStatements": 0
+            },
+            {
+              "group": "other",
+              "statements": 11,
+              "databaseMs": 8.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "account",
+              "statements": 10,
+              "databaseMs": 5.02,
+              "failedStatements": 0
+            },
+            {
+              "group": "seat",
+              "statements": 6,
+              "databaseMs": 2.62,
+              "failedStatements": 0
+            },
+            {
+              "group": "catalogue",
+              "statements": 22,
+              "databaseMs": 20.41,
+              "failedStatements": 0
+            },
+            {
+              "group": "transaction",
+              "statements": 12,
+              "databaseMs": 7.22,
+              "failedStatements": 0
+            },
+            {
+              "group": "document-state",
+              "statements": 5,
+              "databaseMs": 3.72,
+              "failedStatements": 0
+            },
+            {
+              "group": "workspace",
+              "statements": 6,
+              "databaseMs": 5.21,
+              "failedStatements": 0
+            }
+          ],
+          "topSqlOwners": [
+            {
+              "owner": "unattributed",
+              "calls": 10,
+              "catalogue": 2,
+              "lines": []
+            },
+            {
+              "owner": "documents/service.ts:readBindingFacts",
+              "calls": 6,
+              "catalogue": 6,
+              "lines": [
+                88
+              ]
+            },
+            {
+              "owner": "license/seat-limit.ts:assertTeamUserAccess",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                281,
+                292
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:withFixedPrincipalOnConnection",
+              "calls": 4,
+              "catalogue": 0,
+              "lines": [
+                762,
+                763,
+                764,
+                768
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:schema",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                289
+              ]
+            },
+            {
+              "owner": "mcp/server/document-read-principal.ts:readCurrentSlotFacts",
+              "calls": 4,
+              "catalogue": 4,
+              "lines": [
+                393
+              ]
+            }
+          ],
+          "poolConnectStarts": 19,
+          "poolStartsEqualCompletions": true
+        }
+      ]
+    }
+  ],
+  "physicalCounterScope": "Ready registered runtime backends include idle pool clients; in-flight connection attempts separate. No diagnostic queries added.",
+  "originalsPreserved": true,
+  "allRunningContainersUnchanged": true,
+  "fullPlanComplete": false
+}
