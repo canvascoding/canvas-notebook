@@ -137,6 +137,45 @@ export async function documentSearchToolDispatchPostgresTest(): Promise<void> {
       }
     });
 
+    await check('legacy search continuation and revision-bound reads survive actual MCP dispatch', async () => {
+      for (const file of ['page-a.csv', 'page-b.csv', 'page-c.csv']) {
+        await writeFile(path.join(fixture.workspaceRoot, file), 'PaginationNeedle,first\nsecond,😀\n');
+      }
+      const args = { workspace_id: workspaceId, query: 'PaginationNeedle', max_results: 1 };
+      const first = record((await call('search_knowledge', args)).structuredContent);
+      assert.equal(record(first.coverage).complete, false);
+      assert.equal(typeof first.next_legacy_cursor, 'string');
+      const paths: unknown[] = [];
+      let page = first;
+      for (let count = 0; count < 8; count++) {
+        assert(Array.isArray(page.results)); paths.push(...page.results.map(value => record(value).path));
+        if (!page.next_legacy_cursor) break;
+        page = record((await call('search_knowledge', { ...args, legacy_cursor: page.next_legacy_cursor })).structuredContent);
+      }
+      assert.equal(page.next_legacy_cursor, null); assert.equal(record(page.coverage).complete, true);
+      assert.deepEqual(paths, ['page-a.csv', 'page-b.csv', 'page-c.csv']);
+      const wrongScope = await call('search_knowledge', { ...args, query: 'OtherNeedle', legacy_cursor: first.next_legacy_cursor });
+      assert.equal(wrongScope.isError, true); assert.equal(record(wrongScope.structuredContent).code, 'INVALID_SEARCH_CURSOR');
+      await writeFile(path.join(fixture.workspaceRoot, 'page-d.csv'), 'PaginationNeedle,new\n');
+      const changed = await call('search_knowledge', { ...args, legacy_cursor: first.next_legacy_cursor });
+      assert.equal(changed.isError, true); assert.equal(record(changed.structuredContent).code, 'SEARCH_CORPUS_CHANGED');
+      const readArgs = { workspace_id: workspaceId, path: 'page-a.csv', max_characters: 5 };
+      const read = record((await call('read_knowledge_source', readArgs)).structuredContent);
+      const next = record((await call('read_knowledge_source', { ...readArgs, offset: read.next_offset,
+        expected_sha256: read.sha256 })).structuredContent);
+      assert.equal(next.sha256, read.sha256); assert.equal(next.content, 'ation');
+      const unguarded = await rpc('tools/call', { name: 'read_knowledge_source', arguments: { ...readArgs, offset: 5 } });
+      assert.equal(record(unguarded.error).code, -32602);
+      await writeFile(path.join(fixture.workspaceRoot, 'page-a.csv'), 'different bytes');
+      const stale = await call('read_knowledge_source', { ...readArgs, offset: 5, expected_sha256: read.sha256 });
+      assert.equal(stale.isError, true); assert.equal(record(stale.structuredContent).code, 'FILE_REVISION_CONFLICT');
+      assert.equal(Object.hasOwn(record(stale.structuredContent), 'content'), false);
+      await writeFile(path.join(fixture.workspaceRoot, 'oversized.csv'), 'x'.repeat(256 * 1024 + 1));
+      const bounded = record((await call('search_knowledge', { workspace_id: workspaceId, query: 'AbsentNeedle' })).structuredContent);
+      assert.equal(bounded.next_legacy_cursor, null); assert.equal(bounded.truncated, true);
+      assert.equal(record(bounded.coverage).complete, false); assert.equal(record(bounded.coverage).skipped, 1);
+    });
+
     let registered: AgentTool | undefined;
     await check('PI default/fixed/none offering, file-worker classification and planning use the actual search_documents name', async () => {
       await fixture.setPiEnabledTools([]);
@@ -184,7 +223,7 @@ export async function documentSearchToolDispatchPostgresTest(): Promise<void> {
       });
     });
   });
-  assert.equal(groups, 6); finished = true;
+  assert.equal(groups, 7); finished = true;
   console.log(JSON.stringify({ suite: 'document-search-tool-dispatch-postgres', groups, passed: true,
     actualRegisteredWebMcpTransport: true, actualPiRegistryWrapper: true, tcpOrCompiledOAuthE2e: false, wholeModelContextBudget: false }));
 }

@@ -51,8 +51,8 @@ try {
   await step('HTTP tools/list exposes every read and search argument at top level', async () => {
     const listed = await mcp.rpc('tools/list');
     for (const [name, keys] of [
-      ['read_knowledge_source', ['workspace_id', 'path', 'offset', 'max_characters', 'document_id', 'format', 'max_bytes', 'expected_version', 'cursor', 'include_edit_targets']],
-      ['search_knowledge', ['workspace_id', 'query', 'path', 'max_results', 'api_version', 'cursor']],
+      ['read_knowledge_source', ['workspace_id', 'path', 'offset', 'max_characters', 'expected_sha256', 'document_id', 'format', 'max_bytes', 'expected_version', 'cursor', 'include_edit_targets']],
+      ['search_knowledge', ['workspace_id', 'query', 'path', 'max_results', 'legacy_cursor', 'api_version', 'cursor']],
     ]) {
       const input = listed.tools.find(tool => tool.name === name).inputSchema;
       assert.equal(input.oneOf, undefined);
@@ -80,6 +80,13 @@ try {
     assert.equal(page.content.length, 37);
     assert.equal(page.next_offset, 37);
     assert.match(page.sha256, /^[a-f0-9]{64}$/u);
+    const continued = requireIngestE2ESuccess(await call('read_knowledge_source', {
+      path: document.path, offset: page.next_offset, max_characters: 37, expected_sha256: page.sha256,
+    }), 'Legacy continuation');
+    assert.equal(continued.sha256, page.sha256);
+    requireIngestE2EFailure(await call('read_knowledge_source', {
+      path: document.path, offset: page.next_offset, expected_sha256: '0'.repeat(64),
+    }), 'FILE_REVISION_CONFLICT');
   });
   await step('native Markdown format, UTF8 pages and expected version survive HTTP dispatch', async () => {
     let cursor, version, totalBytes, received = 0, text = '';
@@ -119,6 +126,21 @@ try {
     }
     assert.equal(cursor, null);
     assert.deepEqual([...ids].sort(), documents.map(row => row.document_id).sort());
+  });
+  await step('legacy search and folder list expose usable continuation', async () => {
+    for (const name of ['search_knowledge', 'list_knowledge_tree']) {
+      const found = new Set(); let cursor;
+      for (let index = 0; index < 30; index++) {
+        const input = name === 'search_knowledge' ? { query: marker, max_results: 1,
+          ...(cursor ? { legacy_cursor: cursor } : {}) } : { max_entries: 1, max_depth: 0, ...(cursor ? { cursor } : {}) };
+        const page = requireIngestE2ESuccess(await call(name, input), name);
+        for (const row of page.results ?? page.entries) { assert.ok(!found.has(row.path)); found.add(row.path); }
+        cursor = name === 'search_knowledge' ? page.next_legacy_cursor : page.next_cursor;
+        if (!cursor) break;
+      }
+      assert.equal(cursor, null);
+      for (const row of documents) assert.ok(found.has(row.path));
+    }
   });
   await step('direct document link opens the real editor and survives reload', async () => {
     const page = await owner.newPage();

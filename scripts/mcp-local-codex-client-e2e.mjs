@@ -80,6 +80,22 @@ try {
   const document = fixture.documents[0];
   const legacy = await call('read_knowledge_source', { path: document.path, max_characters: 37 });
   assert.notEqual(legacy.isError, true); assert.equal(legacy.structuredContent.content.length, 37);
+  const continuedLegacy = await call('read_knowledge_source', { path: document.path, offset: 37,
+    max_characters: 37, expected_sha256: legacy.structuredContent.sha256 });
+  assert.notEqual(continuedLegacy.isError, true);
+  assert.equal(continuedLegacy.structuredContent.sha256, legacy.structuredContent.sha256);
+  const staleLegacy = await call('read_knowledge_source', { path: document.path, offset: 37, expected_sha256: '0'.repeat(64) });
+  assert.equal(staleLegacy.isError, true); assert.equal(staleLegacy.structuredContent.code, 'FILE_REVISION_CONFLICT');
+  const legacySearch = await call('search_knowledge', { query: 'ConnectorAcceptance', max_results: 1 });
+  assert.notEqual(legacySearch.isError, true); assert.ok(legacySearch.structuredContent.next_legacy_cursor);
+  const nextLegacySearch = await call('search_knowledge', { query: 'ConnectorAcceptance', max_results: 1,
+    legacy_cursor: legacySearch.structuredContent.next_legacy_cursor });
+  assert.notEqual(nextLegacySearch.isError, true);
+  assert.notEqual(nextLegacySearch.structuredContent.results[0].path, legacySearch.structuredContent.results[0].path);
+  const tree = await call('list_knowledge_tree', { max_entries: 1, max_depth: 0 });
+  assert.notEqual(tree.isError, true); assert.ok(tree.structuredContent.next_cursor);
+  const nextTree = await call('list_knowledge_tree', { max_entries: 1, max_depth: 0, cursor: tree.structuredContent.next_cursor });
+  assert.notEqual(nextTree.isError, true); assert.notEqual(nextTree.structuredContent.entries[0].path, tree.structuredContent.entries[0].path);
   const native = await call('read_knowledge_source', { document_id: document.documentId, format: 'markdown', max_bytes: 256 });
   assert.notEqual(native.isError, true); assert.equal(native.structuredContent.format, 'markdown');
   assert.ok(native.structuredContent.byteLength <= 256); assert.ok(native.structuredContent.nextCursor);
@@ -99,7 +115,8 @@ try {
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
     client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
-      'native read continuation', 'wrong version conflict', 'native search continuation'],
+      'native read continuation', 'wrong version conflict', 'native search continuation',
+      'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation'],
     limitation: 'Local Codex MCP transport; not the hosted ChatGPT connector schema adapter.' }, null, 2));
   console.log('PASS installed Codex MCP client: OAuth, schema discovery, reads, conflicts and search continuation');
 } finally {

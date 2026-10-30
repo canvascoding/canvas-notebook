@@ -57,7 +57,7 @@ the hosted ChatGPT connector's schema adaptation.
 ## Implementation sequence
 
 1. Flat read/search schemas and actual client acceptance (completed).
-2. Version-bound legacy reads and explicit search coverage/continuation.
+2. Version-bound legacy reads and explicit search coverage/continuation (implemented; combined client acceptance pending).
 3. Upload begin idempotency, status/recovery and structured failures.
 4. Complete Markdown replacement through the central document owner.
 5. Paged manifest with explicit hash representation and coverage.
@@ -88,3 +88,31 @@ evidence categories; none is reported as another.
 Local evidence is under `artifacts/mcp-connector/<run-id>/`; generated catalogs
 and screenshots are not source files. Hosted ChatGPT adapter acceptance still
 requires publishing this server version to an accessible test connection.
+
+## Step 2 contract
+
+Legacy path reads require the first page's `expected_sha256` for every nonzero
+`offset`. A mismatch returns `FILE_REVISION_CONFLICT` without body content.
+This intentional tightening prevents concatenating pages from different versions.
+Native document-version continuations keep their existing contract.
+
+Legacy search now returns `next_legacy_cursor`; replay it as `legacy_cursor`
+with the same workspace, query and path. Native V1 retains its separate `cursor`.
+Candidate path/file-metadata changes reject continuation with
+`SEARCH_CORPUS_CHANGED`; malformed or cross-scope cursors return
+`INVALID_SEARCH_CURSOR`. Every call independently checks authorization.
+
+Coverage explicitly reports bounded discovery, the 400-candidate/6-depth limits,
+256 KiB file limit and skipped sources. It is current per page, not an atomic
+workspace snapshot. When discovery is incomplete, narrow `path` or expand the
+folder tree; no cursor certifies unscanned files as covered.
+
+Acceptance: 21 contract/tree/routing tests and all 7 PostgreSQL dispatcher
+groups pass, including stale hashes, changed search corpus, unique continuation
+and skipped oversized files. Combined browser and installed-Codex scripts now
+include legacy and tree pagination; those additions await the final rebuilt image.
+
+The production `build:release:typecheck` and scoped ESLint pass. The broader
+`tsconfig.json` check also includes unrelated historical test scripts and reports
+errors there; none reference this step's changed files. It is not reported as a
+passing repository-wide type check.

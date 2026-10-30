@@ -1,6 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
+import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from './legacy-pagination';
 import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
 import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
 
@@ -434,7 +435,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Search workspace files',
-      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit all native-only fields to retain legacy physical/native path-based text excerpts.',
+      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit native-only fields for legacy path excerpts; pass next_legacy_cursor back as legacy_cursor. Legacy coverage explicitly reports bounded discovery and skipped sources; narrow path when discovery is incomplete.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -442,6 +443,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           query: { type: 'string', minLength: 2, description: 'Text to search for.' },
           path: { type: 'string', description: 'Workspace-relative starting scope. Defaults to ".".' },
           max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum whole hits. Defaults to 8 for native V1, 10 for legacy excerpts.' },
+          legacy_cursor: { type: 'string', minLength: 1, maxLength: 1024, description: 'Legacy search only: exact next_legacy_cursor. Keep workspace, query and path unchanged. Native V1 uses cursor instead.' },
           ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         },
         required: ['workspace_id', 'query'],
@@ -454,7 +456,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         oneOf: [
           { type: 'object', additionalProperties: false,
             properties: { workspace_id: { type: 'string' }, query: { type: 'string' },
-              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' } },
+              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' },
+              next_legacy_cursor: { type: ['string', 'null'] }, coverage: { type: 'object' } },
             required: ['workspace_id', 'query', 'results', 'truncated'] },
           DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1,
           DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1,
@@ -657,6 +660,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         path: { type: 'string', description: 'Legacy workspace-relative file path. Cannot be combined with document_id or native page fields.' },
         offset: { type: 'integer', minimum: 0, description: 'Legacy path mode only: UTF-16 character offset. Defaults to 0.' },
         max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Legacy path mode only: maximum returned characters. Defaults to 12000.' },
+        expected_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$', description: 'Legacy path mode only: hash from the first page. Required when offset > 0; changed content returns FILE_REVISION_CONFLICT.' },
         ...DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES,
       },
       required: ['workspace_id'],
@@ -1046,13 +1050,14 @@ async function executeSearchKnowledge(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const query = requiredString(parsed, 'query', 200);
-  if (Object.keys(parsed).some(key => !['workspace_id', 'query', 'path', 'max_results'].includes(key))) {
-    invalidParams('Legacy search accepts only workspace_id, query, path and max_results.');
+  if (Object.keys(parsed).some(key => !['workspace_id', 'query', 'path', 'max_results', 'legacy_cursor'].includes(key))) {
+    invalidParams('Legacy search accepts only workspace_id, query, path, max_results and legacy_cursor.');
   }
   if (query.length < 2) invalidParams('query must contain at least 2 characters.');
   const startPath = optionalString(parsed, 'path', '.', MAX_PATH_LENGTH);
   assertVisibleWorkspacePath(startPath);
   const maxResults = optionalInteger(parsed, 'max_results', DEFAULT_SEARCH_RESULTS, 1, MAX_SEARCH_RESULTS);
+  const legacyCursor = optionalString(parsed, 'legacy_cursor', '', 1024);
   const authorization = await authenticateForTool(authInfo, 'knowledge:search');
   if ('result' in authorization) return authorization.result;
 
@@ -1069,7 +1074,6 @@ async function executeSearchKnowledge(
       excerpt: string;
       modified_at: string | null;
     } & ReturnType<typeof directMcpFileLinkFields>> = [];
-    let truncated = tree.truncated;
 
     const nativePaths = await listWorkspaceSearchDocuments(workspace, startPath);
     const candidates = [...new Set([
@@ -1077,18 +1081,18 @@ async function executeSearchKnowledge(
       ...tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path),
     ])].filter(filePath => isVisibleWorkspaceNode({ path: filePath, name: path.posix.basename(filePath), type: 'file' })
       && isSearchableTextFile(filePath)).sort((left, right) => left.localeCompare(right));
-    if (candidates.length > MAX_SEARCH_CANDIDATES) truncated = true;
-
-    for (const filePath of candidates.slice(0, MAX_SEARCH_CANDIDATES)) {
-      if (results.length >= maxResults) {
-        truncated = true;
-        break;
-      }
+    const bounded = candidates.slice(0, MAX_SEARCH_CANDIDATES);
+    const scope = legacySearchFingerprint([workspace.workspaceId, workspace.rootPath, startPath, query]);
+    const snapshot = legacySearchFingerprint([bounded, tree.entries, tree.truncated]);
+    const previous = decodeLegacySearchCursor(legacyCursor, scope, snapshot, bounded.length);
+    let index = previous.index, skipped = previous.skipped;
+    while (index < bounded.length && results.length < maxResults) {
+      const filePath = bounded[index++];
       let current;
       try { current = await readWorkspaceSearchText(workspace, filePath, MAX_SEARCH_FILE_BYTES); }
       catch (error) {
         if (error instanceof WorkspaceSearchReadError && ['SOURCE_TOO_LARGE', 'SOURCE_BINARY'].includes(error.code)) {
-          truncated = true;
+          skipped += 1;
           continue;
         }
         throw error;
@@ -1105,11 +1109,18 @@ async function executeSearchKnowledge(
       });
     }
 
+    const nextCursor = index < bounded.length ? encodeLegacySearchCursor(scope, snapshot, index, skipped) : null;
+    const discoveryIncomplete = tree.truncated || candidates.length > MAX_SEARCH_CANDIDATES;
     const structuredContent = {
       workspace_id: workspace.workspaceId,
       query,
       results,
-      truncated,
+      truncated: nextCursor !== null || discoveryIncomplete || skipped > 0,
+      next_legacy_cursor: nextCursor,
+      coverage: { discovery_complete: !discoveryIncomplete, candidate_limit: MAX_SEARCH_CANDIDATES,
+        candidates: bounded.length, scanned: index, skipped, max_depth: MAX_TREE_DEPTH,
+        max_file_bytes: MAX_SEARCH_FILE_BYTES, consistency: 'current_per_page',
+        complete: !nextCursor && !discoveryIncomplete && skipped === 0 },
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
@@ -1118,7 +1129,8 @@ async function executeSearchKnowledge(
       resultCount: results.length,
     });
     return result(structuredContent, [`${results.length} matching workspace document(s) found.`, ...results.map(entry => `${JSON.stringify(entry.path)}: ${entry.document_url}`)].join('\n'));
-  } catch {
+  } catch (error) {
+    if (error instanceof LegacyPaginationError) return { isError: true, structuredContent: { code: error.code, message: error.message }, content: [{ type: 'text', text: error.message }] };
     return errorResult('Could not search the Canvas workspace.');
   }
 }
@@ -1156,11 +1168,15 @@ async function executeReadKnowledgeSource(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
-  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'offset', 'max_characters'].includes(key))) {
-    invalidParams('Legacy read accepts only workspace_id, path, offset and max_characters.');
+  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'offset', 'max_characters', 'expected_sha256'].includes(key))) {
+    invalidParams('Legacy read accepts only workspace_id, path, offset, max_characters and expected_sha256.');
   }
   assertVisibleWorkspacePath(filePath);
   const offset = optionalInteger(parsed, 'offset', 0, 0, Number.MAX_SAFE_INTEGER);
+  const expectedSha256 = normalizeExpectedSha256(parsed.expected_sha256);
+  if ((parsed.expected_sha256 !== undefined || offset > 0) && !expectedSha256) {
+    invalidParams('Legacy continuation requires expected_sha256 from the first page.');
+  }
   const maxCharacters = optionalInteger(
     parsed,
     'max_characters',
@@ -1190,6 +1206,10 @@ async function executeReadKnowledgeSource(
     });
     if (Buffer.byteLength(text.content, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP read limit.`);
+    }
+    if (expectedSha256 && expectedSha256 !== text.sha256) {
+      return { isError: true, structuredContent: { code: 'FILE_REVISION_CONFLICT', message: 'Content changed. Restart reading at offset 0.' },
+        content: [{ type: 'text', text: 'FILE_REVISION_CONFLICT: Content changed. Restart reading at offset 0.' }] };
     }
     const content = text.content.slice(offset, offset + maxCharacters);
     const nextOffset = offset + content.length < text.content.length ? offset + content.length : null;
