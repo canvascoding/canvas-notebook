@@ -70,6 +70,14 @@ Produktcode, Originaldaten und laufende Container bleiben unverändert. Die
 vollständigen aktuellen Aufrufervergleiche müssen diese Diagnose noch anwenden;
 die Leistungsbudgets sind damit nicht als erreicht erklärt.
 
+Die [aktuelle Lese-Matrix](architecture/document-service-current-read-matrix-2026-10-30.md)
+besteht mit HTTP, Hauptagent, Organisationsagent und MCP bei zehn und 200
+Quellen in allen 24 Fenstern. Warme Reader benötigen 59 / 99 / 117 / 74 SQL-
+Aufrufe; die genaue Diagnose misst zwei bis vier bereite Laufzeitverbindungen.
+Alle SQL-Zähler stimmen exakt überein, Originaldaten bleiben erhalten. Aktuelle
+Anlage-, Editor- und Pfadvergleiche mit vollständiger Verbindungszählung sowie
+die Leistungsoptimierung und die übrigen Abnahmen bleiben offen.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
