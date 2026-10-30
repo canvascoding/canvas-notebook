@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.30.1] - 2026-10-30
+
+### Added
+
+- MCP workspace capabilities and a paginated file manifest with verified content hashes.
+- Guarded complete Markdown replacement and durable upload recovery with verified status and retry receipts.
+
+### Fixed
+
+- Corrected MCP connector read and search schemas, pagination, and continuation handling.
+- Improved HEIF image conversion fallback and revoked MCP bearer grants atomically when OAuth grants are revoked.
+
+### Security
+
+- Updated web, authentication, MCP, editor, mail, Electron, and Python runtime dependencies and added dependency security audits to CI.
+- Hardened Electron certificate handling and optional dictation file locking.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.29.1] - 2026-10-29
 
 ### Fixed
