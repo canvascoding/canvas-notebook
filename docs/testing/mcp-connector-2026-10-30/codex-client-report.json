@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "client": "installed codex app-server MCP client",
+  "modelTurns": 0,
+  "ephemeral": true,
+  "workspaceId": "ws_2fcb5df3-339c-4228-997c-97171735e977",
+  "checks": [
+    "OAuth DCR/PKCE",
+    "workspace grant",
+    "tools/list",
+    "legacy read",
+    "native format and byte limit",
+    "native read continuation",
+    "wrong version conflict",
+    "native search continuation",
+    "legacy hash-protected continuation",
+    "legacy search continuation",
+    "tree continuation",
+    "upload retries/status/checksum"
+  ],
+  "limitation": "Local Codex MCP transport; not the hosted ChatGPT connector schema adapter."
+}

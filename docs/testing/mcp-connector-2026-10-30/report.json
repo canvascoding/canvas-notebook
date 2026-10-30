@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "runId": "cb42261d-f58e-4b4b-ad6a-93cadcafae4a",
+  "workspaceId": "ws_2fcb5df3-339c-4228-997c-97171735e977",
+  "baseURL": "http://127.0.0.1:3100",
+  "steps": [
+    {
+      "name": "real login, workspace opt-in, browser consent and PKCE",
+      "passed": true,
+      "durationMs": 2407
+    },
+    {
+      "name": "settings UI shows and persists manifest and replacement controls",
+      "passed": true,
+      "durationMs": 1359
+    },
+    {
+      "name": "workspace rights, versions and limits",
+      "passed": true,
+      "durationMs": 93
+    },
+    {
+      "name": "HTTP tools/list exposes every read and search argument at top level",
+      "passed": true,
+      "durationMs": 19
+    },
+    {
+      "name": "create two isolated native documents through MCP",
+      "passed": true,
+      "durationMs": 2831
+    },
+    {
+      "name": "legacy path read retains workspace and character limits",
+      "passed": true,
+      "durationMs": 224
+    },
+    {
+      "name": "native Markdown format, UTF8 pages and expected version survive HTTP dispatch",
+      "passed": true,
+      "durationMs": 678
+    },
+    {
+      "name": "native search continues without duplicate or missing document IDs",
+      "passed": true,
+      "durationMs": 293
+    },
+    {
+      "name": "legacy search and folder list expose usable continuation",
+      "passed": true,
+      "durationMs": 211
+    },
+    {
+      "name": "binary upload retries, status and original SHA-256",
+      "passed": true,
+      "durationMs": 50438
+    },
+    {
+      "name": "complete Markdown replacement, retry and revision conflict",
+      "passed": true,
+      "durationMs": 994
+    },
+    {
+      "name": "manifest original-byte hashes, authoritative Markdown and continuation",
+      "passed": true,
+      "durationMs": 341
+    },
+    {
+      "name": "direct document link opens the real editor and survives reload",
+      "passed": true,
+      "durationMs": 4694
+    }
+  ],
+  "documents": [
+    {
+      "path": "acceptance-0.md",
+      "documentId": "collab-88e37ad6-40f0-41ab-93ff-d2a27a979d76",
+      "documentUrl": "http://127.0.0.1:3100/notebook?workspaceId=ws_2fcb5df3-339c-4228-997c-97171735e977&path=acceptance-0.md&documentId=collab-88e37ad6-40f0-41ab-93ff-d2a27a979d76&lineageId=file-lineage-793b626f-dc05-46f6-8b0f-3958092f5dd4"
+    },
+    {
+      "path": "acceptance-1.md",
+      "documentId": "collab-bb2e1848-9c09-4164-991c-fb0a66906779",
+      "documentUrl": "http://127.0.0.1:3100/notebook?workspaceId=ws_2fcb5df3-339c-4228-997c-97171735e977&path=acceptance-1.md&documentId=collab-bb2e1848-9c09-4164-991c-fb0a66906779&lineageId=file-lineage-0f71116f-af85-4c7d-97be-6976ce7863b8"
+    }
+  ],
+  "evidence": "Rebuilt managed container, real OAuth/HTTP/browser; local Codex connector verified separately."
+}
