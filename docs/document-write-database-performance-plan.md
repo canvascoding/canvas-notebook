@@ -53,6 +53,15 @@ Speicheranker und die elf anderen laufenden Container sind erhalten. Die
 SQL-Anzahl bleibt bei 36 / sieben Ausleihen; native Body-Lesungen, weitere
 Faktenbündelung und sämtliche übrigen Paketabnahmen bleiben offen.
 
+Die [aktuelle Editor-Messung](architecture/document-service-editor-current-baseline-2026-10-30.md)
+am Produktstand `6302d6403` besteht mit zehn und 200 regulär angelegten Dokumenten.
+Erstes Öffnen benötigt in beiden Größen 690 SQL-Aufrufe; die Prozessfenster enthalten
+weiterhin erhebliche Hintergrundarbeit. Alle zehn SQL-Callsite-Zähler stimmen
+exakt überein. Zwei zusätzliche echte Planproben der oft wiederholten Member-
+Beobachtung zeigen hier mehr Planungs- als Ausführungszeit. Originaldaten und
+alle laufenden Container bleiben erhalten. Das ist eine aktuelle Messgrundlage,
+keine Produktoptimierung oder Abnahme der Leistungsbudgets.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
