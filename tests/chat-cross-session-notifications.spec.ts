@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Request } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
@@ -338,28 +338,31 @@ test('hides the visible chat notification while mark-as-read PATCH and summary G
 
 test('coalesces notification event bursts and ignores unchanged hidden chat sessions', async ({ page }) => {
   await login(page);
-  let summaryRequests = 0;
+  const summaryRequests: Request[] = [];
   await page.route('**/api/notifications/summary**', async route => {
-    summaryRequests += 1;
+    summaryRequests.push(route.request());
     await route.fulfill({ json: chatNotificationSummary('sess-event-burst', false) });
   });
   await page.goto('/notebook?chat=closed', { waitUntil: 'domcontentloaded' });
-  await expect.poll(() => summaryRequests).toBeGreaterThanOrEqual(1);
+  await expect.poll(() => summaryRequests.length).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /0 unread/);
   // Observe one complete debounce interval before counting the new burst.
   await page.evaluate(() => new Promise<void>(resolve => window.setTimeout(resolve, 200)));
-  const beforeBurst = summaryRequests;
-  await page.evaluate(() => {
+  const burstStartedAt = await page.evaluate(() => {
+    const startedAt = performance.timeOrigin + performance.now();
     for (let index = 0; index < 20; index += 1) {
       window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
         detail: { sessionId: null, isVisible: false },
       }));
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     }
+    return startedAt;
   });
-  await expect.poll(() => summaryRequests).toBe(beforeBurst + 1);
+  const burstRequestCount = () => summaryRequests.filter(request => request.timing().startTime >= burstStartedAt).length;
+  await expect.poll(burstRequestCount).toBe(1);
   await page.evaluate(() => new Promise<void>(resolve => window.setTimeout(resolve, 200)));
-  expect(summaryRequests).toBe(beforeBurst + 1);
+  for (const request of summaryRequests) expect(request.timing().startTime).toBeGreaterThan(0);
+  expect(burstRequestCount()).toBe(1);
   await expect(page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /0 unread/);
 });
 

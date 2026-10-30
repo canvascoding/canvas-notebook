@@ -2,8 +2,8 @@ import 'server-only';
 
 import type { WorkspaceContext } from '../workspaces/types';
 import type { NativeDocumentLink, NativeNamespaceEntry } from './workspace-link-contract-v2';
-import { resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
-import { resolveExactWorkspaceLink, type WorkspaceExactResolution } from './workspace-local-link-parser';
+import { nativeLinkJsonProof } from './workspace-native-link-inventory';
+import { resolveWorkspaceDocumentReadEdges } from './document-link-resolution-projection';
 import type { OriginalPhysicalLink, WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
 import { stageWorkspaceLinkSourceAuthorityObservation } from './workspace-source-authority-stage';
 import type { WorkspaceDocumentLinkDocument, WorkspaceDocumentLinkIndex, WorkspaceLinkReadEdge } from './workspace-document-link-index-contract';
@@ -117,38 +117,20 @@ export function buildWorkspaceDocumentLinkIndexFromStage(
   }
   const targetPaths = [...namespace.values()].filter(entry => entry.kind === 'file' && !conflicts.has(entry.path))
     .map(entry => entry.path).sort((a, b) => a.localeCompare(b));
-  const paths = new Set(targetPaths);
   const documents = [...sources.values()].map(documentMetadata).sort((a, b) => a.path.localeCompare(b.path));
-  const candidates = documents.map(document => ({ path: document.path, aliases: document.aliases,
-    extension: document.path.split('.').at(-1)?.toLowerCase(), type: 'file' as const }));
-  const nativeTargetPaths = new Set(documents.filter(document => document.nativeIdentity).map(document => document.path));
-  const edges: WorkspaceLinkReadEdge[] = [];
+  const semanticSources: Array<{ path: string; version: string; links: SemanticLink[] }> = [];
   for (const [path, source] of sources) {
     const links: SemanticLink[] = source.kind === 'physical' ? source.inventory.links.map(physicalLink)
       : source.inventory.links.map(link => ({ id: link.id, kind: link.kind, syntax: link.syntax,
         literal: link.literal, targetPathText: link.targetPathText, fragment: link.fragment,
         alias: link.alias, embed: link.embed, classification: link.classification }));
-    for (const link of links) {
-      const resolution: WorkspaceExactResolution = link.classification !== 'local'
-        ? { status: link.classification, path: null, candidates: [] }
-        : link.kind === 'wiki'
-          ? resolveWorkspaceWikiFileLink({ targetLiteral: link.literal, targetPathText: link.targetPathText },
-            path, paths, candidates, { nativeTargetPaths })
-          : resolveExactWorkspaceLink(link.targetPathText, path, paths);
-      let fragment = link.fragment ?? '';
-      try { fragment = decodeURIComponent(fragment); } catch { /* Retain malformed spelling. */ }
-      edges.push({
-        id: link.id, kind: link.kind, syntax: link.syntax, sourcePath: path,
-        targetLiteral: link.literal,
-        targetText: link.classification === 'external' ? link.literal
-          : link.targetPathText + (link.fragment !== null ? `#${link.fragment}` : ''),
-        alias: link.alias, embed: link.embed, heading: fragment && !fragment.startsWith('^') ? fragment : null,
-        blockId: fragment.startsWith('^') ? fragment.slice(1) || null : null,
-        candidates: [...resolution.candidates], status: resolution.status, targetPath: resolution.path,
-        ...(link.sourcePreview ? { sourcePreview: { ...link.sourcePreview } } : {}),
-      });
-    }
+    const version = nativeLinkJsonProof(source.kind === 'native'
+      ? [source.inventory.document, source.inventory.version, source.inventory.parserVersion]
+      : [source.inventory.physical, source.inventory.parserVersion]);
+    semanticSources.push({ path, version, links });
   }
+  const edges = resolveWorkspaceDocumentReadEdges({ workspaceId: stage.workspaceId, organizationId: stage.organizationId,
+    documents, targetPaths, sources: semanticSources });
   edges.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.id.localeCompare(b.id));
   const backlinks = Object.fromEntries(targetPaths.map(path => [path, [] as WorkspaceLinkReadEdge[]]));
   for (const edge of edges) if (edge.targetPath) backlinks[edge.targetPath]?.push(edge);
