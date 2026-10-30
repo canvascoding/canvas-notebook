@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
+import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -141,6 +142,9 @@ try {
       assert.equal(cursor, null);
       for (const row of documents) assert.ok(found.has(row.path));
     }
+  });
+  await step('binary upload retries, status and original SHA-256', async () => {
+    await verifyUploadAcceptance(call, runId);
   });
   await step('direct document link opens the real editor and survives reload', async () => {
     const page = await owner.newPage();

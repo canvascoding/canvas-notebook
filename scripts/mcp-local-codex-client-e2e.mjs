@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-local-codex-client-e2e.mjs <report.json>
  */
 import assert from 'node:assert/strict';
+import { verifyUploadAcceptance } from './mcp-upload-acceptance.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -55,7 +56,7 @@ try {
     capabilities: { experimentalApi: true } });
   app.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
   const login = await rpc('mcpServer/oauth/login', { name: serverName, clientRegistration: 'dcr', timeoutSecs: 180,
-    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search'] });
+    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search', 'knowledge:write'] });
   const authorization = new URL(login.authorizationUrl);
   assert.equal(authorization.origin, baseURL);
   const page = await owner.newPage();
@@ -112,11 +113,12 @@ try {
     cursor: search.structuredContent.nextCursor });
   assert.notEqual(searchedNext.isError, true);
   assert.notEqual(searchedNext.structuredContent.hits[0].document.documentId, search.structuredContent.hits[0].document.documentId);
+  await verifyUploadAcceptance(call, serverName);
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
     client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
       'native read continuation', 'wrong version conflict', 'native search continuation',
-      'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation'],
+      'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation', 'upload retries/status/checksum'],
     limitation: 'Local Codex MCP transport; not the hosted ChatGPT connector schema adapter.' }, null, 2));
   console.log('PASS installed Codex MCP client: OAuth, schema discovery, reads, conflicts and search continuation');
 } finally {

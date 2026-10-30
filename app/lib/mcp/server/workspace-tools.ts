@@ -83,6 +83,9 @@ import {
   completeDirectMcpBinaryUpload,
   decodeDirectMcpUploadChunk,
   directMcpBinaryUploadErrorMessage,
+  directMcpBinaryUploadErrorCode,
+  readDirectMcpBinaryUploadStatus,
+  DirectMcpBinaryUploadError,
   DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
   DIRECT_MCP_UPLOAD_MAX_BYTES,
   DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
@@ -592,11 +595,11 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Upload a binary workspace file',
-      description: 'Uploads one binary file in a short-lived, conflict-protected session. Call begin, send ordered Base64 chunks, then call complete; call abort to discard an unfinished upload.',
+      description: 'Uploads one binary file in a short-lived, conflict-protected session. Call begin with a stable idempotency_key, send ordered Base64 chunks, then complete; status returns the durable next_offset, and abort discards unfinished bytes. Reuse a key only for identical requests. Expired or unconfirmed sessions must be inspected before starting another upload. Completion verifies the original SHA-256 before and after publication.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'], description: 'Upload operation to perform.' },
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort', 'status'], description: 'Upload operation to perform.' },
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           path: { type: 'string', description: 'For begin, the visible workspace-relative destination path.' },
           size: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_UPLOAD_MAX_BYTES, description: 'For begin, exact file size in bytes.' },
@@ -604,6 +607,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           sha256: { type: 'string', description: 'For begin, lowercase SHA-256 of the complete file.' },
           overwrite: { type: 'boolean', description: 'For begin, allow replacing an existing file. Defaults to false.' },
           expected_sha256: { type: 'string', description: 'For overwrite, the current destination SHA-256 returned by a read tool.' },
+          idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$', description: 'For begin: stable retry key. Identical retries reuse the original durable session; changed requests conflict. Omitting it retains legacy non-idempotent begin behavior.' },
+          chunk_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$', description: 'For chunk: optional SHA-256 of exactly the decoded chunk bytes.' },
           upload_id: { type: 'string', description: 'Short-lived opaque upload handle returned by begin.' },
           offset: { type: 'integer', minimum: 0, description: 'For chunk, zero-based byte offset. Chunks must be sent in order.' },
           data_base64: { type: 'string', maxLength: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, description: `For chunk, canonical standard Base64 encoding of 1 to ${DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES} bytes.` },
@@ -617,7 +622,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
       outputSchema: {
         type: 'object' as const,
         properties: {
-          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'] },
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort', 'status'] },
           workspace_id: { type: 'string' },
           document_url: { type: 'string' },
           document_id: { type: ['string', 'null'] },
@@ -628,6 +633,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           total_size: { type: 'integer' },
           max_chunk_bytes: { type: 'integer' },
           expires_at: { type: 'string' },
+          already_started: { type: 'boolean' },
+          state: { type: 'string' },
+          sha256: { type: 'string' },
           already_received: { type: 'boolean' },
           already_completed: { type: 'boolean' },
           mime_type: { type: 'string' },
@@ -867,7 +875,7 @@ async function auditWorkspaceToolCall(input: {
   mimeType?: string;
   sizeBytes?: number;
   pageCount?: number;
-  uploadOperation?: 'begin' | 'chunk' | 'complete' | 'abort';
+  uploadOperation?: 'begin' | 'chunk' | 'complete' | 'abort' | 'status';
 }): Promise<void> {
   await recordAuditEvent({
     organizationId: input.workspace?.organizationId ?? null,
@@ -1354,10 +1362,10 @@ async function executeUploadKnowledgeAsset(
 ): Promise<CallToolResult> {
   const parsed = parseArgs(args);
   const operation = requiredString(parsed, 'operation', 20);
-  if (!['begin', 'chunk', 'complete', 'abort'].includes(operation)) {
-    invalidParams('operation must be begin, chunk, complete, or abort.');
+  if (!['begin', 'chunk', 'complete', 'abort', 'status'].includes(operation)) {
+    invalidParams('operation must be begin, chunk, complete, abort, or status.');
   }
-  const uploadOperation = operation as 'begin' | 'chunk' | 'complete' | 'abort';
+  const uploadOperation = operation as 'begin' | 'chunk' | 'complete' | 'abort' | 'status';
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const authorization = await authenticateForTool(authInfo, 'knowledge:write');
   if ('result' in authorization) return authorization.result;
@@ -1389,6 +1397,7 @@ async function executeUploadKnowledgeAsset(
         contentSha256,
         overwrite: optionalBoolean(parsed, 'overwrite') ?? false,
         expectedSha256,
+        ...(parsed.idempotency_key !== undefined ? { idempotencyKey: requiredString(parsed, 'idempotency_key', 128) } : {}),
       });
       const structuredContent = {
         operation: uploadOperation,
@@ -1401,6 +1410,8 @@ async function executeUploadKnowledgeAsset(
         expires_at: upload.expiresAt,
         mime_type: mimeType,
         before_sha256: upload.beforeSha256,
+        already_started: upload.alreadyStarted,
+        state: upload.state,
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
@@ -1413,10 +1424,18 @@ async function executeUploadKnowledgeAsset(
         sizeBytes: size,
         uploadOperation,
       });
-      return result(structuredContent, `Binary upload started for ${filePath}. Send chunks beginning at byte 0.`);
+      return result(structuredContent, `Binary upload ${upload.state} for ${filePath}. Continue at byte ${upload.nextOffset}; inspect status before completing or retrying.`);
     }
 
     const uploadId = requiredString(parsed, 'upload_id', 4096);
+    if (uploadOperation === 'status') {
+      const upload = await readDirectMcpBinaryUploadStatus({ principal: authorization.principal, workspace, uploadId });
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'upload_knowledge_asset', workspace,
+        path: upload.path, changed: false, uploadOperation });
+      return result({ operation: uploadOperation, workspace_id: workspace.workspaceId, path: upload.path,
+        state: upload.state, next_offset: upload.nextOffset, total_size: upload.size, sha256: upload.sha256,
+        before_sha256: upload.beforeSha256, expires_at: upload.expiresAt }, `Upload ${upload.state}; next offset ${upload.nextOffset}.`);
+    }
     if (uploadOperation === 'chunk') {
       const offset = requiredInteger(parsed, 'offset', 0, DIRECT_MCP_UPLOAD_MAX_BYTES);
       const encodedData = requiredText(
@@ -1425,6 +1444,11 @@ async function executeUploadKnowledgeAsset(
         DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
       );
       const buffer = decodeDirectMcpUploadChunk(encodedData);
+      if (parsed.chunk_sha256 !== undefined) {
+        const chunkSha256 = normalizeExpectedSha256(parsed.chunk_sha256);
+        if (!chunkSha256) invalidParams('chunk_sha256 must be a SHA-256 hash.');
+        if (chunkSha256 !== sha256Buffer(buffer)) throw new DirectMcpBinaryUploadError('Chunk bytes do not match chunk_sha256.', 'UPLOAD_CHUNK_CHECKSUM_MISMATCH');
+      }
       const upload = await writeDirectMcpBinaryUploadChunk({
         principal: authorization.principal,
         workspace,
@@ -1518,7 +1542,9 @@ async function executeUploadKnowledgeAsset(
     });
     return result(structuredContent, `Discarded the unfinished binary upload for ${upload.path}.`);
   } catch (error) {
-    return errorResult(directMcpBinaryUploadErrorMessage(error));
+    if (error instanceof ProtocolError) throw error;
+    const message = directMcpBinaryUploadErrorMessage(error), code = directMcpBinaryUploadErrorCode(error);
+    return { isError: true, structuredContent: { code, message }, content: [{ type: 'text', text: `${code}: ${message}` }] };
   }
 }
 

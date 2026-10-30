@@ -58,7 +58,7 @@ the hosted ChatGPT connector's schema adaptation.
 
 1. Flat read/search schemas and actual client acceptance (completed).
 2. Version-bound legacy reads and explicit search coverage/continuation (implemented; combined client acceptance pending).
-3. Upload begin idempotency, status/recovery and structured failures.
+3. Upload begin idempotency, status/recovery and structured failures (implemented; combined client acceptance pending).
 4. Complete Markdown replacement through the central document owner.
 5. Paged manifest with explicit hash representation and coverage.
 6. Workspace capabilities, limits/version metadata and combined acceptance.
@@ -116,3 +116,34 @@ The production `build:release:typecheck` and scoped ESLint pass. The broader
 `tsconfig.json` check also includes unrelated historical test scripts and reports
 errors there; none reference this step's changed files. It is not reported as a
 passing repository-wide type check.
+
+## Step 3 upload recovery
+
+The existing flat `upload_knowledge_asset` schema now includes `idempotency_key`,
+`chunk_sha256` and `operation:status`. The existing operation tool is retained
+for compatibility; all fields remain visible at top level.
+
+A begin key is scoped to the authenticated connection and workspace, with the
+exact destination/size/type/hash/overwrite request fingerprint. Concurrent or
+subsequent identical requests reuse a durable encrypted handle and current
+byte offset. A different request returns `UPLOAD_IDEMPOTENCY_CONFLICT`.
+Keys are optional for compatibility; callers requiring safe begin retries must
+provide one. Keys and handles do not grant access: every MCP request rechecks
+current OAuth and workspace permission.
+
+Intent and receipt are fsynced under the cross-process workspace lock. A crash
+between session creation and receipt persistence returns
+`UPLOAD_STATE_UNCONFIRMED`; it never creates a replacement session automatically.
+Handles retain their original 15-minute lifetime. Aborted, expired or uncertain
+uploads need inspection before selecting a new key.
+
+Status reads the central durable upload session. Completed status additionally
+checks the current destination against the original size and SHA-256. Optional
+chunk hashes reject bad bytes before persistence. Completion retains the existing
+pre-publication full-file hash check and post-publication verification.
+
+Actual PostgreSQL/MCP dispatcher acceptance passes concurrent begin, request
+conflict, partial resume, chunk retries/hashes, original bytes, complete retry,
+changed destination, wrong final hash, abort, revoked workspace grant, a durable
+receipt read by a fresh Node process, and a lost-acknowledgement boundary.
+The HTTP and installed-Codex acceptance scripts include the same upload flow.
