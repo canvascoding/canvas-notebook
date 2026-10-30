@@ -57,7 +57,7 @@
       "distributedIn": [
         "source-development-install"
       ],
-      "reason": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact."
+      "reason": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact."
     },
     {
       "namePrefix": "@sentry/cli",
@@ -329,7 +329,7 @@
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/@zone-eu/mailsplit/LICENSE.MIT",
       "copyrightNotices": [
-        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media O\u00dc"
       ],
       "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/ce3e52530b56627c78c78f44fc42e61d71c4c6d0",
       "verificationSource": "https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT",
@@ -340,9 +340,9 @@
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
       "sourceUrl": "https://registry.npmjs.org/client-only/-/client-only-0.0.1.tgz",
       "verificationSource": "https://registry.npmjs.org/client-only/0.0.1",
-      "reason": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markbåge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review.",
+      "reason": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markb\u00e5ge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review.",
       "copyrightNotices": [
-        "Copyright (c) Sebastian Markbåge and contributors"
+        "Copyright (c) Sebastian Markb\u00e5ge and contributors"
       ],
       "policyDecision": "allowed",
       "reviewedBy": "Frank Alexander Weber",
@@ -446,9 +446,9 @@
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
       "sourceUrl": "https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz",
       "verificationSource": "https://registry.npmjs.org/server-only/0.0.1",
-      "reason": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no author, repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markbåge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review.",
+      "reason": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no author, repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markb\u00e5ge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review.",
       "copyrightNotices": [
-        "Copyright (c) Sebastian Markbåge and contributors"
+        "Copyright (c) Sebastian Markb\u00e5ge and contributors"
       ],
       "policyDecision": "allowed",
       "reviewedBy": "Frank Alexander Weber",
@@ -459,7 +459,7 @@
       "licenseTextPath": "docs/compliance/license-texts/tr46-0.0.3-MIT-AND-Unicode-DFS-2015.txt",
       "copyrightNotices": [
         "Copyright (c) 2016 Sebastian Mayr",
-        "Copyright © 1991-2015 Unicode, Inc. All rights reserved."
+        "Copyright \u00a9 1991-2015 Unicode, Inc. All rights reserved."
       ],
       "sourceUrl": "https://github.com/Sebmaster/tr46.js/tree/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
       "verificationSource": "https://github.com/Sebmaster/tr46.js/blob/3a6f29721e7063b9ffd421e461a54beae6170001/LICENSE.md",
@@ -470,7 +470,7 @@
       "licenseTextPath": "docs/compliance/license-texts/tr46-6.0.0-MIT-AND-Unicode-3.0.txt",
       "copyrightNotices": [
         "Copyright (c) Sebastian Mayr",
-        "Copyright © 2025 Unicode, Inc."
+        "Copyright \u00a9 2025 Unicode, Inc."
       ],
       "sourceUrl": "https://github.com/jsdom/tr46/tree/7f1eb920768c794be40962a4f0cbad670a398d04",
       "verificationSource": "https://unicode.org/Public/17.0.0/idna/IdnaMappingTable.txt",
@@ -673,7 +673,7 @@
       "verifiedLicense": "MIT",
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
       "copyrightNotices": [
-        "Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso"
+        "Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, Ant\u00f3nio Afonso"
       ],
       "sourceUrl": "https://github.com/Stuk/jszip/tree/0f2f1e4d0509514417db83fe5b86bde90e0ffe8d",
       "verificationSource": "https://github.com/Stuk/jszip/blob/v3.10.1/LICENSE.markdown",
@@ -716,7 +716,7 @@
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/@zone-eu/mailsplit/LICENSE.MIT",
       "copyrightNotices": [
-        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media O\u00dc"
       ],
       "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/df5b42b046bbab53b9b238c39208658b8732bf75",
       "verificationSource": "https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT",
@@ -726,21 +726,21 @@
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
       "copyrightNotices": [
-        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media O\u00dc"
       ],
       "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/69da215d9481ba56e17a9320cd2d481ac8b690bd",
       "verificationSource": "https://github.com/zone-eu/mailsplit/blob/69da215d9481ba56e17a9320cd2d481ac8b690bd/LICENSE.MIT",
       "reason": "Technical package review by Codex on 2026-09-30: npm gitHead and v5.4.19 both identify 69da215d9481ba56e17a9320cd2d481ac8b690bd. The installed and upstream LICENSE.MIT are byte-identical to the already elected MIT alternative in 5.4.16 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. This records source/license evidence, not a new legal or product release approval."
     },
-    "dompurify@3.4.16": {
+    "dompurify@3.4.17": {
       "verifiedLicense": "Apache-2.0",
       "licenseTextPath": "node_modules/dompurify/LICENSE",
       "copyrightNotices": [
         "(c) Cure53 and other contributors"
       ],
-      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/b9b9d80f7e401771c2ccaef5f45def7eec8f27d7",
-      "verificationSource": "https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE",
-      "reason": "The exact npm release declares (MPL-2.0 OR Apache-2.0), and the matching 3.4.16 tag resolves to b9b9d80f7e401771c2ccaef5f45def7eec8f27d7. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file."
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/a307c2ac04d751cde8870191d6af503141e8c58a",
+      "verificationSource": "https://github.com/cure53/DOMPurify/blob/3.4.17/LICENSE",
+      "reason": "The exact npm release declares (MPL-2.0 OR Apache-2.0). The matching 3.4.17 tag resolves to a307c2ac04d751cde8870191d6af503141e8c58a. Canvas elects Apache-2.0 and retains the complete license and package header. The package is unmodified."
     }
   },
   "additionalComponents": [
@@ -986,9 +986,9 @@
     },
     {
       "name": "canvas-built-libvips",
-      "versionOrCommit": "8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e",
-      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.6/vips-8.18.6.tar.xz",
-      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz",
+      "versionOrCommit": "8.18.7 / 5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94",
+      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.7.tar.xz",
       "usage": "native",
       "distributedIn": [
         "docker-image",
@@ -1000,9 +1000,9 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; both sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-09-22"
+      "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; all shipped sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
     },
     {
       "name": "node-docker-base",
@@ -1071,6 +1071,52 @@
       "reviewNotes": "The pinned model repository identifies the converted OpenAI Whisper models as MIT. All five model downloads are fixed to the reviewed revision and SHA-256/size; the admin installer verifies bytes before activation and installs the upstream Whisper v20250625 MIT notice alongside the model. The base image contains no model weights.",
       "reviewedBy": "Codex (technical source and notice review)",
       "reviewedAt": "2026-10-04"
+    },
+    {
+      "name": "canvas-built-cairo",
+      "versionOrCommit": "1.18.6 / 1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4",
+      "sourceUrl": "https://cairographics.org/releases/cairo-1.18.6.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libcairo*.so* and /usr/share/canvas-notebook/corresponding-source/cairo-1.18.6.tar.xz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "(LGPL-2.1-only OR MPL-1.1)",
+      "verifiedLicense": "LGPL-2.1-only",
+      "licenseTextPath": "docs/compliance/license-texts/cairo-1.18.6-LGPL-2.1.txt",
+      "copyrightNotices": [
+        "Copyright 2002 University of Southern California",
+        "Copyright 2005 Red Hat, Inc.",
+        "Additional Cairo authors and contributors; per-file notices are retained in the exact source archive."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Unmodified upstream source built as a replaceable shared library. The exact SHA-256-verified source archive is embedded in Docker images and native compliance release evidence. Cairo elects LGPL-2.1-only from its dual license.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
+    },
+    {
+      "name": "canvas-built-librsvg",
+      "versionOrCommit": "2.57.5 / 5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f",
+      "sourceUrl": "https://download.gnome.org/sources/librsvg/2.57/librsvg-2.57.5.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/liblibrsvg*.so* and /usr/share/canvas-notebook/corresponding-source/librsvg-2.57.5.tar.xz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "LGPL-2.1-or-later",
+      "verifiedLicense": "LGPL-2.1-or-later",
+      "licenseTextPath": "docs/compliance/license-texts/LGPL-2.1-or-later.txt",
+      "copyrightNotices": [
+        "Federico Mena Quintero and the librsvg authors; per-file notices are retained in the exact source archive."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Unmodified upstream source built as a replaceable shared library. The exact SHA-256-verified source archive is embedded in Docker images and native compliance release evidence. This release fixes CVE-2026-96889; Cairo 1.18 is required to build it.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
     }
   ]
 }

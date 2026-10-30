@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.29.1",
-  "lockfileSha256": "df67549a5689f6a0729f4f4a8d2fb18f13af4c4bae91cf51a0f97fba1ab3c449",
+  "lockfileSha256": "3f6bde10aa57afe87d24a74c893d8fc66af216de8da9434904313046ee0f9482",
   "summary": {
-    "totalComponents": 1966,
-    "npmComponents": 1940,
-    "nonNpmComponents": 26,
-    "runtimeComponents": 1453,
-    "developmentOnlyComponents": 513,
-    "allowed": 1930,
+    "totalComponents": 1984,
+    "npmComponents": 1956,
+    "nonNpmComponents": 28,
+    "runtimeComponents": 1469,
+    "developmentOnlyComponents": 515,
+    "allowed": 1948,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -884,8 +884,8 @@
     },
     {
       "name": "@img/sharp-darwin-arm64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-darwin-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -893,19 +893,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-arm64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-arm64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-darwin-x64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-darwin-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -913,19 +913,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-x64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-x64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-freebsd-wasm32",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-freebsd-wasm32",
       "usage": "development-only",
       "distributedIn": [
@@ -933,19 +933,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-freebsd-wasm32@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-freebsd-wasm32@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-freebsd-wasm32/-/sharp-freebsd-wasm32-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-freebsd-wasm32/-/sharp-freebsd-wasm32-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-libvips-darwin-arm64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-darwin-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -958,12 +958,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-darwin-x64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-darwin-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -976,12 +976,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-arm",
       "usage": "development-only",
       "distributedIn": [
@@ -994,12 +994,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -1012,12 +1012,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-ppc64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-ppc64",
       "usage": "development-only",
       "distributedIn": [
@@ -1030,12 +1030,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-riscv64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-riscv64",
       "usage": "development-only",
       "distributedIn": [
@@ -1048,12 +1048,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-s390x",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-s390x",
       "usage": "development-only",
       "distributedIn": [
@@ -1066,12 +1066,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-x64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linux-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -1084,12 +1084,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-arm64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linuxmusl-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -1102,12 +1102,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-x64",
-      "versionOrCommit": "1.3.3",
-      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/6e5971d333377743163edc3ad9e5d0b897abcbc9",
+      "versionOrCommit": "1.3.4",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
       "packagePathOrArtifact": "node_modules/@img/sharp-libvips-linuxmusl-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -1120,12 +1120,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: 6e5971d333377743163edc3ad9e5d0b897abcbc9 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. Published source revision: ebb95f8add54eee8bed840e3fb587e4cbec857d7 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-linux-arm",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-arm",
       "usage": "development-only",
       "distributedIn": [
@@ -1133,19 +1133,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linux-arm64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -1153,19 +1153,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linux-ppc64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-ppc64",
       "usage": "development-only",
       "distributedIn": [
@@ -1173,19 +1173,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-ppc64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-ppc64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linux-riscv64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-riscv64",
       "usage": "development-only",
       "distributedIn": [
@@ -1193,19 +1193,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-riscv64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-riscv64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linux-s390x",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-s390x",
       "usage": "development-only",
       "distributedIn": [
@@ -1213,19 +1213,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-s390x@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-s390x@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linux-x64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -1233,19 +1233,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-x64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-x64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linuxmusl-arm64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linuxmusl-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -1253,19 +1253,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-arm64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-arm64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-linuxmusl-x64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-linuxmusl-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -1273,19 +1273,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-x64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-x64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-wasm32",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-wasm32",
       "usage": "development-only",
       "distributedIn": [
@@ -1293,19 +1293,19 @@
       ],
       "declaredLicense": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
       "verifiedLicense": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-wasm32@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-wasm32@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-webcontainers-wasm32",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-webcontainers-wasm32",
       "usage": "development-only",
       "distributedIn": [
@@ -1313,19 +1313,19 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-webcontainers-wasm32@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-webcontainers-wasm32@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-webcontainers-wasm32/-/sharp-webcontainers-wasm32-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432"
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-webcontainers-wasm32/-/sharp-webcontainers-wasm32-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326"
     },
     {
       "name": "@img/sharp-win32-arm64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -1333,19 +1333,19 @@
       ],
       "declaredLicense": "Apache-2.0 AND LGPL-3.0-or-later",
       "verifiedLicense": "Apache-2.0 AND LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-arm64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-arm64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-ia32",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-ia32",
       "usage": "development-only",
       "distributedIn": [
@@ -1353,19 +1353,19 @@
       ],
       "declaredLicense": "Apache-2.0 AND LGPL-3.0-or-later",
       "verifiedLicense": "Apache-2.0 AND LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-ia32@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-ia32@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-x64",
-      "versionOrCommit": "0.35.4",
-      "sourceUrl": "https://github.com/lovell/sharp/tree/7f1a0a22cc285fe180766f4935d50b55af6e8432",
+      "versionOrCommit": "0.35.5",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/51a990faa26ade5586a4934ac9673c98d8893326",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -1373,14 +1373,14 @@
       ],
       "declaredLicense": "Apache-2.0 AND LGPL-3.0-or-later",
       "verifiedLicense": "Apache-2.0 AND LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-x64@0.35.4",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-x64@0.35.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.4.tgz#LICENSE Published source revision: 7f1a0a22cc285fe180766f4935d50b55af6e8432 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
+      "reviewNotes": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds all shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact. License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.5.tgz#LICENSE Published source revision: 51a990faa26ade5586a4934ac9673c98d8893326 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@isaacs/fs-minipass",
@@ -1481,8 +1481,8 @@
     },
     {
       "name": "@next/eslint-plugin-next",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/eslint-plugin-next",
       "usage": "development-only",
       "distributedIn": [
@@ -1490,14 +1490,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/eslint-plugin-next@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/eslint-plugin-next@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@noble/hashes",
@@ -4878,8 +4878,8 @@
     },
     {
       "name": "eslint-config-next",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/eslint-config-next",
       "usage": "development-only",
       "distributedIn": [
@@ -4887,14 +4887,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/eslint-config-next@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/eslint-config-next@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "eslint-import-resolver-node",
@@ -5153,6 +5153,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "esquery",
+      "versionOrCommit": "1.7.0",
+      "sourceUrl": "https://github.com/estools/esquery",
+      "packagePathOrArtifact": "node_modules/esquery",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "BSD-3-Clause",
+      "verifiedLicense": "BSD-3-Clause",
+      "licenseTextRef": "node_modules/esquery/license.txt",
+      "licenseTextSha256": "ac68116ae73740de4190892f334992e449a124600924ec761e64319d3aac9e6e",
+      "copyrightNotices": [
+        "Copyright (c) 2013, Joel Feenstra"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "esrecurse",
       "versionOrCommit": "4.3.0",
       "sourceUrl": "https://github.com/estools/esrecurse/tree/8ceb63797813d9ac69572a671b95cf58ffdf35b6",
@@ -5171,6 +5190,23 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "License text source: https://registry.npmjs.org/esrecurse/-/esrecurse-4.3.0.tgz#README.md#License Published source revision: 8ceb63797813d9ac69572a671b95cf58ffdf35b6 The complete license text is embedded in the exact npm tarball README license section."
+    },
+    {
+      "name": "estraverse",
+      "versionOrCommit": "5.3.0",
+      "sourceUrl": "http://github.com/estools/estraverse",
+      "packagePathOrArtifact": "node_modules/estraverse",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "BSD-2-Clause",
+      "verifiedLicense": "BSD-2-Clause",
+      "licenseTextRef": "node_modules/estraverse/LICENSE.BSD",
+      "licenseTextSha256": "0e74697a68cebdcd61502c30fe80ab7f9e341d995dcd452023654d57133534b1",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed"
     },
     {
       "name": "esutils",
@@ -10237,10 +10273,58 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "canvas-built-cairo",
+      "versionOrCommit": "1.18.6 / 1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4",
+      "sourceUrl": "https://cairographics.org/releases/cairo-1.18.6.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libcairo*.so* and /usr/share/canvas-notebook/corresponding-source/cairo-1.18.6.tar.xz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "(LGPL-2.1-only OR MPL-1.1)",
+      "verifiedLicense": "LGPL-2.1-only",
+      "licenseTextRef": "docs/compliance/license-texts/cairo-1.18.6-LGPL-2.1.txt",
+      "licenseTextSha256": "b8b7cfe5080791be74f8191e0bbf91dd9b4f1b013eb9deebb590dead30eee0d6",
+      "copyrightNotices": [
+        "Copyright 2002 University of Southern California",
+        "Copyright 2005 Red Hat, Inc.",
+        "Additional Cairo authors and contributors; per-file notices are retained in the exact source archive."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Unmodified upstream source built as a replaceable shared library. The exact SHA-256-verified source archive is embedded in Docker images and native compliance release evidence. Cairo elects LGPL-2.1-only from its dual license.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
+    },
+    {
+      "name": "canvas-built-librsvg",
+      "versionOrCommit": "2.57.5 / 5a1dbb07cfdedda5fbf1b2ef11a8ef31e0f77c21f22dd74eec27a0328f75429f",
+      "sourceUrl": "https://download.gnome.org/sources/librsvg/2.57/librsvg-2.57.5.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/liblibrsvg*.so* and /usr/share/canvas-notebook/corresponding-source/librsvg-2.57.5.tar.xz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "LGPL-2.1-or-later",
+      "verifiedLicense": "LGPL-2.1-or-later",
+      "licenseTextRef": "docs/compliance/license-texts/LGPL-2.1-or-later.txt",
+      "licenseTextSha256": "592987e8510228d546540b84a22444bde98e48d03078d3b2eefcd889bec5ce8c",
+      "copyrightNotices": [
+        "Federico Mena Quintero and the librsvg authors; per-file notices are retained in the exact source archive."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Unmodified upstream source built as a replaceable shared library. The exact SHA-256-verified source archive is embedded in Docker images and native compliance release evidence. This release fixes CVE-2026-96889; Cairo 1.18 is required to build it.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
+    },
+    {
       "name": "canvas-built-libvips",
-      "versionOrCommit": "8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e",
-      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.6/vips-8.18.6.tar.xz",
-      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz",
+      "versionOrCommit": "8.18.7 / 5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94",
+      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.7.tar.xz",
       "usage": "native",
       "distributedIn": [
         "docker-image",
@@ -10253,9 +10337,9 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; both sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-09-22"
+      "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; all shipped sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-10-30"
     },
     {
       "name": "canvas-built-whisper-cpp",
@@ -10573,80 +10657,6 @@
       "licenseTextSha256": "f8508be03f7b370f84fb8411b78cc36b5addaa185628d91b6ca09888d0487798",
       "copyrightNotices": [
         "Copyright 2023 Anthropic, PBC."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@apm-js-collab/code-transformer-bundler-plugins",
-      "versionOrCommit": "0.5.0",
-      "sourceUrl": "https://github.com/apm-js-collab/code-transformer-bundler-plugins/tree/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce",
-      "packagePathOrArtifact": "node_modules/@apm-js-collab/code-transformer-bundler-plugins",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
-      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [
-        "Copyright (c) contributors to @apm-js-collab/code-transformer-bundler-plugins"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce, but neither the tarball nor the exact source commit contains a LICENSE, NOTICE or attributable copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the canonical MIT terms and a conservative collective contributor notice without claiming a verified individual owner. Any version change requires a new review. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-07-17"
-    },
-    {
-      "name": "@apm-js-collab/code-transformer",
-      "versionOrCommit": "0.15.0",
-      "sourceUrl": "https://github.com/nodejs/orchestrion-js",
-      "packagePathOrArtifact": "node_modules/@apm-js-collab/code-transformer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@apm-js-collab/code-transformer/LICENSE",
-      "licenseTextSha256": "9ea62e27e6c6a7b0eded3a9a35f9dd9d2a5ff296b2785ece788405d58212c91b",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2025-present Datadog, Inc.",
-        "Copyright 2025-Present Datadog, Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@apm-js-collab/tracing-hooks",
-      "versionOrCommit": "0.10.1",
-      "sourceUrl": "https://github.com/apm-js-collab/tracing-hooks",
-      "packagePathOrArtifact": "node_modules/@apm-js-collab/tracing-hooks",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@apm-js-collab/tracing-hooks/LICENSE",
-      "licenseTextSha256": "9ea62e27e6c6a7b0eded3a9a35f9dd9d2a5ff296b2785ece788405d58212c91b",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2025-present Datadog, Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -15681,8 +15691,8 @@
     },
     {
       "name": "@next/env",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/env",
       "usage": "runtime",
       "distributedIn": [
@@ -15693,19 +15703,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/env@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/env@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-darwin-arm64",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -15716,19 +15726,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-arm64@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-arm64@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-darwin-x64",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -15739,19 +15749,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-x64@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-x64@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-linux-arm64-gnu",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-arm64-gnu",
       "usage": "runtime",
       "distributedIn": [
@@ -15762,19 +15772,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-gnu@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-gnu@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-linux-arm64-musl",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-arm64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -15785,19 +15795,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-musl@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-musl@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-linux-x64-gnu",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-x64-gnu",
       "usage": "runtime",
       "distributedIn": [
@@ -15808,19 +15818,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-gnu@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-gnu@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-linux-x64-musl",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-x64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -15831,19 +15841,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-musl@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-musl@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-win32-arm64-msvc",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-win32-arm64-msvc",
       "usage": "runtime",
       "distributedIn": [
@@ -15854,19 +15864,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-arm64-msvc@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-arm64-msvc@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@next/swc-win32-x64-msvc",
-      "versionOrCommit": "16.3.8",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
+      "versionOrCommit": "16.4.3",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
       "packagePathOrArtifact": "node_modules/@next/swc-win32-x64-msvc",
       "usage": "runtime",
       "distributedIn": [
@@ -15877,14 +15887,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-x64-msvc@16.3.8",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-x64-msvc@16.4.3",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md Published source revision: 29bbeab09981148ade186e8599ecdede15abc281"
     },
     {
       "name": "@noble/ciphers",
@@ -15956,7 +15966,7 @@
     },
     {
       "name": "@opentelemetry/api",
-      "versionOrCommit": "1.9.0",
+      "versionOrCommit": "1.9.1",
       "sourceUrl": "open-telemetry/opentelemetry-js",
       "packagePathOrArtifact": "node_modules/@opentelemetry/api",
       "usage": "runtime",
@@ -15978,77 +15988,8 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@opentelemetry/api",
-      "versionOrCommit": "1.9.1",
-      "sourceUrl": "open-telemetry/opentelemetry-js",
-      "packagePathOrArtifact": "node_modules/@sentry/nextjs/node_modules/@opentelemetry/api",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@sentry/nextjs/node_modules/@opentelemetry/api/LICENSE",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@opentelemetry/api",
-      "versionOrCommit": "1.9.1",
-      "sourceUrl": "open-telemetry/opentelemetry-js",
-      "packagePathOrArtifact": "node_modules/@sentry/node/node_modules/@opentelemetry/api",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@sentry/node/node_modules/@opentelemetry/api/LICENSE",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@opentelemetry/api",
-      "versionOrCommit": "1.9.1",
-      "sourceUrl": "open-telemetry/opentelemetry-js",
-      "packagePathOrArtifact": "node_modules/@sentry/vercel-edge/node_modules/@opentelemetry/api",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@sentry/vercel-edge/node_modules/@opentelemetry/api/LICENSE",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@opentelemetry/core",
-      "versionOrCommit": "2.9.0",
+      "versionOrCommit": "2.12.0",
       "sourceUrl": "open-telemetry/opentelemetry-js",
       "packagePathOrArtifact": "node_modules/@opentelemetry/core",
       "usage": "runtime",
@@ -16094,7 +16035,7 @@
     },
     {
       "name": "@opentelemetry/resources",
-      "versionOrCommit": "2.9.0",
+      "versionOrCommit": "2.12.0",
       "sourceUrl": "open-telemetry/opentelemetry-js",
       "packagePathOrArtifact": "node_modules/@opentelemetry/resources",
       "usage": "runtime",
@@ -16117,7 +16058,7 @@
     },
     {
       "name": "@opentelemetry/sdk-trace-base",
-      "versionOrCommit": "2.9.0",
+      "versionOrCommit": "2.12.0",
       "sourceUrl": "open-telemetry/opentelemetry-js",
       "packagePathOrArtifact": "node_modules/@opentelemetry/sdk-trace-base",
       "usage": "runtime",
@@ -16140,7 +16081,7 @@
     },
     {
       "name": "@opentelemetry/sdk-trace",
-      "versionOrCommit": "2.9.0",
+      "versionOrCommit": "2.12.0",
       "sourceUrl": "open-telemetry/opentelemetry-js",
       "packagePathOrArtifact": "node_modules/@opentelemetry/sdk-trace",
       "usage": "runtime",
@@ -20260,7 +20201,7 @@
     },
     {
       "name": "@sentry/browser-utils",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/browser-utils",
       "usage": "runtime",
@@ -20282,7 +20223,7 @@
     },
     {
       "name": "@sentry/browser",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/browser",
       "usage": "runtime",
@@ -20369,6 +20310,270 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/browser-utils/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/browser-utils/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/browser/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/browser/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/feedback/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/feedback/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/nextjs/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/nextjs/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/node-core/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/node-core/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/node/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/node/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/opentelemetry/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/opentelemetry/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/react/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/react/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/replay-canvas/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/replay-canvas/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/replay/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/replay/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/server-utils/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/server-utils/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/conventions",
+      "versionOrCommit": "0.16.0",
+      "sourceUrl": "https://github.com/getsentry/sentry-conventions",
+      "packagePathOrArtifact": "node_modules/@sentry/vercel-edge/node_modules/@sentry/conventions",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/vercel-edge/node_modules/@sentry/conventions/LICENSE",
+      "licenseTextSha256": "6c459083310e285797954222cc75bb33a56c04512d4f07c8b1b80258f99b0278",
+      "copyrightNotices": [
+        "Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@sentry/core",
       "versionOrCommit": "10.65.0",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
@@ -20391,8 +20596,272 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/browser-utils/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/browser-utils/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/browser/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/browser/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/feedback/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/feedback/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/nextjs/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/nextjs/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/node-core/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/node-core/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/node/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/node/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/opentelemetry/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/opentelemetry/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/react/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/react/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/replay-canvas/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/replay-canvas/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/replay/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/replay/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/server-utils/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/server-utils/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@sentry/core",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript",
+      "packagePathOrArtifact": "node_modules/@sentry/vercel-edge/node_modules/@sentry/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@sentry/vercel-edge/node_modules/@sentry/core/LICENSE",
+      "licenseTextSha256": "f3df0b92efcd9d8cc0de5a36c151569a12a647d65b851abbb696ef7b13dee10b",
+      "copyrightNotices": [
+        "Copyright (c) 2019 Functional Software, Inc. dba Sentry"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@sentry/feedback",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/feedback",
       "usage": "runtime",
@@ -20414,7 +20883,7 @@
     },
     {
       "name": "@sentry/nextjs",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/nextjs",
       "usage": "runtime",
@@ -20436,7 +20905,7 @@
     },
     {
       "name": "@sentry/node-core",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/node-core",
       "usage": "runtime",
@@ -20458,7 +20927,7 @@
     },
     {
       "name": "@sentry/node",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/node",
       "usage": "runtime",
@@ -20480,7 +20949,7 @@
     },
     {
       "name": "@sentry/opentelemetry",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/opentelemetry",
       "usage": "runtime",
@@ -20502,7 +20971,7 @@
     },
     {
       "name": "@sentry/react",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/react",
       "usage": "runtime",
@@ -20524,7 +20993,7 @@
     },
     {
       "name": "@sentry/replay-canvas",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/replay-canvas",
       "usage": "runtime",
@@ -20546,7 +21015,7 @@
     },
     {
       "name": "@sentry/replay",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/replay",
       "usage": "runtime",
@@ -20568,8 +21037,8 @@
     },
     {
       "name": "@sentry/server-utils",
-      "versionOrCommit": "10.65.0",
-      "sourceUrl": "https://github.com/getsentry/sentry-javascript/tree/c66a81515c775de9df9427d1583d086dbf680188",
+      "versionOrCommit": "10.75.2",
+      "sourceUrl": "https://github.com/getsentry/sentry-javascript/tree/faeac9acabbe2fcd2d6853a04208fafda306fb68",
       "packagePathOrArtifact": "node_modules/@sentry/server-utils",
       "usage": "runtime",
       "distributedIn": [
@@ -20580,18 +21049,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/server-utils@10.65.0",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/server-utils@10.75.2",
       "licenseTextSha256": "497d5a7036220d5763088d161612f9f7f2e499fe3ce186826f4369b465769312",
       "copyrightNotices": [
         "Copyright (c) 2012 Functional Software, Inc. dba Sentry"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/getsentry/sentry-javascript/c66a81515c775de9df9427d1583d086dbf680188/LICENSE Published source revision: c66a81515c775de9df9427d1583d086dbf680188 The exact npm package omits gitHead and LICENSE. The immutable upstream 10.65.0 tag resolves to this commit, whose packages/server-utils/package.json has version 10.65.0 and whose root contains the MIT license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/getsentry/sentry-javascript/faeac9acabbe2fcd2d6853a04208fafda306fb68/LICENSE Published source revision: faeac9acabbe2fcd2d6853a04208fafda306fb68"
     },
     {
       "name": "@sentry/vercel-edge",
-      "versionOrCommit": "10.65.0",
+      "versionOrCommit": "10.75.2",
       "sourceUrl": "https://github.com/getsentry/sentry-javascript",
       "packagePathOrArtifact": "node_modules/@sentry/vercel-edge",
       "usage": "runtime",
@@ -24653,28 +25122,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "astring",
-      "versionOrCommit": "1.9.0",
-      "sourceUrl": "https://github.com/davidbonnet/astring",
-      "packagePathOrArtifact": "node_modules/astring",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/astring/LICENSE",
-      "licenseTextSha256": "abede4317453521d66c6cbae109251e409c47469bf34f2085bf9bfed1384a7ce",
-      "copyrightNotices": [
-        "Copyright (c) 2015, David Bonnet <david@bonnet.cc>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "async-mutex",
       "versionOrCommit": "0.5.0",
       "sourceUrl": "https://github.com/DirtyHairy/async-mutex",
@@ -25829,7 +26276,7 @@
     },
     {
       "name": "cjs-module-lexer",
-      "versionOrCommit": "2.2.0",
+      "versionOrCommit": "2.3.0",
       "sourceUrl": "https://github.com/nodejs/cjs-module-lexer",
       "packagePathOrArtifact": "node_modules/cjs-module-lexer",
       "usage": "runtime",
@@ -28167,8 +28614,8 @@
     },
     {
       "name": "dompurify",
-      "versionOrCommit": "3.4.16",
-      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/b9b9d80f7e401771c2ccaef5f45def7eec8f27d7",
+      "versionOrCommit": "3.4.17",
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/a307c2ac04d751cde8870191d6af503141e8c58a",
       "packagePathOrArtifact": "node_modules/dompurify",
       "usage": "runtime",
       "distributedIn": [
@@ -28186,7 +28633,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares (MPL-2.0 OR Apache-2.0), and the matching 3.4.16 tag resolves to b9b9d80f7e401771c2ccaef5f45def7eec8f27d7. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file. Verification source: https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE"
+      "reviewNotes": "The exact npm release declares (MPL-2.0 OR Apache-2.0). The matching 3.4.17 tag resolves to a307c2ac04d751cde8870191d6af503141e8c58a. Canvas elects Apache-2.0 and retains the complete license and package header. The package is unmodified. Verification source: https://github.com/cure53/DOMPurify/blob/3.4.17/LICENSE"
     },
     {
       "name": "domutils",
@@ -28744,6 +29191,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "es-module-lexer",
+      "versionOrCommit": "3.0.4",
+      "sourceUrl": "https://github.com/guybedford/es-module-lexer",
+      "packagePathOrArtifact": "node_modules/import-in-the-middle/node_modules/es-module-lexer",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/import-in-the-middle/node_modules/es-module-lexer/LICENSE",
+      "licenseTextSha256": "8a4b6c44eebfb026d23719a348145a661a555568dbfdc11618ff2d0dd9306b00",
+      "copyrightNotices": [
+        "Copyright (C) 2018-2022 Guy Bedford"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "es-object-atoms",
       "versionOrCommit": "1.1.2",
       "sourceUrl": "https://github.com/ljharb/es-object-atoms",
@@ -28941,48 +29410,6 @@
         "Based on reify, copyright Ben Newman <https://github.com/benjamn/reify>",
         "Copyright esm contributors"
       ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "esquery",
-      "versionOrCommit": "1.7.0",
-      "sourceUrl": "https://github.com/estools/esquery",
-      "packagePathOrArtifact": "node_modules/esquery",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-3-Clause",
-      "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/esquery/license.txt",
-      "licenseTextSha256": "ac68116ae73740de4190892f334992e449a124600924ec761e64319d3aac9e6e",
-      "copyrightNotices": [
-        "Copyright (c) 2013, Joel Feenstra"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "estraverse",
-      "versionOrCommit": "5.3.0",
-      "sourceUrl": "http://github.com/estools/estraverse",
-      "packagePathOrArtifact": "node_modules/estraverse",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-2-Clause",
-      "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "node_modules/estraverse/LICENSE.BSD",
-      "licenseTextSha256": "0e74697a68cebdcd61502c30fe80ab7f9e341d995dcd452023654d57133534b1",
-      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed"
     },
@@ -31231,7 +31658,7 @@
     },
     {
       "name": "import-in-the-middle",
-      "versionOrCommit": "3.3.1",
+      "versionOrCommit": "3.5.3",
       "sourceUrl": "ssh://git@github.com/nodejs/import-in-the-middle",
       "packagePathOrArtifact": "node_modules/import-in-the-middle",
       "usage": "runtime",
@@ -34141,28 +34568,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "meriyah",
-      "versionOrCommit": "6.1.4",
-      "sourceUrl": "https://github.com/meriyah/meriyah",
-      "packagePathOrArtifact": "node_modules/meriyah",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/meriyah/LICENSE.md",
-      "licenseTextSha256": "e9a5df5a6ae5cd51ca430715f4c62fb5424946e8da07b7caa058a1ba0582a848",
-      "copyrightNotices": [
-        "Copyright (c) 2019 and later, KFlash and others."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "mermaid",
       "versionOrCommit": "11.16.1",
       "sourceUrl": "https://github.com/mermaid-js/mermaid",
@@ -35365,7 +35770,7 @@
     },
     {
       "name": "next",
-      "versionOrCommit": "16.3.8",
+      "versionOrCommit": "16.4.3",
       "sourceUrl": "vercel/next.js",
       "packagePathOrArtifact": "node_modules/next",
       "usage": "runtime",
@@ -39345,29 +39750,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "semifies",
-      "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/holepunchto/semifies",
-      "packagePathOrArtifact": "node_modules/semifies",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/semifies/LICENSE",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "semver",
       "versionOrCommit": "6.3.1",
       "sourceUrl": "https://github.com/npm/node-semver",
@@ -39621,7 +40003,7 @@
     },
     {
       "name": "sharp",
-      "versionOrCommit": "0.35.4",
+      "versionOrCommit": "0.35.5",
       "sourceUrl": "https://github.com/lovell/sharp",
       "packagePathOrArtifact": "node_modules/sharp",
       "usage": "runtime",

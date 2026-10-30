@@ -369,6 +369,16 @@ const inventory = {
     pythonRequirementsSha256: sha256File(pythonRequirementsPath),
   },
   nativeComponents: [
+    ...(nativeDistributionPolicy?.libvips?.svgDependencies || []).map((dependency) => ({
+      ecosystem: 'native',
+      name: dependency.name,
+      version: dependency.version,
+      sourceUrl: dependency.sourceUrl,
+      sourceArchivePath: `/usr/share/canvas-notebook/corresponding-source/${dependency.name}-${dependency.version}.tar.xz`,
+      sourceArchiveSha256: sha256File(`/usr/share/canvas-notebook/corresponding-source/${dependency.name}-${dependency.version}.tar.xz`),
+      license: dependency.license,
+      linkage: 'shared',
+    })),
     {
       ecosystem: 'native',
       name: 'whisper-cpp',

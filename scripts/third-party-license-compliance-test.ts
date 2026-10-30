@@ -130,10 +130,10 @@ assert.equal(sharpUsageOverride.usage, 'development-only');
 assert.deepEqual(sharpUsageOverride.distributedIn, ['source-development-install']);
 assert.match(sharpUsageOverride.reason, /does not redistribute/u);
 
-assert.equal(nativeDistributionPolicy.libvips.version, '8.18.6');
+assert.equal(nativeDistributionPolicy.libvips.version, '8.18.7');
 assert.equal(nativeDistributionPolicy.libvips.license, 'LGPL-2.1-or-later');
 assert.equal(nativeDistributionPolicy.libvips.linkage, 'shared');
-assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.35.4']);
+assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.35.5']);
 assert.deepEqual(nativeDistributionPolicy.excludedPrebuiltPackagePrefixes, ['@img/sharp-']);
 assert.match(
   fs.readFileSync(nativeDistributionPolicy.libvips.licenseTextPath, 'utf8'),
@@ -205,7 +205,7 @@ for (const requiredWorkflowFragment of [
   'sharp-linkage-linux-arm64.json',
   'runtime-compliance/amd64/dictation-python.txt',
   'runtime-compliance/arm64/dictation-python.txt',
-  'vips-8.18.6.tar.xz',
+  'vips-8.18.7.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
   'Package portable CLI release asset',
@@ -408,7 +408,6 @@ assert.deepEqual(
 assert.match(highlightjsVue.sourceUrl, /2a0d197ec24ba70e019e12a13bd42f006124506a/u);
 
 for (const [name, version] of [
-  ['@apm-js-collab/code-transformer-bundler-plugins', '0.5.0'],
   ['@better-auth/utils', '0.4.2'],
   ['@eigenpal/docx-js-editor', '0.5.3'],
   ['client-only', '0.0.1'],

@@ -26,6 +26,16 @@ const sharpModules = [
 ];
 
 const evidence = [];
+const svgVersions = JSON.parse(execFileSync('python3', ['-c', String.raw`
+import ctypes, json
+rsvg = ctypes.CDLL('/usr/local/lib/librsvg-2.so.2')
+cairo = ctypes.CDLL('/usr/local/lib/libcairo.so.2')
+cairo.cairo_version_string.restype = ctypes.c_char_p
+print(json.dumps({
+    'rsvg': '.'.join(str(ctypes.c_uint.in_dll(rsvg, 'rsvg_' + part + '_version').value) for part in ['major', 'minor', 'micro']),
+    'cairo': cairo.cairo_version_string().decode('ascii'),
+}))
+`], { encoding: 'utf8' }));
 for (const component of inventory.sharpBuilds) {
   assert(fs.existsSync(component.addonPath), `${component.addonPath} must exist`);
   const linkage = ldd(component.addonPath);
@@ -49,6 +59,14 @@ for (const component of inventory.sharpBuilds) {
 }
 
 for (const { packagePath, sharp } of sharpModules) {
+  assert.equal(sharp.versions.vips, '8.18.7');
+  assert.equal(svgVersions.rsvg, '2.57.5', `${packagePath} must use the CVE-2026-96889 fix`);
+  assert.equal(svgVersions.cairo, '1.18.6');
+  for (const dependency of ['librsvg-2.so', 'libcairo.so']) {
+    assert(evidence.every((build) => build.ldd.some((line) => (
+      line.includes(dependency) && line.includes('=> /usr/local/lib/')
+    ))), `${dependency} must resolve to the patched Canvas-built shared library`);
+  }
   const png = await sharp(Buffer.from(
     '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"><rect width="4" height="3" fill="#0a7"/></svg>',
   )).png().toBuffer();
@@ -70,6 +88,7 @@ const result = {
     sourceArchiveSha256: libvips.sourceArchiveSha256,
   },
   sharpBuilds: evidence,
+  svgDependencies: svgVersions,
   conversionFixtureSha256: sha256('4x3:#0a7:png'),
 };
 

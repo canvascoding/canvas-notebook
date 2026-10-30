@@ -57,30 +57,48 @@ if (!process.argv.includes('--probe')) {
     await route.routeModule.ensureUserland();
     assert.equal(typeof route.routeModule?.userland.POST, 'function');
     const runtime = require(path.join(root, '.next/server/chunks/[turbopack]_runtime.js'))(routePath);
-    // Use the actual helpers registered by the built endpoint, not a second
-    // tsx compilation. Turbopack stores chunk factories as [id, factory, ...].
-    // Fail explicitly if that build format changes instead of silently testing
-    // the source tree and missing a production-only module identity failure.
-    const builtExports = async (name, companion) => {
-      const ids = new Set();
+    // Next 16.4 mangles export names. Use server source maps only to locate the
+    // original declaration, then execute its actual production module factory.
+    const builtExports = async (name) => {
+      const { SourceMapConsumer } = require('next/dist/compiled/source-map');
+      const matches = [];
       for (const [file, module] of Object.entries(require.cache)) {
         if (!file.startsWith(path.join(root, '.next/server/chunks') + path.sep) || !Array.isArray(module.exports)) continue;
-        for (let i = 1; i < module.exports.length; i++) {
-          const factory = module.exports[i];
-          if (typeof factory === 'function' && factory.toString().includes(JSON.stringify(name))
-            && (!companion || factory.toString().includes(JSON.stringify(companion)))) {
+        if (!fs.existsSync(`${file}.map`)) continue;
+        const map = new SourceMapConsumer(JSON.parse(fs.readFileSync(`${file}.map`, 'utf8')));
+        for (const source of map.sources.filter(value => value.endsWith('/collaboration/markdown-state.ts'))) {
+          const original = map.sourceContentFor(source);
+          const declaration = new RegExp(`export function ${name}\\b`).exec(original);
+          assert(declaration, `The production source map must contain ${name}`);
+          const before = original.slice(0, declaration.index + 'export function '.length);
+          const position = map.generatedPositionFor({
+            source, line: before.split('\n').length, column: before.length - before.lastIndexOf('\n') - 1,
+          });
+          assert(position.line !== null && position.column !== null, `${name} must have a generated location`);
+          const code = fs.readFileSync(file, 'utf8');
+          const offset = code.split('\n').slice(0, position.line - 1).reduce((sum, line) => sum + line.length + 1, 0) + position.column;
+          for (let i = 1; i < module.exports.length; i++) {
+            const factory = module.exports[i];
+            if (typeof factory !== 'function') continue;
+            const factorySource = factory.toString();
+            const start = code.indexOf(factorySource);
+            if (start < 0 || offset < start || offset >= start + factorySource.length) continue;
             const id = module.exports[i - 1];
-            if (typeof id === 'number' || typeof id === 'string') ids.add(id);
+            assert(typeof id === 'number' || typeof id === 'string', 'The built factory must retain its module ID');
+            const exported = await runtime.m(id).exports;
+            for (const value of Object.values(exported)) {
+              if (typeof value !== 'function') continue;
+              const compiled = value.toString();
+              const functionStart = code.indexOf(compiled, start);
+              if (functionStart >= start && offset >= functionStart && offset < functionStart + compiled.length) {
+                matches.push(value);
+              }
+            }
           }
         }
       }
-      const matches = [];
-      for (const id of ids) {
-        const exported = await runtime.m(id).exports;
-        if (typeof exported[name] === 'function' && (!companion || typeof exported[companion] === 'function')) matches.push(exported);
-      }
-      assert.equal(matches.length, 1, `Expected one built module exporting ${name}; adapt the probe if the build format changed`);
-      return matches[0];
+      assert.equal(matches.length, 1, `Expected one built function for ${name}; adapt the probe if the build format changed`);
+      return { [name]: matches[0] };
     };
     const { validateRichMarkdownYDoc } = await builtExports('validateRichMarkdownYDoc');
     // The custom WebSocket host and the Next server route use the shared CJS
