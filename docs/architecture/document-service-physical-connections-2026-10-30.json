@@ -1,0 +1,510 @@
+{
+  "version": 1,
+  "productBase": "6302d6403755e581f0eae9e83a10e1c016aa918c",
+  "diagnosticSourceSha256": {
+    "scripts/helpers/document-physical-connection-profiler.mjs": "be974910037067e58bc40919fc6f49396fc23ddc4e52a6b58bab0c438a0c8df5",
+    "scripts/document-physical-connection-profiler-postgres-test.ts": "ae260f3cdd450f8ecf83b58d0d4b7a821454d46b4761d79660aff95c106a3556",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "880bf7c6498b66770dfe59bdd3cb4f8364bef25fb1decc978db0bfacd08057f5",
+    "app/lib/observability/document-operation-metrics.ts": "8f79487ecf780fa1900f6e9b007266c60d12765e9fa2a12c41d5cc16c6adfe97"
+  },
+  "pgVersion": "8.22.0",
+  "checks": [
+    {
+      "kind": "physical-only",
+      "expected": [
+        {
+          "label": "idle-pool-and-temporary-dedicated",
+          "start": 3,
+          "peak": 4,
+          "end": 3,
+          "dedicatedPeak": 2,
+          "pooledPeak": 2
+        },
+        {
+          "label": "pool-growth-callback-and-promise",
+          "start": 3,
+          "peak": 4,
+          "end": 4,
+          "dedicatedPeak": 1,
+          "pooledPeak": 3
+        },
+        {
+          "label": "connect-starts-before-window",
+          "start": 4,
+          "peak": 5,
+          "end": 5,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "outer-overlap",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "inner-overlap",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "registration-followed-by-close-without-query",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "failed-connect-is-not-ready",
+          "start": 4,
+          "peak": 4,
+          "end": 4,
+          "dedicatedPeak": 1,
+          "pooledPeak": 3
+        }
+      ],
+      "physical": {
+        "version": 1,
+        "scope": "ready registered runtime PostgreSQL clients observed from connect/end events; idle pooled clients included; in-flight attempts separate",
+        "noDiagnosticQueries": true,
+        "callbacksAndReturnValuesForwarded": true,
+        "observationFailures": 0,
+        "lateWindows": 0,
+        "complete": true,
+        "windows": [
+          {
+            "index": 0,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 2,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 8,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 1,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 3,
+            "peakDedicated": 1,
+            "peakConnecting": 1,
+            "observations": 11,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 2,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 1
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 4,
+            "closed": true,
+            "end": {
+              "ready": 5,
+              "pooled": 3,
+              "dedicated": 2,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 3,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 7,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 4,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 7,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 5,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 0,
+            "observations": 4,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 6,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 3,
+            "peakDedicated": 1,
+            "peakConnecting": 1,
+            "observations": 6,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          }
+        ],
+        "end": {
+          "ready": 0,
+          "pooled": 0,
+          "dedicated": 0,
+          "connecting": 0
+        }
+      },
+      "sqlCallsitesExact": null
+    },
+    {
+      "kind": "combined-callsite",
+      "expected": [
+        {
+          "label": "idle-pool-and-temporary-dedicated",
+          "start": 3,
+          "peak": 4,
+          "end": 3,
+          "dedicatedPeak": 2,
+          "pooledPeak": 2
+        },
+        {
+          "label": "pool-growth-callback-and-promise",
+          "start": 3,
+          "peak": 4,
+          "end": 4,
+          "dedicatedPeak": 1,
+          "pooledPeak": 3
+        },
+        {
+          "label": "connect-starts-before-window",
+          "start": 4,
+          "peak": 5,
+          "end": 5,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "outer-overlap",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "inner-overlap",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "registration-followed-by-close-without-query",
+          "start": 4,
+          "peak": 5,
+          "end": 4,
+          "dedicatedPeak": 2,
+          "pooledPeak": 3
+        },
+        {
+          "label": "failed-connect-is-not-ready",
+          "start": 4,
+          "peak": 4,
+          "end": 4,
+          "dedicatedPeak": 1,
+          "pooledPeak": 3
+        }
+      ],
+      "physical": {
+        "version": 1,
+        "scope": "ready registered runtime PostgreSQL clients observed from connect/end events; idle pooled clients included; in-flight attempts separate",
+        "noDiagnosticQueries": true,
+        "callbacksAndReturnValuesForwarded": true,
+        "observationFailures": 0,
+        "lateWindows": 0,
+        "complete": true,
+        "windows": [
+          {
+            "index": 0,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 2,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 8,
+            "closed": true,
+            "end": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 1,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 3,
+              "pooled": 2,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 3,
+            "peakDedicated": 1,
+            "peakConnecting": 1,
+            "observations": 11,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 2,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 1
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 4,
+            "closed": true,
+            "end": {
+              "ready": 5,
+              "pooled": 3,
+              "dedicated": 2,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 3,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 7,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 4,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 1,
+            "observations": 7,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 5,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 5,
+            "peakPooled": 3,
+            "peakDedicated": 2,
+            "peakConnecting": 0,
+            "observations": 4,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          },
+          {
+            "index": 6,
+            "operation": "read",
+            "actor": "system",
+            "observedFromStart": true,
+            "start": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            },
+            "peakReady": 4,
+            "peakPooled": 3,
+            "peakDedicated": 1,
+            "peakConnecting": 1,
+            "observations": 6,
+            "closed": true,
+            "end": {
+              "ready": 4,
+              "pooled": 3,
+              "dedicated": 1,
+              "connecting": 0
+            }
+          }
+        ],
+        "end": {
+          "ready": 0,
+          "pooled": 0,
+          "dedicated": 0,
+          "connecting": 0
+        }
+      },
+      "sqlCallsitesExact": true
+    }
+  ],
+  "originalRowsXminNativeBytesFilesAndAnchorsPreserved": true,
+  "allRunningContainerIdsPreserved": true,
+  "fullPlanComplete": false
+}

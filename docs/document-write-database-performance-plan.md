@@ -62,6 +62,14 @@ Beobachtung zeigen hier mehr Planungs- als Ausführungszeit. Originaldaten und
 alle laufenden Container bleiben erhalten. Das ist eine aktuelle Messgrundlage,
 keine Produktoptimierung oder Abnahme der Leistungsbudgets.
 
+Die [genaue Verbindungsdiagnose](architecture/document-service-physical-connections-2026-10-30.md)
+erfasst jetzt bereite direkte und gepoolte Laufzeitverbindungen einschließlich
+ruhender Clients; laufende Anmeldeversuche stehen separat. 14 echte PostgreSQL-
+Kontrollfenster bestehen, auch kombiniert mit der vorhandenen SQL-Diagnose.
+Produktcode, Originaldaten und laufende Container bleiben unverändert. Die
+vollständigen aktuellen Aufrufervergleiche müssen diese Diagnose noch anwenden;
+die Leistungsbudgets sind damit nicht als erreicht erklärt.
+
 ## Priorität und Umsetzungspakete
 
 Die Linkpflege ist eine zentrale Produktfunktion. Ein gemeinsamer Service bedeutet
