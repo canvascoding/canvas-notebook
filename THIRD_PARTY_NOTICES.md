@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.30.1
-- Lockfile SHA-256: `b5354c91a577a61973718181802c7819228e85adc047c673d2cee9526732f078`
-- Distributed components: 1460
+- Lockfile SHA-256: `60fc211fba62a1f9ead084c13e40567f07ab5f6a87212f8b640f85efa9bfa641`
+- Distributed components: 1461
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -1402,6 +1402,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | underscore | 1.13.8 | runtime | MIT | allowed |
 | undici-types | 6.21.0 | runtime | MIT | allowed |
 | undici-types | 8.3.0 | runtime | MIT | allowed |
+| undici | 6.29.1 | runtime | MIT | allowed |
 | undici | 7.30.1 | runtime | MIT | allowed |
 | unified | 11.0.5 | runtime | MIT | allowed |
 | unist-util-find-after | 5.0.0 | runtime | MIT | allowed |
@@ -20290,7 +20291,7 @@ Copyright notices:
 
 ### License text a6db8096b270
 
-Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.1.
+Applies to undici-types@6.21.0, undici-types@8.3.0, undici@6.29.1, undici@7.30.1.
 
 Copyright notices:
 

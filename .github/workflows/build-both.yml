@@ -198,6 +198,14 @@ jobs:
           ref: ${{ needs.source.outputs.commit_sha }}
           persist-credentials: false
 
+      - name: Set up Node.js for Linux CLI dependency validation
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
+      - name: Validate Linux CLI dependency lockfile
+        run: npm ci --ignore-scripts --dry-run
+
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
