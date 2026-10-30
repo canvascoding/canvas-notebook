@@ -7,11 +7,11 @@ import { directMcpFileLinkFields } from '../app/lib/mcp/server/file-links';
 
 type EditResponse = { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
 
-function compileEdit(dependencies: Record<string, unknown>): (args: unknown, authInfo: { token: string }) => Promise<EditResponse> {
+function compileEdit(dependencies: Record<string, unknown>): (args: unknown, authInfo: { token: string }, mode?: 'edit' | 'replace') => Promise<EditResponse> {
   const source = ts.createSourceFile('workspace-tools.ts',
     readFileSync('app/lib/mcp/server/workspace-tools.ts', 'utf8'),
     ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const declarations = ['editErrorResult', 'executeEditKnowledgeSource'].map((name) => {
+  const declarations = ['structuredErrorResult', 'editErrorResult', 'executeEditKnowledgeSource'].map((name) => {
     const found = source.statements.find((statement): statement is ts.FunctionDeclaration =>
       ts.isFunctionDeclaration(statement) && statement.name?.text === name);
     assert.ok(found, `missing ${name}`);
@@ -22,7 +22,7 @@ function compileEdit(dependencies: Record<string, unknown>): (args: unknown, aut
   }).outputText;
   const names = Object.keys(dependencies);
   return new Function(...names, `${javascript}\nreturn executeEditKnowledgeSource;`)(...Object.values(dependencies)) as
-    (args: unknown, authInfo: { token: string }) => Promise<EditResponse>;
+    (args: unknown, authInfo: { token: string }, mode?: 'edit' | 'replace') => Promise<EditResponse>;
 }
 
 function sha256(content: string): string {
@@ -58,6 +58,7 @@ function harness() {
   const result = (structuredContent: Record<string, unknown>, message: string): EditResponse =>
     ({ content: [{ text: message }], structuredContent });
   const dependencies: Record<string, unknown> = {
+    decodeDirectMcpNativeDocumentEditSelection: () => null,
     MAX_WORKSPACE_ID_LENGTH: 200,
     MAX_PATH_LENGTH: 1024,
     MAX_EDIT_TEXT_LENGTH: 256 * 1024,
@@ -112,6 +113,8 @@ function harness() {
     ExactTextPatchError: ExactTextConflict,
     findAgentFileEditOperation: async () => recorded,
     readCurrentCollaborationTextSnapshot: async () => snapshot(),
+    prepareCollaborationWrite: async (input: { content: string }) => ({ ...snapshot(), proposedContent: input.content,
+      proposedSha256: sha256(input.content), requestedMode: 'direct_apply', targets: [] }),
     prepareCollaborationTextEdit: async (input: { edits: Array<{ oldText: string; newText: string }> }) => {
       const before = snapshot();
       const proposedContent = content.replace(input.edits[0].oldText, input.edits[0].newText);
@@ -167,7 +170,10 @@ function harness() {
   const call = (oldText: string, newText: string, expectedSha256: string) => edit({ workspace_id: 'workspace',
     path: 'document.md', old_text: oldText, new_text: newText, expected_sha256: expectedSha256,
     idempotency_key: 'stable-request' }, { token: 'test-token' });
-  return { call, currentSha: () => sha256(content), initialSha: sha256(content),
+  const replace = (replacement: string, expectedSha256: string) => edit({ workspace_id: 'workspace',
+    path: 'document.md', content: replacement, expected_sha256: expectedSha256,
+    idempotency_key: 'stable-replacement' }, { token: 'test-token' }, 'replace');
+  return { call, replace, currentSha: () => sha256(content), initialSha: sha256(content),
     executionCount: () => executionCount, checkpointCount: () => checkpointCount,
     checkpointLinkCount: () => checkpointLinkCount,
     failCheckpoint: () => { checkpointFailure = true; } };
@@ -195,7 +201,7 @@ test('MCP no-change waits for physical checkpoint but reports the live Yjs guard
 test('MCP applied retry with old expected hash reuses the receipt and confirms the physical checkpoint', async () => {
   const h = harness();
   const first = await h.call('old', 'new', h.initialSha);
-  assert.equal(first.structuredContent?.status, 'applied');
+  assert.equal(first.structuredContent?.status, 'applied', JSON.stringify(first));
   assert.equal(first.structuredContent?.after_sha256, h.currentSha());
   assert.notEqual(first.structuredContent?.after_sha256, sha256('different physical bytes'));
   const retry = await h.call('old', 'new', h.initialSha);
@@ -227,4 +233,24 @@ test('MCP checkpoint failure never reports the already durable edit as success',
   assert.equal(h.executionCount(), 1);
   assert.equal(h.checkpointCount(), 1);
   assert.equal(h.checkpointLinkCount(), 0);
+});
+
+
+test('full Markdown replacement uses authoritative write, guarded retry and checkpoint', async () => {
+  const h = harness();
+  const first = await h.replace('# New heading\n\nComplete new body', h.initialSha);
+  assert.equal(first.structuredContent?.status, 'applied', JSON.stringify(first));
+  assert.equal(first.structuredContent?.after_sha256, sha256('# New heading\n\nComplete new body'));
+  const retry = await h.replace('# New heading\n\nComplete new body', h.initialSha);
+  assert.equal(retry.structuredContent?.operation_id, first.structuredContent?.operation_id);
+  assert.equal(h.executionCount(), 1);
+  assert.equal(h.checkpointCount(), 2);
+});
+
+test('full Markdown replacement rejects stale revision before writing', async () => {
+  const h = harness();
+  const response = await h.replace('replacement', '0'.repeat(64));
+  assert.equal(response.isError, true);
+  assert.equal(response.structuredContent?.code, 'FILE_REVISION_CONFLICT', JSON.stringify(response));
+  assert.equal(h.executionCount(), 0);
 });

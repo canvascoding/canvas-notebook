@@ -10,6 +10,7 @@ import {
 } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { withUploadBeginReceipt, UploadBeginReceiptError } from './upload-begin-receipt';
 
 import { fileTypeFromBuffer } from 'file-type';
 
@@ -20,6 +21,7 @@ import {
   cancelWorkspaceUploadSession,
   completeWorkspaceUploadFile,
   createWorkspaceUploadSession,
+  getWorkspaceUploadSession,
   writeWorkspaceUploadChunk,
   WorkspaceUploadServiceError,
 } from '@/app/lib/files/workspace-upload-service';
@@ -77,7 +79,7 @@ type DirectMcpUploadHandle = {
 };
 
 export class DirectMcpBinaryUploadError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly code = 'UPLOAD_INVALID_INPUT') {
     super(message);
     this.name = 'DirectMcpBinaryUploadError';
   }
@@ -155,7 +157,7 @@ function decodeUploadHandle(input: {
   now?: number;
 }): DirectMcpUploadHandle {
   const invalid = (): never => {
-    throw new DirectMcpBinaryUploadError('The upload session is invalid or expired. Start the upload again.');
+    throw new DirectMcpBinaryUploadError('The upload session is invalid or expired. Inspect the prior upload before retrying.', 'UPLOAD_INVALID_OR_EXPIRED');
   };
   if (!input.uploadId || input.uploadId.length > MAX_UPLOAD_HANDLE_LENGTH) invalid();
   if (!/^[A-Za-z0-9_-]+$/u.test(input.uploadId)) invalid();
@@ -179,9 +181,11 @@ function decodeUploadHandle(input: {
     if (
       payload.workspaceId !== input.workspaceId
       || !safeEqual(payload.principalBinding, principalBinding(input.principal))
-      || payload.expiresAt <= (input.now ?? Date.now())
     ) {
       invalid();
+    }
+    if (payload.expiresAt <= (input.now ?? Date.now())) {
+      throw new DirectMcpBinaryUploadError('The upload handle expired. Inspect the destination before starting another upload.', 'UPLOAD_EXPIRED');
     }
     return payload;
   } catch (error) {
@@ -203,7 +207,7 @@ function assertUploadCapacity(trackingKey: string): void {
   pruneTrackedUploads();
   if ((activeUploadsByPrincipal.get(trackingKey)?.size ?? 0) >= MAX_ACTIVE_UPLOADS_PER_CLIENT) {
     throw new DirectMcpBinaryUploadError(
-      `At most ${MAX_ACTIVE_UPLOADS_PER_CLIENT} binary uploads may be active for one MCP connection. Complete or abort an upload before starting another.`,
+      `At most ${MAX_ACTIVE_UPLOADS_PER_CLIENT} binary uploads may be active for one MCP connection. Complete or abort an upload before starting another.`, 'UPLOAD_LIMIT_REACHED',
     );
   }
 }
@@ -270,7 +274,7 @@ async function assertDestinationRevision(input: {
   const current = await getWorkspaceFileRevision(input.path, { workspace: input.workspace });
   if ((current?.sha256 ?? null) === input.beforeSha256) return;
   throw new DirectMcpBinaryUploadError(
-    'The destination changed while the upload was in progress. Read the current file and start the upload again.',
+    'The destination changed while the upload was in progress. Read the current file and start the upload again.', 'FILE_REVISION_CONFLICT',
   );
 }
 
@@ -282,7 +286,7 @@ async function inspectUploadedMimeType(buffer: Buffer, declaredMimeType: string)
     && detected.mime !== declaredMimeType
   ) {
     throw new DirectMcpBinaryUploadError(
-      `The uploaded bytes are ${detected.mime}, not the declared ${declaredMimeType}.`,
+      `The uploaded bytes are ${detected.mime}, not the declared ${declaredMimeType}.`, 'UPLOAD_TYPE_MISMATCH',
     );
   }
   if (!detected && !buffer.subarray(0, 8192).includes(0)) {
@@ -313,89 +317,103 @@ export async function beginDirectMcpBinaryUpload(input: {
   contentSha256: string;
   overwrite: boolean;
   expectedSha256: string | null;
+  idempotencyKey?: string;
 }): Promise<{
   uploadId: string;
   nextOffset: number;
   maxChunkBytes: number;
   expiresAt: string;
   beforeSha256: string | null;
+  alreadyStarted: boolean;
+  state: string;
 }> {
-  const trackingKey = principalBinding(input.principal);
-  assertUploadCapacity(trackingKey);
-  assertBinaryDestinationPath(input.path);
-  if (!Number.isSafeInteger(input.size) || input.size < 1 || input.size > DIRECT_MCP_UPLOAD_MAX_BYTES) {
-    throw new DirectMcpBinaryUploadError(
-      `size must be an integer between 1 and ${DIRECT_MCP_UPLOAD_MAX_BYTES} bytes.`,
-    );
-  }
-  if (!/^[a-f0-9]{64}$/u.test(input.contentSha256)) {
-    throw new DirectMcpBinaryUploadError('sha256 must be the lowercase SHA-256 hash of the complete file.');
-  }
+  return withUploadBeginReceipt<Awaited<ReturnType<typeof beginDirectMcpBinaryUpload>>>({ workspaceId: input.workspace.workspaceId, principalBinding: principalBinding(input.principal),
+    key: input.idempotencyKey, request: [input.path, input.size, input.mimeType, input.contentSha256, input.overwrite, input.expectedSha256],
+    resume: async uploadId => {
+      const status = await readDirectMcpBinaryUploadStatus({ ...input, uploadId });
+      return { uploadId, nextOffset: status.nextOffset, maxChunkBytes: DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
+        expiresAt: status.expiresAt, beforeSha256: status.beforeSha256, alreadyStarted: true, state: status.state };
+    },
+    create: async () => {
+      const trackingKey = principalBinding(input.principal);
+      assertUploadCapacity(trackingKey);
+      assertBinaryDestinationPath(input.path);
+      if (!Number.isSafeInteger(input.size) || input.size < 1 || input.size > DIRECT_MCP_UPLOAD_MAX_BYTES) {
+        throw new DirectMcpBinaryUploadError(
+          `size must be an integer between 1 and ${DIRECT_MCP_UPLOAD_MAX_BYTES} bytes.`,
+        );
+      }
+      if (!/^[a-f0-9]{64}$/u.test(input.contentSha256)) {
+        throw new DirectMcpBinaryUploadError('sha256 must be the lowercase SHA-256 hash of the complete file.');
+      }
 
-  const currentRevision = await getWorkspaceFileRevision(input.path, { workspace: input.workspace });
-  if (currentRevision) {
-    if (!input.overwrite) {
-      throw new DirectMcpBinaryUploadError(
-        'The destination already exists. Set overwrite to true and provide its current expected_sha256 to replace it.',
-      );
-    }
-    if (!input.expectedSha256 || input.expectedSha256 !== currentRevision.sha256) {
-      throw new DirectMcpBinaryUploadError(
-        'The destination changed or expected_sha256 is missing. Read the current file and start the upload again.',
-      );
-    }
-  } else if (input.expectedSha256) {
-    throw new DirectMcpBinaryUploadError(
-      'The destination no longer exists. Start a new upload without expected_sha256.',
-    );
-  }
+      const currentRevision = await getWorkspaceFileRevision(input.path, { workspace: input.workspace });
+      if (currentRevision) {
+        if (!input.overwrite) {
+          throw new DirectMcpBinaryUploadError(
+            'The destination already exists. Set overwrite to true and provide its current expected_sha256 to replace it.', 'UPLOAD_PATH_EXISTS',
+          );
+        }
+        if (!input.expectedSha256 || input.expectedSha256 !== currentRevision.sha256) {
+          throw new DirectMcpBinaryUploadError(
+            'The destination changed or expected_sha256 is missing. Read the current file and start the upload again.', 'FILE_REVISION_CONFLICT',
+          );
+        }
+      } else if (input.expectedSha256) {
+        throw new DirectMcpBinaryUploadError(
+          'The destination no longer exists. Start a new upload without expected_sha256.', 'FILE_REVISION_CONFLICT',
+        );
+      }
 
-  const targetDir = path.posix.dirname(input.path);
-  const session = await createWorkspaceUploadSession({
-    userId: input.principal.userId,
-    workspace: input.workspace,
-    targetDir,
-    files: [{
-      path: path.posix.basename(input.path),
-      size: input.size,
-      mimeType: input.mimeType,
-    }],
+      const targetDir = path.posix.dirname(input.path);
+      const session = await createWorkspaceUploadSession({
+        userId: input.principal.userId,
+        workspace: input.workspace,
+        targetDir,
+        files: [{
+          path: path.posix.basename(input.path),
+          size: input.size,
+          mimeType: input.mimeType,
+        }],
+      });
+      const file = session.files[0];
+      if (!file || file.targetPath !== input.path) {
+        await cancelWorkspaceUploadSession({
+          sessionId: session.id,
+          userId: input.principal.userId,
+          workspace: input.workspace,
+        }).catch(() => undefined);
+        throw new DirectMcpBinaryUploadError('Could not create a safe upload destination.');
+      }
+
+      const expiresAt = Math.min(
+        Date.now() + DIRECT_MCP_UPLOAD_HANDLE_TTL_MS,
+        new Date(session.expiresAt).getTime(),
+      );
+      const payload: DirectMcpUploadHandle = {
+        version: HANDLE_VERSION,
+        sessionId: session.id,
+        fileId: file.id,
+        workspaceId: input.workspace.workspaceId,
+        principalBinding: principalBinding(input.principal),
+        targetPath: input.path,
+        size: input.size,
+        mimeType: input.mimeType,
+        contentSha256: input.contentSha256,
+        beforeSha256: currentRevision?.sha256 ?? null,
+        expiresAt,
+      };
+      trackUpload(trackingKey, session.id, expiresAt);
+      return {
+        uploadId: encodeUploadHandle(payload),
+        nextOffset: 0,
+        maxChunkBytes: DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
+        expiresAt: new Date(expiresAt).toISOString(),
+        beforeSha256: payload.beforeSha256,
+        alreadyStarted: false, state: 'pending',
+      };
+    },
   });
-  const file = session.files[0];
-  if (!file || file.targetPath !== input.path) {
-    await cancelWorkspaceUploadSession({
-      sessionId: session.id,
-      userId: input.principal.userId,
-      workspace: input.workspace,
-    }).catch(() => undefined);
-    throw new DirectMcpBinaryUploadError('Could not create a safe upload destination.');
-  }
-
-  const expiresAt = Math.min(
-    Date.now() + DIRECT_MCP_UPLOAD_HANDLE_TTL_MS,
-    new Date(session.expiresAt).getTime(),
-  );
-  const payload: DirectMcpUploadHandle = {
-    version: HANDLE_VERSION,
-    sessionId: session.id,
-    fileId: file.id,
-    workspaceId: input.workspace.workspaceId,
-    principalBinding: principalBinding(input.principal),
-    targetPath: input.path,
-    size: input.size,
-    mimeType: input.mimeType,
-    contentSha256: input.contentSha256,
-    beforeSha256: currentRevision?.sha256 ?? null,
-    expiresAt,
-  };
-  trackUpload(trackingKey, session.id, expiresAt);
-  return {
-    uploadId: encodeUploadHandle(payload),
-    nextOffset: 0,
-    maxChunkBytes: DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
-    expiresAt: new Date(expiresAt).toISOString(),
-    beforeSha256: payload.beforeSha256,
-  };
 }
 
 export async function writeDirectMcpBinaryUploadChunk(input: {
@@ -472,7 +490,7 @@ export async function completeDirectMcpBinaryUpload(input: {
         const buffer = await fs.readFile(sourcePath);
         if (buffer.length !== handle.size || sha256Buffer(buffer) !== handle.contentSha256) {
           throw new DirectMcpBinaryUploadError(
-            'The uploaded file does not match the declared size or SHA-256 hash. Start the upload again.',
+            'The uploaded file does not match the declared size or SHA-256 hash. Start the upload again.', 'UPLOAD_CHECKSUM_MISMATCH',
           );
         }
         detectedMimeType = await inspectUploadedMimeType(buffer, handle.mimeType);
@@ -507,7 +525,7 @@ export async function completeDirectMcpBinaryUpload(input: {
 
     const afterRevision = await getWorkspaceFileRevision(handle.targetPath, { workspace: input.workspace });
     if (!afterRevision || afterRevision.sha256 !== handle.contentSha256) {
-      throw new DirectMcpBinaryUploadError('The uploaded file could not be verified after it was saved.');
+      throw new DirectMcpBinaryUploadError('The uploaded file could not be verified after it was saved.', 'UPLOAD_VERIFICATION_FAILED');
     }
     await syncPublicSharesAfterWrite([handle.targetPath], input.workspace);
     publishWorkspaceFileMutation({
@@ -559,7 +577,7 @@ export async function abortDirectMcpBinaryUpload(input: {
 }
 
 export function directMcpBinaryUploadErrorMessage(error: unknown): string {
-  if (error instanceof DirectMcpBinaryUploadError) return error.message;
+  if (error instanceof DirectMcpBinaryUploadError || error instanceof UploadBeginReceiptError) return error.message;
   if (error instanceof WorkspaceUploadServiceError) {
     if (['UPLOAD_NOT_FOUND', 'UPLOAD_FILE_NOT_FOUND', 'UPLOAD_FORBIDDEN', 'UPLOAD_EXPIRED'].includes(error.code)) {
       return 'The upload session is invalid or expired. Start the upload again.';
@@ -567,4 +585,30 @@ export function directMcpBinaryUploadErrorMessage(error: unknown): string {
     return error.message;
   }
   return 'Could not safely upload the binary file to the Canvas workspace.';
+}
+
+export function directMcpBinaryUploadErrorCode(error: unknown): string {
+  if (error instanceof DirectMcpBinaryUploadError || error instanceof UploadBeginReceiptError) return error.code;
+  if (error instanceof WorkspaceUploadServiceError) return error.code;
+  return 'UPLOAD_FAILED';
+}
+
+export async function readDirectMcpBinaryUploadStatus(input: {
+  principal: DirectMcpAccessPrincipal; workspace: WorkspaceContext; uploadId: string;
+}): Promise<{ path: string; state: string; nextOffset: number; size: number; sha256: string;
+  beforeSha256: string | null; expiresAt: string }> {
+  const handle = decodeUploadHandle({ uploadId: input.uploadId, principal: input.principal, workspaceId: input.workspace.workspaceId });
+  const session = await getWorkspaceUploadSession({ sessionId: handle.sessionId, userId: input.principal.userId, workspace: input.workspace });
+  const file = session.files.find(value => value.id === handle.fileId);
+  if (!file || file.targetPath !== handle.targetPath || file.size !== handle.size) {
+    throw new DirectMcpBinaryUploadError('The upload no longer matches its declared file.', 'UPLOAD_STATE_UNCONFIRMED');
+  }
+  if (file.status === 'completed') {
+    const revision = await getWorkspaceFileRevision(handle.targetPath, { workspace: input.workspace });
+    if (!revision || revision.sha256 !== handle.contentSha256 || revision.stats.size !== handle.size) {
+      throw new DirectMcpBinaryUploadError('The completed destination changed. Inspect its current revision.', 'FILE_REVISION_CONFLICT');
+    }
+  }
+  return { path: handle.targetPath, state: file.status, nextOffset: file.uploadedBytes, size: handle.size,
+    sha256: handle.contentSha256, beforeSha256: handle.beforeSha256, expiresAt: new Date(handle.expiresAt).toISOString() };
 }

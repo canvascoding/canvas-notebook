@@ -3,16 +3,18 @@ export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 export const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
 export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
-export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 7;
+export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 8;
 
 export const DIRECT_MCP_TOOL_IDS = [
   'auth_probe',
   'list_workspaces',
   'get_workspace_overview',
   'list_knowledge_tree',
+  'get_knowledge_manifest',
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'replace_knowledge_source',
   // Copy uses the fixed central Owner and requires explicit administrator opt-in.
   'copy_knowledge_source',
   // Move/Delete use the fixed native Owners and require explicit administrator opt-in.
@@ -31,7 +33,7 @@ export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 // New creation, file action and scene capabilities require an explicit selection on
 // first activation, upgrades and reactivation. Keep this list shared with UI.
 export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
-  'create_knowledge_source', 'import_knowledge_file',
+  'replace_knowledge_source', 'create_knowledge_source', 'import_knowledge_file',
   'copy_knowledge_source',
   'move_knowledge_source', 'delete_knowledge_source',
   'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',

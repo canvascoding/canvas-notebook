@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { WorkspaceSearchReadError, type WorkspaceSearchText } from '../app/lib/collaboration/workspace-search-reader';
 import { directMcpFileLinkFields } from '../app/lib/mcp/server/file-links';
 import { decodeDirectMcpDocumentSearchSelection } from '../app/lib/mcp/server/document-search-tool-contract';
+import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from '../app/lib/mcp/server/legacy-pagination';
 
 type SearchResult = { isError?: boolean; structuredContent?: { results: Array<{
   path: string; excerpt: string; modified_at: string | null;
@@ -27,6 +28,7 @@ async function routing(fixture: Fixture) {
   const reads: string[] = [];
   const dependencies = {
     decodeDirectMcpDocumentSearchSelection,
+    decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError,
     path, WorkspaceSearchReadError, TEXT_FILE_EXTENSIONS: new Set(['.md', '.txt']),
     MAX_WORKSPACE_ID_LENGTH: 200, MAX_PATH_LENGTH: 1024, MAX_TREE_DEPTH: 6, DEFAULT_SEARCH_RESULTS: 10,
     MAX_SEARCH_RESULTS: 25, MAX_SEARCH_CANDIDATES: fixture.maxCandidates ?? 400, MAX_SEARCH_FILE_BYTES: 256 * 1024,

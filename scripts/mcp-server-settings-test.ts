@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     assert.equal(preferences.tools.includes('copy_knowledge_source'), false,
       'Activating MCP must not opt in to the reserved Copy capability.');
     assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool)));
-    assert.equal(preferences.toolsVersion, 7);
+    assert.equal(preferences.toolsVersion, 8);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 7,
+      toolsVersion: 8,
     });
 
     await writeFile(settingsPath, JSON.stringify({
@@ -158,10 +158,12 @@ async function main(): Promise<void> {
         { id: 'auth_probe', available: true, enabled: true, scopes: ['workspace:list'] },
         { id: 'list_workspaces', available: true, enabled: true, scopes: ['workspace:list'] },
         { id: 'get_workspace_overview', available: true, enabled: true, scopes: ['workspace:list'] },
+        { id: 'get_knowledge_manifest', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'list_knowledge_tree', available: true, enabled: true, scopes: ['knowledge:tree'] },
         { id: 'search_knowledge', available: true, enabled: true, scopes: ['knowledge:search'] },
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
+        { id: 'replace_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'copy_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'move_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'delete_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },

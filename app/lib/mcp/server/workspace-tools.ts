@@ -1,6 +1,13 @@
 import 'server-only';
 
 import path from 'node:path';
+import { describeWorkspaceCapabilities } from './workspace-capabilities';
+import { getDirectMcpRuntimeSettings } from './runtime-settings';
+import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
+import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
+import { getDirectMcpAuthProbeToolDescriptor } from './auth-probe';
+import { readManifestFile, ManifestReadError, MANIFEST_MAX_FILE_BYTES } from './file-manifest';
+import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from './legacy-pagination';
 import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
 import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
 
@@ -47,6 +54,7 @@ import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationContentEditInDocument,
   prepareCollaborationTextEdit,
+  prepareCollaborationWrite,
   readCurrentCollaborationTextSnapshot,
 } from '@/app/lib/collaboration/agent-file-edits';
 import { confirmCollaborativeFileCheckpoint, CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
@@ -82,6 +90,9 @@ import {
   completeDirectMcpBinaryUpload,
   decodeDirectMcpUploadChunk,
   directMcpBinaryUploadErrorMessage,
+  directMcpBinaryUploadErrorCode,
+  readDirectMcpBinaryUploadStatus,
+  DirectMcpBinaryUploadError,
   DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
   DIRECT_MCP_UPLOAD_MAX_BYTES,
   DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
@@ -124,9 +135,11 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'list_workspaces',
   'get_workspace_overview',
   'list_knowledge_tree',
+  'get_knowledge_manifest',
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'replace_knowledge_source',
   'copy_knowledge_source',
   'move_knowledge_source',
   'delete_knowledge_source',
@@ -359,7 +372,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Get workspace overview',
-      description: 'Shows a compact overview of one accessible Canvas workspace and its top-level contents.',
+      description: 'Shows one accessible workspace, current connection/workspace rights per tool, schema and server versions, schema hash, upload limits and top-level contents.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -373,8 +386,10 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         properties: {
           workspace: { type: 'object' },
           contents: { type: 'object' },
+          capabilities: { type: 'object' },
+          limits: { type: 'object' },
         },
-        required: ['workspace', 'contents'],
+        required: ['workspace', 'contents', 'capabilities', 'limits'],
         additionalProperties: false,
       },
       annotations: {
@@ -434,7 +449,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Search workspace files',
-      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit all native-only fields to retain legacy physical/native path-based text excerpts.',
+      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit native-only fields for legacy path excerpts; pass next_legacy_cursor back as legacy_cursor. Legacy coverage explicitly reports bounded discovery and skipped sources; narrow path when discovery is incomplete.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -442,14 +457,12 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           query: { type: 'string', minLength: 2, description: 'Text to search for.' },
           path: { type: 'string', description: 'Workspace-relative starting scope. Defaults to ".".' },
           max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum whole hits. Defaults to 8 for native V1, 10 for legacy excerpts.' },
+          legacy_cursor: { type: 'string', minLength: 1, maxLength: 1024, description: 'Legacy search only: exact next_legacy_cursor. Keep workspace, query and path unchanged. Native V1 uses cursor instead.' },
           ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         },
         required: ['workspace_id', 'query'],
-        oneOf: [
-          { not: { anyOf: ['api_version', 'cursor'].map(key => ({ required: [key] })) } },
-          { properties: { api_version: { const: 1 }, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } },
-            required: ['api_version'] },
-        ],
+        // Hosts may project oneOf branches without their parent properties.
+        // Keep the transport flat; the strict decoder owns native selection.
         additionalProperties: false,
       },
       outputSchema: {
@@ -457,7 +470,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         oneOf: [
           { type: 'object', additionalProperties: false,
             properties: { workspace_id: { type: 'string' }, query: { type: 'string' },
-              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' } },
+              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' },
+              next_legacy_cursor: { type: ['string', 'null'] }, coverage: { type: 'object' } },
             required: ['workspace_id', 'query', 'results', 'truncated'] },
           DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1,
           DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1,
@@ -470,6 +484,44 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         openWorldHint: false,
       },
       ...getToolSecurity('knowledge:search'),
+    };
+  }
+
+  if (tool === 'get_knowledge_manifest') {
+    return {
+      name: tool, title: 'Read workspace file manifest',
+      description: 'Page visible physical files with original-byte SHA-256, size, content revision and direct document links. Native Markdown additionally reports its authoritative current export hash separately; physical projections may lag. Each entry is an observed revision, not a workspace-wide snapshot. Follow next_cursor and expand depth-limited directories. Missing/oversized hashes are explicit errors, never equality evidence.',
+      inputSchema: { type: 'object' as const, properties: {
+        workspace_id: { type: 'string' }, path: { type: 'string', default: '.' },
+        max_depth: { type: 'integer', minimum: 0, maximum: 6, default: 2 },
+        max_entries: { type: 'integer', minimum: 1, maximum: 20, default: 10 },
+        cursor: { type: 'string', maxLength: 20000 },
+      }, required: ['workspace_id'], additionalProperties: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      ...getToolSecurity('knowledge:read'),
+    };
+  }
+
+  if (tool === 'replace_knowledge_source') {
+    return {
+      name: tool,
+      title: 'Replace Markdown document',
+      description: 'Replace the complete content of an existing authoritative Markdown document. Read it first and supply its SHA-256 plus a stable idempotency_key. Uses the same live Yjs, revision, permission and review safeguards as editing. Inspect status and authoritative_updated; a review proposal is not an applied change. Unsupported structural or metadata changes fail closed. Create new documents with create_knowledge_source.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          workspace_id: { type: 'string' },
+          path: { type: 'string', description: 'Existing workspace-relative .md or .markdown path.' },
+          content: { type: 'string', maxLength: MAX_EDIT_TEXT_LENGTH, description: 'Complete replacement Markdown, including any existing frontmatter.' },
+          expected_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$' },
+          idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$' },
+        },
+        required: ['workspace_id', 'path', 'content', 'expected_sha256', 'idempotency_key'],
+        additionalProperties: false,
+      },
+      outputSchema: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source').outputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      ...getToolSecurity('knowledge:write'),
     };
   }
 
@@ -592,11 +644,11 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Upload a binary workspace file',
-      description: 'Uploads one binary file in a short-lived, conflict-protected session. Call begin, send ordered Base64 chunks, then call complete; call abort to discard an unfinished upload.',
+      description: 'Uploads one binary file in a short-lived, conflict-protected session. Call begin with a stable idempotency_key, send ordered Base64 chunks, then complete; status returns the durable next_offset, and abort discards unfinished bytes. Reuse a key only for identical requests. Expired or unconfirmed sessions must be inspected before starting another upload. Completion verifies the original SHA-256 before and after publication.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'], description: 'Upload operation to perform.' },
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort', 'status'], description: 'Upload operation to perform.' },
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           path: { type: 'string', description: 'For begin, the visible workspace-relative destination path.' },
           size: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_UPLOAD_MAX_BYTES, description: 'For begin, exact file size in bytes.' },
@@ -604,6 +656,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           sha256: { type: 'string', description: 'For begin, lowercase SHA-256 of the complete file.' },
           overwrite: { type: 'boolean', description: 'For begin, allow replacing an existing file. Defaults to false.' },
           expected_sha256: { type: 'string', description: 'For overwrite, the current destination SHA-256 returned by a read tool.' },
+          idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$', description: 'For begin: stable retry key. Identical retries reuse the original durable session; changed requests conflict. Omitting it retains legacy non-idempotent begin behavior.' },
+          chunk_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$', description: 'For chunk: optional SHA-256 of exactly the decoded chunk bytes.' },
           upload_id: { type: 'string', description: 'Short-lived opaque upload handle returned by begin.' },
           offset: { type: 'integer', minimum: 0, description: 'For chunk, zero-based byte offset. Chunks must be sent in order.' },
           data_base64: { type: 'string', maxLength: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, description: `For chunk, canonical standard Base64 encoding of 1 to ${DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES} bytes.` },
@@ -617,7 +671,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
       outputSchema: {
         type: 'object' as const,
         properties: {
-          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'] },
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort', 'status'] },
           workspace_id: { type: 'string' },
           document_url: { type: 'string' },
           document_id: { type: ['string', 'null'] },
@@ -628,6 +682,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           total_size: { type: 'integer' },
           max_chunk_bytes: { type: 'integer' },
           expires_at: { type: 'string' },
+          already_started: { type: 'boolean' },
+          state: { type: 'string' },
+          sha256: { type: 'string' },
           already_received: { type: 'boolean' },
           already_completed: { type: 'boolean' },
           mime_type: { type: 'string' },
@@ -660,17 +717,13 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         path: { type: 'string', description: 'Legacy workspace-relative file path. Cannot be combined with document_id or native page fields.' },
         offset: { type: 'integer', minimum: 0, description: 'Legacy path mode only: UTF-16 character offset. Defaults to 0.' },
         max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Legacy path mode only: maximum returned characters. Defaults to 12000.' },
+        expected_sha256: { type: 'string', pattern: '^[a-fA-F0-9]{64}$', description: 'Legacy path mode only: hash from the first page. Required when offset > 0; changed content returns FILE_REVISION_CONFLICT.' },
         ...DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES,
       },
       required: ['workspace_id'],
-      oneOf: [
-        { properties: { path: {} }, required: ['path'],
-          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor', 'include_edit_targets']
-            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
-        { properties: { document_id: {}, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } }, required: ['document_id'],
-          not: { anyOf: ['path', 'offset', 'max_characters']
-            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
-      ],
+      // Do not put selectors in oneOf: host projection can discard workspace,
+      // format, limits and even expected_version. The handler validates exactly
+      // one selector before any authorization or I/O.
       additionalProperties: false,
     },
     outputSchema: {
@@ -842,6 +895,10 @@ function result(content: Record<string, unknown>, text: string): CallToolResult 
   };
 }
 
+function structuredErrorResult(code: string, message: string): CallToolResult {
+  return { isError: true, structuredContent: { code, message }, content: [{ type: 'text', text: `${code}: ${message}` }] };
+}
+
 function errorResult(message: string): CallToolResult {
   return {
     content: [{ type: 'text', text: message }],
@@ -871,7 +928,7 @@ async function auditWorkspaceToolCall(input: {
   mimeType?: string;
   sizeBytes?: number;
   pageCount?: number;
-  uploadOperation?: 'begin' | 'chunk' | 'complete' | 'abort';
+  uploadOperation?: 'begin' | 'chunk' | 'complete' | 'abort' | 'status';
 }): Promise<void> {
   await recordAuditEvent({
     organizationId: input.workspace?.organizationId ?? null,
@@ -958,7 +1015,15 @@ async function executeGetWorkspaceOverview(
       .filter(Boolean))]
       .sort()
       .slice(0, 20);
+    const runtime = await getDirectMcpRuntimeSettings();
+    const descriptors = [getDirectMcpAuthProbeToolDescriptor(), ...getDirectMcpWorkspaceToolDefinitions().map(tool => tool.descriptor),
+      ...getDirectMcpIngestToolDefinitions().map(tool => tool.descriptor), ...getDirectMcpExcalidrawToolDefinitions().map(tool => tool.descriptor)];
     const structuredContent = {
+      capabilities: describeWorkspaceCapabilities({ workspace, scopes: authorization.principal.scopes,
+        enabled: runtime.enabled, enabledTools: runtime.tools, descriptors }),
+      limits: { upload_max_bytes: DIRECT_MCP_UPLOAD_MAX_BYTES, upload_chunk_max_bytes: DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
+        upload_chunk_max_base64_characters: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, upload_ttl_seconds: 900,
+        markdown_replace_max_characters: MAX_EDIT_TEXT_LENGTH, manifest_max_file_bytes: MANIFEST_MAX_FILE_BYTES },
       workspace: workspaceSummary(workspace),
       contents: {
         top_level_files: files.length,
@@ -1023,6 +1088,54 @@ async function executeListKnowledgeTree(
   }
 }
 
+async function executeGetKnowledgeManifest(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  const parsed = parseArgs(args);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'max_depth', 'max_entries', 'cursor'].includes(key))) invalidParams('Unsupported manifest argument.');
+  const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
+  const startPath = optionalString(parsed, 'path', '.', MAX_PATH_LENGTH);
+  assertVisibleWorkspacePath(startPath);
+  const maxDepth = optionalInteger(parsed, 'max_depth', 2, 0, 6);
+  const maxEntries = optionalInteger(parsed, 'max_entries', 10, 1, 20);
+  const cursor = optionalString(parsed, 'cursor', '', 20000) || null;
+  const authorization = await authenticateForTool(authInfo, 'knowledge:read');
+  if ('result' in authorization) return authorization.result;
+  try {
+    const workspace = await readableWorkspace(authorization.principal, workspaceId);
+    const tree = await readWorkspaceTreePage({ workspaceId, rootPath: workspace.rootPath,
+      path: startPath, maxDepth, maxEntries, cursor });
+    const files = tree.entries.filter(entry => entry.type === 'file');
+    const links = await readDirectMcpFileLinks(workspaceId, files.map(entry => entry.path));
+    const entries: Record<string, unknown>[] = [];
+    for (const entry of files) {
+      const link = links.get(entry.path)!;
+      const row: Record<string, unknown> = { path: entry.path, ...link, hash_basis: 'original_file_bytes' };
+      try {
+        Object.assign(row, await readManifestFile(workspace, entry.path));
+      } catch (error) {
+        Object.assign(row, { size: entry.size, sha256: null, revision: null,
+          error: error instanceof ManifestReadError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE' });
+      }
+      if (link.document_id && /\.m(?:d|arkdown)$/iu.test(entry.path)) {
+        try {
+          const snapshot = await readCurrentCollaborationTextSnapshot({ documentId: link.document_id, workspace, path: entry.path });
+          row.document = { hash_basis: 'authoritative_markdown_utf8', sha256: snapshot.sha256,
+            size: Buffer.byteLength(snapshot.content, 'utf8'), revision: `sha256:${snapshot.sha256}`,
+            document_sequence: snapshot.documentSequence, lifecycle_generation: snapshot.lifecycleGeneration };
+        } catch { row.document = { error: 'MANIFEST_NATIVE_SOURCE_UNAVAILABLE' }; }
+      }
+      entries.push(row);
+    }
+    await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'get_knowledge_manifest', workspace, resultCount: entries.length });
+    return result({ workspace_id: workspaceId, path: tree.path, entries, directories: tree.directories,
+      next_cursor: tree.next_cursor, has_more: tree.has_more, truncated_by_depth: tree.truncated_by_depth,
+      coverage: { source: 'visible_physical_tree', atomic_snapshot: false, max_file_bytes: MANIFEST_MAX_FILE_BYTES,
+        complete: !tree.truncated && entries.every(entry => !entry.error) } }, `Manifest page: ${entries.length} files.`);
+  } catch (error) {
+    return structuredErrorResult(error instanceof WorkspaceTreeError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE',
+      error instanceof WorkspaceTreeError ? error.message : 'Could not read the workspace manifest.');
+  }
+}
+
 async function executeSearchKnowledge(
   args: unknown,
   authInfo?: AuthInfo,
@@ -1054,10 +1167,14 @@ async function executeSearchKnowledge(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const query = requiredString(parsed, 'query', 200);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'query', 'path', 'max_results', 'legacy_cursor'].includes(key))) {
+    invalidParams('Legacy search accepts only workspace_id, query, path, max_results and legacy_cursor.');
+  }
   if (query.length < 2) invalidParams('query must contain at least 2 characters.');
   const startPath = optionalString(parsed, 'path', '.', MAX_PATH_LENGTH);
   assertVisibleWorkspacePath(startPath);
   const maxResults = optionalInteger(parsed, 'max_results', DEFAULT_SEARCH_RESULTS, 1, MAX_SEARCH_RESULTS);
+  const legacyCursor = optionalString(parsed, 'legacy_cursor', '', 1024);
   const authorization = await authenticateForTool(authInfo, 'knowledge:search');
   if ('result' in authorization) return authorization.result;
 
@@ -1074,7 +1191,6 @@ async function executeSearchKnowledge(
       excerpt: string;
       modified_at: string | null;
     } & ReturnType<typeof directMcpFileLinkFields>> = [];
-    let truncated = tree.truncated;
 
     const nativePaths = await listWorkspaceSearchDocuments(workspace, startPath);
     const candidates = [...new Set([
@@ -1082,18 +1198,18 @@ async function executeSearchKnowledge(
       ...tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path),
     ])].filter(filePath => isVisibleWorkspaceNode({ path: filePath, name: path.posix.basename(filePath), type: 'file' })
       && isSearchableTextFile(filePath)).sort((left, right) => left.localeCompare(right));
-    if (candidates.length > MAX_SEARCH_CANDIDATES) truncated = true;
-
-    for (const filePath of candidates.slice(0, MAX_SEARCH_CANDIDATES)) {
-      if (results.length >= maxResults) {
-        truncated = true;
-        break;
-      }
+    const bounded = candidates.slice(0, MAX_SEARCH_CANDIDATES);
+    const scope = legacySearchFingerprint([workspace.workspaceId, workspace.rootPath, startPath, query]);
+    const snapshot = legacySearchFingerprint([bounded, tree.entries, tree.truncated]);
+    const previous = decodeLegacySearchCursor(legacyCursor, scope, snapshot, bounded.length);
+    let index = previous.index, skipped = previous.skipped;
+    while (index < bounded.length && results.length < maxResults) {
+      const filePath = bounded[index++];
       let current;
       try { current = await readWorkspaceSearchText(workspace, filePath, MAX_SEARCH_FILE_BYTES); }
       catch (error) {
         if (error instanceof WorkspaceSearchReadError && ['SOURCE_TOO_LARGE', 'SOURCE_BINARY'].includes(error.code)) {
-          truncated = true;
+          skipped += 1;
           continue;
         }
         throw error;
@@ -1110,11 +1226,18 @@ async function executeSearchKnowledge(
       });
     }
 
+    const nextCursor = index < bounded.length ? encodeLegacySearchCursor(scope, snapshot, index, skipped) : null;
+    const discoveryIncomplete = tree.truncated || candidates.length > MAX_SEARCH_CANDIDATES;
     const structuredContent = {
       workspace_id: workspace.workspaceId,
       query,
       results,
-      truncated,
+      truncated: nextCursor !== null || discoveryIncomplete || skipped > 0,
+      next_legacy_cursor: nextCursor,
+      coverage: { discovery_complete: !discoveryIncomplete, candidate_limit: MAX_SEARCH_CANDIDATES,
+        candidates: bounded.length, scanned: index, skipped, max_depth: MAX_TREE_DEPTH,
+        max_file_bytes: MAX_SEARCH_FILE_BYTES, consistency: 'current_per_page',
+        complete: !nextCursor && !discoveryIncomplete && skipped === 0 },
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
@@ -1123,7 +1246,8 @@ async function executeSearchKnowledge(
       resultCount: results.length,
     });
     return result(structuredContent, [`${results.length} matching workspace document(s) found.`, ...results.map(entry => `${JSON.stringify(entry.path)}: ${entry.document_url}`)].join('\n'));
-  } catch {
+  } catch (error) {
+    if (error instanceof LegacyPaginationError) return { isError: true, structuredContent: { code: error.code, message: error.message }, content: [{ type: 'text', text: error.message }] };
     return errorResult('Could not search the Canvas workspace.');
   }
 }
@@ -1161,8 +1285,15 @@ async function executeReadKnowledgeSource(
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
+  if (Object.keys(parsed).some(key => !['workspace_id', 'path', 'offset', 'max_characters', 'expected_sha256'].includes(key))) {
+    invalidParams('Legacy read accepts only workspace_id, path, offset, max_characters and expected_sha256.');
+  }
   assertVisibleWorkspacePath(filePath);
   const offset = optionalInteger(parsed, 'offset', 0, 0, Number.MAX_SAFE_INTEGER);
+  const expectedSha256 = normalizeExpectedSha256(parsed.expected_sha256);
+  if ((parsed.expected_sha256 !== undefined || offset > 0) && !expectedSha256) {
+    invalidParams('Legacy continuation requires expected_sha256 from the first page.');
+  }
   const maxCharacters = optionalInteger(
     parsed,
     'max_characters',
@@ -1192,6 +1323,10 @@ async function executeReadKnowledgeSource(
     });
     if (Buffer.byteLength(text.content, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP read limit.`);
+    }
+    if (expectedSha256 && expectedSha256 !== text.sha256) {
+      return { isError: true, structuredContent: { code: 'FILE_REVISION_CONFLICT', message: 'Content changed. Restart reading at offset 0.' },
+        content: [{ type: 'text', text: 'FILE_REVISION_CONFLICT: Content changed. Restart reading at offset 0.' }] };
     }
     const content = text.content.slice(offset, offset + maxCharacters);
     const nextOffset = offset + content.length < text.content.length ? offset + content.length : null;
@@ -1336,10 +1471,10 @@ async function executeUploadKnowledgeAsset(
 ): Promise<CallToolResult> {
   const parsed = parseArgs(args);
   const operation = requiredString(parsed, 'operation', 20);
-  if (!['begin', 'chunk', 'complete', 'abort'].includes(operation)) {
-    invalidParams('operation must be begin, chunk, complete, or abort.');
+  if (!['begin', 'chunk', 'complete', 'abort', 'status'].includes(operation)) {
+    invalidParams('operation must be begin, chunk, complete, abort, or status.');
   }
-  const uploadOperation = operation as 'begin' | 'chunk' | 'complete' | 'abort';
+  const uploadOperation = operation as 'begin' | 'chunk' | 'complete' | 'abort' | 'status';
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const authorization = await authenticateForTool(authInfo, 'knowledge:write');
   if ('result' in authorization) return authorization.result;
@@ -1371,6 +1506,7 @@ async function executeUploadKnowledgeAsset(
         contentSha256,
         overwrite: optionalBoolean(parsed, 'overwrite') ?? false,
         expectedSha256,
+        ...(parsed.idempotency_key !== undefined ? { idempotencyKey: requiredString(parsed, 'idempotency_key', 128) } : {}),
       });
       const structuredContent = {
         operation: uploadOperation,
@@ -1383,6 +1519,8 @@ async function executeUploadKnowledgeAsset(
         expires_at: upload.expiresAt,
         mime_type: mimeType,
         before_sha256: upload.beforeSha256,
+        already_started: upload.alreadyStarted,
+        state: upload.state,
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
@@ -1395,10 +1533,18 @@ async function executeUploadKnowledgeAsset(
         sizeBytes: size,
         uploadOperation,
       });
-      return result(structuredContent, `Binary upload started for ${filePath}. Send chunks beginning at byte 0.`);
+      return result(structuredContent, `Binary upload ${upload.state} for ${filePath}. Continue at byte ${upload.nextOffset}; inspect status before completing or retrying.`);
     }
 
     const uploadId = requiredString(parsed, 'upload_id', 4096);
+    if (uploadOperation === 'status') {
+      const upload = await readDirectMcpBinaryUploadStatus({ principal: authorization.principal, workspace, uploadId });
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'upload_knowledge_asset', workspace,
+        path: upload.path, changed: false, uploadOperation });
+      return result({ operation: uploadOperation, workspace_id: workspace.workspaceId, path: upload.path,
+        state: upload.state, next_offset: upload.nextOffset, total_size: upload.size, sha256: upload.sha256,
+        before_sha256: upload.beforeSha256, expires_at: upload.expiresAt }, `Upload ${upload.state}; next offset ${upload.nextOffset}.`);
+    }
     if (uploadOperation === 'chunk') {
       const offset = requiredInteger(parsed, 'offset', 0, DIRECT_MCP_UPLOAD_MAX_BYTES);
       const encodedData = requiredText(
@@ -1407,6 +1553,11 @@ async function executeUploadKnowledgeAsset(
         DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
       );
       const buffer = decodeDirectMcpUploadChunk(encodedData);
+      if (parsed.chunk_sha256 !== undefined) {
+        const chunkSha256 = normalizeExpectedSha256(parsed.chunk_sha256);
+        if (!chunkSha256) invalidParams('chunk_sha256 must be a SHA-256 hash.');
+        if (chunkSha256 !== sha256Buffer(buffer)) throw new DirectMcpBinaryUploadError('Chunk bytes do not match chunk_sha256.', 'UPLOAD_CHUNK_CHECKSUM_MISMATCH');
+      }
       const upload = await writeDirectMcpBinaryUploadChunk({
         principal: authorization.principal,
         workspace,
@@ -1500,7 +1651,9 @@ async function executeUploadKnowledgeAsset(
     });
     return result(structuredContent, `Discarded the unfinished binary upload for ${upload.path}.`);
   } catch (error) {
-    return errorResult(directMcpBinaryUploadErrorMessage(error));
+    if (error instanceof ProtocolError) throw error;
+    const message = directMcpBinaryUploadErrorMessage(error), code = directMcpBinaryUploadErrorCode(error);
+    return { isError: true, structuredContent: { code, message }, content: [{ type: 'text', text: `${code}: ${message}` }] };
   }
 }
 
@@ -1529,9 +1682,12 @@ function editErrorResult(error: unknown): CallToolResult {
 async function executeEditKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
+  mode: 'edit' | 'replace' = 'edit',
 ): Promise<CallToolResult> {
+  const fullReplace = mode === 'replace';
+  const tool = fullReplace ? 'replace_knowledge_source' : 'edit_knowledge_source';
   let nativeSelection: ReturnType<typeof decodeDirectMcpNativeDocumentEditSelection>;
-  try { nativeSelection = decodeDirectMcpNativeDocumentEditSelection(args); }
+  try { nativeSelection = fullReplace ? null : decodeDirectMcpNativeDocumentEditSelection(args); }
   catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
   if (nativeSelection) {
     try {
@@ -1546,8 +1702,15 @@ async function executeEditKnowledgeSource(
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
   assertVisibleWorkspacePath(filePath);
-  const oldText = requiredText(parsed, 'old_text', MAX_EDIT_TEXT_LENGTH);
-  const newText = requiredText(parsed, 'new_text', MAX_EDIT_TEXT_LENGTH, true);
+  if (fullReplace) {
+    const allowed = new Set(['workspace_id', 'path', 'content', 'expected_sha256', 'idempotency_key']);
+    if (Object.keys(parsed).some(key => !allowed.has(key))) invalidParams('Unsupported replacement argument.');
+    if (!/\.m(?:d|arkdown)$/iu.test(filePath)) invalidParams('Replacement requires a Markdown document.');
+    if (parsed.idempotency_key === undefined) invalidParams('idempotency_key is required.');
+  }
+  const replacement = fullReplace ? requiredText(parsed, 'content', MAX_EDIT_TEXT_LENGTH, true) : null;
+  const oldText = fullReplace ? '' : requiredText(parsed, 'old_text', MAX_EDIT_TEXT_LENGTH);
+  const newText = fullReplace ? replacement! : requiredText(parsed, 'new_text', MAX_EDIT_TEXT_LENGTH, true);
   const expectedSha256 = normalizeExpectedSha256(requiredString(parsed, 'expected_sha256', 80));
   if (!expectedSha256) invalidParams('expected_sha256 must be a SHA-256 hash returned by read_knowledge_source.');
   const replaceAll = optionalBoolean(parsed, 'replace_all');
@@ -1587,6 +1750,9 @@ async function executeEditKnowledgeSource(
       buffer,
       principal: authorization.principal,
     });
+    if (fullReplace && (current.source !== 'live_yjs' || !current.documentId)) {
+      return structuredErrorResult('REPLACE_REQUIRES_NATIVE_DOCUMENT', 'Full replacement requires an authoritative live Markdown document.');
+    }
     const fileLink = directMcpFileLinkFields({ workspaceId: workspace.workspaceId,
       path: current.nativeIdentity?.path ?? filePath,
       documentId: current.nativeIdentity?.documentId ?? null, lineageId: current.nativeIdentity?.lineageId ?? null });
@@ -1594,6 +1760,7 @@ async function executeEditKnowledgeSource(
     const authorityForSnapshot = (snapshot: { documentId: string; lifecycleGeneration: number }) =>
       createDirectMcpEditAuthority({
         token: authInfo!.token,
+        tool,
         scope: {
           userId: authorization.principal.userId,
           clientId: authorization.principal.clientId,
@@ -1609,12 +1776,13 @@ async function executeEditKnowledgeSource(
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
     const edits: ExactTextEdit[] = [{
-      oldText,
+      oldText: fullReplace ? current.content : oldText,
       newText,
       expectedOccurrences,
       replaceAll,
     }];
-    const mutation = {
+    const mutation = fullReplace ? { operation: tool, workspaceId: workspace.workspaceId, path: filePath,
+      expectedSha256, content: replacement } : {
       operation: 'edit_knowledge_source',
       workspaceId: workspace.workspaceId,
       path: filePath,
@@ -1658,9 +1826,9 @@ async function executeEditKnowledgeSource(
               expectedSha256,
               groupId: 'direct_mcp_edit',
               plan: (content) => ({
-                proposedContent: applyExactTextEdits(content, edits, filePath),
+                proposedContent: fullReplace ? replacement! : applyExactTextEdits(content, edits, filePath),
                 edits,
-                richMode: 'exact_text',
+                richMode: fullReplace ? 'markdown_structure' : 'exact_text',
               }),
             });
             const preparedValidation = validateTextFileContent(filePath, prepared.proposedContent);
@@ -1718,7 +1886,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: 1,
         path: filePath,
@@ -1806,17 +1974,19 @@ async function executeEditKnowledgeSource(
           size: Buffer.byteLength(after.content, 'utf8'),
           modified_at: toIsoDate(afterStats.modified),
         };
-        await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'edit_knowledge_source',
+        await auditWorkspaceToolCall({ principal: authorization.principal, tool,
           workspace, resultCount: 0, path: filePath, beforeSha256: request.beforeSha256,
           afterSha256: after.sha256, changed: false, reviewRequired });
         return result(structuredContent, message);
       }
     }
     if (current.sha256 !== expectedSha256) {
-      return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
+      return fullReplace
+        ? structuredErrorResult('FILE_REVISION_CONFLICT', 'The document changed. Read its current content before retrying.')
+        : errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
     }
 
-    const proposedContent = applyExactTextEdits(current.content, edits, filePath);
+    const proposedContent = fullReplace ? replacement! : applyExactTextEdits(current.content, edits, filePath);
     if (Buffer.byteLength(proposedContent, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The updated file would exceed the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
@@ -1869,7 +2039,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: 0,
         path: filePath,
@@ -1885,7 +2055,10 @@ async function executeEditKnowledgeSource(
       const policyProposal = await createReviewProposal!({});
       if (policyProposal) return reviewResult(policyProposal);
 
-      const prepared = await prepareCollaborationTextEdit({
+      const prepared = fullReplace ? await prepareCollaborationWrite({
+        documentId: current.documentId, workspace, path: filePath, content: replacement!,
+        expectedSha256, groupId: 'direct_mcp_replace',
+      }) : await prepareCollaborationTextEdit({
         documentId: current.documentId,
         workspace,
         path: filePath,
@@ -1992,7 +2165,7 @@ async function executeEditKnowledgeSource(
       };
       await auditWorkspaceToolCall({
         principal: authorization.principal,
-        tool: 'edit_knowledge_source',
+        tool,
         workspace,
         resultCount: changed ? 1 : 0,
         path: filePath,
@@ -2075,7 +2248,7 @@ async function executeEditKnowledgeSource(
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
-      tool: 'edit_knowledge_source',
+      tool,
       workspace,
       resultCount: 1,
       path: filePath,
@@ -2146,6 +2319,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       execute: executeListKnowledgeTree,
     },
     {
+      id: 'get_knowledge_manifest',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('get_knowledge_manifest'),
+      execute: executeGetKnowledgeManifest,
+    },
+    {
       id: 'search_knowledge',
       descriptor: getDirectMcpWorkspaceToolDescriptor('search_knowledge'),
       execute: executeSearchKnowledge,
@@ -2159,6 +2337,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'edit_knowledge_source',
       descriptor: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source'),
       execute: executeEditKnowledgeSource,
+    },
+    {
+      id: 'replace_knowledge_source',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('replace_knowledge_source'),
+      execute: (args, authInfo) => executeEditKnowledgeSource(args, authInfo, 'replace'),
     },
     {
       id: 'copy_knowledge_source',

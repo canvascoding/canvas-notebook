@@ -1,0 +1,262 @@
+# MCP connector reliability
+
+The acceptance workflow uses synthetic documents in the managed local Notebook
+container on `127.0.0.1:3100`. It never runs the prepared Knowledge sync or changes
+the production connector.
+
+## Reproduced failure
+
+The hosted connector projected the parent/`oneOf` read input into incomplete
+selector branches. Path reads lost `workspace_id`; native reads lost `format`,
+`max_bytes` and `expected_version`. A request for Markdown/256 bytes returned
+4,833 native bytes, and an intentionally wrong expected version did not fail.
+Native search failed connector validation with “Value matches multiple schemas”.
+The precise hosted adapter implementation is outside this repository.
+
+Read and search now publish flat, typed top-level input properties, matching the
+existing binary-upload compatibility approach. Native selectors remain strictly
+decoded on the server; legacy handlers reject unsupported fields before I/O.
+Output contracts and authorization remain unchanged.
+
+## Reproducible checks
+
+Run the focused contracts with `BASE_URL` and `BETTER_AUTH_BASE_URL` set to
+`http://127.0.0.1:3100`:
+
+```sh
+node --conditions=react-server --import tsx --test \
+  scripts/mcp-document-read-tool-contract-test.ts \
+  scripts/mcp-native-search-routing-test.ts
+NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node \
+  scripts/run-document-read-tool-dispatch-test.mjs \
+  scripts/document-read-tool-dispatch-postgres-test.ts
+NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node \
+  scripts/run-document-read-tool-dispatch-test.mjs \
+  scripts/document-search-tool-dispatch-postgres-test.ts
+```
+
+Build and recreate the managed container with the `canvas-local-team-seat-dev`
+workflow before running these acceptance scripts:
+
+```sh
+node --import tsx scripts/mcp-connector-read-search-e2e.mjs
+node --import tsx scripts/mcp-local-codex-client-e2e.mjs \
+  artifacts/mcp-connector/<run-id>/report.json
+```
+
+The first script uses real login, OAuth browser consent, PKCE, public HTTP MCP,
+native document persistence and the real editor. It retains its clearly named
+test workspace for the second script and revokes its own OAuth connection.
+
+The second uses the installed Codex app-server's MCP client with process-local
+configuration, an ephemeral context and no model turn. It grants only the test
+workspace and revokes its own consent afterwards. It does not modify global
+Codex configuration. This proves the local Codex transport; it is distinct from
+the hosted ChatGPT connector's schema adaptation.
+
+## Implementation sequence
+
+1. Flat read/search schemas and actual client acceptance (completed).
+2. Version-bound legacy reads and explicit search coverage/continuation (implemented; combined client acceptance pending).
+3. Upload begin idempotency, status/recovery and structured failures (implemented; combined client acceptance pending).
+4. Complete Markdown replacement through the central document owner.
+5. Paged manifest with explicit hash representation and coverage.
+6. Workspace capabilities, limits/version metadata and combined acceptance.
+
+Each step is completed and committed before starting the next. A source test,
+HTTP dispatcher test, container run and hosted connector test are separate
+evidence categories; none is reported as another.
+
+## Step 1 acceptance (2026-10-30)
+
+- Focused contracts: 19 passing tests. Real PostgreSQL dispatcher: 15 read
+  groups and 6 search groups pass. Scoped ESLint and production build pass.
+- Fresh Linux image `sha256:3b783a6b0633670b36e474ca11cd27a12c66a7076946da93a8c1694c39fde8ab`
+  ran as the only managed Notebook container.
+- OAuth/HTTP/browser acceptance: seven checks pass; the editor screenshot was
+  visually inspected. Run ID: `c427f7c0-20ea-4ffe-b4ba-b6b576cfb31c`.
+- Installed Codex app-server MCP client: real OAuth DCR/PKCE, workspace grant,
+  catalog discovery, legacy/native reads, byte limits, read/search continuation
+  and version conflict all pass. No model turn, global configuration change or
+  production connection modification was performed. Test connections are revoked.
+- The shared data root retained a birth anchor for an earlier mount identity.
+  Its integrity guard correctly rejected creation. Acceptance therefore uses a
+  fresh isolated database on the managed PostgreSQL server and an empty private
+  data root mounted into the same single Notebook container. Existing shared
+  data and its anchor were not repaired, reset or adopted.
+
+Local evidence is under `artifacts/mcp-connector/<run-id>/`; generated catalogs
+and screenshots are not source files. Hosted ChatGPT adapter acceptance still
+requires publishing this server version to an accessible test connection.
+
+## Step 2 contract
+
+Legacy path reads require the first page's `expected_sha256` for every nonzero
+`offset`. A mismatch returns `FILE_REVISION_CONFLICT` without body content.
+This intentional tightening prevents concatenating pages from different versions.
+Native document-version continuations keep their existing contract.
+
+Legacy search now returns `next_legacy_cursor`; replay it as `legacy_cursor`
+with the same workspace, query and path. Native V1 retains its separate `cursor`.
+Candidate path/file-metadata changes reject continuation with
+`SEARCH_CORPUS_CHANGED`; malformed or cross-scope cursors return
+`INVALID_SEARCH_CURSOR`. Every call independently checks authorization.
+
+Coverage explicitly reports bounded discovery, the 400-candidate/6-depth limits,
+256 KiB file limit and skipped sources. It is current per page, not an atomic
+workspace snapshot. When discovery is incomplete, narrow `path` or expand the
+folder tree; no cursor certifies unscanned files as covered.
+
+Acceptance: 21 contract/tree/routing tests and all 7 PostgreSQL dispatcher
+groups pass, including stale hashes, changed search corpus, unique continuation
+and skipped oversized files. Combined browser and installed-Codex scripts now
+include legacy and tree pagination; those additions pass in the final rebuilt-image acceptance below.
+
+The production `build:release:typecheck` and scoped ESLint pass. The broader
+`tsconfig.json` check also includes unrelated historical test scripts and reports
+errors there; none reference this step's changed files. It is not reported as a
+passing repository-wide type check.
+
+## Step 3 upload recovery
+
+The existing flat `upload_knowledge_asset` schema now includes `idempotency_key`,
+`chunk_sha256` and `operation:status`. The existing operation tool is retained
+for compatibility; all fields remain visible at top level.
+
+A begin key is scoped to the authenticated connection and workspace, with the
+exact destination/size/type/hash/overwrite request fingerprint. Concurrent or
+subsequent identical requests reuse a durable encrypted handle and current
+byte offset. A different request returns `UPLOAD_IDEMPOTENCY_CONFLICT`.
+Keys are optional for compatibility; callers requiring safe begin retries must
+provide one. Keys and handles do not grant access: every MCP request rechecks
+current OAuth and workspace permission.
+
+Intent and receipt are fsynced under the cross-process workspace lock. A crash
+between session creation and receipt persistence returns
+`UPLOAD_STATE_UNCONFIRMED`; it never creates a replacement session automatically.
+Handles retain their original 15-minute lifetime. Aborted, expired or uncertain
+uploads need inspection before selecting a new key.
+
+Status reads the central durable upload session. Completed status additionally
+checks the current destination against the original size and SHA-256. Optional
+chunk hashes reject bad bytes before persistence. Completion retains the existing
+pre-publication full-file hash check and post-publication verification.
+
+Actual PostgreSQL/MCP dispatcher acceptance passes concurrent begin, request
+conflict, partial resume, chunk retries/hashes, original bytes, complete retry,
+changed destination, wrong final hash, abort, revoked workspace grant, a durable
+receipt read by a fresh Node process, and a lost-acknowledgement boundary.
+The HTTP and installed-Codex acceptance scripts include the same upload flow.
+
+## Step 4 complete Markdown replacement
+
+`replace_knowledge_source` is a separate explicitly enabled write capability.
+Its flat contract requires workspace, path, complete content, expected SHA-256
+and caller idempotency key. Existing `create_knowledge_source` remains the create
+entry point. Replacement uses the authoritative Yjs write preparation, persisted
+operation receipt, current OAuth authority and physical checkpoint verification.
+It refuses filesystem-only documents and unsupported structural/metadata changes;
+review outcomes are never reported as applied. Retry fingerprints include the
+original request rather than the changed current content.
+
+Seven edit/checkpoint/authority tests, three existing edit-contract tests,
+settings migration tests, scoped ESLint and production TypeScript check pass.
+HTTP/Codex scripts now check full replacement, retry, conflict, SHA-256 and editor
+reload. Their combined rebuilt-container run passes; see the final acceptance below.
+
+## Step 5 paged file manifest
+
+`get_knowledge_manifest` pages the existing visible physical tree, reauthorizing
+on every request. Entries carry original-file size, SHA-256, content revision and
+document link. Native Markdown has a separate authoritative export hash/size and
+sequence; clients must not compare that normalized export to original asset bytes.
+Hashing is bounded to 100 MiB per file with 64 KiB memory and rejects changes to
+the opened file or its path during hashing. Missing/oversized/unavailable sources
+are explicit entry errors. Symlinks and hidden paths are excluded.
+
+This is a physical-file inventory, not an atomic native-document snapshot.
+Depth-limited directories must be expanded, and native-only documents without a
+physical projection remain outside this manifest's declared coverage. Read native
+search separately for those documents. Per-file hashes are observations and do
+not prove that earlier pages stayed unchanged.
+
+Real PostgreSQL/public MCP dispatch tests pass binary hash/size/revision/link,
+pagination, cursor invalidation, hidden/symlink exclusion, oversized files and
+revoked access. Production typecheck, settings tests and scoped ESLint pass.
+
+## Step 6 workspace capability report
+
+`get_workspace_overview` now includes the actual release/schema/protocol versions,
+a SHA-256 of published tool schemas, upload size/chunk/TTL and Markdown limits,
+and the selected workspace's current permissions. Every tool reports required
+scopes, effective workspace/connection permission and explicit denial reasons.
+Document policy, destination rights, native mutation gates and revision checks
+remain operation-time conditions and are stated separately.
+
+Capability tests cover read-only workspaces, missing OAuth scopes, disabled tools,
+delete rights and stable schema hashing. Production typecheck and scoped ESLint
+pass. Combined fresh-container OAuth/HTTP/browser and installed-Codex acceptance
+passes in the final acceptance below; no Knowledge sync is performed.
+
+The extended registered-edit suite also verifies full Markdown replacement with
+a real PostgreSQL room owner: both native Markdown and physical checkpoint match,
+retries return the same operation, stale guards and changed-key payloads fail.
+All nine groups pass. One run exposed an existing test timing race: background
+projection completed during the suite's broad read-only row snapshot assertion.
+The unchanged assertion passed on the subsequent isolated run; no assertion was
+weakened. The complete host `npm run build` passed before the fresh image build.
+
+
+## Final acceptance — 2026-10-30
+
+All six implementation steps are committed separately. The tested Linux image is
+`sha256:a605d65886f31fb6c91bfccd0d714bb203dbba9b4693b11c09b7cce91987d15e`.
+It was built after a successful full host `npm run build`, then force-recreated
+as the single managed Notebook container. A fresh private database and data root
+kept existing workspaces and the other chat's test data separate.
+
+| Verification | Result |
+| --- | --- |
+| Full host production build and Docker build | Passed |
+| Read/search/capability/edit-authority unit and contract tests | 27 passed |
+| Existing edit output contract tests | 3 passed |
+| Native Edit, real PostgreSQL room owner, complete replacement and legacy edit | 9 groups passed |
+| Registered search/PI dispatch, pagination and revocation | 7 groups passed |
+| Durable upload dispatcher and manifest PostgreSQL acceptance | Passed |
+| Settings migration/opt-in and scoped ESLint | Passed |
+| Fresh-container OAuth/HTTP/browser acceptance | 13 steps passed |
+| Actual installed Codex app-server MCP client with real OAuth | Passed |
+
+The HTTP run includes saving and reloading the new Settings switches, original
+binary SHA-256 verification after restarting the container halfway through the
+upload, full Markdown replacement and receipt reuse, stale-revision rejection,
+manifest pagination and both physical/native hashes, and opening/reloading the
+changed document in the real editor. The screenshots were visually inspected.
+
+The installed Codex client used a temporary per-process MCP server configuration,
+real DCR/PKCE browser consent and an ephemeral thread without a model turn. It
+called the actual tools for read/search continuation, upload retries, replacement,
+manifest and workspace capabilities. No global Codex config was changed. Both
+acceptance OAuth connections were revoked and the temporary Codex login removed.
+The shared test container was released back to the waiting chat after acceptance.
+
+Evidence: [HTTP/browser report](testing/mcp-connector-2026-10-30/report.json),
+[Codex client report](testing/mcp-connector-2026-10-30/codex-client-report.json),
+[Settings screenshot](testing/mcp-connector-2026-10-30/settings.png),
+[Editor screenshot](testing/mcp-connector-2026-10-30/document.png).
+The Codex report's check labels predate the added replacement/manifest/capability
+checks; those functions are awaited in the same successful script before the
+report is written.
+
+Scope boundaries: this verifies the real local Codex MCP client, not the hosted
+ChatGPT schema adapter against a deployed revision. No production deployment,
+release, merge or Knowledge sync was performed. Native-only documents without a
+file projection are outside the physical manifest's declared coverage. Whole
+Markdown replacement retains the existing central structural and metadata guards.
+
+The final GitNexus comparison against fetched `origin/main` labels the combined
+change CRITICAL (21 affected flows), spanning the intended MCP upload/search/edit
+authorization and dispatch paths. The listed flows were reviewed against the
+changed source and covered by the permission/revocation, retry and integration
+checks above. The local branch named `main` was stale; its comparison incorrectly
+included unrelated already-merged changes, so PR scope uses `origin/main`.

@@ -5955,6 +5955,14 @@
             "title": "Dateiinhalte bearbeiten",
             "description": "Erlaubt exakte, konfliktgeschützte Änderungen an sichtbaren Textdateien nach einer ausdrücklichen Freigabe durch die Administration."
           },
+          "get_knowledge_manifest": {
+            "title": "Dateimanifest lesen",
+            "description": "Liefert paginierte Dateigrößen, SHA-256, Revisionen und Dokumentlinks."
+          },
+          "replace_knowledge_source": {
+            "title": "Markdown vollständig ersetzen",
+            "description": "Ersetzt Markdown mit Revisionsschutz über den autoritativen Dokumentdienst. Erfordert eine ausdrückliche Freigabe."
+          },
           "copy_knowledge_source": {
             "title": "Dateien und Dokumente kopieren",
             "description": "Kopiert sichtbare Dateien, Ordner und native Dokumente über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Benötigt Lesezugriff auf die Quelle und Schreibzugriff auf das Ziel."

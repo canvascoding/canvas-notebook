@@ -10,7 +10,7 @@ type Scope = {
 };
 type Authority = { scope: Scope; verifyCurrent(): Promise<unknown>; assertUnexpired(): void };
 type Exports = {
-  createDirectMcpEditAuthority(input: { token: string; scope: Scope }): Promise<Authority>;
+  createDirectMcpEditAuthority(input: { token: string; scope: Scope; tool?: 'edit_knowledge_source' | 'replace_knowledge_source' }): Promise<Authority>;
   isDirectMcpEditAuthority(value: unknown): boolean;
 };
 
@@ -96,4 +96,23 @@ test('MCP authority is bearer backed, cross-bundle trusted, and rechecks revocat
   } finally {
     Date.now = originalNow;
   }
+});
+
+
+test('replacement authority requires its own enabled capability and notices revocation', async () => {
+  let tools = ['replace_knowledge_source'];
+  const client = compileAuthority({
+    createHash,
+    verifyDirectMcpAccessToken: async () => ({ ...scope, expiresAt: Math.floor(Date.now() / 1000) + 60 }),
+    getDirectMcpRuntimeSettings: async () => ({ enabled: true, tools }),
+    loadDirectMcpWorkspaceListingForUser: async () => ({ workspaces: [{ workspaceId: scope.workspaceId,
+      permissions: { canWrite: true, canRunAgent: true } }] }),
+    listDirectMcpAllowedWorkspaceIds: async () => new Set([scope.workspaceId]),
+    listDirectMcpEnabledWorkspaceIds: async () => new Set([scope.workspaceId]),
+    isDirectMcpReadableWorkspace: () => true,
+  });
+  const authority = await client.createDirectMcpEditAuthority({ token: 'bearer', scope, tool: 'replace_knowledge_source' });
+  await assert.rejects(client.createDirectMcpEditAuthority({ token: 'bearer', scope }), /authority changed/u);
+  tools = ['edit_knowledge_source'];
+  await assert.rejects(authority.verifyCurrent(), /authority changed/u);
 });

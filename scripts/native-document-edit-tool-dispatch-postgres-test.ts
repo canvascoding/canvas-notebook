@@ -53,7 +53,7 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
     // Actual fixture settings/SQL rows grant Write. The fixture initially
     // proves only Read; no WorkspaceContext/permissions DTO is manufactured.
     process.env.FILE_VERSION_CENTER_MODE = 'shadow';
-    process.env.CANVAS_MCP_DIRECT_TOOLS = 'read_knowledge_source,edit_knowledge_source';
+    process.env.CANVAS_MCP_DIRECT_TOOLS = 'read_knowledge_source,edit_knowledge_source,replace_knowledge_source';
     await admin.query(`UPDATE organization_user_permissions SET can_write_team_workspace=1
       WHERE organization_id='tool-dispatch-org' AND user_id='reader' AND status='active'`);
     await admin.query('UPDATE oauth_consent SET scopes=$1 WHERE client_id=$2 AND user_id=$3',
@@ -315,6 +315,28 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         try { for (const selection of [args, deniedEdit]) await assert.rejects(piInvoke(tool, selection), { code: 'PRINCIPAL_AUTH_REVOKED' }); }
         finally { await admin.query('UPDATE pi_sessions SET archived_at=NULL WHERE session_id=$1', [piSessionId]); }
       }));
+      await check('complete Markdown replacement persists via real room, deduplicates and rejects stale revisions', async () => {
+        const document = await fixture.seed({ representation: 'tiptap_blocks', filePath: 'replace.md', text: '# Original\n\nWhole old body\n' });
+        const before = await read(document);
+        const target = path.join(fixture.workspaceRoot, document.filePath);
+        await writeFile(target, before.fragment, { flag: 'wx', mode: 0o600 });
+        const old = object((await call('read_knowledge_source', { workspace_id: workspaceId, path: document.filePath })).structuredContent);
+        const content = String(old.content).replace('# Original', '# Replacement').replace('Whole old body', 'Whole replacement body');
+        const args = { workspace_id: workspaceId, path: document.filePath, content,
+          expected_sha256: old.sha256, idempotency_key: 'full-replace-key-001' };
+        const changed = await call('replace_knowledge_source', args);
+        assert.notEqual(changed.isError, true, JSON.stringify(changed));
+        const receipt = object(changed.structuredContent);
+        assert.equal(receipt.status, 'applied'); assert.equal(receipt.authoritative_updated, true);
+        assert.equal(await readFile(target, 'utf8'), content);
+        assert.equal(object((await call('read_knowledge_source', { workspace_id: workspaceId, document_id: document.documentId, format: 'markdown' })).structuredContent).fragment, content);
+        const retry = await call('replace_knowledge_source', args);
+        assert.notEqual(retry.isError, true, JSON.stringify(retry));
+        assert.equal(object(retry.structuredContent).operation_id, receipt.operation_id);
+        const stale = await call('replace_knowledge_source', { ...args, idempotency_key: 'full-replace-stale-001' });
+        assert.equal(stale.isError, true); assert.equal(object(stale.structuredContent).code, 'FILE_REVISION_CONFLICT');
+        assert.equal((await call('replace_knowledge_source', { ...args, content: 'different request' })).isError, true);
+      });
       await check('the actual registered legacy path/SHA edit still matches its unchanged advertised output branch', async () => {
         const relative = 'legacy/ordinary.txt', target = path.join(fixture.workspaceRoot, relative), source = 'Legacy exact old body\n';
         await mkdir(path.dirname(target), { recursive: true, mode: 0o700 }); await writeFile(target, source, { flag: 'wx', mode: 0o600 });
@@ -351,7 +373,7 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         fixtureTcpServers: 0, testOwnedTcpServers: 1 }));
     }
   });
-  assert.equal(passed, 8); completed = true;
+  assert.equal(passed, 9); completed = true;
   console.log(JSON.stringify({ suite: 'native-document-edit-tool-dispatch', groups: passed, actualRegisteredModernMcp: true,
     actualPiRegistryWrapper: true, actualLocalPgRoomOwner: true, compiledOrOAuthIssuanceE2e: false, osSandboxAcceptance: false }));
 }

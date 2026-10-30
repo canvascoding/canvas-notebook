@@ -60,6 +60,7 @@ export function createDirectMcpServer(
   }
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
   const hasWriteTool = enabledTools.has('edit_knowledge_source')
+    || enabledTools.has('replace_knowledge_source')
     || enabledTools.has('copy_knowledge_source')
     || enabledTools.has('move_knowledge_source') || enabledTools.has('delete_knowledge_source')
     || enabledTools.has('upload_knowledge_asset')
