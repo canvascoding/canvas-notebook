@@ -235,4 +235,38 @@ Package 5 is complete.
 References: [Electron advisory](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9),
 [42.11.18 release](https://releases.electronjs.org/release/v42.11.18).
 
-Package 6 is complete. Package 7 has not started.
+Package 6 is complete.
+
+## Optional Python dictation runtime
+
+- Filelock 4.2.4 replaces 4.0.5; both exact PyPI wheel/source hashes are pinned.
+  The compliance test retains its complete expected package/version list.
+- Full dependency resolution and binary-only hashed downloads succeed for
+  Python 3.11 on Linux amd64 and arm64 with both Python locks together.
+- pip-audit reports zero known vulnerabilities and zero skipped packages for
+  all 64 packages. The optional 13-package lock previously had 14 findings.
+- An isolated planted-hardlink reproducer damages its private fixture with
+  4.0.5 and preserves both bytes and mode with 4.2.4 (CVE-2026-112909).
+- Installer lock/interruption/atomic-activation, model download integrity,
+  preparation/recovery, route authorization, actual FFmpeg conversion,
+  provider dispatch, worker queue/cancellation/timeout, mobile contracts and
+  dictation feedback tests pass.
+- Full host and Linux arm64 image builds pass. The real optional installer
+  installs the pinned wheels into a dedicated security test DATA directory.
+  The shipped image intentionally omits the host Python installer/worker;
+  acceptance runs exact source copies in a private Linux directory. The normal
+  Docker runtime continues to exclude globally installed Faster-Whisper.
+- The installed Filelock passes planted rename/hardlink integrity and mode
+  checks, cross-process exclusion and a real Hugging Face Hub cache download.
+  The actual Faster-Whisper CPU/int8 worker transcribes the public speech
+  sample twice, verifying warm-worker reuse with the downloaded tiny model.
+  The opt-in script requires Linux/Python 3.11 and the document-runtime packages.
+- Docker's regular whisper.cpp UI path also passes real fresh model download,
+  reload recovery, cached retest, model-selection isolation and microphone ASR
+  at 1280px and 390px. Failure/retry and 45%/indeterminate progress assertions
+  use explicit transport fixtures. Active settings remain unchanged; anonymous
+  preparation and recording endpoints reject access. Screenshots were inspected.
+
+Reference: [Filelock planted-inode advisory](https://github.com/tox-dev/filelock/security/advisories/GHSA-69hj-f68j-2879).
+
+Package 7 is complete. Final cumulative checks and PR remain.

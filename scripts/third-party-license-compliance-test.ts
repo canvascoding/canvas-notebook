@@ -283,7 +283,7 @@ const dictationPythonVersions = new Map([
   ['av', '18.1.0'],
   ['ctranslate2', '4.8.2'],
   ['faster-whisper', '1.2.1'],
-  ['filelock', '4.0.5'],
+  ['filelock', '4.2.4'],
   ['fsspec', '2026.9.0'],
   ['h11', '0.16.0'],
   ['hf-xet', '1.6.0'],
