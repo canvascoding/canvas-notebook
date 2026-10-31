@@ -59,8 +59,16 @@ ersetzt nicht die abschließende reguläre Gesamtsuite. Die anschließende
 [getrennte Zeitmessung](architecture/document-service-move-stage-timing-2026-10-31.md)
 besteht ebenfalls: Bei 200 warmen Dokumenten ist der Auftrag nach 61,926 Sekunden
 fertig; die Datei-Projektion benötigt weitere 28,189 Sekunden. Bei zehn Dokumenten
-sind es 6,339 plus 23,389 Sekunden. Das vorhandene Commit-Signal und der
-30-Sekunden-Wiederherstellungsscan werden für ein gezieltes Anstoßen geprüft;
+sind es 6,339 plus 23,389 Sekunden. Der anschließende
+[Weckpfad für die vorhandene Projektion](architecture/document-service-projection-wakeup-2026-10-31.md)
+verwendet das tatsächliche Commit-Signal und behält den Wiederherstellungsscan.
+Beide realen Vergleiche bestehen: warm insgesamt 29,728 → 8,845 Sekunden bei
+zehn und 90,116 → 62,503 Sekunden bei 200 Dokumenten. Die Projektionswartezeit
+bei 200 sinkt von 28,189 auf 0,271 Sekunden; der Auftrag selbst bleibt bei rund
+62 Sekunden. Die gemessene Verbindungsspitze steigt im großen Fall von vier auf
+sechs. 28 Worker-Fälle, bestehende Projektionssuiten, echte PostgreSQL-Signal- und
+Kapazitätsfälle, TypeScript und Lint bestehen. Host-/Linux-Build und Browserabnahme
+dieses Weckpfads bleiben noch offen;
 weitere Performancepakete, API-Key-Verwaltung und vollständige API-/SDK-Abnahme
 sind damit nicht abgeschlossen.
 

@@ -2,6 +2,8 @@ import 'server-only';
 
 import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { installWorkspaceFileInvalidationNotificationListener } from '@/app/lib/filesystem/workspace-file-invalidation';
+import { createPostgresPool } from '@/app/lib/db/postgres';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from './checkpoint';
 import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
 import { logCollaborationDiagnostic } from './diagnostics';
@@ -32,6 +34,9 @@ export function createCollaborationProjectionRuntime(callbacks: {
 }) {
   let disposed = false;
   let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  let recovering: Promise<void> | undefined;
+  let recoverAgain = false;
+  let stopping: Promise<void> | undefined;
   const scheduler = createCollaborationProjectionScheduler({
     shouldRetry: (error) => !(error instanceof ProjectionAttemptError) || !error.failure.permanent,
     async project(request) {
@@ -104,32 +109,59 @@ export function createCollaborationProjectionRuntime(callbacks: {
     },
   });
 
-  async function recover() {
-    try {
-      let cursor = '';
-      while (!disposed) {
-        const batch = await listPendingCollaborationProjections(cursor);
-        if (disposed) return;
-        for (const request of batch) scheduler.enqueue(request);
-        if (batch.length < 100) break;
-        cursor = batch.at(-1)!.documentId;
-      }
-    } catch {
-      logCollaborationDiagnostic('warn', { event: 'projection_recovery_failed', code: 'COLLABORATION_PROJECTION_SCAN_FAILED' });
-    } finally {
+  function recover(): Promise<void> {
+    if (disposed) return Promise.resolve();
+    if (recovering) { recoverAgain = true; return recovering; }
+    if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+    recoveryTimer = undefined;
+    // Signals arriving during a scan need at most one following fresh scan.
+    // No positive state, identity or authorization survives between scans.
+    recovering = (async () => {
+      do {
+        recoverAgain = false;
+        try {
+          let cursor = '';
+          while (!disposed) {
+            const batch = await listPendingCollaborationProjections(cursor);
+            if (disposed) return;
+            for (const request of batch) scheduler.enqueue(request);
+            if (batch.length < 100) break;
+            cursor = batch.at(-1)!.documentId;
+          }
+        } catch {
+          logCollaborationDiagnostic('warn', { event: 'projection_recovery_failed', code: 'COLLABORATION_PROJECTION_SCAN_FAILED' });
+        }
+      } while (recoverAgain && !disposed);
+    })().finally(() => {
+      recovering = undefined;
       if (!disposed) {
-        recoveryTimer = setTimeout(() => { void recover(); }, 30_000);
+        // A reconnect/hint may land after the last loop continuation but
+        // before this finally. Preserve it even though that loop has ended.
+        recoveryTimer = setTimeout(() => { void recover(); }, recoverAgain ? 0 : 30_000);
         recoveryTimer.unref?.();
       }
-    }
+    });
+    return recovering;
   }
+  // LISTEN retains one checkout. Own it separately so even a one-slot
+  // application pool remains available for the authoritative durable reads.
+  const notificationPool = createPostgresPool();
+  const notifications = installWorkspaceFileInvalidationNotificationListener({
+    pool: notificationPool, allWorkspaces: true, onInvalidate: () => recover(), onResync: () => recover(),
+    onError: () => logCollaborationDiagnostic('warn', {
+      event: 'projection_recovery_failed', code: 'COLLABORATION_PROJECTION_NOTIFICATION_FAILED',
+    }),
+  });
   void recover();
   return {
     enqueue: scheduler.enqueue,
     dispose() {
+      if (stopping) return stopping;
       disposed = true;
       if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
       scheduler.dispose();
+      stopping = Promise.all([notifications.stop(), recovering]).finally(() => notificationPool.end()).then(() => undefined);
+      return stopping;
     },
   };
 }

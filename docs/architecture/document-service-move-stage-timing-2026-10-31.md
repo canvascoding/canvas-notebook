@@ -57,7 +57,9 @@ Hints convey no state or authority; fresh durable reads and the existing fenced
 materializer must remain authoritative. Reconnect, rollback, lost successful
 COMMIT acknowledgement, burst coalescing and disposal need actual tests.
 
-This follow-up has not changed the runtime wakeup path. The measured remaining
+This measurement did not change the runtime wakeup path. The subsequent
+[projection wakeup implementation](document-service-projection-wakeup-2026-10-31.md)
+has its own measured acceptance. The remaining
 request/job work, the other performance packages, API-key management, complete
 API/SDK acceptance, final regular `test:all` and release/deployment gates remain
 open in the [central plan](../document-write-database-performance-plan.md).
