@@ -31,7 +31,7 @@ import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationB
 import { workspaceOperationJobScopeMatches } from '../files/workspace-operation-job-scope';
 import { readPostgresWorkspaceForActorOnConnection, readPostgresWorkspaceForActorInSingleSnapshotOnConnection,
   workspacePermissionSnapshotJsonSql, workspaceContextFromPermissionSnapshot, type WorkspacePermissionSnapshotRow } from './postgres-runtime';
-import { requireExistingSelectedRequestWorkspace } from './request';
+import { requireExistingDocumentReadRequestWorkspace, requireExistingSelectedRequestWorkspace } from './request';
 import type { WorkspaceContext } from './types';
 
 /** Inactive identity/rights foundation. This grants no document admission,
@@ -236,7 +236,9 @@ async function withRequestPrincipal<T>(request: NextRequest,
   const permission = options.permission, workspaceId = options.workspaceId;
   // The request's actual headers/selectors are copied before the first await.
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
-  const authenticated = await requireExistingSelectedRequestWorkspace(original, { workspaceId, permissions: permission });
+  const authenticated = retainSourceConnection
+    ? await requireExistingDocumentReadRequestWorkspace(original, workspaceId!)
+    : await requireExistingSelectedRequestWorkspace(original, { workspaceId, permissions: permission });
   if (authenticated.response) {
     // A failed current resolver proves no permission result. Keep this native
     // factory closed without turning its server error into an access denial.

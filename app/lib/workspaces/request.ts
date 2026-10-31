@@ -10,6 +10,7 @@ import { WORKSPACE_ID_HEADER } from './constants';
 import { assertWorkspacePermission } from './permissions';
 import {
   getPostgresWorkspaceState,
+  readInitializedPostgresDocumentReadWorkspaceForActor,
   readInitializedPostgresWorkspaceForActor,
   resolvePostgresWorkspaceForActor,
 } from './postgres-runtime';
@@ -157,6 +158,22 @@ export async function requireExistingSelectedRequestWorkspace(
     permissions?: RequestWorkspacePermission | RequestWorkspacePermission[];
   } = {},
 ): Promise<RequestWorkspaceResult> {
+  return requireExistingSelectedWorkspace(request, options, false);
+}
+
+/** Fixed HTTP document-read profile; callers cannot supply a session, actor,
+ * permission override, workspace result or alternate resolver. */
+export async function requireExistingDocumentReadRequestWorkspace(
+  request: NextRequest, workspaceId: string,
+): Promise<RequestWorkspaceResult> {
+  return requireExistingSelectedWorkspace(request, { workspaceId, permissions: 'canRead' }, true);
+}
+
+async function requireExistingSelectedWorkspace(
+  request: NextRequest,
+  options: { workspaceId?: string | null; permissions?: RequestWorkspacePermission | RequestWorkspacePermission[] },
+  documentRead: boolean,
+): Promise<RequestWorkspaceResult> {
   // Capture selectors, permissions and actual credentials before any await.
   const headers = new Headers(request.headers);
   const workspaceId = (options.workspaceId ?? requestedWorkspaceIdFromRequest(request))?.trim() || null;
@@ -173,7 +190,9 @@ export async function requireExistingSelectedRequestWorkspace(
   const actor = resolveWorkspaceActor({ id: session.user.id, email: session.user.email, role: session.user.role });
   let workspace: WorkspaceContext | null;
   try {
-    workspace = await readInitializedPostgresWorkspaceForActor(actor, workspaceId);
+    workspace = documentRead
+      ? await readInitializedPostgresDocumentReadWorkspaceForActor(actor, workspaceId)
+      : await readInitializedPostgresWorkspaceForActor(actor, workspaceId);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not resolve workspace';
     return { session: null, workspace: null,

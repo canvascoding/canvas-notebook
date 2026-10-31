@@ -2400,6 +2400,37 @@ export const workspacePermissionSnapshotSql = `${workspacePermissionSnapshotProj
     FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
     ${workspacePermissionSnapshotJoins}`;
 
+// The initialized HTTP reader needs the same bootstrap existence checks as
+// its sequential predecessor. Keep raw driver values and the existing policy
+// projection; these facts neither admit a session nor grant later access.
+const initializedWorkspacePermissionSnapshotSql = `${workspacePermissionSnapshotProjection},
+      actor.id IS NOT NULL AS initialized_actor_present,
+      organization.present AS initialized_organization_present,
+      organization.organization_id AS initialized_organization_id,
+      owner.id IS NOT NULL AS initialized_owner_present
+    FROM (SELECT 1) selection
+    LEFT JOIN LATERAL (
+      SELECT id, name, email, role, created_at FROM "user" WHERE id=$2 LIMIT 1
+    ) actor ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1
+    ) organization ON true
+    LEFT JOIN LATERAL (
+      SELECT id, name, email, role, created_at FROM "user" WHERE id=organization.owner_user_id LIMIT 1
+    ) owner ON true
+    LEFT JOIN LATERAL (
+      SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1
+    ) w ON true
+    ${workspacePermissionSnapshotJoins}`;
+
+type InitializedWorkspacePermissionSnapshotRow = WorkspacePermissionSnapshotRow & {
+  initialized_actor_present: boolean;
+  initialized_organization_present: boolean | null;
+  initialized_organization_id: string;
+  initialized_owner_present: boolean;
+};
+
 /** Fields whose scalar driver interpretation is consumed by the existing policy. */
 export const workspacePermissionSnapshotScalarColumns = Object.freeze(['is_default', 'permission_can_write_team_workspace',
   'permission_can_create_public_links', 'permission_can_create_team_automations', 'permission_can_share_plugins_and_skills',
@@ -2547,18 +2578,61 @@ export async function readInitializedPostgresWorkspaceForActor(
 ): Promise<WorkspaceContext | null> {
   const database = await openDb();
   try {
-    if (!await findPostgresUserById(database, actor.userId)) {
+    return await readInitializedWorkspaceOnConnection(database, actor, workspaceId);
+  } finally {
+    await database.close();
+  }
+}
+
+async function readInitializedWorkspaceOnConnection(
+  database: RuntimeDb, actor: WorkspaceActor, workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  if (!await findPostgresUserById(database, actor.userId)) {
+    throw new OrganizationBootstrapError('NO_USERS', 'Cannot resolve workspace without a valid user.');
+  }
+  const organization = await getPrimaryOrganization(database);
+  if (!organization) {
+    throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
+  }
+  assertOrganizationIdMatchesEnvironment(organization.organization_id);
+  if (!await findPostgresUserById(database, organization.owner_user_id)) {
+    throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
+  }
+  return resolveWorkspaceContextById(database, actor, workspaceId);
+}
+
+/** Fixed initial facts profile for HTTP document reads. The genuine request
+ * resolver still authenticates first, and the document phase rechecks current
+ * access later. No writes, cached authority or source-realm observation. */
+export async function readInitializedPostgresDocumentReadWorkspaceForActor(
+  actor: WorkspaceActor, workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const database = await openDb();
+  try {
+    let row: InitializedWorkspacePermissionSnapshotRow | undefined;
+    try {
+      row = await database.get(initializedWorkspacePermissionSnapshotSql,
+        [workspaceId, actor.userId]) as InitializedWorkspacePermissionSnapshotRow | undefined;
+    } catch (error) {
+      // A legacy schema can support separately bound scalar lookups while a
+      // column join cannot resolve its types or optional relations. Only these
+      // PostgreSQL parse/type failures use the original resolver on this same
+      // connection. Transport, timeout and unknown-result failures propagate.
+      const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+      if (!['42883', '42804', '42P18', '42P08', '42703', '42P01', '42704', '22P02'].includes(String(code))) throw error;
+      return await readInitializedWorkspaceOnConnection(database, actor, workspaceId);
+    }
+    if (!row?.initialized_actor_present) {
       throw new OrganizationBootstrapError('NO_USERS', 'Cannot resolve workspace without a valid user.');
     }
-    const organization = await getPrimaryOrganization(database);
-    if (!organization) {
+    if (!row.initialized_organization_present) {
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
     }
-    assertOrganizationIdMatchesEnvironment(organization.organization_id);
-    if (!await findPostgresUserById(database, organization.owner_user_id)) {
+    assertOrganizationIdMatchesEnvironment(row.initialized_organization_id);
+    if (!row.initialized_owner_present) {
       throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
     }
-    return await resolveWorkspaceContextById(database, actor, workspaceId);
+    return workspaceContextFromPermissionSnapshot(row.id == null ? undefined : row, actor);
   } finally {
     await database.close();
   }

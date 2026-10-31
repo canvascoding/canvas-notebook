@@ -5,6 +5,14 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+Der nächste [HTTP-Workspace-Schritt in Paket 2](architecture/document-service-http-initial-facts-2026-10-31.md)
+bündelt die ersten fünf Workspace-/Einrichtungsabfragen in einer tatsächlichen
+Abfrage. Bei zehn und 200 Dokumenten sinkt ein warmer HTTP-Abruf von 59 auf 55 SQL-
+Aufrufe; die acht Ausleihen und Agent-/MCP-Kontrollen bleiben unverändert. Vier
+bestehende PostgreSQL-Suiten, 34 neue Fälle und 15 Vergleichsfenster bestehen.
+Build-, Linux-/Browser- und PR-/CI-Abnahme dieses Schritts stehen noch aus;
+Paket 2 und sämtliche weiteren Paketabnahmen bleiben offen.
+
 Ein erster kleiner [HTTP-Verbindungsschritt in Paket 2](architecture/document-service-request-source-connection-2026-10-30.md)
 verwendet die tatsächliche Herkunftsverbindung für die folgende native
 Lesetransaktion weiter. Fünf frische Fixtures mit 15 Messfenstern und sechs echte
