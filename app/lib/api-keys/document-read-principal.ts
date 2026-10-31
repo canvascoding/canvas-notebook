@@ -13,7 +13,7 @@ import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { workspaceContextFromPermissionSnapshot, workspacePermissionSnapshotSetSql, workspacePermissionSnapshotScalarColumns,
   type WorkspacePermissionSnapshotRow } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { ApiKeyAccessError } from './contracts';
+import { ApiKeyAccessError, type ApiKeyAction } from './contracts';
 import { assertApiKeyMcpToolEnabled } from './mcp-runtime';
 import { apiKeyCredentialBinding, apiKeyCredentialSnapshotSql, currentApiKeyIdentityFromSnapshot,
   type ApiKeyCredential, type ApiKeyCredentialBinding } from './authentication';
@@ -25,6 +25,9 @@ export type ApiKeyWorkspaceListPrincipal = Readonly<{ [workspaceListBrand]: neve
 declare const workspaceBrowseBrand: unique symbol;
 export type ApiKeyWorkspaceBrowsePrincipal = Readonly<{ [workspaceBrowseBrand]: never }>;
 export type ApiKeyWorkspaceBrowsePurpose = 'tree' | 'overview' | 'manifest';
+declare const documentEditBrand: unique symbol;
+export type ApiKeyDocumentEditPrincipal = Readonly<{ [documentEditBrand]: never }>;
+export type ApiKeyDocumentEditPurpose = 'edit' | 'edit_status';
 export type ApiKeyDocumentReadOrigin = Readonly<{
   kind: 'api_key';
   userId: string; integrationId: string; instanceId: string; credentialId: string;
@@ -37,12 +40,12 @@ type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integratio
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
-  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose;
+  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose;
   license: LicenseStatus; observer?: (origin: ApiKeyDocumentReadOrigin) => void; origins?: readonly ApiKeyDocumentReadOrigin[];
   mcp: boolean; active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
 };
 type Identity = { backend: number; start: string; xid: string };
-type Phase = { capture: Capture; connection: SqlConnection; identity?: Identity; deadline: number;
+type Phase = { capture: Capture; connection: SqlConnection; identity?: Identity; deadline: number; credentialExpiresAt?: number;
   active: boolean; accepting: boolean; checking: boolean; failure?: unknown; pending: Set<Promise<unknown>> };
 type Registry = { captures: WeakMap<object, Capture>; phases: WeakMap<SqlConnection, Phase> };
 type Row = Record<string, unknown>;
@@ -81,6 +84,9 @@ function active(phase: Phase): void {
   if (phase.failure !== undefined) throw phase.failure;
   if (phase.capture.failure !== undefined) throw phase.capture.failure;
   if (performance.now() >= phase.deadline) failure('API_KEY_PRINCIPAL_EXPIRED');
+  if (phase.credentialExpiresAt !== undefined && phase.credentialExpiresAt <= Date.now()) {
+    throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
+  }
   const license = phase.capture.license;
   if (license.licensed && ['active', 'grace'].includes(license.licenseState)) {
     const expiry = Date.parse(license.licenseState === 'grace' ? license.graceExpiresAt ?? '' : license.expiresAt ?? '');
@@ -109,7 +115,8 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   active(phase);
   const capture = phase.capture, binding = capture.binding, schema = quote(binding.realm.schema);
   const tool = ({ list: 'list_workspaces', read: 'read_knowledge_source', search: 'search_knowledge',
-    tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest' } as const)[capture.purpose];
+    tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest',
+    edit: 'edit_knowledge_source', edit_status: 'edit_knowledge_source' } as const)[capture.purpose];
   if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
   const pinned = policyTables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${schema}.${quote(name)})`).join(',');
@@ -135,7 +142,11 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   if (!Array.isArray(rows) || rows.length > 100 || [credential, row!.seat, ...rows]
     .some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) failure('API_KEY_STATE_INVALID');
   const identity = currentApiKeyIdentityFromSnapshot(capture.credential, credential);
-  if (!identity.actions.includes('read') || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
+  phase.credentialExpiresAt = identity.expiresAt;
+  const editing = capture.purpose === 'edit' || capture.purpose === 'edit_status';
+  const requiredActions: readonly ApiKeyAction[] = capture.purpose === 'edit_status' ? ['edit', 'status'] : editing ? ['edit'] : ['read'];
+  if (requiredActions.some(action => !identity.actions.includes(action))
+    || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
   evaluateUserSeatAccessSnapshot(binding.userId, seatPolicy, row!.seat as CurrentSeatSnapshotRow | undefined);
   const actor = resolveWorkspaceActor({ id: identity.userId, email: typeof credential.account_email === 'string' ? credential.account_email : null,
     role: typeof credential.account_role === 'string' ? credential.account_role : null });
@@ -147,8 +158,9 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
       if (capture.workspaceId !== null) failure('API_KEY_ACCESS_DENIED');
       continue;
     }
+    if (editing && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)) failure('API_KEY_ACCESS_DENIED');
     const workspace = Object.freeze({ ...selected, permissions: Object.freeze({ ...selected.permissions,
-      canWrite: false, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: false }) });
+      canWrite: editing, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: editing }) });
     const origin: ApiKeyDocumentReadOrigin = Object.freeze({ kind: 'api_key', userId: identity.userId, integrationId: identity.integrationId,
       credentialId: identity.credentialId, instanceId: identity.instanceId, workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId ?? null, customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null,
@@ -202,6 +214,21 @@ export async function withApiKeyWorkspaceBrowsePrincipal<T>(credential: ApiKeyCr
   return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp' }, consume);
 }
 
+/** Separate write family. Status additionally needs the explicit status action;
+ * neither a read handle nor stored operation metadata can create this proof. */
+export async function withApiKeyDocumentEditPrincipal<T>(credential: ApiKeyCredential,
+  options: { workspaceId: string; purpose: ApiKeyDocumentEditPurpose; source: 'request' | 'mcp' },
+  observer: (origin: ApiKeyDocumentReadOrigin) => void, consume: (principal: ApiKeyDocumentEditPrincipal) => Promise<T>): Promise<T> {
+  if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const workspaceId: unknown = descriptors.workspaceId?.value, purpose: unknown = descriptors.purpose?.value, source: unknown = descriptors.source?.value;
+  if (Reflect.ownKeys(descriptors).length !== 3 || !['workspaceId', 'purpose', 'source'].every(name => descriptors[name]?.enumerable
+    && Object.hasOwn(descriptors[name], 'value')) || !validId(workspaceId)
+    || purpose !== 'edit' && purpose !== 'edit_status' || source !== 'request' && source !== 'mcp'
+    || typeof observer !== 'function' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
+  return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp', observer }, consume);
+}
+
 async function withCapture<T, P extends object>(credential: ApiKeyCredential,
   selection: Pick<Capture, 'workspaceId' | 'purpose' | 'observer' | 'mcp'>, consume: (principal: P) => Promise<T>): Promise<T> {
   const binding = apiKeyCredentialBinding(credential), license = await getLicenseStatus();
@@ -236,7 +263,28 @@ export function withApiKeyWorkspaceBrowsePrincipalOnConnection<T>(connection: Sq
     instanceId: access.instanceId, assertCurrent: access.assertCurrent })), purpose);
 }
 
-function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse',
+export function withApiKeyDocumentEditPrincipalOnConnection<T>(connection: SqlConnection, principal: ApiKeyDocumentEditPrincipal,
+  consume: (access: Access & { assertActive: () => void }) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'edit', access => consume(Object.freeze({
+    workspace: access.workspaces[0], userId: access.userId, integrationId: access.integrationId, instanceId: access.instanceId,
+    assertCurrent: access.assertCurrent, assertActive: () => assertApiKeyDocumentEditPrincipalActiveOnConnection(connection, principal) })));
+}
+
+/** Synchronous final guard for the existing native writer's genuine B phase. */
+export function assertApiKeyDocumentEditPrincipalActiveOnConnection(connection: SqlConnection, principal: ApiKeyDocumentEditPrincipal): void {
+  const capture = shared.captures.get(principal), phase = shared.phases.get(connection);
+  try {
+    if (!capture || !phase || phase.capture !== capture || !capture.accepting || !phase.accepting) failure('API_KEY_PRINCIPAL_REQUIRED');
+    if (capture.purpose !== 'edit' && capture.purpose !== 'edit_status' || phase.checking || phase.pending.size) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
+    active(phase);
+  } catch (error) {
+    if (capture) capture.failure ??= error;
+    if (phase) poison(phase, error);
+    throw error;
+  }
+}
+
+function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit',
   consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose): Promise<T> {
   const capture = shared.captures.get(principal);
   const held = shared.phases.get(connection);
@@ -248,6 +296,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
   if (!capture?.active || !capture.accepting) return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_REQUIRED', 'A current API-key principal is required.', 401));
   const matchesFamily = family === 'document' ? capture.purpose === 'read' || capture.purpose === 'search'
     : family === 'list' ? capture.purpose === 'list'
+      : family === 'edit' ? capture.purpose === 'edit' || capture.purpose === 'edit_status'
       : (browsePurpose === 'tree' || browsePurpose === 'overview' || browsePurpose === 'manifest') && capture.purpose === browsePurpose;
   if (!matchesFamily) {
     return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_SCOPE_CHANGED', 'The fixed API-key principal family changed.', 409));

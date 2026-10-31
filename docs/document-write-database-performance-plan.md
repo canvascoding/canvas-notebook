@@ -258,7 +258,8 @@ abgenommen. Bereits laufende API-/SDK-Arbeit wird durch die Ergänzung nicht
 verworfen. Erforderliche Prüfungen folgen den tatsächlich geänderten Abläufen;
 Review Center und Undo werden weiterhin nicht ausgebaut.
 
-Arbeitsstand am 01.11.2026 nach Produktcommit `488fee094`:
+Arbeitsstand am 01.11.2026; die jeweils geprüften Produktstände und Teilbelege
+stehen in den zugehörigen Abschnitten:
 
 | Paket | Status | Nächster konkreter Nachweis |
 | --- | --- | --- |
@@ -746,6 +747,27 @@ Dokument-Principal. Beide Größen benötigen in dieser gehaltenen Phase acht
 SQL-Anweisungen einschließlich drei aktueller gemeinsamer Beobachtungen;
 das ist keine vollständige HTTP-Leistungsmessung. Die bestehenden drei nativen
 API-Key-Lesesuiten bestehen nach der Bündelung weiterhin.
+Eine getrennte native Edit-Principal-Familie ist vorbereitet. Fünf weitere echte
+PostgreSQL-Gruppen prüfen aktuelle Edit-/Status-Aktionen und normale Workspace-
+Write-/Agent-Rechte, die Trennung von Read/List/Browse, gefälschte und abgelaufene
+Handles, den tatsächlichen MCP-Edit-Schalter, Reentranz und die synchrone letzte
+Ablaufprüfung vor dem späteren Writer. Status verlangt in dieser Edit-Familie
+zusätzlich zur aktuellen Edit-Berechtigung die explizite Status-Aktion.
+Die Phase verwendet dieselbe tatsächliche Verbindung und acht SQL-Anweisungen
+einschließlich drei aktueller Beobachtungen; das ist keine Messung einer ganzen
+Änderung. `test:api-keys:edit-principal:native` gehört zum nativen Key-Paket.
+Die bisherigen drei Dokument- und fünf Workspace-Suiten sowie Typecheck und
+gezieltes ESLint bestehen. Die Familie ist noch nicht an den tatsächlichen
+nativen Writer, seine gespeicherten API-Key-Ursprünge oder öffentliche Adapter
+angeschlossen.
+
+Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
+nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
+Funktionsfälle, scheiterten aber beim gleichzeitigen `DROP SCHEMA` am PostgreSQL-
+Sperrspeicherlimit (`out of shared memory`). Die zugehörigen Serverfehler wurden
+über Backend-PID und exakten Schema-Namen zugeordnet; beide eindeutig eigenen
+Schemas sind bereinigt. Die vollständigen sequenziellen Wiederholungen bestehen
+einschließlich Cleanup. Es wurde kein PostgreSQL-Limit erhöht.
 **Schreib-/Job-Phasen und die weiteren zugehörigen Adapter sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 
