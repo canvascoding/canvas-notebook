@@ -141,6 +141,24 @@ absent in the actual preceding installation/image and the new installation;
 the existing root Undici `7.30.1` still satisfies OpenAI's optional `>=5 <9` peer.
 No application feature, audit threshold or CI requirement is disabled.
 
+The first updated CI passes the security audit but exposes the old versioned
+Minimatch postinstall patch; the earlier `--ignore-scripts` installation did not
+cover that lifecycle. The replacement `11.0.1` patch retains callable CommonJS
+alongside named exports without altering native ESM or the matching engine.
+Two dev-only patches adapt the existing nested Glob 7 consumers to Matcher
+`.test()`/`.pattern` and preserve one row per brace-expanded pattern. This keeps
+their old traversal/callback contracts while inheriting the corrected matcher;
+Glob 14 retains its normal optimization. See [patch details](../../patches/README.md).
+
+The actual compatibility control first rejects the unpatched CommonJS export;
+an expanded consumer probe then detects Glob 7's removed RegExp assumptions.
+The complete corrected control passes callable/named CommonJS and native ESM,
+Glob 14, 28 sync/async cases through both nested Glob 7 copies, filtered
+dir-compare, an actual ASAR archive round trip and scoped Rimraf cleanup in its
+own temporary directory. A fresh normal `npm ci` succeeds and applies all six
+versioned patches with `--error-on-fail`. No ignored-script result is substituted
+for that installation acceptance.
+
 Actual `npm ci --ignore-scripts` and `npm audit --audit-level=low` succeed with
 zero advisories. The background suite and regular/strict-release license checks
 pass; generated notices and inventory retain 1976 components and zero release

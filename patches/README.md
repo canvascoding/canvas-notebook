@@ -3,6 +3,29 @@
 `npm run postinstall` applies the versioned patches with `--error-on-fail`.
 Apply them to an isolated dependency installation when working in a worktree.
 
+## Minimatch 11.0.1 and legacy Glob 7
+
+`minimatch+11.0.1.patch` preserves the callable CommonJS export required by
+older consumers while retaining named exports. Native ESM and the corrected
+matching engine remain unchanged.
+
+The two `.dev.patch` files for the nested Glob 7 copies under `@electron/asar`
+and `rimraf` adapt their synchronous/asynchronous traversal to Matcher `.test()`
+and `.pattern`, instead of relying on RegExp-only internals. A local Minimatch
+subclass disables row merging for these legacy traversals so each brace-expanded
+row retains the matching `globSet` entry, including `nonull` results. It inherits
+the corrected matching implementation; modern Glob 14 keeps its normal engine.
+These consumers are transitive development dependencies, so production-only
+installs may omit their patches according to patch-package's dev-only contract.
+
+`node scripts/minimatch-commonjs-compat-test.mjs` checks callable/named CommonJS,
+native ESM, Glob 14, both actual Glob 7 copies (sync/async, Unicode, dot files,
+globstar, braces, ignore and `nonull`), filtered `dir-compare`, a real ASAR
+archive round trip and scoped Rimraf cleanup. It uses only its own temporary
+files and is included in the existing background-events regression command.
+Reassess all three patches and rerun this check after related upgrades; a fresh
+normal `npm ci` must apply every patch with `--error-on-fail`.
+
 ## PDF.js 6.2.108
 
 `pdfjs-dist+6.2.108.patch` makes both distributed viewer modules ignore a

@@ -1,0 +1,66 @@
+diff --git a/node_modules/rimraf/node_modules/glob/common.js b/node_modules/rimraf/node_modules/glob/common.js
+index 424c46e..011580c 100644
+--- a/node_modules/rimraf/node_modules/glob/common.js
++++ b/node_modules/rimraf/node_modules/glob/common.js
+@@ -14,7 +14,10 @@ var fs = require("fs")
+ var path = require("path")
+ var minimatch = require("minimatch")
+ var isAbsolute = require("path-is-absolute")
+-var Minimatch = minimatch.Minimatch
++// Keep one matching row per brace expansion for this legacy traversal.
++var Minimatch = class extends minimatch.Minimatch {
++  mergeRows () {}
++}
+ 
+ function alphasort (a, b) {
+   return a.localeCompare(b, 'en')
+diff --git a/node_modules/rimraf/node_modules/glob/glob.js b/node_modules/rimraf/node_modules/glob/glob.js
+index 37a4d7e..512f32b 100644
+--- a/node_modules/rimraf/node_modules/glob/glob.js
++++ b/node_modules/rimraf/node_modules/glob/glob.js
+@@ -382,7 +382,7 @@ Glob.prototype._processReaddir2 = function (prefix, read, abs, remain, index, in
+   // dot is set.  Stuff like @(.foo|.bar) isn't allowed.
+   var pn = remain[0]
+   var negate = !!this.minimatch.negate
+-  var rawGlob = pn._glob
++  var rawGlob = pn._glob || pn.pattern
+   var dotOk = this.dot || rawGlob.charAt(0) === '.'
+ 
+   var matchedEntries = []
+@@ -391,9 +391,9 @@ Glob.prototype._processReaddir2 = function (prefix, read, abs, remain, index, in
+     if (e.charAt(0) !== '.' || dotOk) {
+       var m
+       if (negate && !prefix) {
+-        m = !e.match(pn)
++        m = !pn.test(e)
+       } else {
+-        m = e.match(pn)
++        m = pn.test(e)
+       }
+       if (m)
+         matchedEntries.push(e)
+diff --git a/node_modules/rimraf/node_modules/glob/sync.js b/node_modules/rimraf/node_modules/glob/sync.js
+index 2c4f480..2be197a 100644
+--- a/node_modules/rimraf/node_modules/glob/sync.js
++++ b/node_modules/rimraf/node_modules/glob/sync.js
+@@ -144,7 +144,7 @@ GlobSync.prototype._processReaddir = function (prefix, read, abs, remain, index,
+   // dot is set.  Stuff like @(.foo|.bar) isn't allowed.
+   var pn = remain[0]
+   var negate = !!this.minimatch.negate
+-  var rawGlob = pn._glob
++  var rawGlob = pn._glob || pn.pattern
+   var dotOk = this.dot || rawGlob.charAt(0) === '.'
+ 
+   var matchedEntries = []
+@@ -153,9 +153,9 @@ GlobSync.prototype._processReaddir = function (prefix, read, abs, remain, index,
+     if (e.charAt(0) !== '.' || dotOk) {
+       var m
+       if (negate && !prefix) {
+-        m = !e.match(pn)
++        m = !pn.test(e)
+       } else {
+-        m = e.match(pn)
++        m = pn.test(e)
+       }
+       if (m)
+         matchedEntries.push(e)
