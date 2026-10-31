@@ -2,9 +2,11 @@
 
 Date: 2026-10-31. Measurement base: `4f0bb37a9b31692c95405ef42af01ed83da174b4`
 plus the final runtime/test delta. Private reports bind all measured runtime and
-test input hashes. Host and pinned Linux builds of `57054b2f4` pass. The first
-fresh-image browser acceptance passes eight of nine cases and finds a visible
-link scheduling defect described below; final built acceptance is still open.
+test input hashes. Host/Linux builds and all nine focused browser cases pass at
+`360168bc1`, including the visible-link scheduling correction described below.
+The dependency-gate update requires its own built acceptance and current CI
+before merge; final commit-bound outcomes are recorded in
+[PR #196](https://github.com/canvascoding/canvas-notebook/pull/196).
 
 The [separate stage measurement](document-service-move-stage-timing-2026-10-31.md)
 showed that native Move completion was followed by 23–28 seconds of physical
@@ -110,8 +112,41 @@ fetches, reuses fresh indexes and observes server backoff. A controlled React
 regression fails on the preceding source and passes with the correction,
 including duplicate visible links, changed targets, exact Markdown references
 and repeated background invalidations. It is client scheduling evidence, not
-an authorization or PostgreSQL substitute. The corrected product still needs
-its own build, fresh-image browser acceptance and current-head CI.
+an authorization or PostgreSQL substitute.
+
+At `360168bc1`, the corrected host/Linux builds, fifteen Linux storage cases
+and all nine actual browser cases pass with zero retries/skips. The formerly
+failing emoji/YAML case navigates both Wiki and Markdown links after rename;
+the two never-opened source/target operations also pass. A separate post-test
+audit verifies the healthy image's source hashes and label, loopback-only port,
+unchanged data/home mounts, protected original rows/`xmin`/bytes/anchors and
+eleven other container identities. The custom server executes the shipped
+TypeScript through `tsx`; that runtime source is verified separately from the
+compiled Next routes. Desktop, mobile read-only and renamed-link screenshots
+were inspected. The renamed-link screenshot is taken during a reconnect; its
+diagnostic panel alone is not a durability proof. The actual test independently
+checks saved-room state and physical bytes.
+
+## Dependency-gate correction
+
+Adding the visible-link regression to the existing npm command triggers the
+dependency-security workflow. The unchanged lock at `360168bc1` fails for
+[glob cancellation](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) and
+[minimatch pattern amplification](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+Pin minimatch to `11.0.1` and only the glob 13 branch to `14.0.2`; the legacy
+glob 7 consumers retain their existing API. The resolver adds the required
+nonrecursive matcher and path-scurry 3, including its locked lru-cache patch.
+It also removes a stale optional nested Undici 6 peer record: that package is
+absent in the actual preceding installation/image and the new installation;
+the existing root Undici `7.30.1` still satisfies OpenAI's optional `>=5 <9` peer.
+No application feature, audit threshold or CI requirement is disabled.
+
+Actual `npm ci --ignore-scripts` and `npm audit --audit-level=low` succeed with
+zero advisories. The background suite and regular/strict-release license checks
+pass; generated notices and inventory retain 1976 components and zero release
+blockers. Compatibility is gated by the full lint/build, fresh compiled-browser
+acceptance and current CI before this dependency correction can merge; the
+commit-bound final outcomes are recorded in PR #196.
 
 Reproduction uses the managed local PostgreSQL 18 fixture and the existing
 source-bound runner, for example:
@@ -123,6 +158,6 @@ NODE_ENV=test node scripts/run-document-read-tool-dispatch-test.mjs scripts/work
 NODE_ENV=test node scripts/run-document-read-tool-dispatch-test.mjs scripts/collaboration-projection-wakeup-capacity-postgres-test.ts
 ```
 
-The regular `test:all`, built-product/browser acceptance, remaining performance
+The regular `test:all`, dependency-update built/browser acceptance, remaining performance
 packages, API-key implementation, complete API/SDK acceptance and final release/
 deployment gates remain required by the [central plan](../document-write-database-performance-plan.md).
