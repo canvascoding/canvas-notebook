@@ -86,13 +86,17 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
     };
     const domain = async () => {
       const tables = (await h.admin.query(`SELECT c.relname,c.oid::text AS oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname=$1 AND c.relkind='r' AND (c.relname~'^(collaboration_|file_collaboration_|workspace_file_)'
-        OR c.relname IN ('file_revisions','workspace_trash_entries')) ORDER BY c.relname LIMIT 513`, [h.schema])).rows;
+        WHERE n.nspname=$1 AND c.relkind='r' ORDER BY c.relname LIMIT 513`, [h.schema])).rows;
       assert(tables.length > 11 && tables.length <= 512); const rows: Record<string, unknown> = {};
       for (const table of tables) {
+        // The real HTTP diagnostic recorder may insert/prune only this table.
+        // Retain its relation identity and every other table, including auth.
+        if (table.relname === 'direct_mcp_request_history') continue;
         const name = `"${String(table.relname).replaceAll('"', '""')}"`;
         const actual = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM ${name} t
-          ORDER BY to_jsonb(t)::text,t.xmin::text LIMIT 10001`)).rows; assert(actual.length <= 10000); rows[table.relname] = actual;
+          ORDER BY to_jsonb(t)::text,t.xmin::text LIMIT 10001`)).rows; assert(actual.length <= 10000);
+        // An assertion failure must not print raw session or credential rows.
+        rows[table.relname] = { count: actual.length, rowsAndXminSha256: sha(JSON.stringify(actual)) };
       }
       return { tables, rows };
     };
@@ -112,9 +116,31 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
       };
       await visit(''); return rows;
     };
+    const requestTraceWrite = (event: MetadataSqlEvent): boolean => {
+      const sql = event.text.replace(/\s+/gu, ' ').trim();
+      const inserted = /^insert into "direct_mcp_request_history" \(((?:"[a-z_]+"(?:, )?)+)\) values \(((?:\$[0-9]+(?:, )?)+)\)$/iu.exec(sql);
+      if (inserted) {
+        const columns = [...inserted[1].matchAll(/"([a-z_]+)"/gu)].map(match => match[1]);
+        assert.deepEqual([...columns].sort(), ['id','request_id','server_version','flow_ref','phase','http_method','client_name',
+          'operation','tool_name','outcome','status_code','code','duration_ms','created_at','expires_at'].sort());
+        assert.equal(event.values.length, columns.length); assert.equal(event.result.rowCount, 1);
+        assert.deepEqual([...inserted[2].matchAll(/\$([0-9]+)/gu)].map(match => Number(match[1])), columns.map((_, index) => index + 1));
+      } else if (/^delete from "direct_mcp_request_history" where "direct_mcp_request_history"\."expires_at" <= \$1$/iu.test(sql)) {
+        assert.equal(event.values.length, 1); assert(Number.isFinite(new Date(event.values[0] as string).getTime()));
+      } else if (/^delete from "direct_mcp_request_history" where "direct_mcp_request_history"\."id" in \((?:\$[0-9]+(?:, )?)+\)$/iu.test(sql)) {
+        assert(event.values.length > 0 && event.values.length <= 100);
+        assert(event.values.every(value => typeof value === 'string' && /^direct-mcp-request-[a-f0-9-]{36}$/u.test(value)));
+      } else return false;
+      for (const value of event.values) if (typeof value === 'string') {
+        assert(!value.includes(h.dataRoot) && !value.includes(originalToken) && !value.includes(currentToken));
+      }
+      return true;
+    };
     const noMutation = async <T>(callback: () => Promise<T>) => {
       const before = await domain(), files = await filesystem(), writes: string[] = [];
-      const result = await h.withProbe(async event => { if (/^\s*(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/iu.test(event.text)) writes.push(event.text); }, callback);
+      const result = await h.withProbe(async event => {
+        if (/^\s*(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/iu.test(event.text) && !requestTraceWrite(event)) writes.push(event.text);
+      }, callback);
       assert.deepEqual(writes, []); assert.deepEqual(await domain(), before); assert.deepEqual(await filesystem(), files); return result;
     };
     const slots = { api_version: 1, workspace_id: h.source.workspaceId };
