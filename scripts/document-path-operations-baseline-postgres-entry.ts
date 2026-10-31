@@ -21,12 +21,15 @@ assert.equal(process.env.CANVAS_DOCUMENT_PATH_DIAGNOSTIC_CLONES, undefined, 'Acc
 let fixtureSourceCount = 0;
 const measurements: Array<{ label: string; value: DocumentDatabaseActivityMeasurement }> = [];
 const operations: DocumentOperationMeasurement[] = [];
+type StageTiming = { label: string; previewMs: number; initialApplyMs: number; completionMs: number;
+  projectionMs: number; jobCompleteMs: number; totalMs: number; preparationResponses: number; statusPolls: number };
+const stageTimings: StageTiming[] = [];
 let completed = false;
 process.once('beforeExit', () => { if (!completed) process.exitCode = 1; });
 process.once('uncaughtExceptionMonitor', () => {
   try { writeFileSync(output, JSON.stringify({ version: 4, passed: false, fixture: 'public-document-path-operations',
     family: family ?? 'rename-then-move', nativeDocuments: fixtureSourceCount, seedMode, normalUploadAcceptance: false,
-    measurements, operations }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
+    measurements, operations, stageTimings }, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); }
   catch { /* Preserve the original test failure and exit status. */ }
 });
 
@@ -99,12 +102,16 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     invoke: typeof rename): Promise<{ operationId: string; body: Record<string, unknown> }> => {
     const operationId = randomUUID();
     return measureDocumentDatabaseActivity(action, 'request', () => measureDocumentOperation(action, 'request', async () => {
+      const startedAt = performance.now();
       const previewResponse = await invoke(request('/api/files/rename', 'POST', { oldPath, newPath, dryRun: true }));
       const preview = await previewResponse.json(); assert.equal(previewResponse.status, 200, `Public preview failed: ${preview.code ?? 'unknown'}`);
       assert.equal(preview.plan.kind, 'native-path-change'); assert.equal(preview.plan.readiness, 'ready');
       assert.equal(preview.plan.linkAssessment.complete, true);
+      const previewAt = performance.now();
       let response = await invoke(request(action === 'move' ? '/api/mobile/v1/files/move' : '/api/files/rename', 'POST',
         { oldPath, newPath, idempotencyKey: operationId }));
+      const initialApplyAt = performance.now();
+      let preparationResponses = 0, statusPolls = 0;
       let pinned: ReturnType<typeof readWorkspacePathOperation> | undefined;
       let pinnedBinding: ReturnType<typeof readWorkspaceImplicitMoveBinding> | undefined;
       const deadline = Date.now() + 60_000;
@@ -113,6 +120,7 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
         assert([200, 202].includes(response.status) && body.success === true,
           `Public file action failed: ${String(body.code ?? 'unknown')} (${response.status})`);
         if (body.preparation) {
+          preparationResponses++;
           const preparation = readWorkspaceImplicitMovePreparation(body.preparation, { actorUserId: 'owner',
             workspaceId: h.source.workspaceId, operationId, action: 'rename',
             selections: [{ sourcePath: oldPath, destinationPath: newPath }] });
@@ -136,11 +144,13 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
         if (['queued', 'applying'].includes(operation.status)) {
           assert(Date.now() < deadline, 'The public file action did not finish.');
           await new Promise(done => setTimeout(done, 500));
+          statusPolls++;
           response = await batch.GET(request(`/api/files/operations/batches/${operation.batchId}`, 'GET'),
             { params: Promise.resolve({ batchId: operation.batchId }) }); continue;
         }
         assert.equal(operation.status, 'applied', `Public operation stopped: ${operation.errorCode ?? operation.status}`);
         assert.equal(operation.phase, 'complete'); assert.equal(body.linkStatus, 'complete');
+        const jobCompleteAt = performance.now();
         // SQL completion confirms native links. The regular projector owns
         // their physical files, so include real convergence in this window.
         const projectionDeadline = Date.now() + 45_000;
@@ -163,6 +173,16 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
           assert(Date.now() < projectionDeadline, 'The normal durable projector did not materialize native link changes.');
           await new Promise(done => setTimeout(done, 250));
         }
+        const projectedAt = performance.now();
+        assert(startedAt <= previewAt && previewAt <= initialApplyAt && initialApplyAt <= jobCompleteAt
+          && jobCompleteAt <= projectedAt);
+        const ms = (duration: number) => Math.round(duration * 100) / 100;
+        const timing: StageTiming = { label, previewMs: ms(previewAt - startedAt),
+          initialApplyMs: ms(initialApplyAt - previewAt), completionMs: ms(jobCompleteAt - initialApplyAt),
+          projectionMs: ms(projectedAt - jobCompleteAt), jobCompleteMs: ms(jobCompleteAt - startedAt),
+          totalMs: ms(projectedAt - startedAt), preparationResponses, statusPolls };
+        stageTimings.push(timing);
+        console.log(JSON.stringify({ publicPathStageTiming: true, ...timing }));
         return { operationId, body };
       }
     }), value => measurements.push({ label, value }));
@@ -300,10 +320,11 @@ await withDocumentOperationMetricObserver(value => operations.push(value), () =>
     console.log(JSON.stringify({ closure: 'document-public-path-runtime', workerDrained: true, serversClosed: true, projectionFencesDrained: true }));
   }
 }));
+assert.equal(stageTimings.length, measurements.length);
 await fs.writeFile(output, JSON.stringify({ version: 4, passed: true, fixture: 'public-document-path-operations', nativeDocuments: fixtureSourceCount,
   family: family ?? 'rename-then-move', originalPathsRestored: family !== undefined,
   unrelatedSourcesUnchanged: fixtureSourceCount - 2, includesStarter: true,
   seedMode, normalUploadAcceptance: true,
-  scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations }, null, 2) + '\n',
+  scope: 'actual-cookie-route-handlers-preview-apply-and-terminal-status-no-next-middleware', measurements, operations, stageTimings }, null, 2) + '\n',
 { mode: 0o600, flag: 'wx' });
 completed = true;

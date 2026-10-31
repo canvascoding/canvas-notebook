@@ -31,7 +31,8 @@ unrelated source, its physical bytes and row `xmin`.
 
 These are individual local diagnosis windows. At 200 documents they show about
 26% fewer SQL calls, 11% fewer leases and 29% lower summed query duration. They
-do not establish an overall latency improvement. The next measurement separates
+do not establish an overall latency improvement. A subsequent
+[stage measurement](document-service-move-stage-timing-2026-10-31.md) separates
 public job completion from physical projection convergence. Summed query time
 can overlap; it must not be interpreted as elapsed request time.
 

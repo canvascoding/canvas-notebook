@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { Notification, PoolClient } from 'pg';
+import type { Notification, Pool, PoolClient } from 'pg';
 import { getPostgresRuntimeQueryable, type SqlConnection } from '@/app/lib/db';
 import { isWorkspaceFileInvalidation, type WorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 
@@ -17,12 +17,14 @@ export async function notifyWorkspaceFileInvalidationOnConnection(database: SqlC
 /** Notifications carry no document state or authorization. Every consumer must
  * resolve its own document ID through the existing current-authority API. */
 export function installWorkspaceFileInvalidationNotificationListener(options: {
-  workspaceIds: () => Iterable<string>;
   onInvalidate: (hint: WorkspaceFileInvalidation) => void | Promise<void>;
   onError?: (error: unknown) => void;
+  pool?: Pool;
   connect?: () => Promise<PoolClient>;
   retryMs?: number;
-}): { ready: Promise<void>; resync: () => Promise<void>; stop: () => Promise<void> } {
+} & ({ workspaceIds: () => Iterable<string>; allWorkspaces?: false }
+  | { allWorkspaces: true; onResync: () => void | Promise<void> })
+): { ready: Promise<void>; resync: () => Promise<void>; stop: () => Promise<void> } {
   let stopped = false;
   let client: PoolClient | null = null;
   let handlers: { disconnected: (error?: Error) => void; onNotification: (notification: Notification) => void } | null = null;
@@ -36,6 +38,16 @@ export function installWorkspaceFileInvalidationNotificationListener(options: {
   const resync = (workspaceId?: string): Promise<void> => {
     if (stopped) return Promise.resolve();
     const work = (async () => {
+      // Trusted derived-state workers already scan the complete durable
+      // outbox. A hint can wake that scan; it never supplies state or grants.
+      if (options.allWorkspaces && workspaceId === undefined) {
+        await options.onResync(); return;
+      }
+      if (options.allWorkspaces) {
+        const hint = Object.freeze({ workspaceId });
+        if (!stopped && isWorkspaceFileInvalidation(hint)) await options.onInvalidate(hint);
+        return;
+      }
       const selected = workspaceId === undefined ? new Set(options.workspaceIds()) : new Set([workspaceId]);
       for (const selectedId of selected) {
         if (stopped) return;
@@ -74,7 +86,7 @@ export function installWorkspaceFileInvalidationNotificationListener(options: {
         scheduleReconnect();
       };
       const next = await (options.connect ? options.connect() : new Promise<PoolClient>((resolve, reject) => {
-        const pool = getPostgresRuntimeQueryable();
+        const pool = options.pool ?? getPostgresRuntimeQueryable();
         if (!pool) { reject(new Error('Workspace invalidation notifications require a PostgreSQL runtime.')); return; }
         // pg removes its idle error handler before handing out a client. Own
         // errors synchronously in that callback, before any await continuation.

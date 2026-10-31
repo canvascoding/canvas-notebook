@@ -14,6 +14,8 @@ type Callbacks = Parameters<typeof Runtime.createCollaborationProjectionRuntime>
 type ProjectionResult = Parameters<Callbacks['onProjected']>[0];
 type ProjectionFailure = Parameters<Callbacks['onFailure']>[0];
 type Timer = ReturnType<typeof setTimeout>;
+type NotificationOptions = Extract<Parameters<typeof import('../app/lib/filesystem/workspace-file-invalidation')
+  .installWorkspaceFileInvalidationNotificationListener>[0], { allWorkspaces: true }>;
 
 async function settle() { await new Promise<void>((resolve) => setImmediate(resolve)); }
 
@@ -82,6 +84,10 @@ async function setup(t: TestContext, options: {
   const guestVersions: PersistedCollaborationState[] = [];
   const workspaceReads: string[] = [];
   let workspaceAvailable = true;
+  let notificationOptions!: NotificationOptions;
+  let notificationStopped = false;
+  let notificationPoolEnded = false;
+  const notificationPool = { end: async () => { notificationPoolEnded = true; } };
   const pending = (snapshot: PersistedCollaborationState) => snapshot.status === 'active'
     && (snapshot.documentSequence > snapshot.checkpointSequence || pendingReceipts.has(snapshot.documentId));
   const filename = path.resolve('app/lib/collaboration/projection-runtime.ts');
@@ -91,6 +97,18 @@ async function setup(t: TestContext, options: {
   const exports = {};
   const dependencies: Record<string, unknown> = {
     'server-only': {},
+    '@/app/lib/db/postgres': { createPostgresPool: () => notificationPool },
+    // Controlled notification seam only. PostgreSQL delivery and native
+    // owner/COMMIT behavior are exercised by separate real database cases.
+    '@/app/lib/filesystem/workspace-file-invalidation': {
+      installWorkspaceFileInvalidationNotificationListener: (input: NotificationOptions) => {
+        assert.equal(input.allWorkspaces, true);
+        assert.equal(input.pool, notificationPool, 'the background listener cannot retain an application-pool slot');
+        notificationOptions = input;
+        return { ready: Promise.resolve(), resync: () => input.onResync(),
+          stop: async () => { notificationStopped = true; } };
+      },
+    },
     '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: options.lock
       ?? (async <T>(_workspaceId: string, operation: () => Promise<T>) => operation()) },
     '@/app/lib/file-guests/versions': { recordFileGuestVersion: async (snapshot: PersistedCollaborationState) => {
@@ -159,8 +177,95 @@ async function setup(t: TestContext, options: {
   t.after(() => runtime.dispose());
   await settle();
   return { clock, runtime, states, pendingReceipts, projected, failures, attempted, degraded, scans, diagnostics,
+    signal: () => notificationStopped ? Promise.resolve() : Promise.resolve(notificationOptions.onInvalidate({ workspaceId: 'workspace' })),
+    reconnect: () => notificationStopped ? Promise.resolve() : Promise.resolve(notificationOptions.onResync()),
+    notificationStopped: () => notificationStopped,
+    notificationPoolEnded: () => notificationPoolEnded,
     guestVersions, workspaceReads, recordedFailures, setWorkspaceAvailable: (value: boolean) => { workspaceAvailable = value; } };
 }
+
+test('a commit hint rediscovers durable work without waiting for the recovery timer', async t => {
+  const h = await setup(t);
+  const latest = state('hinted-document', { documentSequence: 8 });
+  h.states.set(latest.documentId, latest);
+  await h.signal();
+  await h.clock.advanceTo(2_000);
+  assert.deepEqual(h.attempted, [latest]);
+  assert.deepEqual(h.scans, ['', '']);
+});
+
+test('notification reconnect scans durable work missed while disconnected', async t => {
+  const h = await setup(t);
+  const latest = state('missed-document', { documentSequence: 9 });
+  h.states.set(latest.documentId, latest);
+  await h.reconnect();
+  await h.clock.advanceTo(2_000);
+  assert.deepEqual(h.attempted, [latest]);
+  assert.deepEqual(h.scans, ['', '']);
+});
+
+test('a burst during one recovery scan requests only one following fresh scan', async t => {
+  let held = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const h = await setup(t, { scan: async () => { if (held) await gate; return []; } });
+  try {
+    held = true;
+    const first = h.signal(); await settle();
+    const burst = Array.from({ length: 100 }, () => h.signal());
+    assert.deepEqual(h.scans, ['', '']);
+    held = false; release();
+    await Promise.all([first, ...burst]);
+    assert.deepEqual(h.scans, ['', '', '']);
+    await h.clock.advanceTo(29_999);
+    assert.equal(h.scans.length, 3);
+  } finally { held = false; release(); }
+});
+
+test('disposal closes notifications and waits for an already running recovery scan', async t => {
+  let held = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const h = await setup(t, { scan: async () => { if (held) await gate; return []; } });
+  try {
+    held = true;
+    const pending = h.signal(); await settle();
+    let stopped = false;
+    const stopping = h.runtime.dispose();
+    assert.equal(stopping, h.runtime.dispose());
+    void stopping.then(() => { stopped = true; });
+    await settle();
+    assert.equal(h.notificationStopped(), true); assert.equal(stopped, false);
+    assert.equal(h.notificationPoolEnded(), false);
+    await h.signal(); assert.equal(h.scans.length, 2);
+    held = false; release(); await pending; await stopping;
+    await h.clock.advanceTo(90_000);
+    assert.equal(stopped, true); assert.equal(h.scans.length, 2);
+    assert.equal(h.notificationPoolEnded(), true);
+  } finally { held = false; release(); }
+});
+
+test('a signal after the last scan continuation still schedules a following fresh scan', async t => {
+  for (let depth = 0; depth <= 12; depth++) {
+    let held = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const h = await setup(t, { scan: async () => { if (held) await gate; return []; } });
+    try {
+      held = true;
+      const first = h.signal(); await settle();
+      let late: Promise<void> | undefined;
+      // Sweep adjacent promise continuations; the actual scan and its wrapper
+      // add their own microtasks. No private recovery flag is exposed here.
+      const signalAfter = (remaining: number): void => {
+        if (remaining === 0) { late = h.signal(); return; }
+        queueMicrotask(() => signalAfter(remaining - 1));
+      };
+      const arranged = gate.then(() => { signalAfter(depth); });
+      held = false; release();
+      await arranged; await first; await settle(); await late;
+      await h.clock.advanceTo(0);
+      assert.equal(h.scans.length, 3, `late signal at continuation ${depth} must not wait for the thirty-second audit`);
+    } finally { held = false; release(); }
+  }
+});
 
 test('projection reloads the newest durable state after enqueue', async (t) => {
   const h = await setup(t);

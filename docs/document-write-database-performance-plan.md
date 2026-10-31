@@ -55,8 +55,20 @@ Host-/Linux-Produktionsbuild, gesunder Start, 15 Linux-Speicherfälle und neun e
 Browserfälle ohne Skips oder Retries. Originalzeilen mit `xmin`, Dateibytes und
 Speicheranker sowie die elf anderen Container bleiben erhalten. Die
 [gebundene Teilabnahme](architecture/document-service-move-proof-groups-2026-10-31.md)
-ersetzt nicht die abschließende reguläre Gesamtsuite. Auftrags-
-abschluss und Projektionswartezeit werden als nächstes getrennt gemessen;
+ersetzt nicht die abschließende reguläre Gesamtsuite. Die anschließende
+[getrennte Zeitmessung](architecture/document-service-move-stage-timing-2026-10-31.md)
+besteht ebenfalls: Bei 200 warmen Dokumenten ist der Auftrag nach 61,926 Sekunden
+fertig; die Datei-Projektion benötigt weitere 28,189 Sekunden. Bei zehn Dokumenten
+sind es 6,339 plus 23,389 Sekunden. Der anschließende
+[Weckpfad für die vorhandene Projektion](architecture/document-service-projection-wakeup-2026-10-31.md)
+verwendet das tatsächliche Commit-Signal und behält den Wiederherstellungsscan.
+Beide realen Vergleiche bestehen: warm insgesamt 29,728 → 8,845 Sekunden bei
+zehn und 90,116 → 62,503 Sekunden bei 200 Dokumenten. Die Projektionswartezeit
+bei 200 sinkt von 28,189 auf 0,271 Sekunden; der Auftrag selbst bleibt bei rund
+62 Sekunden. Die gemessene Verbindungsspitze steigt im großen Fall von vier auf
+sechs. 28 Worker-Fälle, bestehende Projektionssuiten, echte PostgreSQL-Signal- und
+Kapazitätsfälle, TypeScript und Lint bestehen. Host-/Linux-Build und Browserabnahme
+dieses Weckpfads bleiben noch offen;
 weitere Performancepakete, API-Key-Verwaltung und vollständige API-/SDK-Abnahme
 sind damit nicht abgeschlossen.
 
@@ -633,8 +645,9 @@ GitNexus geprüft; gemeinsame Regeln bleiben im vorhandenen Berechtigungsdienst.
 
 **Verwaltung und Schlüssellebenszyklus:**
 
-- Unter Settings einen Bereich „API-Zugriff“ mit benannten Integrationen und
-  deren Schlüsseln vorsehen. Erstellen, Auflisten, Rotieren und Widerrufen
+- Unter **Settings → Verbindungen → API-Zugriff**, neben MCP und Integrationen,
+  einen Bereich für benannte Integrationen und deren Schlüssel vorsehen.
+  Erstellen, Auflisten, Rotieren und Widerrufen
   verlangen eine echte aktuelle Benutzersitzung und die passende Berechtigung;
   bei Veränderungen gelten die bestehenden Origin-/CSRF-Prüfungen. Ein API-Key
   darf keine neuen Schlüssel erzeugen oder sich selbst mehr Rechte erteilen.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import Module from 'node:module';
-import type { PoolClient } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { isWorkspaceFileInvalidation } from '../app/lib/files/file-events';
 
 type ListenerModule = typeof import('../app/lib/filesystem/workspace-file-invalidation');
@@ -236,6 +236,25 @@ async function main() {
       assert.equal(client.releases, 1); assert.equal(finished, false, 'stop also awaits explicitly requested resync work');
       client.hint({ workspaceId: 'workspace' }); await flush(); assert.equal(callbacks, 2);
       gate.resolve(undefined); await explicitResync; await stopping; assert.equal(finished, true);
+      assert.equal(timers.pending.size, 0);
+    }
+    {
+      const first = new ListenerClientModel(), second = new ListenerClientModel();
+      const pool = new ListenerPoolModel([first, second]); pools.push(pool); holder.current = null;
+      const delivered: string[] = []; let rescans = 0;
+      const listener = installWorkspaceFileInvalidationNotificationListener({ pool: pool as unknown as Pool, allWorkspaces: true,
+        onResync: async () => { rescans++; }, onInvalidate: async hint => { delivered.push(hint.workspaceId); } });
+      listeners.push(listener); await listener.ready;
+      assert.equal(rescans, 1, 'a trusted outbox worker rescans after its actual listener setup');
+      first.hint({ workspaceId: 'unopened-workspace' });
+      first.hint({ workspaceId: 'workspace', path: 'invented-state.md' });
+      await flush(); assert.deepEqual(delivered, ['unopened-workspace']);
+      first.emit('end'); timers.fireNext(); await flush();
+      assert.equal(rescans, 2, 'reconnection requests a fresh durable scan');
+      first.hint({ workspaceId: 'old-client' }); second.hint({ workspaceId: 'another-workspace' });
+      await flush(); assert.deepEqual(delivered, ['unopened-workspace', 'another-workspace']);
+      await listener.stop(); second.hint({ workspaceId: 'after-stop' }); await flush();
+      assert.equal(delivered.length, 2); assert.equal(first.releases, 1); assert.equal(second.releases, 1);
       assert.equal(timers.pending.size, 0);
     }
     console.log('workspace-file-invalidation-listener-test: declared callback/clock models passed; no PostgreSQL or owner outcome claim.');

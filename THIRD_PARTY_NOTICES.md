@@ -4,7 +4,7 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.31.1
-- Lockfile SHA-256: `8861ea27f09195fe8d2817c07bbac11c0968572cf556b1a6e699c4436e7bbe03`
+- Lockfile SHA-256: `a3fffc85c311160e13aeca5e3af4973a22b233a334aa2b669b4bb7a6c8ab2119`
 - Distributed components: 1461
 - Release gate: **approved**
 
@@ -195,6 +195,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @iconify/types | 2.0.0 | runtime | MIT | allowed |
 | @iconify/utils | 3.1.4 | runtime | MIT | allowed |
 | @img/colour | 1.1.0 | runtime | MIT | allowed |
+| @isaacs/nonrecursive-glob-match | 1.0.3 | runtime | BlueOak-1.0.0 | allowed |
 | @jridgewell/gen-mapping | 0.3.13 | runtime | MIT | allowed |
 | @jridgewell/remapping | 2.3.5 | runtime | MIT | allowed |
 | @jridgewell/resolve-uri | 3.1.2 | runtime | MIT | allowed |
@@ -895,7 +896,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | get-nonce | 1.0.1 | runtime | MIT | allowed |
 | get-proto | 1.0.1 | runtime | MIT | allowed |
 | glob-parent | 5.1.2 | runtime | ISC | allowed |
-| glob | 13.0.6 | runtime | BlueOak-1.0.0 | allowed |
+| glob | 14.0.2 | runtime | BlueOak-1.0.0 | allowed |
 | glur | 1.1.2 | runtime | MIT | allowed |
 | google-auth-library | 10.9.0 | runtime | Apache-2.0 | allowed |
 | google-logging-utils | 1.1.3 | runtime | Apache-2.0 | allowed |
@@ -1039,7 +1040,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lowlight | 1.20.0 | runtime | MIT | allowed |
 | lowlight | 3.3.0 | runtime | MIT | allowed |
 | lru-cache | 11.5.2 | runtime | BlueOak-1.0.0 | allowed |
-| lru-cache | 11.5.2 | runtime | BlueOak-1.0.0 | allowed |
+| lru-cache | 11.5.3 | runtime | BlueOak-1.0.0 | allowed |
 | lru-cache | 5.1.1 | runtime | ISC | allowed |
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | lz-string | 1.5.0 | runtime | MIT | allowed |
@@ -1114,7 +1115,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | mime-db | 1.54.0 | runtime | MIT | allowed |
 | mime-types | 2.1.35 | runtime | MIT | allowed |
 | mime-types | 3.0.2 | runtime | MIT | allowed |
-| minimatch | 10.2.5 | runtime | BlueOak-1.0.0 | allowed |
+| minimatch | 11.0.1 | runtime | BlueOak-1.0.0 | allowed |
 | minimizer-webpack-plugin | 5.11.0 | runtime | MIT | allowed |
 | minipass | 7.1.3 | runtime | BlueOak-1.0.0 | allowed |
 | mitt | 3.0.1 | runtime | MIT | allowed |
@@ -1173,7 +1174,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | path-exists | 4.0.0 | runtime | MIT | allowed |
 | path-is-absolute | 1.0.1 | runtime | MIT | allowed |
 | path-key | 3.1.1 | runtime | MIT | allowed |
-| path-scurry | 2.0.2 | runtime | BlueOak-1.0.0 | allowed |
+| path-scurry | 3.0.0 | runtime | BlueOak-1.0.0 | allowed |
 | path-to-regexp | 8.4.2 | runtime | MIT | allowed |
 | pdf-parse | 2.4.5 | runtime | Apache-2.0 | allowed |
 | pdfjs-dist | 5.4.296 | runtime | Apache-2.0 | allowed |
@@ -1402,7 +1403,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | underscore | 1.13.8 | runtime | MIT | allowed |
 | undici-types | 6.21.0 | runtime | MIT | allowed |
 | undici-types | 8.3.0 | runtime | MIT | allowed |
-| undici | 6.29.1 | runtime | MIT | allowed |
 | undici | 7.30.1 | runtime | MIT | allowed |
 | unified | 11.0.5 | runtime | MIT | allowed |
 | unist-util-find-after | 5.0.0 | runtime | MIT | allowed |
@@ -6288,7 +6288,7 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### License text 2c7c5d22ed5a
 
-Applies to minimatch@10.2.5.
+Applies to minimatch@11.0.1.
 
 Copyright notices:
 
@@ -15888,7 +15888,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text 8a1af140fdfb
 
-Applies to lru-cache@11.5.2, lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.0.
+Applies to @isaacs/nonrecursive-glob-match@1.0.3, lru-cache@11.5.2, lru-cache@11.5.3, minipass@7.1.3, path-scurry@3.0.0, sax@1.6.0.
 
 Copyright notices:
 
@@ -19872,7 +19872,7 @@ SOFTWARE.
 
 ### License text a49c9ba46479
 
-Applies to glob@13.0.6.
+Applies to glob@14.0.2.
 
 Copyright notices:
 
@@ -20291,7 +20291,7 @@ Copyright notices:
 
 ### License text a6db8096b270
 
-Applies to undici-types@6.21.0, undici-types@8.3.0, undici@6.29.1, undici@7.30.1.
+Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.1.
 
 Copyright notices:
 

@@ -17,7 +17,7 @@ type Deferred<T> = { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) =
 type Packet = { fixture: string; nodePid: number; kind: 'event' | 'reply'; event?: string;
   request?: number; ok?: boolean; data: Record<string, unknown> };
 type Command = { fixture: string; request: number; command: string; workspaceId?: string;
-  workspaceIds?: string[]; commit?: boolean; gated?: boolean };
+  workspaceIds?: string[]; commit?: boolean; gated?: boolean; allWorkspaces?: boolean };
 type OwnedChild = Parameters<typeof signalOwnChild>[0];
 type Peer = { role: Role; applicationName: string; process: ChildProcess; entry: OwnedChild;
   fixture: string; pending: Map<number, Deferred<Record<string, unknown>>>; events: Packet[];
@@ -34,7 +34,7 @@ type Delivery = { workspaceId: string; backendPid: number; index: number };
 type Subscriber = { context: ChildContext; pool: Pool;
   install: typeof import('../app/lib/filesystem/workspace-file-invalidation').installWorkspaceFileInvalidationNotificationListener;
   listener: ReturnType<typeof import('../app/lib/filesystem/workspace-file-invalidation').installWorkspaceFileInvalidationNotificationListener> | null;
-  subscribed: Set<string>; ledger: Delivery[]; deliveredWorkspaces: string[];
+  subscribed: Set<string>; ledger: Delivery[]; deliveredWorkspaces: string[]; allWorkspaces: boolean; rescans: number;
   acquisitions: number[]; removals: Set<number>; currentBackend: number;
   errors: Array<string | null>; gate: Deferred<void> | null; gateWorkspace: string | null;
   stopped: boolean; stopResolved: boolean; shutdown: Shutdown;
@@ -305,11 +305,11 @@ async function subscriberRole(context: ChildContext): Promise<Subscriber> {
   const pool = getPostgresRuntimeQueryable(); assert(pool);
   const state = { context, pool, install, listener: null, subscribed: new Set<string>(), ledger: [], deliveredWorkspaces: [],
     acquisitions: [], removals: new Set<number>(), currentBackend: 0, errors: [], gate: null, gateWorkspace: null,
-    stopped: true, stopResolved: true, shutdown: null } as unknown as Subscriber;
+    stopped: true, stopResolved: true, shutdown: null, allWorkspaces: false, rescans: 0 } as unknown as Subscriber;
   function workspaceIds() { return state.subscribed; }
   async function onInvalidate(hint: Readonly<{ workspaceId: string }>) {
     assert(Object.isFrozen(hint)); assert.deepEqual(Reflect.ownKeys(hint), ['workspaceId']);
-    assert(state.subscribed.has(hint.workspaceId)); assert(!state.stopped);
+    assert(state.allWorkspaces || state.subscribed.has(hint.workspaceId)); assert(!state.stopped);
     const selectedGate = state.gateWorkspace === hint.workspaceId ? state.gate : null;
     if (selectedGate) state.gateWorkspace = null;
     const item = { workspaceId: hint.workspaceId, backendPid: state.currentBackend, index: state.ledger.length };
@@ -356,17 +356,26 @@ async function handlePublisherCommand(state: Publisher, command: Command): Promi
 
 async function handleSubscriberCommand(state: Subscriber, command: Command): Promise<Record<string, unknown>> {
   if (command.command === 'start' || command.command === 'subscriptions') {
-    assert(Array.isArray(command.workspaceIds) && command.workspaceIds.length > 0 && command.workspaceIds.length <= 8);
+    assert(command.allWorkspaces === undefined || typeof command.allWorkspaces === 'boolean');
+    assert(Array.isArray(command.workspaceIds) && command.workspaceIds.length >= (command.allWorkspaces === true ? 0 : 1)
+      && command.workspaceIds.length <= 8);
     for (const id of command.workspaceIds) assert.match(id, new RegExp(`^wi_${state.context.fixture}_[a-z]+$`, 'u'));
     state.subscribed = new Set(command.workspaceIds); assert.equal(state.subscribed.size, command.workspaceIds.length);
     if (command.command === 'start') {
       assert(state.stopResolved && (!state.listener || state.stopped));
       state.stopped = false; state.stopResolved = false;
+      state.allWorkspaces = command.allWorkspaces === true;
       if (command.gated) { state.gate = deferred<void>(); state.gateWorkspace = command.workspaceIds[0]; }
       // Exercise the default productive runtime-pool callback acquisition.
       // No options.connect override, mock client or copied module is supplied.
-      state.listener = state.install({ workspaceIds: state.workspaceIds, onInvalidate: state.onInvalidate,
-        onError: state.onError, retryMs: 25 });
+      state.listener = state.allWorkspaces
+        ? state.install({ pool: state.pool, allWorkspaces: true, onInvalidate: state.onInvalidate, onError: state.onError, retryMs: 25,
+          onResync: async () => {
+            state.rescans++;
+            await sendIpc(state.context, 'event', { backendPid: state.currentBackend, rescans: state.rescans }, { event: 'resync' });
+          } })
+        : state.install({ workspaceIds: state.workspaceIds, onInvalidate: state.onInvalidate,
+          onError: state.onError, retryMs: 25 });
       await within(state.listener.ready, 'Actual listener LISTEN/initial resync did not complete.');
     }
     return { subscribed: [...state.subscribed] };
@@ -388,7 +397,7 @@ async function handleSubscriberCommand(state: Subscriber, command: Command): Pro
   }
   if (command.command === 'snapshot') return { workspaces: [...state.deliveredWorkspaces], ledger: structuredClone(state.ledger),
     acquisitions: [...state.acquisitions], removals: [...state.removals], errors: [...state.errors],
-    stopResolved: state.stopResolved, stopped: state.stopped };
+    stopResolved: state.stopResolved, stopped: state.stopped, allWorkspaces: state.allWorkspaces, rescans: state.rescans };
   assert.equal(command.command, 'close'); await shutdownSubscriber(state); return { closed: true };
 }
 
@@ -562,6 +571,45 @@ async function main(): Promise<void> {
     const errors = final.errors as Array<string | null>; assert(Array.isArray(errors) && errors.length > 0);
     for (const code of errors) assert.equal(code, '57P01', 'Only the deliberately terminated owned backend may report an error.');
     await awaitOwnedBackendsGone(control, [subscriber.applicationName]);
+
+    stage = 'trusted outbox listener with no open workspace subscriptions';
+    await requestPeer(subscriber, { command: 'start', workspaceIds: [], allWorkspaces: true });
+    const fourth = await assertBackendFence(control, (await waitPeerEvent(subscriber, 'acquired')).data.backendPid, subscriber.applicationName);
+    const initialResync = await waitPeerEvent(subscriber, 'resync');
+    assert.equal(initialResync.data.backendPid, fourth.pid); assert.equal(initialResync.data.rescans, 1);
+    await requestPeer(publisher, { command: 'notify', workspaceId: foreign });
+    await waitPeerEvent(subscriber, 'invalidated', foreign, expected.length); expected.push(foreign);
+    assert.deepEqual((await requestPeer(subscriber, { command: 'snapshot' })).workspaces, expected);
+
+    stage = 'trusted outbox rollback and commit delivery';
+    await requestPeer(publisher, { command: 'begin', workspaceId: queued });
+    await control.query('SELECT pg_catalog.pg_notify($1, $2)', [WORKSPACE_FILE_INVALIDATION_CHANNEL, JSON.stringify({ workspaceId: barrier })]);
+    await waitPeerEvent(subscriber, 'invalidated', barrier, expected.length); expected.push(barrier);
+    assert.deepEqual((await requestPeer(subscriber, { command: 'snapshot' })).workspaces, expected);
+    await requestPeer(publisher, { command: 'finish', commit: false });
+    await requestPeer(publisher, { command: 'notify', workspaceId: barrier });
+    await waitPeerEvent(subscriber, 'invalidated', barrier, expected.length); expected.push(barrier);
+    assert.deepEqual((await requestPeer(subscriber, { command: 'snapshot' })).workspaces, expected);
+    await requestPeer(publisher, { command: 'begin', workspaceId: queued });
+    await requestPeer(publisher, { command: 'finish', commit: true });
+    await waitPeerEvent(subscriber, 'invalidated', queued, expected.length); expected.push(queued);
+
+    stage = 'trusted outbox reconnect rescans and drains its real checkout';
+    await terminateOwnedBackend(control, fourth, subscriber.applicationName);
+    const fifth = await assertBackendFence(control, (await waitPeerEvent(subscriber, 'acquired')).data.backendPid, subscriber.applicationName);
+    assert.notEqual(fifth.pid, fourth.pid);
+    const reconnected = await waitPeerEvent(subscriber, 'resync');
+    assert.equal(reconnected.data.backendPid, fifth.pid); assert.equal(reconnected.data.rescans, 2);
+    await requestPeer(publisher, { command: 'notify', workspaceId: c });
+    await waitPeerEvent(subscriber, 'invalidated', c, expected.length); expected.push(c);
+    const resumed = await requestPeer(subscriber, { command: 'snapshot' });
+    assert.equal(resumed.allWorkspaces, true); assert.deepEqual(resumed.workspaces, expected);
+    assert.deepEqual(resumed.acquisitions, [first.pid, second.pid, third.pid, fourth.pid, fifth.pid]);
+    assert.equal((resumed.ledger as Delivery[]).at(-1)!.backendPid, fifth.pid);
+    for (const code of resumed.errors as Array<string | null>) assert.equal(code, '57P01');
+    await requestPeer(subscriber, { command: 'stop' });
+    await waitPeerEvent(subscriber, 'stop-started');
+    await awaitOwnedBackendsGone(control, [subscriber.applicationName]);
     assert.equal(controlFailure, undefined);
   } finally {
     let cleanupFailure: unknown;
@@ -575,7 +623,7 @@ async function main(): Promise<void> {
     finally { await control.end(); }
     if (cleanupFailure) throw cleanupFailure;
   }
-  console.log('PASS real PG18 cross-process workspace invalidation: commit, rollback, workspace filter, disconnect/resync and drained stop; no document/DA04-abort claim.');
+  console.log('PASS real PG18 cross-process workspace invalidation: commit, rollback, workspace filter, trusted outbox mode without open workspaces, disconnect/resync and drained stop; no document/DA04-abort claim.');
 }
 
 function onMainFailure(error: unknown): void {

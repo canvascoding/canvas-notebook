@@ -232,7 +232,8 @@ async function harness() {
         assertWorkspace(); assert.equal(activeTransactions, 0, 'file I/O must not run under the Yjs transaction');
         await beforeWrite?.(); await beforeReplace?.(); file = content; events.push(`file:${content}`);
       },
-      writeFileIfAbsent: async (_path: string, content: string, _options: object, beforeReplace: () => Promise<void>, onPublished: (claim: object) => void) => {
+      writeFileIfAbsent: async (_path: string, content: string, _options: object, beforeReplace: () => Promise<void>,
+        _nativeCreateGuard: unknown, onPublished: (claim: object) => void) => {
         assertWorkspace(); assert.equal(activeTransactions, 0);
         await beforeWrite?.(); await beforeReplace();
         if (fileExists) throw Object.assign(new Error('A peer already created this path'), { code: 'EEXIST' });

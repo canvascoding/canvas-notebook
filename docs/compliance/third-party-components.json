@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.31.1",
-  "lockfileSha256": "8861ea27f09195fe8d2817c07bbac11c0968572cf556b1a6e699c4436e7bbe03",
+  "lockfileSha256": "a3fffc85c311160e13aeca5e3af4973a22b233a334aa2b669b4bb7a6c8ab2119",
   "summary": {
     "totalComponents": 1976,
     "npmComponents": 1948,
@@ -14071,6 +14071,29 @@
         "Copyright (c) 2012 Heather Arthur",
         "Copyright (c) 2015 Dmitry Ivanov",
         "Copyright (c) 2016-2021 Josh Junon <josh@junon.me>."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@isaacs/nonrecursive-glob-match",
+      "versionOrCommit": "1.0.3",
+      "sourceUrl": "https://registry.npmjs.org/@isaacs/nonrecursive-glob-match/-/nonrecursive-glob-match-1.0.3.tgz",
+      "packagePathOrArtifact": "node_modules/@isaacs/nonrecursive-glob-match",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "BlueOak-1.0.0",
+      "verifiedLicense": "BlueOak-1.0.0",
+      "licenseTextRef": "node_modules/@isaacs/nonrecursive-glob-match/LICENSE.md",
+      "licenseTextSha256": "8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004",
+      "copyrightNotices": [
+        "Copyright",
+        "copyright in it."
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -30324,7 +30347,7 @@
     },
     {
       "name": "glob",
-      "versionOrCommit": "13.0.6",
+      "versionOrCommit": "14.0.2",
       "sourceUrl": "git@github.com:isaacs/node-glob",
       "packagePathOrArtifact": "node_modules/glob",
       "usage": "runtime",
@@ -33534,7 +33557,7 @@
     },
     {
       "name": "lru-cache",
-      "versionOrCommit": "11.5.2",
+      "versionOrCommit": "11.5.3",
       "sourceUrl": "ssh://git@github.com/isaacs/node-lru-cache",
       "packagePathOrArtifact": "node_modules/path-scurry/node_modules/lru-cache",
       "usage": "runtime",
@@ -35206,7 +35229,7 @@
     },
     {
       "name": "minimatch",
-      "versionOrCommit": "10.2.5",
+      "versionOrCommit": "11.0.1",
       "sourceUrl": "git@github.com:isaacs/minimatch",
       "packagePathOrArtifact": "node_modules/minimatch",
       "usage": "runtime",
@@ -36527,7 +36550,7 @@
     },
     {
       "name": "path-scurry",
-      "versionOrCommit": "2.0.2",
+      "versionOrCommit": "3.0.0",
       "sourceUrl": "https://github.com/isaacs/path-scurry",
       "packagePathOrArtifact": "node_modules/path-scurry",
       "usage": "runtime",
@@ -41675,29 +41698,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "undici",
-      "versionOrCommit": "6.29.1",
-      "sourceUrl": "https://github.com/nodejs/undici/tree/8c57f6c68c95465338ae97bfc991cb1513d2f76e",
-      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/undici",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai/node_modules/undici@6.29.1",
-      "licenseTextSha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27",
-      "copyrightNotices": [
-        "Copyright (c) Matteo Collina and Undici contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/undici/-/undici-6.29.1.tgz#LICENSE Published source revision: 8c57f6c68c95465338ae97bfc991cb1513d2f76e"
     },
     {
       "name": "undici",
