@@ -2400,6 +2400,14 @@ export const workspacePermissionSnapshotSql = `${workspacePermissionSnapshotProj
     FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces WHERE id=$1 LIMIT 1) w
     ${workspacePermissionSnapshotJoins}`;
 
+/** Data-only bounded set profile. The composing query supplies the fixed
+ * selected_workspace_ids.ids text[] row; the ordinary policy decoder remains
+ * authoritative. $2 is the actual current user, as in the single-row profile. */
+export const workspacePermissionSnapshotSetSql = `${workspacePermissionSnapshotProjection}
+    FROM (SELECT ${workspacePermissionSnapshotColumns} FROM canvas_workspaces
+      WHERE id=ANY(selected_workspace_ids.ids) ORDER BY id LIMIT 101) w
+    ${workspacePermissionSnapshotJoins}`;
+
 // The initialized HTTP reader needs the same bootstrap existence checks as
 // its sequential predecessor. Keep raw driver values and the existing policy
 // projection; these facts neither admit a session nor grant later access.

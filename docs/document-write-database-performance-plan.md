@@ -689,6 +689,13 @@ mehrseitige Unicode-Reads, Suche, Rotation, Rechteentzug und Widerruf über
 wirkliches HTTP mit dem installierten Wheel. Er verlangt explizite
 `CANVAS_SDK_TEST_PYTHON`-/`CANVAS_SDK_TEST_WHEEL`-Pfade und vergleicht jede
 installierte SDK-Quelldatei mit dem Wheel und dem Arbeitsstand.
+Für Workspace-Listen ist eine getrennte, auf Lesen begrenzte Principal-Familie
+vorbereitet. Vier echte PostgreSQL-Gruppen prüfen einen und 100 explizite
+Workspace-Selektoren, aktuelle Rechte/Archivierung und die Trennung vom
+Dokument-Principal. Beide Größen benötigen in dieser gehaltenen Phase acht
+SQL-Anweisungen einschließlich drei aktueller gemeinsamer Beobachtungen;
+das ist keine vollständige HTTP-Leistungsmessung. Die bestehenden drei nativen
+API-Key-Lesesuiten bestehen nach der Bündelung weiterhin.
 **Workspace-Navigation, weitere MCP-Adapter und die Schreib-/Job-Phasen sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
