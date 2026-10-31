@@ -645,8 +645,9 @@ GitNexus geprüft; gemeinsame Regeln bleiben im vorhandenen Berechtigungsdienst.
 
 **Verwaltung und Schlüssellebenszyklus:**
 
-- Unter Settings einen Bereich „API-Zugriff“ mit benannten Integrationen und
-  deren Schlüsseln vorsehen. Erstellen, Auflisten, Rotieren und Widerrufen
+- Unter **Settings → Verbindungen → API-Zugriff**, neben MCP und Integrationen,
+  einen Bereich für benannte Integrationen und deren Schlüssel vorsehen.
+  Erstellen, Auflisten, Rotieren und Widerrufen
   verlangen eine echte aktuelle Benutzersitzung und die passende Berechtigung;
   bei Veränderungen gelten die bestehenden Origin-/CSRF-Prüfungen. Ein API-Key
   darf keine neuen Schlüssel erzeugen oder sich selbst mehr Rechte erteilen.

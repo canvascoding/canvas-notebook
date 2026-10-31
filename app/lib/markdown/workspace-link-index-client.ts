@@ -362,8 +362,9 @@ export async function loadWorkspaceMarkdownDocumentReference(
   workspaceId: string,
   href: string,
   sourcePath: string,
+  options: { priority?: 'background' | 'interactive' } = {},
 ): Promise<WorkspaceDocumentReferenceLookup> {
-  const index = await loadWorkspaceLinkIndex(workspaceId);
+  const index = await loadWorkspaceLinkIndex(workspaceId, options);
   return resolveWorkspaceMarkdownDocumentReferenceFromIndex(href, index, sourcePath);
 }
 
@@ -391,8 +392,9 @@ export async function loadWorkspaceDocumentReference(
   workspaceId: string,
   rawTarget: string,
   sourcePath?: string | null,
+  options: { priority?: 'background' | 'interactive' } = {},
 ): Promise<WorkspaceDocumentReferenceLookup> {
-  const index = await loadWorkspaceLinkIndex(workspaceId);
+  const index = await loadWorkspaceLinkIndex(workspaceId, options);
   return resolveWorkspaceDocumentReferenceFromIndex(rawTarget, index, sourcePath);
 }
 

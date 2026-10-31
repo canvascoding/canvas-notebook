@@ -1,7 +1,7 @@
 'use client';
 
 import { FileText, Link2Off } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { WorkspaceDocumentPreviewDialog } from '@/app/components/shared/WorkspaceDocumentPreviewDialog';
@@ -59,6 +59,7 @@ export function ObsidianWikiLink({
     value: WorkspaceDocumentReferenceLookup | null;
   } | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
+  const requestedResolutionKey = useRef<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const synchronousResolution = useMemo(() => {
     if (exactMarkdown) return null;
@@ -89,9 +90,11 @@ export function ObsidianWikiLink({
     if ((!parsedTarget && !exactMarkdown) || !activeWorkspaceId) return;
 
     let cancelled = false;
+    const priority = requestedResolutionKey.current === resolutionKey ? 'background' : 'interactive';
+    requestedResolutionKey.current = resolutionKey;
     const lookup = exactMarkdown && markdownHref && sourcePath
-      ? loadWorkspaceMarkdownDocumentReference(activeWorkspaceId, markdownHref, sourcePath)
-      : loadWorkspaceDocumentReference(activeWorkspaceId, target, sourcePath);
+      ? loadWorkspaceMarkdownDocumentReference(activeWorkspaceId, markdownHref, sourcePath, { priority })
+      : loadWorkspaceDocumentReference(activeWorkspaceId, target, sourcePath, { priority });
     void lookup.then((lookup) => {
       if (cancelled) return;
       setRemoteResolution({

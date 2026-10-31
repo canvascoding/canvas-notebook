@@ -2,8 +2,9 @@
 
 Date: 2026-10-31. Measurement base: `4f0bb37a9b31692c95405ef42af01ed83da174b4`
 plus the final runtime/test delta. Private reports bind all measured runtime and
-test input hashes. This is a local source/PG acceptance; host/Linux builds and
-browser acceptance of this change are still pending.
+test input hashes. Host and pinned Linux builds of `57054b2f4` pass. The first
+fresh-image browser acceptance passes eight of nine cases and finds a visible
+link scheduling defect described below; final built acceptance is still open.
 
 The [separate stage measurement](document-service-move-stage-timing-2026-10-31.md)
 showed that native Move completion was followed by 23–28 seconds of physical
@@ -84,6 +85,33 @@ terminate successfully with their schemas, clients, pools and data removed.
 - TypeScript 6.0.3 checks 5137 source files with zero diagnostics. Scoped ESLint
   and `git diff --check` pass. Private evidence retains the failed test-setup
   attempts and their verified cleanup as well as the successful final controls.
+
+## Built acceptance follow-up
+
+The host production build and pinned Linux image at `57054b2f4` complete. The
+freshly recreated managed container becomes healthy with the same data/home
+volumes; all eleven other running container identities remain unchanged. All
+fifteen Linux storage cases pass. Eight of nine actual browser cases pass with
+zero retries/skips. Protected original rows/`xmin`, bytes and anchors also match
+after the failed browser run.
+
+The remaining emoji/YAML rename case exposes client scheduling: both actual
+post-rename link-index responses are complete and resolve `C.md` (about 65–94 ms
+per response). After the initial index read, collaboration replaces the editor's
+old `B` link target with `/C`. The visible-link component requests that new
+target as a background read, which waits within the existing ten-second local
+interval; the browser's five-second resolution assertion expires. This is not
+evidence of a missing server migration or a reason to lengthen that assertion.
+
+Newly displayed or changed visible Wiki/Markdown targets now use the existing
+interactive priority and promote a queued shared fetch. Invalidation of the
+same target remains background-paced. The shared client still prevents parallel
+fetches, reuses fresh indexes and observes server backoff. A controlled React
+regression fails on the preceding source and passes with the correction,
+including duplicate visible links, changed targets, exact Markdown references
+and repeated background invalidations. It is client scheduling evidence, not
+an authorization or PostgreSQL substitute. The corrected product still needs
+its own build, fresh-image browser acceptance and current-head CI.
 
 Reproduction uses the managed local PostgreSQL 18 fixture and the existing
 source-bound runner, for example:
