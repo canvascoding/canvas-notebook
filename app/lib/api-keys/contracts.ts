@@ -29,6 +29,8 @@ export const revokeApiKeySchema = z.object({
 export const apiKeyPageSchema = z.object({
   afterId: identifier.optional(), limit: z.coerce.number().int().min(1).max(50).default(25),
 }).strict();
+export const apiIntegrationPageSchema = apiKeyPageSchema.extend({ creationRequestId: identifier.optional() });
+export const apiCredentialPageSchema = apiKeyPageSchema.extend({ issuanceRequestId: identifier.optional() });
 
 export type ApiIntegrationGrant = { workspaceIds: string[]; actions: ApiKeyAction[] };
 export type ApiKeyMetadata = {

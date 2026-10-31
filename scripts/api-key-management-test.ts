@@ -108,8 +108,9 @@ async function main() {
     fixture.setAfterQuery(async query => { if (query === 'COMMIT' && loseReply) { loseReply = false; throw new Error('Lost commit acknowledgement'); } });
     await assert.rejects(management.createApiIntegration(headers(), lostInput), expectCode('API_KEY_OUTCOME_UNKNOWN'));
     fixture.setAfterQuery(undefined);
-    const lost = (await management.listApiIntegrations(headers())).integrations.find(row => row.creationRequestId === lostInput.requestId);
+    const lost = (await management.listApiIntegrations(headers(), { creationRequestId: lostInput.requestId })).integrations[0];
     assert(lost?.latestCredential);
+    assert.equal((await management.listApiIntegrations(fixture.headers('alice'), { creationRequestId: lostInput.requestId })).integrations.length, 0);
     await assert.rejects(management.createApiIntegration(headers(), lostInput), expectCode('API_KEY_ALREADY_ISSUED'));
     const revoke = await credentialRoute.DELETE(request('DELETE', { expectedRevision: lost.revision, credentialId: lost.latestCredential.id }), context(lost.id));
     assert.equal(revoke.status, 200);
@@ -125,6 +126,14 @@ async function main() {
     assert.equal(history.integration.revision, 4);
     assert.equal(history.credentials.filter(row => row.revokedAt == null).length, 1);
     assert(history.credentials.some(row => row.issuanceRequestId === lostRotationRequest.requestId));
+    const targeted = await management.listApiIntegrationCredentials(headers(), issued.integration.id, { issuanceRequestId: lostRotationRequest.requestId });
+    assert.equal(targeted.credentials.length, 1);
+    assert.equal(targeted.credentials[0].issuanceRequestId, lostRotationRequest.requestId);
+    const targetedResponse = await credentialRoute.GET(request('GET', undefined, {},
+      `/api/api-access/integrations/${issued.integration.id}/credentials?issuanceRequestId=${lostRotationRequest.requestId}`), context(issued.integration.id));
+    assert.equal(targetedResponse.status, 200);
+    const targetedBody = await targetedResponse.json();
+    assert.equal(targetedBody.data.credentials.length, 1);
 
     // A real database rejection during rotation rolls back the old-key revoke.
     const rejectedRequestId = randomUUID();

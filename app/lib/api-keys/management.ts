@@ -10,7 +10,7 @@ import { assertUserSeatAccessInSingleSnapshotOnConnection } from '@/app/lib/lice
 import { createPublicRateLimitStore } from '@/app/lib/security/public-rate-limit-store';
 import { readPostgresWorkspaceForUserInSingleSnapshotOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import {
-  ApiKeyAccessError, apiKeyPageSchema, createApiIntegrationSchema, revokeApiKeySchema,
+  ApiKeyAccessError, apiCredentialPageSchema, apiIntegrationPageSchema, createApiIntegrationSchema, revokeApiKeySchema,
   rotateApiKeySchema, updateApiIntegrationSchema,
   type ApiIntegrationGrant, type ApiIntegrationMetadata, type ApiKeyMetadata,
 } from './contracts';
@@ -194,17 +194,18 @@ export async function createApiIntegration(headers: Headers, input: unknown) {
 }
 
 export async function listApiIntegrations(headers: Headers, input: unknown = {}) {
-  const page = apiKeyPageSchema.parse(input);
+  const page = apiIntegrationPageSchema.parse(input);
   return withManager(headers, async (database, manager) => {
     const rows = await database.all(`SELECT integration.*,row_to_json(credential) AS latest_credential FROM (
       SELECT id,name,workspace_ids_json,actions_json,creation_request_id,revision,created_at,updated_at
       FROM canvas_api_integrations WHERE owner_user_id=$1 AND instance_id=$2 AND ($3::text IS NULL OR id>$3)
+        AND ($5::text IS NULL OR creation_request_id=$5)
       ORDER BY id LIMIT $4
     ) integration LEFT JOIN LATERAL (
       SELECT ${credentialColumns} FROM canvas_api_keys WHERE integration_id=integration.id
       ORDER BY created_at DESC,id DESC LIMIT 1
     ) credential ON true ORDER BY integration.id`,
-    [manager.userId, manager.instanceId, page.afterId ?? null, page.limit + 1]) as (IntegrationRow & { latest_credential: CredentialRow | null })[];
+    [manager.userId, manager.instanceId, page.afterId ?? null, page.limit + 1, page.creationRequestId ?? null]) as (IntegrationRow & { latest_credential: CredentialRow | null })[];
     const selected = rows.slice(0, page.limit);
     return { integrations: selected.map(row => integrationMetadata(row, row.latest_credential)),
       nextCursor: rows.length > page.limit ? selected.at(-1)!.id : null };
@@ -212,12 +213,13 @@ export async function listApiIntegrations(headers: Headers, input: unknown = {})
 }
 
 export async function listApiIntegrationCredentials(headers: Headers, id: string, input: unknown = {}) {
-  const page = apiKeyPageSchema.parse(input);
+  const page = apiCredentialPageSchema.parse(input);
   return withManager(headers, async (database, manager) => {
     const integration = await ownedIntegration(database, manager, id);
     const rows = await database.all(`SELECT ${credentialColumns} FROM canvas_api_keys
-      WHERE integration_id=$1 AND ($2::text IS NULL OR id>$2) ORDER BY id LIMIT $3`,
-    [id, page.afterId ?? null, page.limit + 1]) as CredentialRow[];
+      WHERE integration_id=$1 AND ($2::text IS NULL OR id>$2)
+        AND ($4::text IS NULL OR issuance_request_id=$4) ORDER BY id LIMIT $3`,
+    [id, page.afterId ?? null, page.limit + 1, page.issuanceRequestId ?? null]) as CredentialRow[];
     const selected = rows.slice(0, page.limit);
     return { integration: await readIntegrationMetadata(database, integration), credentials: selected.map(credentialMetadata),
       nextCursor: rows.length > page.limit ? selected.at(-1)!.id : null };

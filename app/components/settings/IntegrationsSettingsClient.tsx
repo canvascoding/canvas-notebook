@@ -333,6 +333,11 @@ const MemorySettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
+const ApiAccessSettingsPanel = dynamic(
+  () => import('@/app/components/settings/ApiAccessSettingsPanel').then((module) => module.ApiAccessSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
 const AiProvidersModelsPanel = dynamic<AiProvidersModelsPanelProps>(
   () => import('@/app/components/settings/AiProvidersModelsPanel').then((module) => module.AiProvidersModelsPanel),
   { loading: SettingsTabLoader },
@@ -2757,6 +2762,10 @@ export function IntegrationsSettingsClient({
               )}
             </section>,
             { id: 'onboarding-settings-secrets' },
+          )}
+
+          {renderLazyTabContent('api-access',
+            <ApiAccessSettingsPanel active={visibleEffectiveTab === 'api-access'} />,
           )}
 
           {renderLazyTabContent('mcp',
