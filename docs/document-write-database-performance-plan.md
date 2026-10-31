@@ -268,7 +268,7 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Schreib-/Status-/Recovery-Zugang unter aktuellen Rechten ergänzen. Verwaltung und Leseadapter einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
+| 4a | in Umsetzung | Nativen Edit-/Status-Kern an HTTP/MCP und installiertes SDK anschließen; anschließend Create/Import und Datei-/Recovery-Adapter ergänzen. Verwaltung und Leseadapter einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
 | 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
@@ -757,9 +757,23 @@ Die Phase verwendet dieselbe tatsächliche Verbindung und acht SQL-Anweisungen
 einschließlich drei aktueller Beobachtungen; das ist keine Messung einer ganzen
 Änderung. `test:api-keys:edit-principal:native` gehört zum nativen Key-Paket.
 Die bisherigen drei Dokument- und fünf Workspace-Suiten sowie Typecheck und
-gezieltes ESLint bestehen. Die Familie ist noch nicht an den tatsächlichen
-nativen Writer, seine gespeicherten API-Key-Ursprünge oder öffentliche Adapter
-angeschlossen.
+gezieltes ESLint bestehen. Die Familie ist inzwischen an die bestehende native
+Edit-Authority und den Writer angeschlossen. Ein eigener `api_key`-Ursprung hält
+Benutzer, Integration, Instanz und die ursprüngliche Credential-ID fest.
+Die Actor-Zuordnung bleibt bei Rotation stabil; `sessionId` und die gespeicherte
+Session-Spalte sind für diesen Zugang `null`. Es entsteht keine Browser-/OAuth-/
+PI-Sitzung. Die vorhandene binäre Versionshistorie akzeptiert diesen fehlenden
+Session-Wert ausschließlich im geprüften nativen Key-Kontext nach Vergleich des
+gespeicherten Originals, tatsächlichen After-Belegs und exakten Payloads.
+Vier PostgreSQL-/Native-Runtime-Gruppen prüfen echte Speicherung, After und
+HistoryOnly-Version, unveränderte Belege bei Wiederholung/Rotation, fremde
+Integrationsgrenzen, Widerruf und abgewiesene fingierte Session-Zuordnung.
+Neun bestehende Principal-Familien, zehn reale Edit-Owner-Gruppen mit Peer-
+Änderungen und sechs Historiengruppen bestehen ebenfalls. Typecheck, ESLint
+und vollständiger Test-Cleanup sind bestätigt. Der dauerhafte Key-Runner ist
+`scripts/api-key-native-edit-owner-postgres-test.ts` in `test:api-keys:edits:native`.
+Die öffentlichen Key-Edit-/Status-Adapter und ihre SDK-/Container-Abnahme sind
+noch anzuschließen.
 
 Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
 nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
@@ -768,7 +782,7 @@ Sperrspeicherlimit (`out of shared memory`). Die zugehörigen Serverfehler wurde
 über Backend-PID und exakten Schema-Namen zugeordnet; beide eindeutig eigenen
 Schemas sind bereinigt. Die vollständigen sequenziellen Wiederholungen bestehen
 einschließlich Cleanup. Es wurde kein PostgreSQL-Limit erhöht.
-**Schreib-/Job-Phasen und die weiteren zugehörigen Adapter sowie
+**Die übrigen Schreib-/Job-Phasen und öffentlichen Schreibadapter sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den

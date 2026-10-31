@@ -31,7 +31,7 @@ export async function applyNativeDocumentEdit(authority: NativeDocumentEditWrite
       expectedVersion: request.expectedVersion, targets: prepared.targets }) });
   const operation = await applyPersistedAgentTextOperation({ documentId: request.documentId,
     workspace: source.workspace, initiatedByUserId: source.userId, actorId: source.actorId,
-    actorDisplayName: source.actorDisplayName, actorSessionId: source.sessionId,
+    actorDisplayName: source.actorDisplayName, actorSessionId: source.sessionId ?? undefined,
     idempotencyKey: request.idempotencyKey, runGeneration: 1, targets: prepared.targets,
     requestedMode: 'direct_apply', operationType: 'apply', independentGroups: false,
     agentRunId: source.origin.transport === 'agent-tool' ? source.origin.agentTurnId || undefined : undefined,

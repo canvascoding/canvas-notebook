@@ -372,7 +372,7 @@ async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInpu
 
 type NativeDirectAuthorityAccess = Readonly<{
   workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
-  sessionId: string; assertActive(): void;
+  sessionId: string | null; assertActive(): void;
 }>;
 
 /** Only the fixed native principal can establish this short current-B phase.
@@ -391,7 +391,7 @@ async function withNativeDirectConnectionAuthority<T>(input: AgentDirectConnecti
       if (access.workspace.workspaceId !== input.workspace.workspaceId
         || (access.workspace.organizationId ?? null) !== (input.workspace.organizationId ?? null)
         || access.userId !== input.initiatedByUserId || access.actorId !== input.actorId
-        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== input.actorSessionId) {
+        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== (input.actorSessionId ?? null)) {
         throw new AgentDirectConnectionAuthorizationError('Current native write authority does not match this operation.');
       }
       access.assertActive();

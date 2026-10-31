@@ -1348,7 +1348,7 @@ function assertNativeEditFirstDelivery(input: Parameters<typeof createOrLoadOper
     || input.workspace.workspaceId !== original.identity.workspaceId
     || (input.workspace.organizationId ?? null) !== original.identity.organizationId
     || input.initiatedByUserId !== original.actor.userId || input.actorId !== original.actor.actorId
-    || input.actorSessionId !== original.actor.sessionId || input.documentPath !== original.source.path
+    || (input.actorSessionId ?? null) !== original.actor.sessionId || input.documentPath !== original.source.path
     || input.documentRepresentation !== original.identity.representation
     || input.documentLifecycleGeneration !== original.identity.lifecycleGeneration
     || input.documentSchemaVersion !== original.identity.schemaVersion

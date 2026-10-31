@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import { apiKeyActorId } from '../api-keys/actor';
 import { isDeepStrictEqual, types } from 'node:util';
 import { isDocumentVersionTokenV1 } from '../documents/contracts';
 import { DocumentEditError } from '../documents/edit-contracts';
@@ -25,7 +26,7 @@ export type NativeDocumentEditOriginalV1 = Readonly<{
   kind: 'native_document_edit_original'; version: 1;
   requestFingerprint: string; identity: Readonly<DocumentVersionIdentityV1>; expectedVersion: string;
   origin: NativeDocumentEditAuthorityOrigin;
-  actor: Readonly<{ userId: string; actorType: 'user' | 'agent'; actorId: string; sessionId: string }>;
+  actor: Readonly<{ userId: string; actorType: 'user' | 'agent'; actorId: string; sessionId: string | null }>;
   source: Readonly<{ path: string; stateProof: string; stateVectorHash: string; persistedSequence: number }>;
   preparedIntentProof: string; originalProof: string;
 }>;
@@ -90,6 +91,7 @@ export function captureNativeDocumentEditOrigin(value: unknown): NativeDocumentE
   const transport: unknown = descriptor.value;
   const extra = transport === 'request' ? ['sessionId', 'impersonatedBy']
     : transport === 'direct-mcp' ? ['clientId', 'sessionId', 'tool']
+      : transport === 'api_key' ? ['integrationId', 'instanceId', 'credentialId']
       : transport === 'agent-tool' ? ['agentId', 'piSessionId', 'toolName', 'toolCallId', 'agentTurnId',
         'piSessionDbId', 'agentProfileId', 'agentProfileRevision', 'workflowVersion', 'workflowRevision'] : null;
   if (!extra) invalid();
@@ -105,6 +107,8 @@ export function captureNativeDocumentEditOrigin(value: unknown): NativeDocumentE
     if (!text(row.sessionId) || row.impersonatedBy !== null && !text(row.impersonatedBy)) invalid();
   } else if (transport === 'direct-mcp') {
     if (!text(row.sessionId) || !text(row.clientId) || row.tool !== 'edit_knowledge_source') invalid();
+  } else if (transport === 'api_key') {
+    if (!text(row.integrationId) || !text(row.instanceId) || !text(row.credentialId)) invalid();
   } else {
     for (const key of ['agentId', 'piSessionId', 'toolName', 'toolCallId']) if (!text(row[key])) invalid();
     if (row.agentTurnId !== null && !text(row.agentTurnId)
@@ -119,6 +123,7 @@ export function captureNativeDocumentEditOrigin(value: unknown): NativeDocumentE
 export function nativeDocumentEditOwnerTuple(origin: NativeDocumentEditAuthorityOrigin): readonly string[] {
   const captured = captureNativeDocumentEditOrigin(origin);
   return Object.freeze(captured.transport === 'direct-mcp' ? [captured.transport, captured.userId, captured.clientId]
+    : captured.transport === 'api_key' ? [captured.transport, captured.userId, captured.integrationId, captured.instanceId]
     : captured.transport === 'agent-tool' ? [captured.transport, captured.userId, captured.agentId]
       : [captured.transport, captured.userId]);
 }
@@ -139,12 +144,14 @@ export function captureNativeDocumentEditOriginal(value: unknown): NativeDocumen
   const source = object(row.source, ['path', 'stateProof', 'stateVectorHash', 'persistedSequence']);
   if (row.kind !== 'native_document_edit_original' || row.version !== 1
     || !hash(row.requestFingerprint) || !hash(row.preparedIntentProof) || !hash(row.originalProof)
-    || actor.userId !== origin.userId || !text(actor.actorId) || !text(actor.sessionId)
+    || actor.userId !== origin.userId || !text(actor.actorId)
+    || (origin.transport === 'api_key' ? actor.sessionId !== null : !text(actor.sessionId))
     || actor.actorType !== (origin.transport === 'request' ? 'user' : 'agent')
-    || (origin.transport !== 'agent-tool' && actor.sessionId !== origin.sessionId)
+    || ((origin.transport === 'request' || origin.transport === 'direct-mcp') && actor.sessionId !== origin.sessionId)
     || (origin.transport === 'agent-tool' && (actor.sessionId !== origin.piSessionId || actor.actorId !== origin.agentId))
     || (origin.transport === 'request' && actor.actorId !== origin.userId)
     || (origin.transport === 'direct-mcp' && actor.actorId !== `direct-mcp:${createHash('sha256').update(origin.clientId).digest('hex').slice(0,32)}`)
+    || (origin.transport === 'api_key' && actor.actorId !== apiKeyActorId(origin))
     || identity.workspaceId !== origin.workspaceId || identity.organizationId !== origin.organizationId
     || !isCanonicalWorkspacePath(source.path) || Buffer.from(source.path, 'utf8').toString('utf8') !== source.path
     || !isCollaborationStateProof(source.stateProof)
@@ -153,7 +160,7 @@ export function captureNativeDocumentEditOriginal(value: unknown): NativeDocumen
   const body: OriginalBody = { kind: 'native_document_edit_original', version: 1,
     requestFingerprint: row.requestFingerprint, identity, expectedVersion: row.expectedVersion as string, origin,
     actor: Object.freeze({userId:actor.userId as string,actorType:actor.actorType as 'user'|'agent',
-      actorId:actor.actorId,sessionId:actor.sessionId}),
+      actorId:actor.actorId,sessionId:actor.sessionId as string | null}),
     source: Object.freeze({path:source.path,stateProof:source.stateProof,stateVectorHash:source.stateVectorHash,
       persistedSequence:source.persistedSequence}), preparedIntentProof: row.preparedIntentProof };
   if (Buffer.byteLength(canonical(body), 'utf8') > 32 * 1024 || nativeDocumentEditDataProof(body) !== row.originalProof) invalid();

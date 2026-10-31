@@ -6,6 +6,10 @@ import { isDeepStrictEqual, types } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { SqlConnection } from '../db';
+import type { ApiKeyCredential } from '../api-keys/authentication';
+import { apiKeyActorId } from '../api-keys/actor';
+import { withApiKeyDocumentEditPrincipal, withApiKeyDocumentEditPrincipalOnConnection,
+  type ApiKeyDocumentReadOrigin, type ApiKeyDocumentEditPurpose } from '../api-keys/document-read-principal';
 import { withDirectMcpDocumentEditPrincipal, withDirectMcpDocumentEditPrincipalOnConnection,
   type DirectMcpDocumentEditCurrentOrigin } from '../mcp/server/document-read-principal';
 import { withPreparedDocumentEditToolPolicy } from '../public-sharing/tool-policy';
@@ -24,10 +28,11 @@ export type NativeDocumentEditAuthorityOrigin = Readonly<
   WorkspaceRequestHistoricalOrigin & { transport: 'request' }
   | DirectMcpDocumentEditCurrentOrigin & { transport: 'direct-mcp' }
   | WorkspaceAgentToolHistoricalOrigin & { transport: 'agent-tool' }
+  | Omit<ApiKeyDocumentReadOrigin, 'kind'> & { transport: 'api_key' }
 >;
 export type NativeDocumentEditWriteAuthorityAccess = Readonly<{
   workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
-  actorDisplayName: string; sessionId: string; origin: NativeDocumentEditAuthorityOrigin;
+  actorDisplayName: string; sessionId: string | null; origin: NativeDocumentEditAuthorityOrigin;
   assertCurrent: () => Promise<void>; assertActive: () => void;
 }>;
 type SourceAccess = NativeDocumentEditWriteAuthorityAccess;
@@ -240,6 +245,25 @@ export async function withNativeDocumentEditMcpAuthority<T>(authInfo: AuthInfo, 
         actorId: `direct-mcp:${createHash('sha256').update(access.clientId).digest('hex').slice(0, 32)}`,
         actorDisplayName: access.clientId, sessionId: access.sessionId, origin: observed(current, 'direct-mcp', access.workspace),
         assertCurrent: access.assertCurrent, assertActive: access.assertActive }))), consume));
+}
+
+/** Actual key proof, with its own origin. No Better Auth, OAuth or PI session
+ * is created. Rotation changes audit credential ID, not the operation owner. */
+export async function withNativeDocumentEditApiKeyAuthority<T>(credential: ApiKeyCredential, options: { workspaceId: string },
+  source: 'request' | 'mcp', purpose: ApiKeyDocumentEditPurpose,
+  consume: (authority: NativeDocumentEditWriteAuthority) => Promise<T>): Promise<T> {
+  const selected = workspaceId(options);
+  if (typeof consume !== 'function') failure('INVALID_REQUEST');
+  const current: { value?: NativeDocumentEditAuthorityOrigin } = {};
+  return withApiKeyDocumentEditPrincipal(credential, { workspaceId: selected, purpose, source }, value => {
+    const { kind, ...origin } = value;
+    if (kind !== 'api_key') failure('AUTHENTICATION_REQUIRED');
+    observe(current, { ...origin, transport: 'api_key' });
+  }, principal => retain(selected, (connection, consumeAccess) =>
+    withApiKeyDocumentEditPrincipalOnConnection(connection, principal, access => consumeAccess(Object.freeze({
+      workspace: access.workspace, userId: access.userId, actorType: 'agent', actorId: apiKeyActorId(access),
+      actorDisplayName: access.integrationId, sessionId: null, origin: observed(current, 'api_key', access.workspace),
+      assertCurrent: access.assertCurrent, assertActive: access.assertActive }))), consume));
 }
 
 /** Actual wrapped edit_file invocation and freshly checked fixed tool use. */
