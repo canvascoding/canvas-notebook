@@ -15,6 +15,7 @@ import {
   type ApiIntegrationGrant, type ApiIntegrationMetadata, type ApiKeyMetadata,
 } from './contracts';
 import { issueApiKeySecret } from './secret';
+import { storedGrant } from './grants';
 
 type IntegrationRow = {
   id: string; name: string; workspace_ids_json: string; actions_json: string;
@@ -43,16 +44,6 @@ function integrationMetadata(row: IntegrationRow, latest: CredentialRow | null |
   return { id: row.id, name: row.name, creationRequestId: row.creation_request_id,
     ...storedGrant(row), revision: Number(row.revision), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
     latestCredential: latest ? credentialMetadata(latest) : null };
-}
-
-function storedGrant(row: IntegrationRow): ApiIntegrationGrant {
-  try {
-    return updateApiIntegrationSchema.pick({ workspaceIds: true, actions: true }).parse({
-      workspaceIds: JSON.parse(row.workspace_ids_json), actions: JSON.parse(row.actions_json),
-    });
-  } catch {
-    throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'The stored integration grants are invalid.', 503);
-  }
 }
 
 async function readIntegrationMetadata(database: SqlConnection, row: IntegrationRow) {

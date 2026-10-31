@@ -645,9 +645,24 @@ den Lebenszyklus mit echten Auth-Sitzungen in PGlite sowie die Settings-Oberflä
 mit kontrolliertem HTTP-Transport; `npm run test:api-keys:native`
 führt dieselben Prüfungen und zusätzliche unabhängige Transaktions-/Worker-Rennen
 auf dem verwalteten lokalen PostgreSQL in einer eigenen temporären Datenbank aus.
-Die Oberfläche unter **Verbindungen → API-Zugriff** ist angebunden; die Abnahme
-im gebauten Browser steht noch aus. Die Authentifizierung der Dokument-/MCP-Aufrufe
-mit einem Schlüssel und die SDK-Anbindung sind noch offen; die Verwaltungsprüfungen ersetzen deren
+Die Oberfläche unter **Verbindungen → API-Zugriff** ist für `35489f790` an einem
+frisch gebauten Linux-Image abgenommen: vier Browserfälle ohne Wiederholung oder
+Skip prüfen Desktop (1280 px), Mobil (390 px), Rotation/Widerruf und verlorene
+Ausstellungsantworten vor beziehungsweise nach dem tatsächlichen Commit.
+Alle sechs dabei ausgestellten Testschlüssel sind widerrufen; die geschützten
+Dokumentdaten blieben unverändert. Diese Browserfälle werden im Abnahmepaket 5b
+noch in einen dauerhaften Repository-Runner übernommen.
+
+Die separate Schlüsselprüfung ist implementiert und mit regulär ausgestellten
+Schlüsseln in PGlite und PostgreSQL geprüft. Sie erkennt gemischte Zugangsdaten,
+Widerruf, Rotation, Ablauf, Kontosperren, fremde Instanzen, kopierte Nachweise,
+temporäre Schattentabellen und einen geänderten Datenbank-Suchpfad. Logout beendet
+den Schlüsselzugang nicht. Ein warmer Einstieg benötigt einschließlich der
+gemeinsamen Client-/Global-/Key-/User-Limits und begrenzter Nutzungsstatistik fünf
+SQL-Anweisungen. Das ist **noch kein Dokument-Berechtigungsprofil**: Seat-,
+Workspace-, Aktions-/Tool- und Transaktionsprüfungen in den tatsächlichen
+Dokumentphasen sowie REST-/MCP-Adapter und SDK-Anbindung sind noch offen.
+Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu
 diesem Schritt. Vor dem Adapterumbau werden Aufrufer und Auswirkungen mit
