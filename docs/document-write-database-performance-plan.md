@@ -50,8 +50,12 @@ MCP-Principal-Prüfung, elf öffentliche MCP-Gruppen und 47 kontrollierte Schedu
 Familien bestehen. Drei neue echte Gruppenfehler erhalten Originaldaten und
 `xmin`; explizite Wiederaufnahme, fehlender Beleg, die tatsächlich blockierte
 parallele Kontosperre und unterbliebener automatischer Lese-Replay sind geprüft.
-TypeScript und gezieltes Lint bestehen. Host-/Linux-Build, Browserabnahme und
-die abschließende reguläre Gesamtsuite dieses Stands bleiben offen. Auftrags-
+TypeScript und gezieltes Lint bestehen. Am Produktcommit `ce06019b8` bestehen
+Host-/Linux-Produktionsbuild, gesunder Start, 15 Linux-Speicherfälle und neun echte
+Browserfälle ohne Skips oder Retries. Originalzeilen mit `xmin`, Dateibytes und
+Speicheranker sowie die elf anderen Container bleiben erhalten. Die
+[gebundene Teilabnahme](architecture/document-service-move-proof-groups-2026-10-31.md)
+ersetzt nicht die abschließende reguläre Gesamtsuite. Auftrags-
 abschluss und Projektionswartezeit werden als nächstes getrennt gemessen;
 weitere Performancepakete, API-Key-Verwaltung und vollständige API-/SDK-Abnahme
 sind damit nicht abgeschlossen.
