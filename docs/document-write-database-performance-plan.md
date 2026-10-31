@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 30.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 31.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -10,8 +10,13 @@ bündelt die ersten fünf Workspace-/Einrichtungsabfragen in einer tatsächliche
 Abfrage. Bei zehn und 200 Dokumenten sinkt ein warmer HTTP-Abruf von 59 auf 55 SQL-
 Aufrufe; die acht Ausleihen und Agent-/MCP-Kontrollen bleiben unverändert. Vier
 bestehende PostgreSQL-Suiten, 34 neue Fälle und 15 Vergleichsfenster bestehen.
-Build-, Linux-/Browser- und PR-/CI-Abnahme dieses Schritts stehen noch aus;
-Paket 2 und sämtliche weiteren Paketabnahmen bleiben offen.
+Am Produktcommit `6bb4d6ff6` bestehen außerdem Host-/Linux-Produktionsbuild,
+gesunder Start, 15 Linux-Speicherfälle, neun echte Browserfälle ohne Skips/Retry
+und alle sechs GitHub-Checks. Originaldaten und Dateianker sowie die elf übrigen
+Container sind erhalten. Die abschließende CI-/Review-Prüfung erfolgt am
+jeweiligen Head von [PR #194](https://github.com/canvascoding/canvas-notebook/pull/194).
+Paket 2, die reguläre Gesamtsuite vor dem nächsten Produktionsdeploy und die
+weiteren Paketabnahmen bleiben offen.
 
 Ein erster kleiner [HTTP-Verbindungsschritt in Paket 2](architecture/document-service-request-source-connection-2026-10-30.md)
 verwendet die tatsächliche Herkunftsverbindung für die folgende native

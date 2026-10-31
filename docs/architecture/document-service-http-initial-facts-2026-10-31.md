@@ -70,12 +70,64 @@ Anmelde-/Dateiaufrufer sind geprüft. Sechs zusätzlich als berührt gemeldete
 Nachbarsymbole sind anhand ihrer vollständigen TypeScript-Definitionen bytegleich
 zum Basiscommit; die Zeilenverschiebung erweitert den tatsächlichen Umfang nicht.
 
-## Verbleibende Abnahme
+## Build und Browserabnahme
 
-Produktionsbuild, neues Linux-Image, Start-/Browserprüfung und PR-/CI-Abnahme
-dieses Quellstands stehen noch aus. Die älteren Image-/Browsernachweise werden
-nicht als Nachweis für diese Änderung verwendet. Kein neues Release oder
-Produktionsdeployment wurde damit ausgeführt.
+Der vollständige Host-Produktionsbuild am unveränderten Produktcommit
+`6bb4d6ff61ef72d1316b8aeb4c1e5de3639a6901` besteht einschließlich Kompilierung,
+Release-Typecheck, Generierung und Browser-ESM-/Modulidentitätsprüfung. Das danach
+aus exakt diesem Stand gebaute Linux-Image ist
+`sha256:ec80b3ed51dced623d03ed1fc158ccd8b94417534e21af414758551dc7502592`.
+Der einzige verwaltete Notebook-Testcontainer wurde damit frisch erstellt;
+Datenbank, Daten-/Home-Volumes und die elf übrigen Container bleiben erhalten.
+
+Der tatsächliche Start meldet Anwendung, Anmeldung, Datenbank und Zusammenarbeit
+gesund, mit null Identitätskonflikten, null Quarantänen und null ausstehenden
+Projektionen. Originale Operationsbelege, Dokument-/Native-Zeilen einschließlich
+`xmin`, Dateibytes und die drei persistenten Dateianker sind vor und nach der
+Browserabnahme unverändert. Ausgelieferte Laufzeitquellen und Image-Revision sind
+zusätzlich gegen den Produktcommit geprüft.
+
+15 Linux-Speicherfälle und neun echte Browserfälle bestehen ohne Retries, Skips
+oder Flaky-Ergebnisse (Browserlauf 264,9 Sekunden): erster unterbrochener
+Editorzutritt, verlorene Create-Antworten aus Home und Dateibrowser, mobiles
+Speichern mit Exportfehler und neueren Peer-Änderungen, HEIF-Konvertierung sowie
+Rich-/Markdown-Links nach Rename und Move. Der zusätzliche Live-Fall verwendet
+zwei echte Editor-/Benutzersitzungen mit 23 beziehungsweise 16 empfangenen
+WebSocket-Frames. Beide führen echte kompilierte HTTP-Dokumentabrufe aus. Nach
+realem Rechteentzug erhält die alte Sitzung 401 `AUTHENTICATION_REQUIRED`; eine
+frische Anmeldung liest denselben aktuellen Inhalt schreibgeschützt. Der Owner
+kann weiterhin schreiben. Die Screenshots wurden visuell geprüft.
+
+![Gemeinsamer Stand im Desktop-Editor](../testing/http-initial-facts-2026-10-31/desktop-live-editors.png)
+![Frische mobile Anmeldung mit Leserechten](../testing/http-initial-facts-2026-10-31/mobile-read-only.png)
+
+Zwei Annahmen in den übernommenen Prüfscripten wurden korrigiert: Der Host- und
+Linux-Stand sind hier exakt gleich, und die Root-Lockdatei ist ein Build-Eingang,
+den das finale Docker-Image nicht ausliefert. Die erste Vorbedingung stoppte vor
+dem Imagebau; die zweite stoppte die Nachprüfung des bereits gesunden neuen
+Containers. Separate vollständige Leseprüfungen bestätigen die ausgelieferten
+Dateien, Container-/Image-Identität, unveränderte Daten und Dateianker. Anwendung
+und Image wurden für diese Korrektur nicht überlagert.
+
+Private Belege: `http-initial-facts-host-build-1793436255945-result.json`,
+`http-initial-facts-linux-image-1793436679266-result.json`,
+`http-initial-facts-linux-verification-20261031.json`,
+`http-initial-facts-linux-post-ui-verification-20261031.json` und
+`http-initial-facts-acceptance-linux-1793437417883-result.json`.
+
+Am Produktcommit bestehen alle sechs GitHub-Checks. Die vier Runner-Notices
+betreffen den Ubuntu-Imagewechsel und enthalten keine Codebefunde. Der
+[PR #194](https://github.com/canvascoding/canvas-notebook/pull/194) enthält die
+aktuellen Check-/Review-Ergebnisse; vor dem Merge wird dessen endgültiger Head
+erneut geprüft.
+
+Die reguläre vollständige `test:all`-Suite wurde für diesen Schritt nicht erneut
+ausgeführt; ihr letzter dokumentierter Stand ist die Abnahme des vorherigen
+HTTP-Verbindungsschritts. Sie bleibt ein Gate vor dem späteren Produktionsdeploy.
+Direct MCP ist in dieser Linux-Fixture ausgeschaltet; die echten registrierten
+Host-/PostgreSQL-Kontrollen ersetzen keine neue kompilierte OAuth-/MCP-Abnahme.
+Review Center bleibt in den tatsächlichen UI-Einstellungen ausgeschaltet.
+Kein neues Release oder Produktionsdeployment dieses Schritts wurde ausgeführt.
 
 Dies ist ein weiterer Teil von Paket 2. Gemeinsame Fakten in den übrigen Phasen,
 selektive Body-Lesungen, gemeinsame Schreibmechanik und die abschließenden
