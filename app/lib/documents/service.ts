@@ -299,14 +299,22 @@ async function finish(held: { phase: ReadPhase; page: DocumentReadPageV1 }): Pro
   finally { held.phase.active = false; }
 }
 
-async function readWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentReadRequestV1): Promise<DocumentReadPageV1> {
+async function readWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentReadRequestV1, mcp = false): Promise<DocumentReadPageV1> {
   const historical: { value?: ApiKeyDocumentReadOrigin } = {};
-  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'read' },
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'read', ...(mcp ? { mcp: true } : {}) },
     value => observe(historical, value), principal => transaction(async connection => {
       const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
         connection, access.workspace, value => origin(value, ['api_key', value.userId, value.integrationId, value.instanceId]), selection));
       return finish(held);
     }));
+}
+
+/** Genuine key proof from /mcp, with fresh MCP tool switches on actual B. */
+export async function readDocumentForApiKeyMcp(credential: ApiKeyCredential, input: unknown): Promise<DocumentReadPageV1> {
+  return measureDocumentOperation('read', 'mcp', async () => {
+    try { return await readWithApiKey(credential, decodeDocumentReadRequestV1(input), true); }
+    catch (error) { throw normalizeError(error); }
+  });
 }
 
 /** Explicit API key or genuine Better Auth request; selectors grant no rights. */
@@ -389,9 +397,9 @@ function normalizeSearchError(error: unknown): Error {
   return normalizeError(error);
 }
 
-async function searchWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentSearchRequestV1): Promise<DocumentSearchPageV1> {
+async function searchWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentSearchRequestV1, mcp = false): Promise<DocumentSearchPageV1> {
   const historical: { value?: ApiKeyDocumentReadOrigin } = {};
-  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'search' },
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'search', ...(mcp ? { mcp: true } : {}) },
     value => observe(historical, value), principal => transaction(async connection => {
       const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, async access => {
         const prepared = await consumeSearch(historical, connection, access.workspace,
@@ -401,6 +409,12 @@ async function searchWithApiKey(credential: ApiKeyCredential, selection: Decoded
       });
       return finishSearch(held);
     }));
+}
+
+/** Same search kernel and key identity, with current MCP feature/tool policy. */
+export async function searchDocumentsForApiKeyMcp(credential: ApiKeyCredential, input: unknown): Promise<DocumentSearchPageV1> {
+  try { return await searchWithApiKey(credential, decodeDocumentSearchRequestV1(input), true); }
+  catch (error) { throw normalizeSearchError(error); }
 }
 
 /** Explicit API key or genuine original request; a cursor or hit grants no access. */

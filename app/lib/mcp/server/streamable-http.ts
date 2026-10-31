@@ -26,11 +26,14 @@ import {
 } from '@/app/lib/mcp/server/diagnostics';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
+import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '@/app/lib/api-keys/authentication';
+import { apiKeyDocumentErrorResponse } from '@/app/lib/api-keys/http';
 
 const MCP_ALLOWED_METHODS = 'POST, OPTIONS';
 const MCP_ALLOWED_HEADERS = [
   'accept',
   'authorization',
+  'x-canvas-api-key',
   'content-type',
   'last-event-id',
   'mcp-protocol-version',
@@ -49,9 +52,10 @@ function createModernMcpHandler(
   enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[],
   diagnostics: DirectMcpDiagnosticContext,
   startedAt: number,
+  apiKeyCredential?: ApiKeyCredential,
 ) {
   return createMcpHandler(
-    () => createDirectMcpServer(enabledTools),
+    () => createDirectMcpServer(enabledTools, apiKeyCredential),
     {
       legacy: 'reject',
       onerror: () => {
@@ -71,16 +75,17 @@ async function handleProtocolRequest(
   authInfo?: AuthInfo,
   diagnostics?: DirectMcpDiagnosticContext,
   startedAt?: number,
+  apiKeyCredential?: ApiKeyCredential,
 ): Promise<Response> {
   if (!await isLegacyRequest(request)) {
     if (!diagnostics || !startedAt) {
       throw new Error('Direct MCP diagnostics context is required.');
     }
-    return createModernMcpHandler(enabledTools, diagnostics, startedAt)
+    return createModernMcpHandler(enabledTools, diagnostics, startedAt, apiKeyCredential)
       .fetch(request, { authInfo });
   }
 
-  const server = createDirectMcpServer(enabledTools);
+  const server = createDirectMcpServer(enabledTools, apiKeyCredential);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -220,9 +225,17 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
       }
 
       let authInfo: AuthInfo | undefined;
+      let apiKeyCredential: ApiKeyCredential | undefined;
       try {
-        authInfo = await resolveAuthInfo(request);
+        if (hasApiKeyCredential(request)) apiKeyCredential = await authenticateApiKeyRequest(request);
+        else authInfo = await resolveAuthInfo(request);
       } catch (error) {
+        const credentialFailure = apiKeyDocumentErrorResponse(error, {});
+        if (credentialFailure) {
+          const response = withDirectMcpHeaders(credentialFailure, request, diagnostics.requestId);
+          await completeDirectMcpDiagnostic(diagnostics, { statusCode: response.status, code: 'MCP_API_KEY_REJECTED', startedAt });
+          return response;
+        }
         if (error instanceof DirectMcpAuthorizationError) {
           const response = withDirectMcpHeaders(error.toResponse(), request, diagnostics.requestId);
           await completeDirectMcpDiagnostic(diagnostics, {
@@ -242,6 +255,7 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
           authInfo,
           diagnostics,
           startedAt,
+          apiKeyCredential,
         ),
         request,
         diagnostics.requestId,

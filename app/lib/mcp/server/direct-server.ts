@@ -30,6 +30,8 @@ import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descript
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
 import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
+import type { ApiKeyCredential } from '../../api-keys/authentication';
+import { API_KEY_MCP_TOOLS, apiKeyMcpToolDescriptor } from './api-key-tool-contract';
 
 type DirectMcpToolHandler = {
   id: DirectMcpToolId;
@@ -39,8 +41,9 @@ type DirectMcpToolHandler = {
 
 export function createDirectMcpServer(
   configuredTools: readonly DirectMcpToolId[] = getDirectMcpEnabledTools(),
+  apiKeyCredential?: ApiKeyCredential,
 ): Server {
-  const enabledTools = new Set(configuredTools);
+  const enabledTools = new Set(configuredTools.filter(tool => !apiKeyCredential || API_KEY_MCP_TOOLS.includes(tool)));
   const tools: DirectMcpToolHandler[] = [];
   if (enabledTools.has(DIRECT_MCP_AUTH_PROBE_TOOL)) {
     tools.push({
@@ -66,7 +69,9 @@ export function createDirectMcpServer(
     || enabledTools.has('upload_knowledge_asset')
     || enabledTools.has('create_knowledge_source') || enabledTools.has('import_knowledge_file')
     || enabledTools.has('create_excalidraw_scene') || enabledTools.has('edit_excalidraw_scene');
-  const instructions = tools.length === 0
+  const instructions = apiKeyCredential
+    ? 'Canvas Notebook provides native document operations within this API-key integration\'s explicit workspace and action grants. Every operation rechecks current user and workspace rights.'
+    : tools.length === 0
     ? 'No MCP tools are currently enabled for this Canvas Notebook instance.'
     : hasWriteTool
       ? 'Canvas Notebook provides bounded reads and explicitly enabled, conflict-protected writes only for workspaces the signed-in user allows for this MCP connection.'
@@ -90,7 +95,7 @@ export function createDirectMcpServer(
   server.setRequestHandler('tools/list', async () => {
     recordDirectMcpRequestOperation('tools/list');
     await recordDirectMcpSuccessfulOperation();
-    return { tools: tools.map((tool) => tool.descriptor) };
+    return { tools: tools.map((tool) => apiKeyCredential ? apiKeyMcpToolDescriptor(tool.descriptor) : tool.descriptor) };
   });
 
   server.setRequestHandler('tools/call', async (request, context) => {
@@ -109,7 +114,9 @@ export function createDirectMcpServer(
     }
     recordDirectMcpRequestOperation('tools/call', tool.id);
     try {
-      const result = await tool.execute(request.params.arguments, context.http?.authInfo, context.mcpReq.signal);
+      const result = apiKeyCredential
+        ? await (await import('./api-key-tools')).executeApiKeyMcpTool(tool.id, request.params.arguments, apiKeyCredential)
+        : await tool.execute(request.params.arguments, context.http?.authInfo, context.mcpReq.signal);
       if (result.isError) recordDirectMcpToolFailure();
       else await recordDirectMcpSuccessfulOperation();
       return result;

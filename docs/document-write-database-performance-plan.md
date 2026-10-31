@@ -672,8 +672,15 @@ Dokumentkerne. Sechs PostgreSQL-/Route-Testgruppen prüfen regulär ausgestellte
 Schlüssel, Unicode-Seiten, progressive Suche, Fortsetzung nach Rotation innerhalb
 derselben Integration, fremde Integrations-Cursor und echte 401/403/429-Antworten.
 Diese Tests verwenden echte Route-/Auth-/SQL-Implementierungen, ersetzen aber
-keine Abnahme über TCP am frisch kompilierten Container. **MCP-/SDK-Anbindung,
-Tool-Policy und die weiteren Schreib-/Job-Phasen sind noch offen.**
+keine Abnahme über TCP am frisch kompilierten Container.
+`/mcp` erkennt den eigenen Key-Header getrennt von OAuth. Die beiden nativen
+Read-/Search-Adapter sind über Legacy- und modernes MCP-Protokoll mit sechs
+weiteren PostgreSQL-Gruppen geprüft; API-Key-Verbindungen erhalten dafür eigene
+Auth-/Input-/Fehlerschemata. Eine laufende Phase prüft die wirklichen MCP-Tool-
+schalter erneut. Es entstehen keine fingierten OAuth- oder Browser-Sitzungen.
+Fünf aktuelle native Regressionssuiten und der korrigierte isolierte MCP-
+Nutzungsanzeigentest bestehen. **Workspace-Navigation, weitere MCP-Adapter,
+SDK-Anbindung und die Schreib-/Job-Phasen sind noch offen.**
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

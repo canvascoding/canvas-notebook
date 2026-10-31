@@ -14,6 +14,7 @@ import { workspaceContextFromPermissionSnapshot, workspacePermissionSnapshotJson
   type WorkspacePermissionSnapshotRow } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { ApiKeyAccessError } from './contracts';
+import { assertApiKeyMcpToolEnabled } from './mcp-runtime';
 import { apiKeyCredentialBinding, apiKeyCredentialSnapshotSql, currentApiKeyIdentityFromSnapshot,
   type ApiKeyCredential, type ApiKeyCredentialBinding } from './authentication';
 
@@ -31,7 +32,7 @@ type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integratio
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string; purpose: 'read' | 'search';
   license: LicenseStatus; observer: (origin: ApiKeyDocumentReadOrigin) => void; origin?: ApiKeyDocumentReadOrigin;
-  active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
+  mcp: boolean; active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
 };
 type Identity = { backend: number; start: string; xid: string };
 type Phase = { capture: Capture; connection: SqlConnection; identity?: Identity; deadline: number;
@@ -100,6 +101,8 @@ function validateHeader(phase: Phase, row: Row | undefined): void {
 async function current(phase: Phase): Promise<WorkspaceContext> {
   active(phase);
   const capture = phase.capture, binding = capture.binding, schema = quote(binding.realm.schema);
+  const tool = capture.purpose === 'read' ? 'read_knowledge_source' : 'search_knowledge';
+  if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
   const pinned = policyTables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${schema}.${quote(name)})`).join(',');
   const keySql = postgresScalarSnapshotSql(apiKeyCredentialSnapshotSql(3, binding.realm.schema), ['account_banned', 'expires_at', 'revision']);
@@ -112,6 +115,7 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
     LEFT JOIN (${workspacePermissionSnapshotJsonSql}) workspace ON true`,
   [capture.workspaceId, binding.userId, binding.credentialId, seatPolicy.mode, schema, tables]) as Row | undefined;
   active(phase); validateHeader(phase, row);
+  if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const credential = row!.credential as Row | null;
   if (!credential) throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
   if ([credential, row!.seat, row!.workspace].some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) failure('API_KEY_STATE_INVALID');
@@ -137,17 +141,21 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
 
 /** Fixed read/search capture. A stored identity or caller-supplied actor is insufficient. */
 export async function withApiKeyDocumentReadPrincipal<T>(credential: ApiKeyCredential,
-  options: { workspaceId: string; purpose: 'read' | 'search' }, observer: (origin: ApiKeyDocumentReadOrigin) => void,
+  options: { workspaceId: string; purpose: 'read' | 'search'; mcp?: true }, observer: (origin: ApiKeyDocumentReadOrigin) => void,
   consume: (principal: ApiKeyDocumentReadPrincipal) => Promise<T>): Promise<T> {
   if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
   const descriptors = Object.getOwnPropertyDescriptors(options);
   const workspaceId: unknown = descriptors.workspaceId?.value, purpose: unknown = descriptors.purpose?.value;
-  if (Reflect.ownKeys(descriptors).length !== 2 || !['workspaceId', 'purpose'].every(name => descriptors[name]?.enumerable
+  const mcp = Object.hasOwn(descriptors, 'mcp');
+  const mcpDescriptor = descriptors.mcp;
+  if (Reflect.ownKeys(descriptors).length !== (mcp ? 3 : 2)
+    || mcp && (!mcpDescriptor || !mcpDescriptor.enumerable || !Object.hasOwn(mcpDescriptor, 'value') || mcpDescriptor.value !== true)
+    || !['workspaceId', 'purpose'].every(name => descriptors[name]?.enumerable
     && Object.hasOwn(descriptors[name], 'value')) || !validId(workspaceId)
     || purpose !== 'read' && purpose !== 'search' || typeof observer !== 'function' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
   const binding = apiKeyCredentialBinding(credential), license = await getLicenseStatus();
   const capture: Capture = { credential, binding, workspaceId, purpose,
-    license, observer, active: true, accepting: true, busy: false, pending: new Set() };
+    license, observer, mcp, active: true, accepting: true, busy: false, pending: new Set() };
   const principal = Object.freeze({}) as ApiKeyDocumentReadPrincipal; shared.captures.set(principal, capture);
   try { return await consume(principal); }
   finally {
