@@ -5,6 +5,13 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+Ergänzung vom 31.10.2026: Programmatischer Zugriff über REST und das installierte
+Python-SDK gehört ausdrücklich zum Ziel. Die neuen, noch offenen Pakete 4a und
+4b ergänzen eine benutzergebundene API-Key-Verwaltung und die vollständige
+API-/SDK-Abnahme. Bisherige Session-/OAuth-Zugänge bleiben erhalten. Diese
+Planergänzung stellt keine implementierte Schlüsselverwaltung, neue
+SDK-Veröffentlichung oder bestandene Abnahme dar.
+
 Der nächste [HTTP-Workspace-Schritt in Paket 2](architecture/document-service-http-initial-facts-2026-10-31.md)
 bündelt die ersten fünf Workspace-/Einrichtungsabfragen in einer tatsächlichen
 Abfrage. Bei zehn und 200 Dokumenten sinkt ein warmer HTTP-Abruf von 59 auf 55 SQL-
@@ -158,8 +165,10 @@ vorhandenen Teiloptimierungen gelten nicht als Abnahme eines ganzen Pakets.
 | 1. Messung und Verträge vervollständigen | Editor einschließlich Zutritt und Projektion, Agent, MCP sowie öffentliche Rename-/Move-Abläufe mit derselben Instrumentierung messen. | Vergleichbare Berichte für kalt/warm und kleine/größere Workspaces; direkte Owner-Verbindungen sind enthalten; dominante Abfragegruppen stehen fest. |
 | 2. Datenbankzugriffe bündeln | Aktuelle Berechtigungs-, Registry- und Zustandsdaten pro notwendiger Phase gemeinsam lesen und dieselbe Verbindung verwenden. | Weniger Abfragen und Pool-Ausleihen; echte Widerrufs-, Seat-, Realm- und Parallelitätstests bestehen unverändert. |
 | 3. Linkprojektion inkrementell machen | Versionierte Extraktion je Dokument und gezielte Neuauflösung abhängiger Ziele; vollständigen Neuaufbau erhalten. | Ein Save inspiziert nur die geänderte Quelle. Rename, Move, Titel, Aliase und neue Ziele korrigieren alle betroffenen Links. Ergebnisse entsprechen dem Neuaufbau. |
-| 4. Schreibwege vereinheitlichen | Bestehende Speicherung, Versionsprüfung und dauerhafte Belege hinter kleinen gemeinsamen Operationen verwenden; Aufrufer einzeln umstellen. | Editor, Agent und MCP liefern gleiche Speicher- und Linkergebnisse. Gleichzeitige Änderungen, Wiederholungen und Abbruch verlieren keine Daten. |
-| 5. Einführung absichern | Endgültige Leistungsbudgets, reguläre Gesamtsuite, Desktop/Mobil, PR/CI/Reviews, Backup-/Restore-Nachweis und kontrolliertes Release. | Alle tatsächlich umgestellten Abläufe sind nachgewiesen; nach Deployment funktionieren Filetree, Öffnen, Speichern und Linkpflege in allen fünf Workspaces. |
+| 4. Schreibwege vereinheitlichen | Bestehende Speicherung, Versionsprüfung und dauerhafte Belege hinter kleinen gemeinsamen Operationen verwenden; Aufrufer einzeln umstellen. | Editor, Agent, MCP, REST und SDK liefern für dieselbe freigegebene Operation gleiche Speicher- und Linkergebnisse. Gleichzeitige Änderungen, Wiederholungen und Abbruch verlieren keine Daten. |
+| 4a. API-Key-Verwaltung ergänzen (offen) | Benutzergebundene Schlüssel mit Workspace-/Aktionsrechten, Ablauf, Rotation und Widerruf verwalten; REST und SDK über denselben aktuellen Berechtigungsdienst anbinden. | Ein regulär ausgestellter Schlüssel funktioniert ohne Browsersitzung ausschließlich im freigegebenen Umfang; gesperrte oder abgelaufene Zugänge werden zuverlässig abgewiesen. |
+| 4b. API und SDK vollständig abnehmen (offen) | Gemeinsame Funktions-/Rechtematrix gegen echte HTTP-Endpunkte und ein frisch installiertes SDK ausführen; Schlüssel-, Session- und OAuth-Zugänge getrennt prüfen. | Alle ausgewiesenen Funktionen sowie Konflikt-, Recovery-, Widerrufs-, Neustart- und Leistungsfälle bestehen am selben gebauten Produktstand; öffentliche Beispiele sind ausführbar. |
+| 5. Einführung absichern | Endgültige Leistungsbudgets, reguläre Gesamtsuite, vollständige API-/SDK-Abnahme, Desktop/Mobil, PR/CI/Reviews, Backup-/Restore-Nachweis und kontrolliertes Release. | Alle tatsächlich umgestellten Abläufe sind nachgewiesen; nach Deployment funktionieren Filetree, Öffnen, Speichern, Linkpflege und freigegebene API-/SDK-Zugänge in allen fünf Workspaces. |
 
 Paket 0 adressiert einen konkret reproduzierten Fehler: Im isolierten UI-/API-Test führte ein
 gezielt erzeugter Katalog-/Native-Zustandskonflikt bei `unavailable.md` zu null
@@ -457,7 +466,7 @@ Pakete bleiben offen.
 
 ## Zielaufbau
 
-Editor / Agent / MCP / Systemauftrag
+Editor / Agent / MCP / REST / Python-SDK / Systemauftrag
 → jeweilige echte Authentifizierung und eng begrenzter Adapter
 → gemeinsamer Dokument- und Linkservice
 → aktuelle Berechtigungs- und Dokumentbeobachtung
@@ -480,7 +489,7 @@ Die aktuelle Aufrufkarte, abgegrenzte Messbereiche und offene Nachweise stehen i
 ### 1. Aufrufer und Messbasis erfassen
 
 Je einen reproduzierbaren Ablauf für Öffnen, Speichern, Agenten-/MCP-Neuanlage,
-Backlinks und Umbenennen/Verschieben erfassen. Pro Aktion und Phase SQL-Anzahl,
+REST-/SDK-Zugriff, Backlinks und Umbenennen/Verschieben erfassen. Pro Aktion und Phase SQL-Anzahl,
 Datenbankzeit, Gesamtdauer, Pool-Wartezeit und gleichzeitige Verbindungen messen.
 Kalte/warme Aufrufe und kleine/große Workspaces getrennt vergleichen. Metriken
 enthalten keine Inhalte, Pfade, Nutzeridentitäten, SQL-Parameter oder Secrets.
@@ -550,7 +559,7 @@ wird nie als alleinige Autorität für Schreiboperationen benutzt.
 
 ### 5. Normale Änderungen zentral ausführen
 
-Editor, Agent und MCP delegieren die eigentliche Speicherung an dieselben
+Editor, Agent, MCP, REST und SDK delegieren die eigentliche Speicherung an dieselben
 spezifischen Dienste. Ihre Authentifizierung bleibt jeweils echt und getrennt.
 Vorhandene native Versionsprüfung und dauerhafte Belege werden weiterverwendet.
 Parsing und Serialisierung finden außerhalb langer Schreibtransaktionen statt,
@@ -566,6 +575,146 @@ Ein unbestätigter Rollback wird nicht blind wiederholt.
 **Fertig:** Kein Verlust von Inhalt, IDs, Lineage, Revisionen oder Freigaben bei
 Parallelbearbeitung, Prozessabbruch, verlorener COMMIT-Antwort und Neustart.
 Keine neue Review-Center- oder Undo-Implementierung als Voraussetzung.
+
+### 5a. API-Key-Verwaltung für programmatischen Zugriff
+
+**Status: geplant, noch nicht implementiert.** Erster Umfang sind benutzergebundene
+Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu
+diesem Schritt. Vor dem Adapterumbau werden Aufrufer und Auswirkungen mit
+GitNexus geprüft; gemeinsame Regeln bleiben im vorhandenen Berechtigungsdienst.
+
+**Verwaltung und Schlüssellebenszyklus:**
+
+- Unter Settings einen Bereich „API-Zugriff“ mit benannten Integrationen und
+  deren Schlüsseln vorsehen. Erstellen, Auflisten, Rotieren und Widerrufen
+  verlangen eine echte aktuelle Benutzersitzung und die passende Berechtigung;
+  bei Veränderungen gelten die bestehenden Origin-/CSRF-Prüfungen. Ein API-Key
+  darf keine neuen Schlüssel erzeugen oder sich selbst mehr Rechte erteilen.
+- Jede Integration erhält eine stabile Identität, einen Eigentümer, eine
+  explizite Workspace-Liste und freigegebene Aktionen. Neue Workspaces werden
+  nicht automatisch zugänglich. Lesen/Suchen sind getrennt von Schreiben;
+  Copy, Move, Delete und deren Status-/Recovery-Zugänge werden ausdrücklich
+  zugeordnet. Voreinstellung ist Lesezugriff ohne Schreibfreigabe.
+  Die serverseitig geprüfte Instanzbindung verhindert, dass importierte
+  Schlüssel einer fremden Installation automatisch Zugang erhalten.
+- Jeder Schlüssel besitzt eine eigene Kennung, Erstellzeit, Ablaufdatum,
+  Widerrufsstatus und eine begrenzt aktualisierte letzte Nutzung. Die UI zeigt
+  nur Kennung/Präfix und Metadaten; ein kryptographisch zufälliges Geheimnis mit
+  mindestens 32 Zufallsbytes wird bei Ausstellung genau einmal ausgegeben.
+  Beim Deploy oder Containerstart wird kein globaler Zugangsschlüssel erzeugt.
+- Der Server speichert nur einen kryptographischen Hash des Geheimnisses und
+  die autoritativen Zuordnungen, niemals den wiederlesbaren Vollschlüssel.
+  Authentifizierungsdaten liegen im serverseitigen Auth-Speicher. Benötigt ein
+  Canvas-interner Client den Vollschlüssel, verwendet er den bestehenden
+  Secrets-Service und `Canvas-Secrets.env` im passenden Berechtigungsbereich;
+  es entsteht keine weitere ENV-Datei. Externe Clients verwenden ihren eigenen
+  Secret-Speicher oder OS-Keyring. Keine Schlüssel in URLs, Local Storage,
+  Logs, Screenshots, Dokumentinhalten oder ausgelieferten Browser-Bundles.
+- Rotation stellt ein neues Geheimnis für dieselbe Integration aus und
+  widerruft das alte atomar. Eigentümer und stabile Integrationsidentität der
+  bisherigen Operationsbelege bleiben erhalten. Der neue Schlüssel darf deren
+  Status/Recovery nur unter aktuellen passenden Rechten beobachten/fortsetzen;
+  eine andere Integration desselben Benutzers erhält daraus keinen Zugriff.
+  Geht die Ausstellungs-/Rotationsantwort verloren, werden Metadaten geprüft
+  und ein unbekannter neuer Schlüssel gezielt widerrufen; die UI erzeugt
+  nicht automatisch weitere Schlüssel und kann das Geheimnis nicht nachladen.
+- Widerruf, Ablauf, Kontosperre, verlorener Seat und entzogene Workspace-Rechte
+  wirken an der nächsten erforderlichen aktuellen Prüfgrenze, auch bei einer
+  bestehenden HTTP-/MCP-Verbindung. Dokumente und Operationsbelege werden durch
+  Rotation oder Widerruf nicht gelöscht. Unsichere Schreibausgänge bleiben
+  anhand ihrer ursprünglichen Belege aufklärbar.
+
+**Anschluss an REST und SDK:**
+
+- Den eigenen Header `X-Canvas-API-Key` für explizit unterstützte Dokument- und
+  Workspace-Endpunkte sowie den SDK-Zugang an `/mcp` verwenden. Session-Bearer
+  und OAuth-Bearer behalten ihre bisherigen Verträge. Gleichzeitige
+  widersprüchliche Zugangsdaten werden abgewiesen; fehlgeschlagene Schlüssel
+  fallen nicht auf einen anderen angemeldeten Benutzer zurück.
+- Ein geprüfter Schlüssel erzeugt einen ausdrücklich typisierten API-Key-
+  Principal aus den tatsächlichen serverseitigen Daten. Keine fingierte
+  Better-Auth-Sitzung, kein fingierter OAuth-Grant und kein genereller Zugriff
+  auf andere Notebook-APIs. Admin-, Benutzer- und Secrets-Verwaltung bleiben
+  außerhalb dieser Dokumentfreigabe.
+- Effektive Rechte sind die Schnittmenge aus Schlüsselaktionen, Workspace-
+  Freigaben, aktuellen Benutzer-/Seat-/Organisationsrechten und vorhandenen
+  Funktions-/Toolschaltern. Normale Dokumentversions-, Schema-, Sperr-, Claim-
+  und COMMIT-Prüfungen gelten auch für API-Key-Aufrufe.
+- Das Python-SDK erhält einen ausdrücklich auswählbaren `api_key`-Zugang neben
+  OAuth beziehungsweise einem ausgestellten MCP-Token. Es verwendet denselben
+  Header und dieselben zentralen Dokumentoperationen. Externe Verbindungen
+  verlangen HTTPS; Loopback-Entwicklung bleibt möglich. Keine automatische
+  Wiederholung unbestätigter Änderungen durch den neuen Auth-Adapter.
+- Für jede unterstützte Operation REST-Endpunkt, MCP-Tool und SDK-Methode
+  verbindlich zuordnen. Bisher nur über MCP angebotene, bereits implementierte
+  Dokumentoperationen erhalten bei Bedarf einen dünnen REST-Adapter. Fehlende
+  Adapter werden als offene Arbeit ausgewiesen; es entsteht keine zweite
+  Speicher-, Yjs-, Link- oder Recovery-Engine.
+- Authentifizierung und aktuelles Berechtigungslesen pro notwendiger Phase
+  bündeln. Nutzungsstatistik darf keine zusätzliche Schreibkette je
+  Unteraufruf erzeugen. Rate Limits gelten serverseitig pro Schlüssel und
+  Benutzer sowie für unauthentifizierte Zugriffe; bei mehreren Prozessen
+  dürfen sie nicht durch einen anderen Worker umgangen werden.
+
+**Fertig:** Ein über die wirkliche Verwaltungsoberfläche ausgestellter Schlüssel
+kann ohne Browsersitzung über REST und das installierte SDK genau die erlaubten
+Aktionen ausführen. Abgelaufene/ungültige Schlüssel liefern 401, fehlende aktuelle
+Rechte 403 und ausgeschöpfte Limits 429; bestehende Fachkonflikte behalten ihre
+Codes. Ausgabe, Speicherung, Rotation, Widerruf und Audit-Metadaten sind mit
+echten Requests und Datenbankbeobachtungen geprüft. Ein DB-Fehler verweigert den
+Zugriff; erfolgreiche Berechtigungen werden nicht über Phasengrenzen gecacht.
+
+### 5b. Vollständige API- und SDK-Testmatrix
+
+**Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
+und SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
+Versions-/Fähigkeitsmatrix benennt unterstützte Typen, Schalter und bewusste
+Grenzen. Nicht unterstützte Funktionen werden explizit abgewiesen und nicht als
+erfolgreich getestet gezählt. Review Center, Undo und zusätzliche Modell-/Plugin-
+Spezialumgebungen bleiben außerhalb dieses Auftrags.
+
+| Prüfbereich | Verbindliche Fälle |
+| --- | --- |
+| Zugänge und Verwaltung | REST mit Session und API-Key; SDK mit OAuth, ausgestelltem MCP-Token und API-Key. Echte Ausstellung, einmalige Anzeige, sichere Speicherung, Rotation, Ablauf, Widerruf, konkurrierende Verwaltungsaktionen, verlorene Ausstellungsantwort, OAuth-Erneuerung und erneute Anmeldung; UI auf Desktop und Mobil. |
+| Rechte und Isolation | Fehlender/falscher Schlüssel, Read-only, fremder Benutzer/Workspace/Instanz, fehlender Seat, Kontosperre, deaktiviertes Tool, entzogenes Recht während eines laufenden Vorgangs und mehrdeutige Auth-Header. Ein Schlüssel kann keine Admin-/Secrets-Endpunkte freischalten. |
+| Navigation und Lesen | Workspace-Liste, Baum mit Fortsetzungen, progressive Suche und native Reads nach stabiler ID und vollständiger Version; Unicode, mehrseitige Antworten, leere Trefferseiten mit Fortsetzung, Größenlimits und Versionskonflikt zwischen Seiten. |
+| Erstellen, Importieren und Bearbeiten | Native leere/befüllte Markdown-Anlage, unterstützter Import, Text-/Blockänderungen und Status; identische Wiederholung mit Original-ID, abweichender Request unter gleichem Schlüssel, Stale-Version-Konflikt und zwei tatsächlich gleichzeitig geöffnete Editoren. |
+| Dateioperationen und Links | Copy/Move/Delete mit Preview, Apply, Status und Recover für die ausgewiesenen unterstützten Typen; gleiche und getrennte Workspaces, Kollisionen, relative Links, Backlinks, Titel-/Aliasänderungen sowie vorher fehlende/mehrdeutige Ziele. Vergleich mit vollständigem Link-Neuaufbau. |
+| Unterbrechungen und Wiederaufnahme | Abbruch/Timeout, tatsächlicher Verlust einer COMMIT-Antwort, Prozess-/Containerneustart und Schlüsselrotation vor erlaubtem Status/Recovery. Backup-/Restore-Test erhält die vorgesehene Instanz- und Credential-Zuordnung. Originale Dokument-/Operationsidentitäten, Inhalte, Revisionen, Linkergebnisse und Freigaben bleiben erhalten. Kein automatischer neuer Schreibversuch nach unklarem Ausgang. |
+| Paket und Kompatibilität | Core-Installation ohne optionale MCP-Abhängigkeiten, vollständige MCP-/Keyring-Installation, tatsächliche Mindest-Python-Version und eine aktuelle unterstützte Version; geprüfte SDK-/Backend-Paare und OS-Keyring-Verhalten. Fehlende sichere Credential-Ablage führt zu einem klaren Fehler statt Klartext-Fallback. |
+| Fehler und Leistung | Echte HTTP-Fehler samt 401/403/409/429 und begrenzten Retry-Angaben, Protokoll-/Schemaabweichungen, Datenbankausfall, bereinigte Fehlerantworten und vollständige Ressourcenfreigabe. Gleiche Messgrenzen für SQL, Ausleihen, Pool-Wartezeit, Datenbank-/Gesamtzeit und übertragene Bytes bei 10/200 regulär angelegten Quellen, kalt/warm und mit begrenzter echter Antwortlatenz. |
+
+Die Abnahme erfolgt in dieser Reihenfolge, jeweils mit gebundenem Produktstand:
+
+1. Vertrags-/Parser-/Autorisierungstests und echte PostgreSQL-Fälle. In den
+   Auth-/HTTP-Abnahmen verwenden erlaubte wie verweigerte Requests die wirkliche
+   Auth-Schicht; positive Antworten oder Principals werden dort nicht durch
+   Testersatz erzeugt. Isolierte Vertragstests ersetzen diese Nachweise nicht.
+2. SDK-Wheel und Source-Distribution bauen, in isolierten Umgebungen installieren
+   und Paket-/Import-/Abhängigkeitsprüfungen ausführen. Der echte HTTP-Test nutzt
+   das installierte Wheel und prüft dessen Modul-/Versionsbindung; ein Import
+   aus dem Quellordner ersetzt diesen Nachweis nicht.
+3. `npm run build`, danach den einzigen verwalteten Notebook-Testcontainer mit
+   aktuellem Stand neu bauen/erstellen. Echte HTTP-/OAuth-/API-Key-/Playwright-
+   Fälle gegen dieses kompilierte Produkt ausführen. Testdaten und Credentials
+   werden regulär in isolierten Test-Workspaces erzeugt, eigene Zugänge danach
+   widerrufen und alle eigenen Prozesse/Verbindungen geschlossen.
+4. Die reguläre Gesamtsuite `test:all` und die vereinbarten Recovery-/Link-UI-
+   Fälle am selben Quellstand bestehen lassen. Featureeigene Spezialumgebungen
+   bleiben ausgeschlossen; keine neuen Skips zur Umgehung eines API-/SDK-Fehlers.
+5. Ausführbare REST-/SDK-Beispiele, dokumentierte Header/Rechte, Installation,
+   Rotation und Fehlerbehandlung mit den echten Verträgen abgleichen. Die
+   öffentlichen Quellen bleiben `docs/product/en/developers/document-api.mdx`
+   und `docs/product/en/developers/python-sdk.mdx`; keine Anleitung stellt
+   geplante oder nur lokal geprüfte Funktionen als bereits deployed dar.
+
+**Fertig:** Für jede Matrixzelle liegen die tatsächlichen Ergebnisse, Produkt-/
+SDK-Versionen, Quellenbindung und Grenzen vor. Skips oder ältere Belege ersetzen
+keine neue erforderliche Abnahme. Nach erfolgreicher CI und abgeschlossenen
+Reviews werden Notebook und das kompatible SDK kontrolliert veröffentlicht;
+Paketinstallation, Dokumentationsauslieferung und Zugriff nach dem Deployment
+werden separat nachgewiesen. Produktivprüfungen sind lesend; ein Schreibtest
+verwendet ausschließlich ausdrücklich bestimmte Testdokumente.
 
 ### 6. Leistungsgrenzen und sichere Einführung
 
@@ -584,16 +733,20 @@ Rechte, parallele Bearbeitung, fehlende Zustände, defekte Metadaten, HTML, Alia
 Konflikte, relative Links und neue Ziele für bisher unaufgelöste Verweise.
 Desktop und Mobilansicht prüfen. Die vereinbarte reguläre Gesamtsuite muss grün sein;
 Spezialumgebungen für Review Center und Undo werden dafür nicht neu aufgebaut.
+Die vollständige API-/SDK-Matrix aus Abschnitt 5b ist ein eigenes Release-Gate;
+ein erfolgreicher Editor- oder MCP-Lauf allein erfüllt sie nicht.
 
 Einführung in kleinen PRs: Messung/Verträge → gebündelte Leser → inkrementeller
-Linkindex → gemeinsame Änderungspfade → kontrollierte Umschaltung und Bereinigung.
+Linkindex → gemeinsame Änderungspfade → API-Key-Verwaltung → API-/SDK-Abnahme
+→ kontrollierte Umschaltung und Bereinigung.
 Neue Leseergebnisse zunächst mit dem bisherigen, vollständigen Neuaufbau vergleichen.
 Die Umschaltung erfolgt pro Ablauf und mit Rückfall auf den vorherigen Codepfad.
 Bei Datenänderungen bedeutet Rückfall nicht das Überschreiben neuerer Inhalte.
 
 Die PR-Reihenfolge folgt den Abhängigkeiten: zuerst Messung und Verträge, danach
 gebündelte Berechtigungs-/Dokumentleser, anschließend inkrementelle Linkprojektion,
-danach die gemeinsamen Änderungspfade und abschließend Einführung/Bereinigung.
+danach die gemeinsamen Änderungspfade, API-Key-Verwaltung und vollständige
+API-/SDK-Abnahme und abschließend Einführung/Bereinigung.
 Jeder PR benennt seine tatsächlich umgestellten Aufrufer, Vorher-/Nachher-Messungen
 und die noch offenen Abläufe. Der erste Leseumbau wird an einem einzigen Adapter
 geprüft, bevor die übrigen Adapter folgen.
