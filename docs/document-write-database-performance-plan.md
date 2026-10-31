@@ -55,8 +55,12 @@ Host-/Linux-Produktionsbuild, gesunder Start, 15 Linux-Speicherfälle und neun e
 Browserfälle ohne Skips oder Retries. Originalzeilen mit `xmin`, Dateibytes und
 Speicheranker sowie die elf anderen Container bleiben erhalten. Die
 [gebundene Teilabnahme](architecture/document-service-move-proof-groups-2026-10-31.md)
-ersetzt nicht die abschließende reguläre Gesamtsuite. Auftrags-
-abschluss und Projektionswartezeit werden als nächstes getrennt gemessen;
+ersetzt nicht die abschließende reguläre Gesamtsuite. Die anschließende
+[getrennte Zeitmessung](architecture/document-service-move-stage-timing-2026-10-31.md)
+besteht ebenfalls: Bei 200 warmen Dokumenten ist der Auftrag nach 61,926 Sekunden
+fertig; die Datei-Projektion benötigt weitere 28,189 Sekunden. Bei zehn Dokumenten
+sind es 6,339 plus 23,389 Sekunden. Das vorhandene Commit-Signal und der
+30-Sekunden-Wiederherstellungsscan werden für ein gezieltes Anstoßen geprüft;
 weitere Performancepakete, API-Key-Verwaltung und vollständige API-/SDK-Abnahme
 sind damit nicht abgeschlossen.
 
