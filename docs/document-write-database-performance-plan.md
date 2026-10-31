@@ -666,8 +666,14 @@ gültige Handles, Reentranz, tatsächlicher Backend-/Transaktionswechsel sowie
 ein unabhängiger Widerruf, der auf die laufende Phase wartet. Die Phase leiht
 die echte Transaktion und verändert keine Dokument-/Yjs-/Projektionsdaten.
 Diese Prüfung läuft dauerhaft unter `test:api-keys:documents:native` und im
-nativen API-Key-Paket. **REST-/MCP-/SDK-Anbindung, Tool-Policy und die weiteren
-Schreib-/Job-Phasen sind noch offen.**
+nativen API-Key-Paket. Die REST-Routen `/api/documents/read` und
+`/api/documents/search` verwenden diese Phase und die bestehenden nativen
+Dokumentkerne. Sechs PostgreSQL-/Route-Testgruppen prüfen regulär ausgestellte
+Schlüssel, Unicode-Seiten, progressive Suche, Fortsetzung nach Rotation innerhalb
+derselben Integration, fremde Integrations-Cursor und echte 401/403/429-Antworten.
+Diese Tests verwenden echte Route-/Auth-/SQL-Implementierungen, ersetzen aber
+keine Abnahme über TCP am frisch kompilierten Container. **MCP-/SDK-Anbindung,
+Tool-Policy und die weiteren Schreib-/Job-Phasen sind noch offen.**
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

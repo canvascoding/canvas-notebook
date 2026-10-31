@@ -4,6 +4,10 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '../api-keys/authentication';
+import { ApiKeyAccessError } from '../api-keys/contracts';
+import { withApiKeyDocumentReadPrincipal, withApiKeyDocumentReadPrincipalOnConnection,
+  type ApiKeyDocumentReadOrigin } from '../api-keys/document-read-principal';
 import { openDb, type SqlConnection } from '../db';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { readNativeDocumentByIdOnConnection, type NativeDocumentReadObservation } from '../collaboration/native-document-read';
@@ -223,7 +227,7 @@ async function readPage(phase: ReadPhase, selection: DecodedDocumentReadRequestV
 
 function normalizeError(error: unknown): Error {
   if (error instanceof DocumentReadError || error instanceof DocumentSearchError
-    || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError) return error;
+    || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError || error instanceof ApiKeyAccessError) return error;
   if (error instanceof SeatLimitGuardError) return new DocumentReadError('ACCESS_DENIED');
   if (error instanceof AgentToolInvocationError) return new DocumentReadError(error.code === 'AGENT_TOOL_INVOCATION_ABORTED'
     || error.code === 'AGENT_TOOL_INVOCATION_ORIGIN_CHANGED' ? 'DOCUMENT_SCOPE_CHANGED' : 'AUTHENTICATION_REQUIRED');
@@ -295,7 +299,17 @@ async function finish(held: { phase: ReadPhase; page: DocumentReadPageV1 }): Pro
   finally { held.phase.active = false; }
 }
 
-/** Genuine Better Auth request; selectors and continuation evidence grant no rights. */
+async function readWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentReadRequestV1): Promise<DocumentReadPageV1> {
+  const historical: { value?: ApiKeyDocumentReadOrigin } = {};
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'read' },
+    value => observe(historical, value), principal => transaction(async connection => {
+      const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
+        connection, access.workspace, value => origin(value, ['api_key', value.userId, value.integrationId, value.instanceId]), selection));
+      return finish(held);
+    }));
+}
+
+/** Explicit API key or genuine Better Auth request; selectors grant no rights. */
 export async function readDocumentForRequest(request: Request, input: unknown): Promise<DocumentReadPageV1> {
   return measureDocumentOperation('read', 'request', async () => {
     const selection = decodeDocumentReadRequestV1(input);
@@ -304,7 +318,9 @@ export async function readDocumentForRequest(request: Request, input: unknown): 
     if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
     const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
     const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-    try { return await withWorkspaceDocumentReadRequestPrincipalOriginalOrigin(captured, selection.workspaceId,
+    try {
+      if (hasApiKeyCredential(captured)) return await readWithApiKey(await authenticateApiKeyRequest(captured), selection);
+      return await withWorkspaceDocumentReadRequestPrincipalOriginalOrigin(captured, selection.workspaceId,
       value => observe(historical, value), (principal, sourceConnection) => transactionOnConnection(sourceConnection, async connection => {
         const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
           connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
@@ -373,13 +389,29 @@ function normalizeSearchError(error: unknown): Error {
   return normalizeError(error);
 }
 
-/** Genuine original request only; a cursor, scope or hit never grants access. */
+async function searchWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentSearchRequestV1): Promise<DocumentSearchPageV1> {
+  const historical: { value?: ApiKeyDocumentReadOrigin } = {};
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'search' },
+    value => observe(historical, value), principal => transaction(async connection => {
+      const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, async access => {
+        const prepared = await consumeSearch(historical, connection, access.workspace,
+          value => origin(value, ['api_key', value.userId, value.integrationId, value.instanceId]), selection);
+        try { await access.assertCurrent(); return prepared; }
+        catch (error) { prepared.phase.active = false; throw error; }
+      });
+      return finishSearch(held);
+    }));
+}
+
+/** Explicit API key or genuine original request; a cursor or hit grants no access. */
 export async function searchDocumentsForRequest(request: Request, input: unknown): Promise<DocumentSearchPageV1> {
   const selection = decodeDocumentSearchRequestV1(input);
   if (!(request instanceof Request)) throw new DocumentSearchError('INVALID_SEARCH_REQUEST');
   const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-  try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured,
+  try {
+    if (hasApiKeyCredential(captured)) return await searchWithApiKey(await authenticateApiKeyRequest(captured), selection);
+    return await withWorkspaceRequestPrincipalOriginalOrigin(captured,
     { workspaceId: selection.workspaceId, permission: 'canRead' }, value => observe(historical, value),
     principal => transaction(async connection => {
       const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
