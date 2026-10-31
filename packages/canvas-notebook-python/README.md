@@ -78,7 +78,7 @@ async with CanvasMcpTransport(ENDPOINT, api_key=key_from_secret_store) as transp
 
 Create the key under **Settings → Connections → API access** with explicit workspace and action grants. Its full secret is shown once; the server stores a hash. This SDK sends only `X-Canvas-API-Key` in this mode, uses HTTPS outside loopback, and does not refresh, persist or automatically replace the key. OAuth, `access_token` and `api_key` cannot be combined. Canvas-internal clients must obtain credentials through the existing central Secrets service; external clients use their own secret store.
 
-Current branch acceptance covers workspace listing and native ID-based Read and Search with real issued keys, including pagination, rotation, current grant reduction and revocation through an installed wheel over HTTP. API-key tree/overview/manifest and write/job adapters are still being integrated and are not yet advertised for key connections. Their OAuth implementations retain their separate contracts. The API-key wheel has passed all 79 mechanical SDK tests on Python 3.10.19 and 3.14.3; this does not claim compiled-container, full matrix or deployed-release acceptance.
+Current branch acceptance covers workspace listing, overview, paginated tree/manifest and native ID-based Read and Search with real issued keys, including pagination, rotation, current grant reduction, issuing-session logout and revocation through an installed wheel over HTTP. Write/job key adapters are still being integrated and are not advertised for key connections. Their OAuth implementations retain their separate contracts. The API-key wheel has passed all 80 mechanical SDK tests on Python 3.10.19 and 3.14.3; this does not claim compiled-container, full matrix or deployed-release acceptance.
 
 Scopes are necessary but do not grant a workspace or tool by themselves. Canvas also checks current user/client grants, workspace access and tool configuration. Native Edit and its status lookup require current Write authority; all Copy/Move/Delete actions require `knowledge:write` and their actual current workspace permissions. Search authority does not grant full Read.
 
@@ -215,6 +215,7 @@ SDK error messages omit document contents and credentials. Original results and 
 | `list_workspaces` | `list_workspaces` |
 | `get_workspace_overview` | `get_workspace_overview` |
 | `list_tree` | `list_knowledge_tree` |
+| `get_manifest` | `get_knowledge_manifest` |
 | `search_documents` | `search_knowledge`, native V1 |
 | `read_page`, `read_all` | `read_knowledge_source`, stable-ID branch |
 | `create_markdown` | `create_knowledge_source`, native V1 |
@@ -223,6 +224,8 @@ SDK error messages omit document contents and credentials. Original results and 
 | `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | `copy_knowledge_source`, explicit V1 action |
 | `move_preview`, `move_apply`, `move_status`, `move_recover` | `move_knowledge_source`, explicit V1 action |
 | `delete_preview`, `delete_apply`, `delete_status`, `delete_recover` | `delete_knowledge_source`, explicit V1 action |
+
+`get_manifest` returns one bounded page (up to 20 entries). Follow `next_cursor` explicitly with the same workspace, path and depth. Physical byte hashes and native authoritative Markdown hashes are separate observations; keep their `hash_basis` and `coverage` fields. A manifest is not an atomic workspace snapshot.
 
 Native PDF conversion and a controlled runtime bridge are not exposed by this candidate. Copy/Move of a physical PDF does not parse it into a native notebook document. This is not completion of the broader document/API plan.
 

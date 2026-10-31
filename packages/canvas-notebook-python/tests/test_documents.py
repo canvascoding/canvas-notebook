@@ -117,6 +117,21 @@ class DocumentBoundaryTests(unittest.IsolatedAsyncioTestCase):
                                      "max_entries": 200, "path": "folder", "cursor": "tree-cursor"}),
         ])
 
+    async def test_manifest_preserves_one_page_hashes_and_coverage_without_retry(self) -> None:
+        page = {"entries": [{"path": "folder/a.md", "sha256": "physical", "document": {"sha256": "native"}}],
+                "coverage": {"atomic_snapshot": False, "complete": False}, "has_more": True, "next_cursor": "next"}
+        raw = result(page)
+        transport = RecordingTransport(raw)
+        notebook = CanvasNotebook(transport)
+        response = await notebook.get_manifest("workspace", path="folder", max_entries=1, cursor="previous")
+        self.assertIs(response.require_success(), raw.structured_content)
+        self.assertEqual(response.require_success(), page)
+        self.assertEqual(transport.calls, [("get_knowledge_manifest", {"workspace_id": "workspace", "path": "folder",
+            "max_depth": 0, "max_entries": 1, "cursor": "previous"})])
+        with self.assertRaises(ValueError):
+            await notebook.get_manifest("workspace", max_entries=21)
+        self.assertEqual(len(transport.calls), 1)
+
     async def test_native_read_uses_actual_selector_without_legacy_or_api_version_fields(self) -> None:
         transport = RecordingTransport(result({}))
         await CanvasNotebook(transport).read_page("workspace", "document", expected_version=VERSION,

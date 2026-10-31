@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import http from 'node:http';
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
@@ -26,7 +26,7 @@ async function main() {
   const address = server.address(); assert(address && typeof address === 'object'); const origin = `http://127.0.0.1:${address.port}`;
   try {
     await withDocumentReadToolDispatchFixture(async fixture => {
-      process.env.CANVAS_MCP_DIRECT_TOOLS = 'list_workspaces,read_knowledge_source,search_knowledge';
+      process.env.CANVAS_MCP_DIRECT_TOOLS = 'list_workspaces,get_workspace_overview,list_knowledge_tree,get_knowledge_manifest,read_knowledge_source,search_knowledge';
       const { handleDirectMcpPost, handleDirectMcpUnsupportedMethod, handleDirectMcpOptions } = await import('../app/lib/mcp/server/streamable-http');
       const { createApiIntegration, rotateApiKey, updateApiIntegration, revokeApiKey } = await import('../app/lib/api-keys/management');
       const sessionToken = (await fixture.admin.query("SELECT token FROM session WHERE id='reader-session'")).rows[0].token;
@@ -39,6 +39,9 @@ async function main() {
       let currentCredentialId = issued.credential.id;
       const text = 'SDKKeyneedle Äpfel 😀 日本語 – vollständiger nativer SDK-Inhalt.';
       const target = await fixture.seed({ representation: 'plain_text', text, filePath: 'sdk/native.payload' });
+      await mkdir(path.join(fixture.workspaceRoot, 'sdk'));
+      await writeFile(path.join(fixture.workspaceRoot, target.filePath), 'physical SDK fixture');
+      await writeFile(path.join(fixture.workspaceRoot, 'sdk/bytes.bin'), Buffer.from([0, 255, 3, 4]));
       const before = await fixture.snapshot(), requests = new Set<Promise<void>>(), errors: unknown[] = [];
       const statuses: number[] = []; let keyHeaders = 0, protocolHeaders = 0;
       server.on('request', (incoming, outgoing) => {

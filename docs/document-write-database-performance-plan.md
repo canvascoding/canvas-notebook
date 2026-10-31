@@ -267,8 +267,8 @@ Arbeitsstand am 01.11.2026 nach Produktcommit `488fee094`:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Browse im frisch installierten SDK prüfen; danach Schreib-/Status-/Recovery-Zugang unter aktuellen Rechten ergänzen. Verwaltung und Leseadapter sind teilweise abgenommen, siehe 5a. |
-| 4b | in Umsetzung | Aktuelle Wheel-/HTTP-Browse-Abnahme abschließen und die noch fehlenden Matrixfälle aus 5b am kompilierten Produkt prüfen. |
+| 4a | in Umsetzung | Schreib-/Status-/Recovery-Zugang unter aktuellen Rechten ergänzen. Verwaltung und Leseadapter einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
+| 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -732,7 +732,7 @@ Fünf aktuelle native Regressionssuiten und der korrigierte isolierte MCP-
 Nutzungsanzeigentest bestehen. Das SDK besitzt den ausdrücklich getrennten
 `api_key`-Transportmodus mit HTTPS-Pflicht außerhalb Loopback, eigenem Header,
 begrenzter Lebensdauer im Client und ohne neue automatische Schreibwiederholung.
-Ein frisch installiertes Wheel besteht 79 mechanische Tests unter Python
+Ein frisch installiertes Wheel besteht 80 mechanische Tests unter Python
 3.10.19 und 3.14.3; ein Core-Wheel-Import ohne MCP-Extras ist ebenfalls geprüft.
 Der dauerhafte Runner `test:api-keys:sdk:native` prüft reguläre Ausstellung,
 mehrseitige Unicode-Reads, Suche, Rotation, Rechteentzug und Widerruf über
@@ -758,6 +758,16 @@ Kandidaten für dieses exakte GET an die Route. Der native Adaptertest umfasst
 diesen Proxy vor der echten Schlüsselprüfung; die reguläre Key-Suite prüft
 zusätzlich die Abweisung benachbarter Methoden und geschützter APIs.
 Der installierte SDK-HTTP-Runner prüft jetzt auch `CanvasNotebook.list_workspaces()`.
+Er prüft darüber hinaus Übersicht, mehrseitigen Baum und das neue begrenzte
+`CanvasNotebook.get_manifest()` mit getrennten Hash-/Coverage-Feldern und
+Fortsetzung nach Schlüsselrotation. Das aktuelle Wheel
+`900425d9719fc276a137778ab6b40118f778b33ef6fe3b72ee6a3015019441a1`
+besteht unter beiden Python-Versionen dieselben vier realen HTTP-/PostgreSQL-
+Gruppen mit jeweils 26 ausschließlich per Key authentifizierten Requests.
+Der echte Server weist den alten und den widerrufenen Schlüssel jeweils mit
+HTTP 401 ab; alle drei Browse-Werkzeuge verweigern entzogene Leserechte.
+Originale Dokumentdaten bleiben unverändert. Die kompilierte Container- und
+vollständige Schreib-/Recovery-Abnahme bleiben offen.
 Baum, Übersicht und Manifest sind in `488fee094` an
 `POST /api/documents/browse` für echte Session-/Key-Anfragen und an die drei
 entsprechenden MCP-Key-Werkzeuge angeschlossen. Fünf echte PostgreSQL-/Route-/
@@ -769,8 +779,8 @@ bleiben unverändert. Beleg ist der dauerhafte Runner
 `scripts/api-key-workspace-browse-adapters-postgres-test.ts` im Workspace-Paket.
 Die drei vorhandenen Key-Dokument- und fünf Workspace-Suiten sowie die echten
 Session-Read-/Search-Service-Suiten, HTTP-Grenzprüfung, Release-Typecheck und
-gezieltes ESLint bestehen. Die installierte SDK-Browse-Abnahme und die
-kompilierte Container-Abnahme sind damit noch nicht ersetzt.
+gezieltes ESLint bestehen. Die oben separat belegte installierte SDK-Browse-
+Abnahme ersetzt die kompilierte Container-Abnahme nicht.
 Ihre bisherigen Datenleser für Übersicht, Baum/Links und Datei-/Native-Hashes
 liegen nun gemeinsam in `documents/workspace-browse.ts`. Die bestehenden
 OAuth-Werkzeuge verwenden diese Helfer mit unveränderten Auth-/Audit- und

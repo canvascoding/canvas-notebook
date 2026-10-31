@@ -377,6 +377,27 @@ class CanvasNotebook:
             arguments["cursor"] = _string(cursor, "cursor", 20000)
         return await self._call("list_knowledge_tree", arguments)
 
+    async def get_manifest(
+        self,
+        workspace_id: str,
+        *,
+        path: str | None = None,
+        max_depth: int = 0,
+        max_entries: int = 10,
+        cursor: str | None = None,
+    ) -> CanvasToolResult[dict[str, Any]]:
+        """One bounded manifest page; preserve physical/native hashes and coverage."""
+        arguments: dict[str, Any] = {
+            "workspace_id": _string(workspace_id, "workspace_id"),
+            "max_depth": _integer(max_depth, "max_depth", 0, 6),
+            "max_entries": _integer(max_entries, "max_entries", 1, 20),
+        }
+        if path is not None:
+            arguments["path"] = _string(path, "path", 4096)
+        if cursor is not None:
+            arguments["cursor"] = _string(cursor, "cursor", 20000)
+        return await self._call("get_knowledge_manifest", arguments)
+
     async def search_documents(
         self,
         workspace_id: str,

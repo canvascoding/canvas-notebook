@@ -62,6 +62,21 @@ async def main():
         notebook = CanvasNotebook(transport)
         workspaces = (await notebook.list_workspaces()).require_success()["workspaces"]
         assert [entry["id"] for entry in workspaces] == [workspace]
+        overview = (await notebook.get_workspace_overview(workspace)).require_success()
+        assert overview["workspace"]["id"] == workspace and overview["capabilities"]["authentication_method"] == "api_key"
+        assert overview["contents"]["top_level_folders"] == 1
+        paths, cursor = [], None
+        while True:
+            page = (await notebook.list_tree(workspace, path="sdk", max_entries=1, cursor=cursor)).require_success()
+            assert len(page["entries"]) <= 1
+            paths.extend(entry["path"] for entry in page["entries"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+        assert paths == ["sdk/bytes.bin", "sdk/native.payload"]
+        manifest = (await notebook.get_manifest(workspace, path="sdk", max_entries=1)).require_success()
+        assert manifest["entries"][0]["sha256"] == hashlib.sha256(bytes([0, 255, 3, 4])).hexdigest()
+        assert manifest["has_more"] and manifest["next_cursor"] and not manifest["coverage"]["atomic_snapshot"]
         complete = await notebook.read_all(workspace, document, format="text", max_bytes=16)
         assert complete.body == config["text"] and len(complete.pages) > 1
         assert complete.document["documentId"] == document
@@ -77,6 +92,9 @@ async def main():
         resumed = (await notebook.read_page(workspace, document, format="text", max_bytes=16,
                                             cursor=first["nextCursor"], expected_version=first["document"]["version"])).require_success()
         assert resumed["byteOffset"] == first["byteLength"]
+        continued = (await notebook.get_manifest(workspace, path="sdk", max_entries=1, cursor=manifest["next_cursor"])).require_success()
+        assert [entry["path"] for entry in continued["entries"]] == ["sdk/native.payload"]
+        assert continued["entries"][0]["document_id"] == document and continued["next_cursor"] is None
         emit("ready_reduce")
         receive()
         denied = await notebook.read_page(workspace, document, format="text")
@@ -86,9 +104,18 @@ async def main():
             assert error.code == "API_KEY_ACCESS_DENIED"
         else:
             raise AssertionError("A removed action grant unexpectedly succeeded.")
+        for response in [await notebook.get_workspace_overview(workspace), await notebook.list_tree(workspace),
+                         await notebook.get_manifest(workspace)]:
+            try:
+                response.require_success()
+            except CanvasToolError as error:
+                assert error.code == "API_KEY_ACCESS_DENIED"
+            else:
+                raise AssertionError("A removed read grant unexpectedly allowed browsing.")
         emit("ready_logout")
         receive()
         assert (await notebook.read_all(workspace, document, format="text")).body == config["text"]
+        assert (await notebook.get_workspace_overview(workspace)).require_success()["workspace"]["id"] == workspace
         emit("ready_revoke")
         receive()
         await rejected(notebook.read_page(workspace, document, format="text"))
