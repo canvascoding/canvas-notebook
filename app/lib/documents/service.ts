@@ -7,6 +7,7 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '../api-keys/authentication';
 import { ApiKeyAccessError } from '../api-keys/contracts';
 import { withApiKeyDocumentReadPrincipal, withApiKeyDocumentReadPrincipalOnConnection,
+  withApiKeyWorkspaceBrowsePrincipal, withApiKeyWorkspaceBrowsePrincipalOnConnection,
   withApiKeyWorkspaceListPrincipal, withApiKeyWorkspaceListPrincipalOnConnection, type ApiKeyDocumentReadOrigin } from '../api-keys/document-read-principal';
 import { openDb, type SqlConnection } from '../db';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
@@ -17,7 +18,7 @@ import { AgentToolInvocationError } from '../pi/agent-tool-invocation';
 import { DirectMcpAuthorizationError } from '../mcp/server/access-token-verifier';
 import { withDirectMcpDocumentReadPrincipal, withDirectMcpDocumentReadPrincipalOnConnection,
   DirectMcpDocumentReadPrincipalError, type DirectMcpDocumentReadHistoricalOrigin } from '../mcp/server/document-read-principal';
-import { withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
+import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
   withWorkspaceDocumentReadRequestPrincipalOriginalOrigin,
   withWorkspaceAgentToolPrincipalOriginalOrigin, withWorkspaceAgentToolPrincipalOnConnection,
   WorkspaceRequestPrincipalError, type WorkspaceRequestHistoricalOrigin,
@@ -33,6 +34,9 @@ import { prepareNativeDocumentSearchOnConnection } from '../collaboration/native
 import { withPreparedDocumentSearchToolPolicy, PublicShareToolPolicyError } from '../public-sharing/tool-policy';
 import { decodeDocumentSearchRequestV1, DocumentSearchError, type DecodedDocumentSearchRequestV1,
   type DocumentSearchPageV1 } from './search-contract';
+import { WorkspaceTreeError } from '../files/workspace-tree';
+import { readWorkspaceOverviewContents, readWorkspaceTreeWithLinks, readWorkspaceManifest } from './workspace-browse';
+import { decodeWorkspaceBrowseRequestV1, WorkspaceBrowseError, type DecodedWorkspaceBrowseRequestV1 } from './browse-contract';
 
 type HistoricalScope = Pick<WorkspaceRequestHistoricalOrigin, 'workspaceId' | 'workspaceType' | 'organizationId'
   | 'customerId' | 'projectId' | 'ownerUserId' | 'rootPath' | 'rootRelativePath' | 'legacy' | 'status'
@@ -226,7 +230,7 @@ async function readPage(phase: ReadPhase, selection: DecodedDocumentReadRequestV
 }
 
 function normalizeError(error: unknown): Error {
-  if (error instanceof DocumentReadError || error instanceof DocumentSearchError
+  if (error instanceof DocumentReadError || error instanceof DocumentSearchError || error instanceof WorkspaceBrowseError
     || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError || error instanceof ApiKeyAccessError) return error;
   if (error instanceof SeatLimitGuardError) return new DocumentReadError('ACCESS_DENIED');
   if (error instanceof AgentToolInvocationError) return new DocumentReadError(error.code === 'AGENT_TOOL_INVOCATION_ABORTED'
@@ -266,6 +270,48 @@ export async function listWorkspacesForApiKey(credential: ApiKeyCredential, sour
           name: workspace.displayName || 'Workspace', description: workspace.description || null,
           type: workspace.workspaceType, is_default: Boolean(workspace.isDefault) })));
       })));
+  } catch (error) { throw normalizeError(error); }
+}
+
+/** Data readers shared with OAuth. No root, credential or simulated OAuth scope is public. */
+async function browsePage(workspace: WorkspaceContext, selection: DecodedWorkspaceBrowseRequestV1, method: 'api_key' | 'session') {
+  try {
+    if (selection.purpose === 'tree') return (await readWorkspaceTreeWithLinks(workspace, selection)).value;
+    if (selection.purpose === 'manifest') return (await readWorkspaceManifest(workspace, selection)).value;
+    const overview = await readWorkspaceOverviewContents(workspace);
+    return { workspace: { id: workspace.workspaceId, name: workspace.displayName || 'Workspace',
+      description: workspace.description || null, type: workspace.workspaceType, is_default: Boolean(workspace.isDefault) },
+    contents: overview.contents,
+    capabilities: { authentication_method: method, read: true, operations: ['overview', 'tree', 'manifest'],
+      consistency: 'Each operation checks current access. File listings and hashes are bounded, non-atomic observations.' },
+    limits: { tree_max_entries: 500, manifest_max_entries: 20, max_depth: 6 } };
+  } catch (error) {
+    if (error instanceof WorkspaceTreeError) throw new WorkspaceBrowseError(error.code);
+    throw error;
+  }
+}
+
+async function browseWithApiKey(credential: ApiKeyCredential, selection: DecodedWorkspaceBrowseRequestV1, source: 'request' | 'mcp') {
+  return withApiKeyWorkspaceBrowsePrincipal(credential, { workspaceId: selection.workspaceId, purpose: selection.purpose, source },
+    principal => transaction(connection => withApiKeyWorkspaceBrowsePrincipalOnConnection(connection, principal, selection.purpose,
+      access => browsePage(access.workspace, selection, 'api_key'))));
+}
+
+export async function browseWorkspaceForApiKeyMcp(credential: ApiKeyCredential, input: unknown) {
+  try { return await browseWithApiKey(credential, decodeWorkspaceBrowseRequestV1(input), 'mcp'); }
+  catch (error) { throw normalizeError(error); }
+}
+
+/** Explicit key or original genuine member request; the service owns actual B and COMMIT. */
+export async function browseWorkspaceForRequest(request: Request, input: unknown) {
+  const selection = decodeWorkspaceBrowseRequestV1(input);
+  if (!(request instanceof Request)) throw new WorkspaceBrowseError('INVALID_BROWSE_REQUEST');
+  const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  try {
+    if (hasApiKeyCredential(captured)) return await browseWithApiKey(await authenticateApiKeyRequest(captured), selection, 'request');
+    return await withWorkspaceRequestPrincipal(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
+      principal => transaction(connection => withWorkspaceRequestPrincipalOnConnection(connection, principal,
+        access => browsePage(access.workspace, selection, 'session'))));
   } catch (error) { throw normalizeError(error); }
 }
 

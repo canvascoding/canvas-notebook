@@ -7,7 +7,8 @@ import { ApiKeyAccessError } from '../../api-keys/contracts';
 import { assertApiKeyMcpToolEnabled } from '../../api-keys/mcp-runtime';
 import { DocumentReadError } from '../../documents/contracts';
 import { DocumentSearchError } from '../../documents/search-contract';
-import { listWorkspacesForApiKey, readDocumentForApiKeyMcp, searchDocumentsForApiKeyMcp } from '../../documents/service';
+import { decodeMcpWorkspaceBrowseRequest, WorkspaceBrowseError } from '../../documents/browse-contract';
+import { browseWorkspaceForApiKeyMcp, listWorkspacesForApiKey, readDocumentForApiKeyMcp, searchDocumentsForApiKeyMcp } from '../../documents/service';
 import type { DirectMcpToolId } from './config';
 import { decodeDirectMcpDocumentReadSelection } from './document-read-tool-contract';
 import { decodeDirectMcpDocumentSearchSelection } from './document-search-tool-contract';
@@ -21,6 +22,11 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
         throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'list_workspaces does not accept arguments.');
       }
       page = { workspaces: await listWorkspacesForApiKey(credential, 'mcp') };
+    } else if (tool === 'list_knowledge_tree' || tool === 'get_workspace_overview' || tool === 'get_knowledge_manifest') {
+      let selection;
+      try { selection = decodeMcpWorkspaceBrowseRequest(tool, args); }
+      catch { throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use bounded workspace browse arguments and visible relative paths.'); }
+      page = await browseWorkspaceForApiKeyMcp(credential, selection);
     } else if (tool === 'read_knowledge_source') {
       const selection = decodeDirectMcpDocumentReadSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use a stable document_id for API-key native reads.');
@@ -36,7 +42,7 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     } else throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'The requested API-key adapter is not available.');
     return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page as Record<string, unknown> };
   } catch (error) {
-    if (error instanceof ApiKeyAccessError || error instanceof DocumentReadError || error instanceof DocumentSearchError) {
+    if (error instanceof ApiKeyAccessError || error instanceof DocumentReadError || error instanceof DocumentSearchError || error instanceof WorkspaceBrowseError) {
       const failure = { apiVersion: 1, success: false, code: error.code };
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
     }
