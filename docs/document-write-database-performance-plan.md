@@ -703,6 +703,10 @@ Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
 Route-/PostgreSQL-/Protokollgruppen prüfen die begrenzten Metadaten, den
 unveränderten Session-Vertrag, 401/403, aktuelle Archivierung und Widerruf.
+Der tatsächliche Next.js-Proxy delegiert ausschließlich den begrenzten Key-
+Kandidaten für dieses exakte GET an die Route. Der native Adaptertest umfasst
+diesen Proxy vor der echten Schlüsselprüfung; die reguläre Key-Suite prüft
+zusätzlich die Abweisung benachbarter Methoden und geschützter APIs.
 Der installierte SDK-HTTP-Runner prüft jetzt auch `CanvasNotebook.list_workspaces()`.
 Baum, Übersicht und Manifest sowie die Schreib-/Job-Adapter sind weiterhin offen.
 Ihre bisherigen Datenleser für Übersicht, Baum/Links und Datei-/Native-Hashes

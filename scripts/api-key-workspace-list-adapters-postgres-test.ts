@@ -7,6 +7,8 @@ async function main() {
   await withDocumentReadToolDispatchFixture(async fixture => {
     process.env.CANVAS_MCP_DIRECT_TOOLS = 'list_workspaces,read_knowledge_source,search_knowledge';
     const { GET } = await import('../app/api/workspaces/route');
+    const { default: middleware } = await import('../proxy');
+    const { NextRequest } = await import('next/server');
     const { handleDirectMcpPost } = await import('../app/lib/mcp/server/streamable-http');
     const { createApiIntegration, updateApiIntegration, revokeApiKey } = await import('../app/lib/api-keys/management');
     const { AjvJsonSchemaValidator } = await import('@modelcontextprotocol/server/validators/ajv');
@@ -21,7 +23,10 @@ async function main() {
       workspaceIds: [fixture.workspaceId], expiresAt: Date.now() + 3_600_000 });
     await fixture.seed(); const baseline = await fixture.snapshot();
     const get = async (key = issued.key, extra: Record<string, string> = {}) => {
-      const response = await GET(new Request('http://localhost/api/workspaces', { headers: { 'X-Canvas-API-Key': key, ...extra } }));
+      const request = new NextRequest('http://localhost/api/workspaces', { headers: { host: 'localhost', 'X-Canvas-API-Key': key, ...extra } });
+      const admission = await middleware(request);
+      assert.equal(admission.headers.get('x-middleware-next'), '1', 'Proxy must delegate this candidate to real route authentication.');
+      const response = await GET(request);
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       return { status: response.status, body: await response.json() };
     };

@@ -17,7 +17,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/workspaces/postgres-runtime.ts',
     'app/lib/api-keys/mcp-runtime.ts', 'app/lib/db/index.ts'],
   'scripts/api-key-workspace-list-adapters-postgres-test.ts': [entryPoint,
-    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/api/workspaces/route.ts', 'app/lib/documents/service.ts',
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'proxy.ts', 'app/api/workspaces/route.ts', 'app/lib/documents/service.ts',
     'app/lib/api-keys/document-read-principal.ts', 'app/lib/api-keys/management.ts', 'app/lib/mcp/server/streamable-http.ts',
     'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts'],
   'scripts/api-key-workspace-list-principal-postgres-test.ts': [entryPoint,
@@ -1940,9 +1940,9 @@ try {
     plugins: [{
       name: 'actual-next-and-commonjs-constructor-entries',
       setup(build) {
-        // This matcher test imports the real proxy. Bundle next-intl's actual
+        // Proxy suites import the real middleware. Bundle next-intl's actual
         // ESM entry so its extensionless next/* imports use the resolver below.
-        if (entryPoint === 'scripts/document-read-http-boundary-test.ts') {
+        if (criticalInputs.includes('proxy.ts')) {
           build.onResolve({ filter: /^next-intl(?:\/|$)/ }, args => ({ path: requireFromRoot.resolve(args.path) }));
         }
         build.onResolve({ filter: /^next\// }, args => {
@@ -1993,7 +1993,7 @@ try {
 
   stage = 'test';
   outcome = await new Promise((resolve, reject) => {
-    const nextBaseline = entryPoint === 'scripts/document-read-http-boundary-test.ts'
+    const nextBaseline = criticalInputs.includes('proxy.ts')
       ? ['--require', requireFromRoot.resolve('next/dist/server/node-environment-baseline')] : [];
     const child = spawn(process.execPath, [...importConditions.map(condition => `--conditions=${condition}`), ...nextBaseline, bundle], {
       cwd: root, env: { ...process.env }, stdio: 'inherit',
