@@ -48,7 +48,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   assert.equal(databaseUrl.search, '');
   const nonce = crypto.randomUUID().replaceAll('-', ''), schema = `document_tool_dispatch_${nonce}`;
   const applicationName = `document-tool-dispatch-${nonce}`;
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-document-tool-dispatch-'));
+  const dataRoot = await mkdtemp(path.join(await realpath(tmpdir()), 'canvas-document-tool-dispatch-'));
   await chmod(dataRoot, 0o700);
   const dataIdentity = await lstat(dataRoot), canonicalDataRoot = await realpath(dataRoot);
   assert(dataIdentity.isDirectory() && !dataIdentity.isSymbolicLink());
