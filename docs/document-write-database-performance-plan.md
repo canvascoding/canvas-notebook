@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 31.10.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 01.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -11,6 +11,13 @@ Python-SDK gehört ausdrücklich zum Ziel. Die neuen, noch offenen Pakete 4a und
 API-/SDK-Abnahme. Bisherige Session-/OAuth-Zugänge bleiben erhalten. Diese
 Planergänzung stellt keine implementierte Schlüsselverwaltung, neue
 SDK-Veröffentlichung oder bestandene Abnahme dar.
+
+Ergänzung vom 01.11.2026: Browserseitige Dokumentinhalte, IndexedDB und Wechsel
+zwischen Dokument-Tabs gehören als neues offenes Paket 4c zum Gesamtplan. Grundlage
+ist die Prüfung der vorhandenen Ladewege und des vom Nutzer bereitgestellten
+Obsidian-Beispiels. Das ist keine bereits umgesetzte Cache-Optimierung oder
+gemessene Tabwechsel-Abnahme. Die bisherigen Pakete einschließlich REST, API-Key-
+Verwaltung, SDK, Recovery und Release bleiben vollständig erhalten.
 
 Die untersuchte Bündelung der eigenen Original-Move-Katalogprüfung wird nicht
 übernommen. Beide Vorher-/Nachher-Fixtures mit 10 und 200 regulär angelegten
@@ -226,9 +233,44 @@ vorhandenen Teiloptimierungen gelten nicht als Abnahme eines ganzen Pakets.
 | 2. Datenbankzugriffe bündeln | Aktuelle Berechtigungs-, Registry- und Zustandsdaten pro notwendiger Phase gemeinsam lesen und dieselbe Verbindung verwenden. | Weniger Abfragen und Pool-Ausleihen; echte Widerrufs-, Seat-, Realm- und Parallelitätstests bestehen unverändert. |
 | 3. Linkprojektion inkrementell machen | Versionierte Extraktion je Dokument und gezielte Neuauflösung abhängiger Ziele; vollständigen Neuaufbau erhalten. | Ein Save inspiziert nur die geänderte Quelle. Rename, Move, Titel, Aliase und neue Ziele korrigieren alle betroffenen Links. Ergebnisse entsprechen dem Neuaufbau. |
 | 4. Schreibwege vereinheitlichen | Bestehende Speicherung, Versionsprüfung und dauerhafte Belege hinter kleinen gemeinsamen Operationen verwenden; Aufrufer einzeln umstellen. | Editor, Agent, MCP, REST und SDK liefern für dieselbe freigegebene Operation gleiche Speicher- und Linkergebnisse. Gleichzeitige Änderungen, Wiederholungen und Abbruch verlieren keine Daten. |
-| 4a. API-Key-Verwaltung ergänzen (offen) | Benutzergebundene Schlüssel mit Workspace-/Aktionsrechten, Ablauf, Rotation und Widerruf verwalten; REST und SDK über denselben aktuellen Berechtigungsdienst anbinden. | Ein regulär ausgestellter Schlüssel funktioniert ohne Browsersitzung ausschließlich im freigegebenen Umfang; gesperrte oder abgelaufene Zugänge werden zuverlässig abgewiesen. |
-| 4b. API und SDK vollständig abnehmen (offen) | Gemeinsame Funktions-/Rechtematrix gegen echte HTTP-Endpunkte und ein frisch installiertes SDK ausführen; Schlüssel-, Session- und OAuth-Zugänge getrennt prüfen. | Alle ausgewiesenen Funktionen sowie Konflikt-, Recovery-, Widerrufs-, Neustart- und Leistungsfälle bestehen am selben gebauten Produktstand; öffentliche Beispiele sind ausführbar. |
+| 4a. API-Key-Verwaltung ergänzen (in Umsetzung) | Benutzergebundene Schlüssel mit Workspace-/Aktionsrechten, Ablauf, Rotation und Widerruf verwalten; REST und SDK über denselben aktuellen Berechtigungsdienst anbinden. | Ein regulär ausgestellter Schlüssel funktioniert ohne Browsersitzung ausschließlich im freigegebenen Umfang; gesperrte oder abgelaufene Zugänge werden zuverlässig abgewiesen. |
+| 4b. API und SDK vollständig abnehmen (in Umsetzung) | Gemeinsame Funktions-/Rechtematrix gegen echte HTTP-Endpunkte und ein frisch installiertes SDK ausführen; Schlüssel-, Session- und OAuth-Zugänge getrennt prüfen. | Alle ausgewiesenen Funktionen sowie Konflikt-, Recovery-, Widerrufs-, Neustart- und Leistungsfälle bestehen am selben gebauten Produktstand; öffentliche Beispiele sind ausführbar. |
+| 4c. Browser-Dokumentcache und Tabwechsel verbessern (offen) | Vorhandenen Yjs-/IndexedDB-Speicher und Dokumentleser weiterverwenden; begrenzte RAM-Lebensdauer, aktuelle Autorisierung und Wiederherstellung getrennt behandeln. | Kaltes Öffnen, A→B→A, Speicherverdrängung und Browser-Neuladen sind gemessen; warme Wechsel vermeiden unnötige Inhaltsübertragung und doppelte Initialisierung, ohne Rechte- oder Datenverlust. |
 | 5. Einführung absichern | Endgültige Leistungsbudgets, reguläre Gesamtsuite, vollständige API-/SDK-Abnahme, Desktop/Mobil, PR/CI/Reviews, Backup-/Restore-Nachweis und kontrolliertes Release. | Alle tatsächlich umgestellten Abläufe sind nachgewiesen; nach Deployment funktionieren Filetree, Öffnen, Speichern, Linkpflege und freigegebene API-/SDK-Zugänge in allen fünf Workspaces. |
+
+### Verbindliche Planführung
+
+Diese Datei ist der vollständige gemeinsame Arbeitsplan. Die planführende Session
+`01a172a1-5e99-7722-a401-028e9e0323ad` führt die bestehenden und ergänzten Pakete
+hier weiter aus und arbeitet sie anhand ihrer Abnahmekriterien ab. Einzelne
+Prüfberichte ergänzen diesen Plan; eine Chat-Nachricht ersetzt ihn nicht.
+
+Vor dem nächsten Paketabschluss den tatsächlichen Stand pro Paket als offen,
+in Umsetzung oder abgenommen mit dem nächsten konkreten Schritt festhalten.
+Eine Abnahme nennt den Produktcommit, die tatsächlich geprüften Aufrufer,
+Messgrenzen und Ergebnisbelege. Historische Teilerfolge bleiben sichtbar und
+werden nicht als neue Gesamtabnahme ausgegeben. Fehlende Browser-Messwerte sind
+zunächst zu erheben und werden nicht aus statischem Code oder Obsidian abgeleitet.
+
+Den laufenden Arbeitsschritt zuerst abschließen. Paket 4c wird nach seinen
+gemeinsamen Lese-/Speichervoraussetzungen vor der abschließenden Einführung
+abgenommen. Bereits laufende API-/SDK-Arbeit wird durch die Ergänzung nicht
+verworfen. Erforderliche Prüfungen folgen den tatsächlich geänderten Abläufen;
+Review Center und Undo werden weiterhin nicht ausgebaut.
+
+Arbeitsstand am 01.11.2026 nach Produktcommit `488fee094`:
+
+| Paket | Status | Nächster konkreter Nachweis |
+| --- | --- | --- |
+| 0 | in Umsetzung | Quellen-/Recovery-Fälle am endgültigen gebauten Produktstand und nach Einführung bestätigen. Die lokalen Belege stehen unten. |
+| 1 | in Umsetzung | Die vollständigen neuen REST-/SDK- und Browser-Aufrufer in die vergleichbare 10-/200-Quellen-Messung aufnehmen. |
+| 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
+| 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
+| 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
+| 4a | in Umsetzung | Browse im frisch installierten SDK prüfen; danach Schreib-/Status-/Recovery-Zugang unter aktuellen Rechten ergänzen. Verwaltung und Leseadapter sind teilweise abgenommen, siehe 5a. |
+| 4b | in Umsetzung | Aktuelle Wheel-/HTTP-Browse-Abnahme abschließen und die noch fehlenden Matrixfälle aus 5b am kompilierten Produkt prüfen. |
+| 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
+| 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
 Paket 0 adressiert einen konkret reproduzierten Fehler: Im isolierten UI-/API-Test führte ein
 gezielt erzeugter Katalog-/Native-Zustandskonflikt bei `unavailable.md` zu null
@@ -600,6 +642,14 @@ Backlink-Aufruf muss nicht erneut sämtliche Dateien lesen und Yjs-Zustände dek
 Zunächst den begrenzten dokumentweisen Lesepfad umsetzen und messen; eine persistente
 Projektionsablage nur mit nachgewiesenem Bedarf und eigenem kleinen Schema einführen.
 
+Extraktionscache, aufgelöster Linkindex und Browser-Dokumentinhalt haben getrennte
+Verantwortlichkeiten und Lebensdauern. Der Linkindex wird im Arbeitsspeicher
+begrenzt vorgehalten und versionsgebunden aktualisiert. Ein warmer Zugriff darf
+nicht allein wegen einer neuen Ansicht sämtliche nativen Inhalte erneut laden.
+Kleine gemessene Durchläufe über vorhandene Metadaten sind zulässig; eine zusätzliche
+Index-Datenbank oder ein weiterer laufender Dienst wird nur bei belegtem Bedarf
+eingeführt. Speichergrenzen, Verdrängung und Wiederaufbau sind ausdrücklich zu prüfen.
+
 Änderungen an Pfad, Titel und Aliasen invalidieren gezielt die davon abhängigen
 Zielauflösungen. Auch bisher fehlende oder mehrdeutige Ziele müssen berücksichtigt
 werden: Eine neue Datei kann einen alten Link reparieren oder mehrdeutig machen.
@@ -696,7 +746,7 @@ Dokument-Principal. Beide Größen benötigen in dieser gehaltenen Phase acht
 SQL-Anweisungen einschließlich drei aktueller gemeinsamer Beobachtungen;
 das ist keine vollständige HTTP-Leistungsmessung. Die bestehenden drei nativen
 API-Key-Lesesuiten bestehen nach der Bündelung weiterhin.
-**Workspace-Navigation, weitere MCP-Adapter und die Schreib-/Job-Phasen sowie
+**Schreib-/Job-Phasen und die weiteren zugehörigen Adapter sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
@@ -708,7 +758,19 @@ Kandidaten für dieses exakte GET an die Route. Der native Adaptertest umfasst
 diesen Proxy vor der echten Schlüsselprüfung; die reguläre Key-Suite prüft
 zusätzlich die Abweisung benachbarter Methoden und geschützter APIs.
 Der installierte SDK-HTTP-Runner prüft jetzt auch `CanvasNotebook.list_workspaces()`.
-Baum, Übersicht und Manifest sowie die Schreib-/Job-Adapter sind weiterhin offen.
+Baum, Übersicht und Manifest sind in `488fee094` an
+`POST /api/documents/browse` für echte Session-/Key-Anfragen und an die drei
+entsprechenden MCP-Key-Werkzeuge angeschlossen. Fünf echte PostgreSQL-/Route-/
+Protokollgruppen prüfen die exakte Proxy-Grenze, begrenzte Eingaben, Sichtbarkeit,
+beide MCP-Protokolle und veröffentlichte Schemata, getrennte physische/native
+Hashes, Pagination, veraltete Cursor, aktuelle Rechte und Widerruf. Originale
+Dokument-/Yjs-/Metadaten-/Revisions-/Projektionszeilen einschließlich `xmin`
+bleiben unverändert. Beleg ist der dauerhafte Runner
+`scripts/api-key-workspace-browse-adapters-postgres-test.ts` im Workspace-Paket.
+Die drei vorhandenen Key-Dokument- und fünf Workspace-Suiten sowie die echten
+Session-Read-/Search-Service-Suiten, HTTP-Grenzprüfung, Release-Typecheck und
+gezieltes ESLint bestehen. Die installierte SDK-Browse-Abnahme und die
+kompilierte Container-Abnahme sind damit noch nicht ersetzt.
 Ihre bisherigen Datenleser für Übersicht, Baum/Links und Datei-/Native-Hashes
 liegen nun gemeinsam in `documents/workspace-browse.ts`. Die bestehenden
 OAuth-Werkzeuge verwenden diese Helfer mit unveränderten Auth-/Audit- und
@@ -718,8 +780,7 @@ Die dafür getrennten API-Key-Browse-Principals besitzen feste Zwecke für Baum,
 Übersicht und Manifest. Vier weitere PostgreSQL-Gruppen prüfen deren aktuelle
 Lesegrenzen, exakte MCP-Toolschalter, Zweck-/Familientrennung, gefälschte und
 abgelaufene Handles sowie Rechteentzug/Archivierung/Widerruf. Die bisherigen
-nativen Dokument- und Workspace-Suiten bleiben grün; die Browse-Adapter selbst
-sind noch anzuschließen.
+nativen Dokument- und Workspace-Suiten bleiben grün.
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu
@@ -860,6 +921,95 @@ Paketinstallation, Dokumentationsauslieferung und Zugriff nach dem Deployment
 werden separat nachgewiesen. Produktivprüfungen sind lesend; ein Schreibtest
 verwendet ausschließlich ausdrücklich bestimmte Testdokumente.
 
+### 5c. Browser-Dokumentcache und Wechsel zwischen Dokument-Tabs
+
+**Status: geplant, noch nicht umgesetzt oder abschließend gemessen.** Gemeint sind
+die Dokument-Tabs innerhalb des Notebooks; zusätzliche Browser-Tabs und Browser-
+Neustarts werden als getrennte Lebensdauern geprüft. Kein zusätzlicher laufender
+Dienst und kein vollständiges Vorladen aller Workspace-Dokumente sind vorgesehen.
+
+#### Verifizierter Ausgangspunkt und offene Messung
+
+Der am 01.11.2026 geprüfte Code hält im File-/Editor-Store einen aktiven
+Dokumentinhalt. Die sichtbare Tab-Liste speichert Pfade und Dokumentidentitäten
+in `localStorage`; sie hält nicht für jeden Tab einen gemounteten Editor.
+Kollaborative Textdokumente besitzen einen Yjs-Zustand im RAM und eine persistente
+Kopie über `y-indexeddb`. Der lokale Speicher ist damit bereits vorhanden und
+wird weiterverwendet. Eine allgemeine persistente Inhaltsablage für sämtliche
+Dateitypen oder den ganzen Workspace ist daraus nicht abzuleiten.
+
+Der Wechsel A→B→A führt im bestehenden Pfad wieder durch Dokumentladen und
+Session-Auflösung. Der Query-Leser teilt gleichzeitige Reads, setzt für Dokumente
+aber `staleTime: 0`; der HTTP-Leser verwendet `cache: 'no-store'`. Ein unbenutzter
+Kollaborationseintrag wird nach derzeit einer Sekunde zur Freigabe vorgesehen.
+Dabei bleibt die IndexedDB-Kopie erhalten; eine unbestätigte lokale Sicherung
+darf die letzte RAM-Kopie weiterhin nicht verwerfen.
+
+Das bedeutet nicht, dass jeder Wechsel den vollständigen Text neu herunterlädt:
+Der native `collaborationBootstrap`-Lesepfad fordert Metadaten an; der Editor
+hydratisiert den Inhalt aus IndexedDB und gleicht ihn über Yjs mit dem Server ab.
+Neue Autorisierungsrequests, vollständige Inhaltsübertragung, Yjs-Deltas und
+Editor-Neuaufbau müssen deshalb separat gemessen werden. Die betreffende
+Tabwechsel-Requestzahl wurde bei dieser Planergänzung nicht gemessen.
+
+Die Ausgangspunkte sind `app/components/DashboardShell.tsx`,
+`app/components/editor/FileEditor.tsx`, `app/store/file-store.ts`,
+`app/store/editor-store.ts`, `app/lib/queries/document-queries.ts`,
+`app/lib/files/client.ts`, `app/lib/collaboration/client.ts` und
+`app/lib/collaboration/opened-document-registry.ts`. Vor Umsetzung den dann
+aktuellen Code und gebauten Produktstand erneut abgleichen.
+
+#### Umsetzung in überprüfbaren Schritten
+
+1. **Istzustand messen:** Zwei regulär angelegte Testdokumente bei insgesamt 10
+   und 200 Quellen verwenden. Kaltes Öffnen, erneuten Klick auf den aktiven Tab,
+   A→B→A vor und nach der bisherigen Freigabefrist sowie Browser-Neuladen getrennt
+   erfassen. Pro Phase HTTP-/WebSocket-Aufrufe, Inhalts- und Delta-Bytes,
+   IndexedDB-Hydration, Editor-Initialisierungen, SQL/Ausleihen, sichtbare Ladezeit
+   und gehaltene Dokumente/Verbindungen messen. Messungen nicht mit fremden
+   Build-/Lastläufen vermischen. Wiederholte vergleichbare Wechsel liefern
+   belastbare Latenzwerte statt einer einzelnen lokalen Momentaufnahme.
+2. **Lebensdauer festlegen:** Aktiven Editor, lokalen Dokumentzustand, aktuelle
+   Serverautorisierung und Transport getrennt behandeln. Eine kleine gemeinsame
+   Dokumentverwaltung soll bereits geöffnete native Zustände innerhalb expliziter
+   Grenzen wiederverwenden können. Vor dem Umbau Anzahl, Speicherbudget und
+   Freigaberegel anhand der Messung festlegen. Inaktive Tabs benötigen nicht
+   jeweils einen dauerhaft gemounteten Editor oder eine aktive WebSocket-Verbindung.
+   Ungesicherte Änderungen dürfen durch Verdrängung nicht verloren gehen.
+3. **Warme Wechsel verbessern:** Bereits gültigen lokalen Inhalt wiederverwenden;
+   benötigte aktuelle Autorisierung und Versionsabgleich über die gemeinsamen
+   vorhandenen Leser ausführen. Doppelte gleichzeitige Bootstrap-/Session-Aufrufe
+   zusammenführen, ohne spätere echte Prüfgrenzen zu überspringen. Geänderte
+   Inhalte werden mit dem aktuellen nativen Stand zusammengeführt; ein älterer
+   Cache darf keinen neueren Server- oder lokalen Stand überschreiben.
+4. **Grenzen und Wiederherstellung erhalten:** Cache nach Benutzer-/Anmeldekontext,
+   Workspace, Dokument-ID, Generation und Repräsentation eindeutig zuordnen.
+   Rename/Move aktualisiert die Zuordnung unter derselben gültigen Identität;
+   Löschen und Wiederanlage am selben Pfad sind verschiedene Dokumente.
+   Logout, Benutzer-/Workspace-Wechsel und Rechteentzug dürfen aus Cache-Daten
+   keine neue Lese- oder Schreibberechtigung erzeugen. Vorhandene Offline-/
+   Recovery-Fälle mit unbestätigten Änderungen erhalten; Browser-Neuladen,
+   fehlende oder nicht verfügbare IndexedDB und lokales Speicherlimit liefern
+   nachvollziehbare Zustände. Bestätigtes Speichern bleibt an den tatsächlichen
+   Server-/Persistenzbeleg gebunden.
+5. **Gezielt abnehmen:** Desktop und Mobil, schnelle und verzögerte Tabwechsel,
+   erzwungene Cache-Verdrängung, Browser-Neuladen, zweite Browsersitzung mit
+   tatsächlicher Peer-Änderung, Rechteentzug und Pfad-/Generationswechsel prüfen.
+   Normale nicht kollaborative Dateien sowie bestehende Office-/Szenenwege auf
+   unbeabsichtigte Änderungen prüfen, soweit der Umbau sie berührt. Keine neue
+   Review-Center- oder Undo-Logik als Voraussetzung einführen.
+
+**Fertig:** Die Vorher-/Nachher-Berichte trennen kaltes Öffnen und warme Wechsel.
+Solange der lokale native Zustand gültig und vorgehalten ist, entsteht beim
+Wechsel kein unnötiger vollständiger Inhaltsdownload und keine doppelte native
+Initialisierung. Notwendige aktuelle Rechte- und Versionsprüfungen bleiben
+nachgewiesen. RAM, gehaltene Dokumente und Verbindungen bleiben innerhalb der
+festgelegten Grenzen; Verdrängung und Wiederöffnung verlieren keine Änderungen.
+Inhalt, Links und Speicherstatus bleiben nach Peer-Änderung, Neustart und Recovery
+korrekt. Die reguläre Gesamtsuite und die tatsächlich betroffenen UI-/Recovery-
+Fälle bestehen am freizugebenden Produktstand. Eine reine Verlängerung der
+Freigabefrist oder ein höherer Cache-Grenzwert gilt nicht allein als Abnahme.
+
 ### 6. Leistungsgrenzen und sichere Einführung
 
 Nach der Bündelung verbleibende langsame Abfragen anhand tatsächlicher
@@ -879,9 +1029,13 @@ Desktop und Mobilansicht prüfen. Die vereinbarte reguläre Gesamtsuite muss gr�
 Spezialumgebungen für Review Center und Undo werden dafür nicht neu aufgebaut.
 Die vollständige API-/SDK-Matrix aus Abschnitt 5b ist ein eigenes Release-Gate;
 ein erfolgreicher Editor- oder MCP-Lauf allein erfüllt sie nicht.
+Das Browser-Paket 4c mit den Nachweisen aus Abschnitt 5c ist ebenfalls vor dem
+Abschluss der Einführung abzunehmen; ein schneller Backend-Read allein belegt
+keinen schnellen und korrekten Dokument-Tabwechsel.
 
 Einführung in kleinen PRs: Messung/Verträge → gebündelte Leser → inkrementeller
 Linkindex → gemeinsame Änderungspfade → API-Key-Verwaltung → API-/SDK-Abnahme
+→ Browser-Dokumentcache und Tabwechsel
 → kontrollierte Umschaltung und Bereinigung.
 Neue Leseergebnisse zunächst mit dem bisherigen, vollständigen Neuaufbau vergleichen.
 Die Umschaltung erfolgt pro Ablauf und mit Rückfall auf den vorherigen Codepfad.
@@ -890,7 +1044,8 @@ Bei Datenänderungen bedeutet Rückfall nicht das Überschreiben neuerer Inhalte
 Die PR-Reihenfolge folgt den Abhängigkeiten: zuerst Messung und Verträge, danach
 gebündelte Berechtigungs-/Dokumentleser, anschließend inkrementelle Linkprojektion,
 danach die gemeinsamen Änderungspfade, API-Key-Verwaltung und vollständige
-API-/SDK-Abnahme und abschließend Einführung/Bereinigung.
+API-/SDK-Abnahme, Browser-Dokumentcache/Tabwechsel und abschließend
+Einführung/Bereinigung.
 Jeder PR benennt seine tatsächlich umgestellten Aufrufer, Vorher-/Nachher-Messungen
 und die noch offenen Abläufe. Der erste Leseumbau wird an einem einzigen Adapter
 geprüft, bevor die übrigen Adapter folgen.
