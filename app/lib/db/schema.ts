@@ -59,6 +59,43 @@ export const session = pgTable("session", {
   userId: text("user_id").notNull().references(() => user.id)
 });
 
+// Incoming programmatic access: stable integration identity, independently
+// revocable credentials. Raw keys are never persisted or tied to browser logout.
+export const canvasApiIntegrations = pgTable('canvas_api_integrations', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  instanceId: text('instance_id').notNull(),
+  name: text('name').notNull(),
+  workspaceIdsJson: text('workspace_ids_json').notNull(),
+  actionsJson: text('actions_json').notNull(),
+  creationRequestId: text('creation_request_id').notNull(),
+  revision: bigint('revision', { mode: 'number' }).notNull().default(1),
+  createdAt: pgTimestamp('created_at').notNull(),
+  updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  ownerRequest: uniqueIndex('idx_canvas_api_integrations_owner_request').on(table.ownerUserId, table.instanceId, table.creationRequestId),
+  ownerList: index('idx_canvas_api_integrations_owner_list').on(table.ownerUserId, table.instanceId, table.id),
+  revisionPositive: check('canvas_api_integrations_revision_positive', sql`${table.revision} > 0`),
+}));
+
+export const canvasApiKeys = pgTable('canvas_api_keys', {
+  id: text('id').primaryKey(),
+  integrationId: text('integration_id').notNull().references(() => canvasApiIntegrations.id, { onDelete: 'cascade' }),
+  secretHash: text('secret_hash').notNull(),
+  prefix: text('prefix').notNull(),
+  issuanceRequestId: text('issuance_request_id').notNull(),
+  createdBySessionId: text('created_by_session_id').notNull(),
+  expiresAt: pgTimestamp('expires_at').notNull(),
+  revokedAt: pgTimestamp('revoked_at'),
+  lastUsedAt: pgTimestamp('last_used_at'),
+  createdAt: pgTimestamp('created_at').notNull(),
+}, table => ({
+  issuanceRequest: uniqueIndex('idx_canvas_api_keys_issuance_request').on(table.integrationId, table.issuanceRequestId),
+  currentKey: uniqueIndex('idx_canvas_api_keys_one_current').on(table.integrationId).where(sql`${table.revokedAt} IS NULL`),
+  credentialList: index('idx_canvas_api_keys_list').on(table.integrationId, table.id),
+  expiryAfterCreation: check('canvas_api_keys_expiry_after_creation', sql`${table.expiresAt} > ${table.createdAt}`),
+}));
+
 export const mobilePushDevices = pgTable("mobile_push_devices", {
   id: text("id").primaryKey(),
   installationId: text("installation_id").notNull().unique(),

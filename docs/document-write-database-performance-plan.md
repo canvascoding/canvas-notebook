@@ -638,7 +638,15 @@ Keine neue Review-Center- oder Undo-Implementierung als Voraussetzung.
 
 ### 5a. API-Key-Verwaltung für programmatischen Zugriff
 
-**Status: geplant, noch nicht implementiert.** Erster Umfang sind benutzergebundene
+**Status: in Umsetzung, noch nicht veröffentlicht.** Das Verwaltungs-Backend
+mit additiven Auth-Tabellen und Session-geschützten Routen unter
+`/api/api-access/integrations` ist implementiert. `npm run test:api-keys` prüft
+den Lebenszyklus mit echten Auth-Sitzungen in PGlite; `npm run test:api-keys:native`
+führt dieselben Prüfungen und zusätzliche unabhängige Transaktions-/Worker-Rennen
+auf dem verwalteten lokalen PostgreSQL in einer eigenen temporären Datenbank aus.
+Die Oberfläche, die Authentifizierung der Dokument-/MCP-Aufrufe mit einem Schlüssel
+und die SDK-Anbindung sind noch offen; die Verwaltungsprüfungen ersetzen deren
+vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu
 diesem Schritt. Vor dem Adapterumbau werden Aufrufer und Auswirkungen mit
 GitNexus geprüft; gemeinsame Regeln bleiben im vorhandenen Berechtigungsdienst.
