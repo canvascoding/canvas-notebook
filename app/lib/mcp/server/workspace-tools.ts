@@ -6,10 +6,11 @@ import { getDirectMcpRuntimeSettings } from './runtime-settings';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
 import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
 import { getDirectMcpAuthProbeToolDescriptor } from './auth-probe';
-import { readManifestFile, ManifestReadError, MANIFEST_MAX_FILE_BYTES } from './file-manifest';
+import { MANIFEST_MAX_FILE_BYTES } from './file-manifest';
 import { decodeLegacySearchCursor, encodeLegacySearchCursor, legacySearchFingerprint, LegacyPaginationError } from './legacy-pagination';
 import { directMcpFileLinkFields, readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
-import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
+import { readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
+import { readWorkspaceOverviewContents, readWorkspaceTreeWithLinks, readWorkspaceManifest } from '@/app/lib/documents/workspace-browse';
 
 import {
   ProtocolError,
@@ -28,7 +29,6 @@ import { DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, DOCUMENT_READ_PAGE_JSON_SCHEMA_V1 }
 import { decodeDirectMcpDocumentReadSelection, DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES } from './document-read-tool-contract';
 import {
   getFileStats,
-  listDirectory,
   readFile,
   validatePath,
   writeFile,
@@ -1003,18 +1003,7 @@ async function executeGetWorkspaceOverview(
 
   try {
     const workspace = await readableWorkspace(authorization.principal, workspaceId);
-    const topLevel = (await listDirectory('.', {
-      workspace,
-      includeMetadata: true,
-      includeSymlinks: false,
-    })).filter(isVisibleWorkspaceNode);
-    const folders = topLevel.filter((entry) => entry.type === 'directory').length;
-    const files = topLevel.filter((entry) => entry.type === 'file');
-    const fileTypes = [...new Set(files
-      .map((entry) => path.extname(entry.name).replace(/^\./u, '').toLowerCase())
-      .filter(Boolean))]
-      .sort()
-      .slice(0, 20);
+    const overview = await readWorkspaceOverviewContents(workspace);
     const runtime = await getDirectMcpRuntimeSettings();
     const descriptors = [getDirectMcpAuthProbeToolDescriptor(), ...getDirectMcpWorkspaceToolDefinitions().map(tool => tool.descriptor),
       ...getDirectMcpIngestToolDefinitions().map(tool => tool.descriptor), ...getDirectMcpExcalidrawToolDefinitions().map(tool => tool.descriptor)];
@@ -1025,17 +1014,13 @@ async function executeGetWorkspaceOverview(
         upload_chunk_max_base64_characters: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, upload_ttl_seconds: 900,
         markdown_replace_max_characters: MAX_EDIT_TEXT_LENGTH, manifest_max_file_bytes: MANIFEST_MAX_FILE_BYTES },
       workspace: workspaceSummary(workspace),
-      contents: {
-        top_level_files: files.length,
-        top_level_folders: folders,
-        file_types: fileTypes,
-      },
+      contents: overview.contents,
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
       tool: 'get_workspace_overview',
       workspace,
-      resultCount: topLevel.length,
+      resultCount: overview.count,
     });
     return result(structuredContent, `Overview for ${workspace.displayName || 'workspace'} loaded.`);
   } catch {
@@ -1059,27 +1044,14 @@ async function executeListKnowledgeTree(
 
   try {
     const workspace = await readableWorkspace(authorization.principal, workspaceId);
-    const tree = await readWorkspaceTreePage({
-      workspaceId: workspace.workspaceId, rootPath: workspace.rootPath,
-      path: startPath,
-      maxDepth,
-      maxEntries,
-      cursor,
-    });
-    const links = await readDirectMcpFileLinks(workspace.workspaceId, tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path));
-    const entries = tree.entries.map(entry => ({ ...entry, ...links.get(entry.path) }));
-    const structuredContent = {
-      workspace_id: workspace.workspaceId,
-      ...tree,
-      entries,
-    };
+    const tree = await readWorkspaceTreeWithLinks(workspace, { path: startPath, maxDepth, maxEntries, cursor });
     await auditWorkspaceToolCall({
       principal: authorization.principal,
       tool: 'list_knowledge_tree',
       workspace,
-      resultCount: tree.entries.length,
+      resultCount: tree.count,
     });
-    return result(structuredContent, [formatWorkspaceTreePage(tree), ...[...links].map(([path, link]) => `${JSON.stringify(path)}: ${link.document_url}`)].join('\n'));
+    return result(tree.value, tree.text);
   } catch (error) {
     if (error instanceof WorkspaceTreeError) return { isError: true,
       content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
@@ -1101,35 +1073,9 @@ async function executeGetKnowledgeManifest(args: unknown, authInfo?: AuthInfo): 
   if ('result' in authorization) return authorization.result;
   try {
     const workspace = await readableWorkspace(authorization.principal, workspaceId);
-    const tree = await readWorkspaceTreePage({ workspaceId, rootPath: workspace.rootPath,
-      path: startPath, maxDepth, maxEntries, cursor });
-    const files = tree.entries.filter(entry => entry.type === 'file');
-    const links = await readDirectMcpFileLinks(workspaceId, files.map(entry => entry.path));
-    const entries: Record<string, unknown>[] = [];
-    for (const entry of files) {
-      const link = links.get(entry.path)!;
-      const row: Record<string, unknown> = { path: entry.path, ...link, hash_basis: 'original_file_bytes' };
-      try {
-        Object.assign(row, await readManifestFile(workspace, entry.path));
-      } catch (error) {
-        Object.assign(row, { size: entry.size, sha256: null, revision: null,
-          error: error instanceof ManifestReadError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE' });
-      }
-      if (link.document_id && /\.m(?:d|arkdown)$/iu.test(entry.path)) {
-        try {
-          const snapshot = await readCurrentCollaborationTextSnapshot({ documentId: link.document_id, workspace, path: entry.path });
-          row.document = { hash_basis: 'authoritative_markdown_utf8', sha256: snapshot.sha256,
-            size: Buffer.byteLength(snapshot.content, 'utf8'), revision: `sha256:${snapshot.sha256}`,
-            document_sequence: snapshot.documentSequence, lifecycle_generation: snapshot.lifecycleGeneration };
-        } catch { row.document = { error: 'MANIFEST_NATIVE_SOURCE_UNAVAILABLE' }; }
-      }
-      entries.push(row);
-    }
-    await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'get_knowledge_manifest', workspace, resultCount: entries.length });
-    return result({ workspace_id: workspaceId, path: tree.path, entries, directories: tree.directories,
-      next_cursor: tree.next_cursor, has_more: tree.has_more, truncated_by_depth: tree.truncated_by_depth,
-      coverage: { source: 'visible_physical_tree', atomic_snapshot: false, max_file_bytes: MANIFEST_MAX_FILE_BYTES,
-        complete: !tree.truncated && entries.every(entry => !entry.error) } }, `Manifest page: ${entries.length} files.`);
+    const manifest = await readWorkspaceManifest(workspace, { path: startPath, maxDepth, maxEntries, cursor });
+    await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'get_knowledge_manifest', workspace, resultCount: manifest.count });
+    return result(manifest.value, manifest.text);
   } catch (error) {
     return structuredErrorResult(error instanceof WorkspaceTreeError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE',
       error instanceof WorkspaceTreeError ? error.message : 'Could not read the workspace manifest.');

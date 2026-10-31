@@ -7,9 +7,11 @@ import { withDocumentReadToolDispatchFixture } from './helpers/document-read-too
 
 async function main() {
   await withDocumentReadToolDispatchFixture(async fixture => {
-    process.env.CANVAS_MCP_DIRECT_TOOLS = 'get_knowledge_manifest';
+    process.env.CANVAS_MCP_DIRECT_TOOLS = 'get_knowledge_manifest,list_knowledge_tree,get_workspace_overview';
     const { handleDirectMcpPost } = await import('../app/lib/mcp/server/streamable-http');
-    const token = await fixture.issue(); let id = 0;
+    const scopes = ['workspace:list', 'knowledge:tree', 'knowledge:read'];
+    await fixture.admin.query('UPDATE oauth_consent SET scopes=$1', [JSON.stringify(scopes)]);
+    const token = await fixture.issue({ scope: scopes.join(' ') }); let id = 0;
     const rpc = async (method: string, params: unknown) => {
       const response = await handleDirectMcpPost(new Request('http://localhost/mcp', { method: 'POST', headers: {
         'content-type': 'application/json', accept: 'application/json, text/event-stream',
@@ -25,6 +27,15 @@ async function main() {
     await mkdir(path.join(fixture.workspaceRoot, '.private'));
     await writeFile(path.join(fixture.workspaceRoot, '.private', 'secret.txt'), 'hidden');
     await symlink('/etc/passwd', path.join(fixture.workspaceRoot, 'alias.txt'));
+    const tree = await rpc('tools/call', { name: 'list_knowledge_tree', arguments: { workspace_id: fixture.workspaceId, max_depth: 0 } });
+    assert.notEqual(tree.isError, true);
+    assert.deepEqual(tree.structuredContent.entries.map((entry: { path: string }) => entry.path), ['bytes.bin', 'other.txt']);
+    assert(tree.structuredContent.entries.every((entry: { document_url?: string }) => entry.document_url));
+    const overview = await rpc('tools/call', { name: 'get_workspace_overview', arguments: { workspace_id: fixture.workspaceId } });
+    assert.notEqual(overview.isError, true); assert.equal(overview.structuredContent.workspace.id, fixture.workspaceId);
+    assert.deepEqual(overview.structuredContent.contents, { top_level_files: 2, top_level_folders: 0, file_types: ['bin', 'txt'] });
+    assert(overview.structuredContent.capabilities.tools.some((tool: { name: string; allowed_by_workspace_and_connection: boolean }) =>
+      tool.name === 'list_knowledge_tree' && tool.allowed_by_workspace_and_connection));
     let cursor: string | null = null;
     const entries = new Map();
     do {
@@ -47,7 +58,7 @@ async function main() {
     assert.equal(page.entries.find((entry: { path: string }) => entry.path === 'huge.bin').error, 'MANIFEST_FILE_TOO_LARGE');
     await fixture.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE workspace_id=$1', [fixture.workspaceId]);
     assert.equal((await call()).isError, true);
-    console.log('PASS manifest: binary SHA/size/revision/link, pages, hidden and symlink exclusion, changed cursor, bounded hash, revoked grant');
+    console.log('PASS shared overview/tree/manifest: real OAuth/workspace authority, metadata and links, binary SHA/size/revision, pages, hidden and symlink exclusion, changed cursor, bounded hash, revoked grant');
   });
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

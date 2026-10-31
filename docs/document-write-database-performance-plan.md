@@ -705,6 +705,11 @@ Route-/PostgreSQL-/Protokollgruppen prüfen die begrenzten Metadaten, den
 unveränderten Session-Vertrag, 401/403, aktuelle Archivierung und Widerruf.
 Der installierte SDK-HTTP-Runner prüft jetzt auch `CanvasNotebook.list_workspaces()`.
 Baum, Übersicht und Manifest sowie die Schreib-/Job-Adapter sind weiterhin offen.
+Ihre bisherigen Datenleser für Übersicht, Baum/Links und Datei-/Native-Hashes
+liegen nun gemeinsam in `documents/workspace-browse.ts`. Die bestehenden
+OAuth-Werkzeuge verwenden diese Helfer mit unveränderten Auth-/Audit- und
+Fehlergrenzen. Der echte OAuth-/PostgreSQL-Runner prüft alle drei Lesewege,
+einschließlich Sichtbarkeit, Links, Hashes, Cursor-Änderungen und Widerruf.
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu
