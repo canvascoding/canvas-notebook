@@ -659,9 +659,15 @@ Widerruf, Rotation, Ablauf, Kontosperren, fremde Instanzen, kopierte Nachweise,
 temporäre Schattentabellen und einen geänderten Datenbank-Suchpfad. Logout beendet
 den Schlüsselzugang nicht. Ein warmer Einstieg benötigt einschließlich der
 gemeinsamen Client-/Global-/Key-/User-Limits und begrenzter Nutzungsstatistik fünf
-SQL-Anweisungen. Das ist **noch kein Dokument-Berechtigungsprofil**: Seat-,
-Workspace-, Aktions-/Tool- und Transaktionsprüfungen in den tatsächlichen
-Dokumentphasen sowie REST-/MCP-Adapter und SDK-Anbindung sind noch offen.
+SQL-Anweisungen. Zusätzlich ist die separate Read-/Search-Principal-Phase mit
+sieben echten PostgreSQL-Fällen geprüft: aktuelle Seat-/Workspace-/Aktionsrechte,
+auf Lesen begrenzte Permissions, unverfälschbare und nur während des Aufrufs
+gültige Handles, Reentranz, tatsächlicher Backend-/Transaktionswechsel sowie
+ein unabhängiger Widerruf, der auf die laufende Phase wartet. Die Phase leiht
+die echte Transaktion und verändert keine Dokument-/Yjs-/Projektionsdaten.
+Diese Prüfung läuft dauerhaft unter `test:api-keys:documents:native` und im
+nativen API-Key-Paket. **REST-/MCP-/SDK-Anbindung, Tool-Policy und die weiteren
+Schreib-/Job-Phasen sind noch offen.**
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

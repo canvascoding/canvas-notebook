@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { types } from 'node:util';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { quotePostgresIdentifier } from '@/app/lib/db/postgres';
 import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { publicRateLimit } from '@/app/lib/security/public-rate-limit';
@@ -25,10 +26,12 @@ export type CurrentApiKeyIdentity = Readonly<{
 }>;
 type Capture = { credentialId: string; secretHash: string; integrationId: string; userId: string;
   instanceId: string; realm: ApiKeyCredentialRealm };
+export type ApiKeyCredentialBinding = Readonly<Omit<Capture, 'secretHash'>>;
 type CredentialRow = {
   id: string; secret_hash: string; expires_at: number; revoked_at: number | null;
   integration_id: string; owner_user_id: string; instance_id: string; name: string; revision: number;
   workspace_ids_json: string; actions_json: string; account_banned: number | string | boolean | null;
+  account_email: string | null; account_role: string | null;
   schema_name: string; schema_oid: string; database_oid: string; search_path: string;
   credential_relation_oid: string; integration_relation_oid: string; user_relation_oid: string;
   relations_match: boolean;
@@ -50,9 +53,16 @@ function credentialRegistry(): WeakMap<ApiKeyCredential, Capture> {
 }
 const captures = credentialRegistry();
 const consumeKnownBudget = createPublicRateLimitStore(openDb);
-const lookupSql = `SELECT k.id,k.secret_hash,k.expires_at,k.revoked_at,
+/** Catalog/credential data for a joint phase snapshot; this SQL grants nothing. */
+export function apiKeyCredentialSnapshotSql(credentialParameter = 1, schema?: string): string {
+  if (!Number.isInteger(credentialParameter) || credentialParameter < 1 || credentialParameter > 32
+    || schema !== undefined && (typeof schema !== 'string' || !schema || schema.length > 63)) {
+    throw new RangeError('Invalid credential snapshot selection.');
+  }
+  const table = (name: string) => `${schema === undefined ? '' : quotePostgresIdentifier(schema) + '.'}${quotePostgresIdentifier(name)}`;
+  return `SELECT k.id,k.secret_hash,k.expires_at,k.revoked_at,
     i.id AS integration_id,i.owner_user_id,i.instance_id,i.name,i.revision,i.workspace_ids_json,i.actions_json,
-    u.banned AS account_banned,pg_catalog.current_schema() AS schema_name,
+    u.banned AS account_banned,u.email AS account_email,u.role AS account_role,pg_catalog.current_schema() AS schema_name,
     (SELECT oid::text FROM pg_catalog.pg_namespace WHERE nspname=pg_catalog.current_schema()) AS schema_oid,
     (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
     pg_catalog.current_setting('search_path') AS search_path,
@@ -60,11 +70,14 @@ const lookupSql = `SELECT k.id,k.secret_hash,k.expires_at,k.revoked_at,
     k.tableoid=pg_catalog.to_regclass(pg_catalog.format('%I.canvas_api_keys',pg_catalog.current_schema()))::oid
       AND i.tableoid=pg_catalog.to_regclass(pg_catalog.format('%I.canvas_api_integrations',pg_catalog.current_schema()))::oid
       AND u.tableoid=pg_catalog.to_regclass(pg_catalog.format('%I.user',pg_catalog.current_schema()))::oid AS relations_match
-  FROM canvas_api_keys k JOIN canvas_api_integrations i ON i.id=k.integration_id
-    JOIN "user" u ON u.id=i.owner_user_id WHERE k.id=$1`;
+  FROM ${table('canvas_api_keys')} k JOIN ${table('canvas_api_integrations')} i ON i.id=k.integration_id
+    JOIN ${table('user')} u ON u.id=i.owner_user_id WHERE k.id=$${credentialParameter}`;
+}
+const lookupSql = apiKeyCredentialSnapshotSql();
 
 function invalid(): never { throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401); }
 function positive(value: unknown): number {
+  if (typeof value !== 'number' && !(typeof value === 'string' && /^[1-9][0-9]*$/u.test(value))) invalid();
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number <= 0) invalid();
   return number;
@@ -141,10 +154,27 @@ export async function authenticateApiKeyRequest(request: Request): Promise<ApiKe
  * data only: it does not admit a workspace or create/extend a transaction. */
 export async function readCurrentApiKeyIdentityOnConnection(database: Pick<SqlConnection, 'get'>,
   credential: ApiKeyCredential): Promise<CurrentApiKeyIdentity> {
+  const binding = apiKeyCredentialBinding(credential);
+  return currentApiKeyIdentityFromSnapshot(credential, await database.get(lookupSql, [binding.credentialId]));
+}
+
+/** Routing/binding metadata only. No grant is retained from authentication. */
+export function apiKeyCredentialBinding(credential: ApiKeyCredential): ApiKeyCredentialBinding {
   if (!credential || typeof credential !== 'object' || types.isProxy(credential)) invalid();
   const capture = captures.get(credential);
   if (!capture || capture.instanceId !== getLicenseInstanceId()) invalid();
-  const current = identity(await database.get(lookupSql, [capture.credentialId]) as CredentialRow | undefined, capture.secretHash);
+  return Object.freeze({ credentialId: capture.credentialId, integrationId: capture.integrationId,
+    userId: capture.userId, instanceId: capture.instanceId, realm: capture.realm });
+}
+
+/** Pure validation of a real query reply. The returned data is not a Principal. */
+export function currentApiKeyIdentityFromSnapshot(credential: ApiKeyCredential, snapshot: unknown): CurrentApiKeyIdentity {
+  apiKeyCredentialBinding(credential);
+  if (snapshot != null && (typeof snapshot !== 'object' || types.isProxy(snapshot) || Object.getPrototypeOf(snapshot) !== Object.prototype)) {
+    throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'Invalid credential snapshot.', 503);
+  }
+  const capture = captures.get(credential)!;
+  const current = identity(snapshot as CredentialRow | undefined, capture.secretHash);
   if (current.integrationId !== capture.integrationId || current.userId !== capture.userId || current.instanceId !== capture.instanceId
     || Object.entries(capture.realm).some(([name, value]) => current.realm[name as keyof ApiKeyCredentialRealm] !== value)) invalid();
   return current;
