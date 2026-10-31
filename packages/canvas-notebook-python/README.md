@@ -67,6 +67,19 @@ The OS store retains both tokens and client registration, scoped to the exact en
 
 An already issued MCP access token may instead be supplied through `CanvasMcpTransport(ENDPOINT, access_token=token)`. That mode does not refresh or persist it. Keep tokens in a proper credential store and never include them in source, logs or agent prompts. A Better Auth REST session bearer and an MCP resource access token are different credentials.
 
+The unreleased API-key adapter uses a separate, mutually exclusive mode:
+
+```python
+# Retrieve the one-time key from your external application's secret store.
+async with CanvasMcpTransport(ENDPOINT, api_key=key_from_secret_store) as transport:
+    notebook = CanvasNotebook(transport)
+    complete = await notebook.read_all(workspace_id, document_id, format="text")
+```
+
+Create the key under **Settings → Connections → API access** with explicit workspace and action grants. Its full secret is shown once; the server stores a hash. This SDK sends only `X-Canvas-API-Key` in this mode, uses HTTPS outside loopback, and does not refresh, persist or automatically replace the key. OAuth, `access_token` and `api_key` cannot be combined. Canvas-internal clients must obtain credentials through the existing central Secrets service; external clients use their own secret store.
+
+Current branch acceptance covers native ID-based Read and Search with real issued keys, including pagination, rotation, current grant reduction and revocation through an installed wheel over HTTP. API-key workspace navigation and write/job adapters are still being integrated and are not yet advertised for key connections. Their OAuth implementations retain their separate contracts. The API-key wheel has passed all 79 mechanical SDK tests on Python 3.10.19 and 3.14.3; this does not claim compiled-container, full matrix or deployed-release acceptance.
+
 Scopes are necessary but do not grant a workspace or tool by themselves. Canvas also checks current user/client grants, workspace access and tool configuration. Native Edit and its status lookup require current Write authority; all Copy/Move/Delete actions require `knowledge:write` and their actual current workspace permissions. Search authority does not grant full Read.
 
 ## Progressive document access

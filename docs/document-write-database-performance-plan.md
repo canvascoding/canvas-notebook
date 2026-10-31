@@ -679,8 +679,18 @@ weiteren PostgreSQL-Gruppen geprüft; API-Key-Verbindungen erhalten dafür eigen
 Auth-/Input-/Fehlerschemata. Eine laufende Phase prüft die wirklichen MCP-Tool-
 schalter erneut. Es entstehen keine fingierten OAuth- oder Browser-Sitzungen.
 Fünf aktuelle native Regressionssuiten und der korrigierte isolierte MCP-
-Nutzungsanzeigentest bestehen. **Workspace-Navigation, weitere MCP-Adapter,
-SDK-Anbindung und die Schreib-/Job-Phasen sind noch offen.**
+Nutzungsanzeigentest bestehen. Das SDK besitzt den ausdrücklich getrennten
+`api_key`-Transportmodus mit HTTPS-Pflicht außerhalb Loopback, eigenem Header,
+begrenzter Lebensdauer im Client und ohne neue automatische Schreibwiederholung.
+Ein frisch installiertes Wheel besteht 79 mechanische Tests unter Python
+3.10.19 und 3.14.3; ein Core-Wheel-Import ohne MCP-Extras ist ebenfalls geprüft.
+Der dauerhafte Runner `test:api-keys:sdk:native` prüft reguläre Ausstellung,
+mehrseitige Unicode-Reads, Suche, Rotation, Rechteentzug und Widerruf über
+wirkliches HTTP mit dem installierten Wheel. Er verlangt explizite
+`CANVAS_SDK_TEST_PYTHON`-/`CANVAS_SDK_TEST_WHEEL`-Pfade und vergleicht jede
+installierte SDK-Quelldatei mit dem Wheel und dem Arbeitsstand.
+**Workspace-Navigation, weitere MCP-Adapter und die Schreib-/Job-Phasen sowie
+die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

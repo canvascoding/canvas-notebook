@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import base64
+import re
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from typing import Any
@@ -19,16 +21,24 @@ from .credentials import validate_mcp_endpoint
 
 class CanvasMcpTransport:
     def __init__(self, endpoint: str, *, oauth: CanvasOAuth | None = None,
-                 access_token: str | None = None, read_timeout: float = 60.0) -> None:
+                 access_token: str | None = None, api_key: str | None = None,
+                 read_timeout: float = 60.0) -> None:
         self.endpoint = validate_mcp_endpoint(endpoint)
-        if (oauth is None) == (access_token is None):
-            raise ValueError("Supply either Canvas OAuth configuration or an issued MCP access token.")
+        if sum(value is not None for value in (oauth, access_token, api_key)) != 1:
+            raise ValueError("Supply exactly one of Canvas OAuth, an issued MCP access token, or an API key.")
         if access_token is not None and (not isinstance(access_token, str) or not 1 <= len(access_token) <= 16384
                 or any(ord(char) <= 32 or ord(char) >= 127 for char in access_token)):
             raise ValueError("The issued MCP access token is invalid.")
+        if api_key is not None:
+            if (not isinstance(api_key, str) or re.fullmatch(
+                    r"cnk_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.[A-Za-z0-9_-]{43}", api_key) is None
+                    or base64.urlsafe_b64encode(base64.urlsafe_b64decode(api_key.rsplit(".", 1)[1] + "=")).decode("ascii").rstrip("=")
+                    != api_key.rsplit(".", 1)[1]):
+                raise ValueError("The Canvas API key is invalid.")
         if not math.isfinite(read_timeout) or not 1 <= read_timeout <= 600:
             raise ValueError("Use a bounded HTTP read timeout.")
         self._oauth, self._access_token, self._read_timeout = oauth, access_token, read_timeout
+        self._api_key = api_key
         self._stack: AsyncExitStack | None = None
         self._client: Client | None = None
         self._used = False
@@ -42,7 +52,10 @@ class CanvasMcpTransport:
         try:
             auth = await stack.enter_async_context(self._oauth.open_provider(self.endpoint)) if self._oauth else None
             headers = {"Authorization": f"Bearer {self._access_token}"} if self._access_token is not None else None
+            if self._api_key is not None:
+                headers = {"X-Canvas-API-Key": self._api_key}
             http = await stack.enter_async_context(httpx2.AsyncClient(auth=auth, headers=headers,
+                follow_redirects=False,
                 timeout=httpx2.Timeout(30.0, read=self._read_timeout)))
             connection = streamable_http_client(self.endpoint, http_client=http, max_sse_event_size=8 * 1024 * 1024)
             client = await stack.enter_async_context(Client(connection, mode="auto", cache=None,
@@ -58,6 +71,7 @@ class CanvasMcpTransport:
             raise
         finally:
             self._access_token = None
+            self._api_key = None
         self._stack = stack
         return self
 

@@ -4,6 +4,7 @@
 
 - Separately installable native-document facade over official MCP 2.3.0 Streamable HTTP, with optional external dependencies.
 - OAuth authorization-code/PKCE callback lifetime and separate memory/OS-keyring storage for tokens and client registration.
+- Separate `api_key` transport mode with the explicit Canvas key header, HTTPS outside loopback, exclusive authentication selection and no additional mutation retries. The current native Read/Search adapters are tested with installed wheels over HTTP on Python 3.10.19 and 3.14.3, including rotation, current grants, issuing-session logout and revocation. Workspace and write/job key adapters and compiled-container acceptance remain pending.
 - Native search, version-bound paginated read, creation/import, edit and historical edit-status methods retain the central Canvas contracts.
 - Four native Copy methods delegate Preview/Apply/Status/Recover to the explicitly enabled central MCP tool. Collision renaming is Preview-only; Apply/Recover retain the exact resolved roots, original order, caller operation ID and actual plan. Full results and uncertain outcomes remain explicit; no automatic replay, polling or recovery.
 - Historical baseline before the SDK Copy additions: wheel/source builds, installations, 26 boundary tests, strict typing and five actual MCP HTTP/PostgreSQL document families passed on their recorded source versions and artifacts.
