@@ -1,12 +1,13 @@
 import 'server-only';
 
 import { ProtocolError, ProtocolErrorCode, type CallToolResult } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 import type { ApiKeyCredential } from '../../api-keys/authentication';
 import { ApiKeyAccessError } from '../../api-keys/contracts';
 import { assertApiKeyMcpToolEnabled } from '../../api-keys/mcp-runtime';
 import { DocumentReadError } from '../../documents/contracts';
 import { DocumentSearchError } from '../../documents/search-contract';
-import { readDocumentForApiKeyMcp, searchDocumentsForApiKeyMcp } from '../../documents/service';
+import { listWorkspacesForApiKey, readDocumentForApiKeyMcp, searchDocumentsForApiKeyMcp } from '../../documents/service';
 import type { DirectMcpToolId } from './config';
 import { decodeDirectMcpDocumentReadSelection } from './document-read-tool-contract';
 import { decodeDirectMcpDocumentSearchSelection } from './document-search-tool-contract';
@@ -15,7 +16,12 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
   try {
     await assertApiKeyMcpToolEnabled(tool);
     let page: unknown;
-    if (tool === 'read_knowledge_source') {
+    if (tool === 'list_workspaces') {
+      if (!z.object({}).strict().safeParse(args === undefined ? {} : args).success) {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'list_workspaces does not accept arguments.');
+      }
+      page = { workspaces: await listWorkspacesForApiKey(credential, 'mcp') };
+    } else if (tool === 'read_knowledge_source') {
       const selection = decodeDirectMcpDocumentReadSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use a stable document_id for API-key native reads.');
       const read = await readDocumentForApiKeyMcp(credential, selection);

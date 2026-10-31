@@ -21,6 +21,10 @@ import {
 import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
 import { initializeCreatedWorkspaceStarter } from '@/app/lib/workspaces/starter-document-initialization-api';
+import { authenticateApiKeyRequest, hasApiKeyCredential } from '@/app/lib/api-keys/authentication';
+import { apiKeyDocumentErrorResponse } from '@/app/lib/api-keys/http';
+import { DocumentReadError } from '@/app/lib/documents/contracts';
+import { listWorkspacesForApiKey } from '@/app/lib/documents/service';
 
 async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean }) {
   if (!status.teamFeaturesEnabled) return null;
@@ -50,6 +54,18 @@ function normalizeRequestedWorkspaceType(value: unknown): WorkspaceType {
 }
 
 export async function GET(request: Request) {
+  if (hasApiKeyCredential(request)) {
+    const headers = { 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' };
+    try {
+      const credential = await authenticateApiKeyRequest(request);
+      return NextResponse.json({ apiVersion: 1, success: true, workspaces: await listWorkspacesForApiKey(credential, 'request') }, { headers });
+    } catch (error) {
+      const keyFailure = apiKeyDocumentErrorResponse(error, headers);
+      if (keyFailure) return keyFailure;
+      const failure = error instanceof DocumentReadError ? error : new DocumentReadError('DOCUMENT_READ_UNAVAILABLE');
+      return NextResponse.json({ apiVersion: 1, success: false, code: failure.code }, { status: failure.status, headers });
+    }
+  }
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) {

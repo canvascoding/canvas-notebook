@@ -60,6 +60,8 @@ async def main():
     async with CanvasMcpTransport(endpoint, api_key=key, read_timeout=15) as transport:
         key = ""
         notebook = CanvasNotebook(transport)
+        workspaces = (await notebook.list_workspaces()).require_success()["workspaces"]
+        assert [entry["id"] for entry in workspaces] == [workspace]
         complete = await notebook.read_all(workspace, document, format="text", max_bytes=16)
         assert complete.body == config["text"] and len(complete.pages) > 1
         assert complete.document["documentId"] == document

@@ -7,7 +7,7 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '../api-keys/authentication';
 import { ApiKeyAccessError } from '../api-keys/contracts';
 import { withApiKeyDocumentReadPrincipal, withApiKeyDocumentReadPrincipalOnConnection,
-  type ApiKeyDocumentReadOrigin } from '../api-keys/document-read-principal';
+  withApiKeyWorkspaceListPrincipal, withApiKeyWorkspaceListPrincipalOnConnection, type ApiKeyDocumentReadOrigin } from '../api-keys/document-read-principal';
 import { openDb, type SqlConnection } from '../db';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { readNativeDocumentByIdOnConnection, type NativeDocumentReadObservation } from '../collaboration/native-document-read';
@@ -254,6 +254,19 @@ function normalizeError(error: unknown): Error {
  * can be supplied. Successful output waits for both COMMIT and disposal. */
 async function transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
   return transactionOnConnection(await openDb(), operation);
+}
+
+/** Current explicit key workspaces only. Metadata neither grants writes nor
+ * publishes private roots or an OAuth/session identity. COMMIT owns the reply. */
+export async function listWorkspacesForApiKey(credential: ApiKeyCredential, source: 'request' | 'mcp') {
+  try {
+    return await withApiKeyWorkspaceListPrincipal(credential, source, principal => transaction(connection =>
+      withApiKeyWorkspaceListPrincipalOnConnection(connection, principal, async access => {
+        return Object.freeze(access.workspaces.map(workspace => Object.freeze({ id: workspace.workspaceId,
+          name: workspace.displayName || 'Workspace', description: workspace.description || null,
+          type: workspace.workspaceType, is_default: Boolean(workspace.isDefault) })));
+      })));
+  } catch (error) { throw normalizeError(error); }
 }
 
 /** Takes ownership of an actual connection, including all disposal failures. */

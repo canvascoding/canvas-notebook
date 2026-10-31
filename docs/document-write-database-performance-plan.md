@@ -698,6 +698,13 @@ das ist keine vollständige HTTP-Leistungsmessung. Die bestehenden drei nativen
 API-Key-Lesesuiten bestehen nach der Bündelung weiterhin.
 **Workspace-Navigation, weitere MCP-Adapter und die Schreib-/Job-Phasen sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
+
+Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
+ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
+Route-/PostgreSQL-/Protokollgruppen prüfen die begrenzten Metadaten, den
+unveränderten Session-Vertrag, 401/403, aktuelle Archivierung und Widerruf.
+Der installierte SDK-HTTP-Runner prüft jetzt auch `CanvasNotebook.list_workspaces()`.
+Baum, Übersicht und Manifest sowie die Schreib-/Job-Adapter sind weiterhin offen.
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

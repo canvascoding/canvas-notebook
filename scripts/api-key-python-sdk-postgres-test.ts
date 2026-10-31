@@ -26,6 +26,7 @@ async function main() {
   const address = server.address(); assert(address && typeof address === 'object'); const origin = `http://127.0.0.1:${address.port}`;
   try {
     await withDocumentReadToolDispatchFixture(async fixture => {
+      process.env.CANVAS_MCP_DIRECT_TOOLS = 'list_workspaces,read_knowledge_source,search_knowledge';
       const { handleDirectMcpPost, handleDirectMcpUnsupportedMethod, handleDirectMcpOptions } = await import('../app/lib/mcp/server/streamable-http');
       const { createApiIntegration, rotateApiKey, updateApiIntegration, revokeApiKey } = await import('../app/lib/api-keys/management');
       const sessionToken = (await fixture.admin.query("SELECT token FROM session WHERE id='reader-session'")).rows[0].token;
