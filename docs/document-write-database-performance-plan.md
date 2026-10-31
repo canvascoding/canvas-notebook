@@ -12,6 +12,24 @@ API-/SDK-Abnahme. Bisherige Session-/OAuth-Zugänge bleiben erhalten. Diese
 Planergänzung stellt keine implementierte Schlüsselverwaltung, neue
 SDK-Veröffentlichung oder bestandene Abnahme dar.
 
+Die untersuchte Bündelung der eigenen Original-Move-Katalogprüfung wird nicht
+übernommen. Beide Vorher-/Nachher-Fixtures mit 10 und 200 regulär angelegten
+Dokumenten bestehen einschließlich Originaldaten-/Containererhalt. Die Variante
+bestand außerdem 20 neue PostgreSQL-Fälle und drei vorhandene Suiten. Weniger
+SQL-Aufrufe liefern hier jedoch keinen nachgewiesenen Laufzeit- oder
+Ausleihengewinn und rechtfertigen die zusätzliche Snapshot-/Hash-Mechanik nicht.
+
+| Warmer öffentlicher Rename bis Datei-Checkpoint | Basis SQL / Ausleihen | Variante SQL / Ausleihen | Gesamtdauer Basis → Variante |
+| --- | ---: | ---: | ---: |
+| 10 Dokumente | 4046 / 372 | 3810 / 375 | 29,740 → 29,918 s |
+| 200 Dokumente | 19692 / 1220 | 18372 / 1237 | 89,837 → 89,849 s |
+
+Das sind einzelne lokale Diagnosefenster, keine belastbare allgemeine
+Regressionsschätzung. Der Produktcode ist bytegleich auf `f9c34dfbb` zurückgestellt;
+Versuchsdiff, neue versuchsspezifische Tests und tatsächliche Belege sind privat
+erhalten. Der nächste Eingriff gilt den verschachtelten aktuellen Prüfketten
+und den einzelnen Kollaborationsbeobachtungen; die Gesamtbudgets bleiben offen.
+
 Der nächste [HTTP-Workspace-Schritt in Paket 2](architecture/document-service-http-initial-facts-2026-10-31.md)
 bündelt die ersten fünf Workspace-/Einrichtungsabfragen in einer tatsächlichen
 Abfrage. Bei zehn und 200 Dokumenten sinkt ein warmer HTTP-Abruf von 59 auf 55 SQL-
