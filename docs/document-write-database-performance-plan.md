@@ -710,6 +710,12 @@ liegen nun gemeinsam in `documents/workspace-browse.ts`. Die bestehenden
 OAuth-Werkzeuge verwenden diese Helfer mit unveränderten Auth-/Audit- und
 Fehlergrenzen. Der echte OAuth-/PostgreSQL-Runner prüft alle drei Lesewege,
 einschließlich Sichtbarkeit, Links, Hashes, Cursor-Änderungen und Widerruf.
+Die dafür getrennten API-Key-Browse-Principals besitzen feste Zwecke für Baum,
+Übersicht und Manifest. Vier weitere PostgreSQL-Gruppen prüfen deren aktuelle
+Lesegrenzen, exakte MCP-Toolschalter, Zweck-/Familientrennung, gefälschte und
+abgelaufene Handles sowie Rechteentzug/Archivierung/Widerruf. Die bisherigen
+nativen Dokument- und Workspace-Suiten bleiben grün; die Browse-Adapter selbst
+sind noch anzuschließen.
 Die Verwaltungs- und Anmeldeprüfungen ersetzen deren
 vollständige Abnahme nicht. Erster Umfang sind benutzergebundene
 Integrationen. Eine zusätzliche Servicekonto-/Rollenverwaltung gehört nicht zu

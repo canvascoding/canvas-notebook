@@ -22,6 +22,9 @@ declare const principalBrand: unique symbol;
 export type ApiKeyDocumentReadPrincipal = Readonly<{ [principalBrand]: never }>;
 declare const workspaceListBrand: unique symbol;
 export type ApiKeyWorkspaceListPrincipal = Readonly<{ [workspaceListBrand]: never }>;
+declare const workspaceBrowseBrand: unique symbol;
+export type ApiKeyWorkspaceBrowsePrincipal = Readonly<{ [workspaceBrowseBrand]: never }>;
+export type ApiKeyWorkspaceBrowsePurpose = 'tree' | 'overview' | 'manifest';
 export type ApiKeyDocumentReadOrigin = Readonly<{
   kind: 'api_key';
   userId: string; integrationId: string; instanceId: string; credentialId: string;
@@ -33,7 +36,8 @@ type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integratio
   assertCurrent: () => Promise<void> }>;
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
-  credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null; purpose: 'read' | 'search' | 'list';
+  credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
+  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose;
   license: LicenseStatus; observer?: (origin: ApiKeyDocumentReadOrigin) => void; origins?: readonly ApiKeyDocumentReadOrigin[];
   mcp: boolean; active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
 };
@@ -104,7 +108,8 @@ function validateHeader(phase: Phase, row: Row | undefined): void {
 async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   active(phase);
   const capture = phase.capture, binding = capture.binding, schema = quote(binding.realm.schema);
-  const tool = capture.purpose === 'list' ? 'list_workspaces' : capture.purpose === 'read' ? 'read_knowledge_source' : 'search_knowledge';
+  const tool = ({ list: 'list_workspaces', read: 'read_knowledge_source', search: 'search_knowledge',
+    tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest' } as const)[capture.purpose];
   if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
   const pinned = policyTables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${schema}.${quote(name)})`).join(',');
@@ -183,6 +188,20 @@ export async function withApiKeyWorkspaceListPrincipal<T>(credential: ApiKeyCred
   return withCapture(credential, { workspaceId: null, purpose: 'list', mcp: source === 'mcp' }, consume);
 }
 
+/** Fixed bounded browse purpose. A list/read handle cannot substitute for it. */
+export async function withApiKeyWorkspaceBrowsePrincipal<T>(credential: ApiKeyCredential,
+  options: { workspaceId: string; purpose: ApiKeyWorkspaceBrowsePurpose; source: 'request' | 'mcp' },
+  consume: (principal: ApiKeyWorkspaceBrowsePrincipal) => Promise<T>): Promise<T> {
+  if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const workspaceId: unknown = descriptors.workspaceId?.value, purpose: unknown = descriptors.purpose?.value, source: unknown = descriptors.source?.value;
+  if (Reflect.ownKeys(descriptors).length !== 3 || !['workspaceId', 'purpose', 'source'].every(name => descriptors[name]?.enumerable
+    && Object.hasOwn(descriptors[name], 'value')) || !validId(workspaceId)
+    || purpose !== 'tree' && purpose !== 'overview' && purpose !== 'manifest' || source !== 'request' && source !== 'mcp'
+    || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
+  return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp' }, consume);
+}
+
 async function withCapture<T, P extends object>(credential: ApiKeyCredential,
   selection: Pick<Capture, 'workspaceId' | 'purpose' | 'observer' | 'mcp'>, consume: (principal: P) => Promise<T>): Promise<T> {
   const binding = apiKeyCredentialBinding(credential), license = await getLicenseStatus();
@@ -210,8 +229,15 @@ export function withApiKeyWorkspaceListPrincipalOnConnection<T>(connection: SqlC
   return withFixedPrincipalOnConnection(connection, principal, 'list', consume);
 }
 
-function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list',
-  consume: (access: ListAccess) => Promise<T>): Promise<T> {
+export function withApiKeyWorkspaceBrowsePrincipalOnConnection<T>(connection: SqlConnection, principal: ApiKeyWorkspaceBrowsePrincipal,
+  purpose: ApiKeyWorkspaceBrowsePurpose, consume: (access: Access) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'browse', access => consume(Object.freeze({
+    workspace: access.workspaces[0], userId: access.userId, integrationId: access.integrationId,
+    instanceId: access.instanceId, assertCurrent: access.assertCurrent })), purpose);
+}
+
+function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse',
+  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose): Promise<T> {
   const capture = shared.captures.get(principal);
   const held = shared.phases.get(connection);
   const reject = (error: unknown): Promise<never> => {
@@ -220,7 +246,10 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
     return Promise.reject(error);
   };
   if (!capture?.active || !capture.accepting) return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_REQUIRED', 'A current API-key principal is required.', 401));
-  if (family === 'document' ? capture.purpose !== 'read' && capture.purpose !== 'search' : capture.purpose !== 'list') {
+  const matchesFamily = family === 'document' ? capture.purpose === 'read' || capture.purpose === 'search'
+    : family === 'list' ? capture.purpose === 'list'
+      : (browsePurpose === 'tree' || browsePurpose === 'overview' || browsePurpose === 'manifest') && capture.purpose === browsePurpose;
+  if (!matchesFamily) {
     return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_SCOPE_CHANGED', 'The fixed API-key principal family changed.', 409));
   }
   if (capture.failure !== undefined) return Promise.reject(capture.failure);
