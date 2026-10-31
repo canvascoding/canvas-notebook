@@ -61,7 +61,8 @@ import { reportWorkspaceOperationFailureDiagnostics } from './workspace-operatio
 import { lockIdentity } from '../collaboration/room-owner';
 import { getCollaborationRoomConnectionCount } from '../collaboration/runtime-state';
 import { reserveCollaborationAdmissionOnConnection } from '../collaboration/room-admission';
-import { proveCollaborationAdmissionQuiescenceOnConnection } from '../collaboration/room-admission-quiescence';
+import { inspectCollaborationAdmissionQuiescenceSet,
+  proveCollaborationAdmissionQuiescenceOnConnection } from '../collaboration/room-admission-quiescence';
 import { executeCollaborationAdmissionHandoffOnConnection } from '../collaboration/room-admission-handoff';
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { createWorkspaceOperationOriginalMoveAdmissionRequest } from './workspace-operation-original-move-admission';
@@ -1298,10 +1299,23 @@ export function proveWorkspaceOperationOriginalMoveJobQuiescenceGroup(owner: Wor
         || request.expectedDocuments.length > 0 && documentOffset === request.expectedDocuments.length) fail('JOB_LIFECYCLE_INVALID');
       const end = Math.min(documentOffset + groupSize,request.expectedDocuments.length);
       count = end - documentOffset;
-      for (const document of request.expectedDocuments.slice(documentOffset,end)) {
-        await proveCollaborationAdmissionQuiescenceOnConnection(database,request,document.documentId); await check();
+      const documents = request.expectedDocuments.slice(documentOffset,end);
+      // The human policy holds its auth/ACL tables and claim through this B;
+      // the outer Move owner continuously holds every selected room guard.
+      // Only already-materialized proofs use this fixed fresh set reader.
+      // Runtime Agent/MCP grants and unproven targets keep the original path.
+      const grouped = captured.binding.authorization.mode === 'direct'
+        && captured.binding.authorization.actorType === 'user' && documents.length > 0
+        ? await inspectCollaborationAdmissionQuiescenceSet(database,bound,documents.map(document => document.documentId))
+        : null;
+      if (grouped?.every(observation => observation.alreadyProven)) {
+        await check();
+      } else {
+        for (const document of documents) {
+          await proveCollaborationAdmissionQuiescenceOnConnection(database,request,document.documentId); await check();
+        }
       }
-      // Per-document proofs keep their original Header -> Target -> State path.
+      // Every proof retains the shared Header -> Target -> State validator.
       // Check the full actual target set without interpreting DB collation as
       // JavaScript ordering. All mutation guards remain continuously held on B.
       const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id=$1 FOR SHARE',

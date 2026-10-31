@@ -25,10 +25,36 @@ Ausleihengewinn und rechtfertigen die zusätzliche Snapshot-/Hash-Mechanik nicht
 | 200 Dokumente | 19692 / 1220 | 18372 / 1237 | 89,837 → 89,849 s |
 
 Das sind einzelne lokale Diagnosefenster, keine belastbare allgemeine
-Regressionsschätzung. Der Produktcode ist bytegleich auf `f9c34dfbb` zurückgestellt;
+Regressionsschätzung. Die Laufzeitdatei und der Runner dieses Versuchs wurden
+bytegleich auf `f9c34dfbb` zurückgestellt;
 Versuchsdiff, neue versuchsspezifische Tests und tatsächliche Belege sind privat
 erhalten. Der nächste Eingriff gilt den verschachtelten aktuellen Prüfketten
 und den einzelnen Kollaborationsbeobachtungen; die Gesamtbudgets bleiben offen.
+
+Die anschließende begrenzte Move-Gruppenprüfung ist lokal umgesetzt und gegen
+PostgreSQL geprüft. Bereits materialisierte Belege eines benutzergeführten
+Original Move verwenden den vorhandenen frischen Gruppenleser. Die Grenze von
+acht Dokumenten, durchgehend gehaltene Owner-/Raumsperren und vollständige
+aktuelle Prüfungen an den Gruppengrenzen bleiben erhalten. Unbelegte Ziele und
+Agent-/MCP-Aufträge behalten den bisherigen Einzelpfad.
+
+| Warmer öffentlicher Rename bis Datei-Checkpoint | Basis SQL / Ausleihen | Gruppenprüfung SQL / Ausleihen | Aufsummierte Datenbankzeit Basis → Gruppenprüfung |
+| --- | ---: | ---: | ---: |
+| 10 Dokumente | 4046 / 372 | 3835 / 373 | 5,112 → 4,823 s |
+| 200 Dokumente | 19692 / 1220 | 14600 / 1080 | 48,681 → 34,529 s |
+
+Die Gesamtdauer bei 200 Dokumenten bleibt bei rund 90 Sekunden. Die vier
+Vergleichsfenster erhalten Originaldaten und laufende Container. 22 vorhandene
+Owner-Fälle, verlorene erfolgreiche COMMIT-Antwort, 30 echte Job-Principal-Fälle,
+MCP-Principal-Prüfung, elf öffentliche MCP-Gruppen und 47 kontrollierte Scheduler-
+Familien bestehen. Drei neue echte Gruppenfehler erhalten Originaldaten und
+`xmin`; explizite Wiederaufnahme, fehlender Beleg, die tatsächlich blockierte
+parallele Kontosperre und unterbliebener automatischer Lese-Replay sind geprüft.
+TypeScript und gezieltes Lint bestehen. Host-/Linux-Build, Browserabnahme und
+die abschließende reguläre Gesamtsuite dieses Stands bleiben offen. Auftrags-
+abschluss und Projektionswartezeit werden als nächstes getrennt gemessen;
+weitere Performancepakete, API-Key-Verwaltung und vollständige API-/SDK-Abnahme
+sind damit nicht abgeschlossen.
 
 Der nächste [HTTP-Workspace-Schritt in Paket 2](architecture/document-service-http-initial-facts-2026-10-31.md)
 bündelt die ersten fünf Workspace-/Einrichtungsabfragen in einer tatsächlichen
