@@ -467,7 +467,13 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         const actual = await startWorker(target, source, key, 'before_link'); await event(actual, actual.ready); actual.send('go');
         await event(actual, actual.held); const pending = await nativeRows(op); assert.equal(pending.birth.length, 1);
         assert.equal(pending.receipt.length, 1); assert.equal(Number(pending.birth[0].finalized), 0); await noTarget(target);
-        actual.send('kill-helper'); failure(await actual.result); await closedWorker(actual);
+        actual.send('kill-helper');
+        const stored = await actual.result;
+        assert.notEqual(stored.isError, true);
+        assert.equal(object(stored.structuredContent).storage_status, 'confirmed');
+        assert.equal(object(stored.structuredContent).processing_status, 'unconfirmed');
+        assert.equal(object(stored.structuredContent).document_id, pending.birth[0].document_id);
+        await closedWorker(actual);
         const original = await observe(op); assert(original); assert.equal(original.complete, false);
         failure(await call(token, 'create_knowledge_source', args(target, '# Different source\n', key)), 'MCP_INGEST_IDEMPOTENCY_CONFLICT');
         assert.deepEqual(await nativeRows(op), pending); await noTarget(target);
@@ -589,10 +595,16 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         const importArgs = { workspace_id: workspaceId, path: targetPath, file, idempotency_key: key };
         const child = await startWorker(targetPath, { tool: 'import_knowledge_file', file }, key, 'before_link');
         await event(child, child.ready); child.send('go'); await event(child, child.held);
-        child.send('kill-helper'); failure(await child.result); await closedWorker(child); await noTarget(targetPath);
+        child.send('kill-helper');
+        const stored = await child.result;
+        assert.notEqual(stored.isError, true);
+        assert.equal(object(stored.structuredContent).storage_status, 'confirmed');
+        assert.equal(object(stored.structuredContent).processing_status, 'unconfirmed');
+        await closedWorker(child); await noTarget(targetPath);
         const pending = await nativeRows(op); assert.equal(pending.birth.length, 1); assert.equal(pending.receipt.length, 1);
         assert.equal(Number(pending.birth[0].finalized), 0); assert.equal(pending.history.length, 0);
         const pendingTarget = object(object(pending.receipt[0].private_result).target);
+        assert.equal(object(stored.structuredContent).document_id, pendingTarget.documentId);
         const original = await observe(op); assert(original); assert.equal(original.complete, false);
         const originalSource = object(original.intent.source), originalOrigin = object(original.intent.origin);
         assert.equal(originalSource.tool, 'import_knowledge_file'); assert.equal(originalSource.clientId, clientId);
@@ -815,7 +827,12 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         for (const title of ['漢'.repeat(4097), 'x'.repeat(16_385)]) {
           await admin.query('UPDATE workspace_file_metadata SET title=$3,updated_at=2104 WHERE workspace_id=$1 AND path=$2', [workspaceId, target, title]);
           const before = await fixture.snapshot();
-          failure(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }), 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          const observed = await call(token, 'create_knowledge_source', { ...selection, api_version: 1 });
+          assert.notEqual(observed.isError, true);
+          assert.equal(object(observed.structuredContent).storage_status, 'confirmed');
+          assert.equal(object(observed.structuredContent).processing_error_code, 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          assert.equal(object(observed.structuredContent).document_id, legacy.document_id);
+          assert.equal(object(observed.structuredContent).document, undefined, 'Do not manufacture invalid current metadata.');
           assert.deepEqual(await fixture.snapshot(), before); assert.deepEqual(await nativeRows(legacy.operation_id), rows);
         }
         await admin.query('UPDATE workspace_file_metadata SET title=$3,updated_at=2105 WHERE workspace_id=$1 AND path=$2', [workspaceId, target, 'Before real metadata drift']);

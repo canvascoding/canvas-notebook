@@ -16,7 +16,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
 ## Reihenfolge und Anforderungen
 
 - [x] Plan im Repository speichern und aktuellen main als Basis verwenden.
-- [ ] 1. Create-/Import-Ausgang und Statusabfrage
+- [x] 1. Create-/Import-Ausgang und Statusabfrage (Code und Integration; gemeinsame E2E unter 7)
   - Dauerhafte native Speicherung unabhängig von Projektion/Folgearbeiten melden.
   - Vorhandene Birth-/Receipt-Identität verwenden; keine zweite Schreibautorität.
   - Autorisierte, lesende Statusabfrage über denselben Idempotenzschlüssel oder
@@ -69,5 +69,50 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
 
 ## Umsetzungsergebnisse
 
-Noch offen. Jede Anforderung oben benötigt passende aktuelle Laufzeitevidenz;
+### Schritt 1 — implementiert und integrationsgeprüft
+
+Create und Import erhalten `action: "status"` mit `workspace_id`, `path` und
+dem ursprünglichen `idempotency_key`, ohne `content` oder `file`. Die Abfrage
+verwendet die aktuelle Create-/Import-Berechtigung auf der tatsächlichen
+Datenbankverbindung. Sie startet weder einen Write noch eine Projektion.
+
+`storage_status: confirmed` bezeichnet den nachgewiesenen ursprünglichen Commit;
+`original_version` ist ausdrücklich nicht die Zusicherung des heutigen Inhalts.
+`processing_status` unterscheidet `completed` und `unconfirmed`. Fehlende oder
+nicht überprüfbare Belege ergeben `unknown`, niemals behauptete Nicht-Speicherung.
+Bei geänderter physischer Birth-Identität bleibt die bestehende Integritätsprüfung
+erhalten; es wird kein neuer Dateizustand aufgrund gleicher Bytes adoptiert.
+
+Nach einem Fehler versucht der Handler eine neue, autorisierte Beobachtung des
+passenden ursprünglichen Requests. Bei bestätigtem Commit lautet die Antwort
+`outcome: stored`, mit Speicher-/Verarbeitungsstatus und `processing_error_code`.
+Request-/Versionskonflikte und ein ausdrücklich nicht unterstützter nativer
+Request bleiben Fehler. Normale erfolgreiche V1-Create-Antworten behalten ihren
+bisherigen Dokument-/Currency-/Projektionsvertrag.
+
+Bereits bestanden: fokussierter echter PostgreSQL/MCP-HTTP-Test für Status,
+fehlenden Beleg, Identität/Hash, lesende Wirkung, falschen Pfad, wiederholten
+Request und entzogene Rechte. Ein testseitiger Fehler nach echtem Receipt-COMMIT
+und Connection-Release bestätigt Recovery mit derselben Dokument-ID; ein
+anschließender Retry beendet die Projektion. Produktions-Typecheck und scoped
+ESLint bestanden auch abschließend. Die vollständige native Create-/Import-Suite
+besteht 15/15 Gruppen, einschließlich separatem Prozess, echtem HTTPS-Import,
+abgebrochener Projektion, erneuerter OAuth-Session, Konflikten und Metadaten.
+Container-/Browser-/Codex-E2E sind noch offen.
+
+Evidenz (lokal, keine Produktionsdaten):
+
+- `NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/mcp-ingest-status-postgres-test.ts`
+  — `/tmp/canvas-mcp-ingest-status-final.log`, Exit 0.
+- Derselbe Runner mit `scripts/direct-mcp-native-markdown-create-postgres-test.ts`
+  — `/tmp/canvas-mcp-native-create-regression.log`, 15/15, Exit 0.
+- `npm run build:release:typecheck` — `/tmp/canvas-mcp-status-final-types.log`, Exit 0.
+- Scoped ESLint für Status, Ingest-Handler/-Service und neue Tests — Exit 0.
+- GitNexus-Neuindizierung scheitert intern an `Failed calling LOWER: Invalid UTF-8`.
+  `detect_changes` wurde über denselben LocalBackend mit explizitem Worktree
+  ausgeführt; ergänzende direkte Diff-/Aufruferprüfung erforderlich, da der Index alt ist.
+- Der ältere direkte `tsx`-Ingest-Unit-Harness scheitert beim Laden relativer
+  Modulsubstitutionen (`./document-read-principal`); nicht als bestanden gewertet.
+
+Jede Anforderung oben benötigt passende aktuelle Laufzeitevidenz;
 Quellcodeprüfung allein gilt nicht als Connector- oder Browser-Abnahme.
