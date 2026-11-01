@@ -137,8 +137,12 @@ async function requireGrant(database: SqlConnection, manager: Manager, grant: Ap
     const workspace = await readPostgresWorkspaceForUserInSingleSnapshotOnConnection(database, manager.userId, workspaceId);
     const needsWrite = grant.actions.some(action => ['create', 'import', 'edit', 'copy', 'move', 'recover'].includes(action));
     const needsDelete = grant.actions.includes('delete');
-    if (!workspace?.permissions.canRead || needsWrite && !workspace.permissions.canWrite
-      || needsDelete && !workspace.permissions.canDelete) {
+    // A Copy allowlist contains source as well as destination workspaces. A
+    // read-only workspace can be a source. This grants no destination/write
+    // right: each actual fixed operation intersects its roles with current ACL.
+    const mayBeCopySource = grant.actions.includes('copy');
+    if (!workspace?.permissions.canRead || !mayBeCopySource && needsWrite && !workspace.permissions.canWrite
+      || !mayBeCopySource && needsDelete && !workspace.permissions.canDelete) {
       throw new ApiKeyAccessError('API_KEY_GRANT_DENIED', 'You cannot grant the requested workspace actions.', 403);
     }
   }

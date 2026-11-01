@@ -16,7 +16,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { ApiKeyAccessError, type ApiKeyAction } from './contracts';
 import { assertApiKeyMcpToolEnabled } from './mcp-runtime';
 import { apiKeyCredentialBinding, apiKeyCredentialSnapshotSql, currentApiKeyIdentityFromSnapshot,
-  currentApiKeyCreateIdentityFromSnapshot,
+  currentApiKeyReceiptIdentityFromSnapshot, assertApiKeyReceiptSearchPath,
   type ApiKeyCredential, type ApiKeyCredentialBinding } from './authentication';
 
 declare const principalBrand: unique symbol;
@@ -32,6 +32,11 @@ export type ApiKeyDocumentEditPurpose = 'edit' | 'edit_status';
 declare const documentCreateBrand: unique symbol;
 export type ApiKeyDocumentCreatePrincipal = Readonly<{ [documentCreateBrand]: never }>;
 export type ApiKeyDocumentCreatePurpose = 'create' | 'import';
+declare const workspaceCopyBrand: unique symbol;
+export type ApiKeyWorkspaceCopyPrincipal = Readonly<{ [workspaceCopyBrand]: never }>;
+const copyPurposes = ['copy_preview', 'copy_apply', 'copy_status', 'copy_recover'] as const;
+export type ApiKeyWorkspaceCopyPurpose = typeof copyPurposes[number];
+type CopySelection = Readonly<{ sourceWorkspaceId: string; destinationWorkspaceId: string }>;
 export type ApiKeyDocumentReadOrigin = Readonly<{
   kind: 'api_key';
   userId: string; integrationId: string; instanceId: string; credentialId: string;
@@ -45,10 +50,15 @@ export type ApiKeyDocumentCreateOrigin = ApiKeyDocumentReadOrigin & Readonly<{
 type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integrationId: string; instanceId: string;
   assertCurrent: () => Promise<void> }>;
 export type ApiKeyDocumentCreatePrincipalAccess = Access & Readonly<{ purpose: ApiKeyDocumentCreatePurpose; assertActive: () => void }>;
+export type ApiKeyWorkspaceCopyPrincipalAccess = Readonly<Omit<Access, 'workspace'> & {
+  sourceWorkspace: WorkspaceContext; destinationWorkspace: WorkspaceContext; credentialId: string;
+  purpose: ApiKeyWorkspaceCopyPurpose; entryPoint: 'request' | 'mcp'; assertActive: () => void;
+}>;
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
-  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose | ApiKeyDocumentCreatePurpose;
+  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose | ApiKeyDocumentCreatePurpose | ApiKeyWorkspaceCopyPurpose;
+  copy?: CopySelection;
   license: LicenseStatus; observer?: (origin: ApiKeyDocumentReadOrigin) => void; origins?: readonly ApiKeyDocumentReadOrigin[];
   mcp: boolean; active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
 };
@@ -104,6 +114,13 @@ function active(phase: Phase): void {
 function validateHeader(phase: Phase, row: Row | undefined): void {
   active(phase);
   const realm = phase.capture.binding.realm;
+  if (row && phase.capture.copy && phase.expectedSearchPath === undefined && row.search_path !== realm.searchPath) {
+    // Existing native Copy owners enter B through native-inspection's canonical
+    // path. Admit only that exact path; schema/OIDs/catalog/TX remain checked.
+    try { assertApiKeyReceiptSearchPath(phase.capture.credential, row.search_path); }
+    catch { failure('API_KEY_PRINCIPAL_SCOPE_CHANGED'); }
+    phase.expectedSearchPath = row.search_path;
+  }
   if (!row || row.schema !== realm.schema || Number(row.schema_oid) !== realm.schemaOid || Number(row.database_oid) !== realm.databaseOid
     || row.search_path !== (phase.expectedSearchPath ?? realm.searchPath) || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin'
     || !Number.isSafeInteger(Number(row.backend)) || Number(row.backend) < 1
@@ -125,24 +142,29 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   const tool = ({ list: 'list_workspaces', read: 'read_knowledge_source', search: 'search_knowledge',
     tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest',
     edit: 'edit_knowledge_source', edit_status: 'edit_knowledge_source',
-    create: 'create_knowledge_source', import: 'import_knowledge_file' } as const)[capture.purpose];
+    create: 'create_knowledge_source', import: 'import_knowledge_file',
+    copy_preview: 'copy_knowledge_source', copy_apply: 'copy_knowledge_source',
+    copy_status: 'copy_knowledge_source', copy_recover: 'copy_knowledge_source' } as const)[capture.purpose];
   if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
   const pinned = policyTables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${schema}.${quote(name)})`).join(',');
   const keySql = postgresScalarSnapshotSql(apiKeyCredentialSnapshotSql(3, binding.realm.schema), ['account_banned', 'expires_at', 'revision']);
   const seatSql = postgresScalarSnapshotSql(userSeatAccessSnapshotSql(2, 4), ['account_banned', 'reconciliation_seat_limit']);
   const workspaceSql = postgresScalarSnapshotSql(workspacePermissionSnapshotSetSql, workspacePermissionSnapshotScalarColumns);
+  const selectedIds = capture.copy ? 'ARRAY(SELECT DISTINCT unnest(ARRAY[$1::text,$7::text]))'
+    : `CASE WHEN $1::text IS NOT NULL THEN ARRAY[$1::text]
+      ELSE ARRAY(SELECT value FROM pg_catalog.jsonb_array_elements_text(
+        (credential.credential_snapshot->>'workspace_ids_json')::jsonb) selected(value) LIMIT 101) END`;
   const row = await phase.connection.get(`WITH ${pinned}
     SELECT header.*,credential.credential_snapshot AS credential,seat.seat_snapshot AS seat,workspaces.snapshots AS workspaces
     FROM (${principalSchemaSnapshotSql(5, 6, tables.length)}) header
     LEFT JOIN (${keySql}) credential(credential_snapshot) ON true
     LEFT JOIN (${seatSql}) seat(seat_snapshot) ON true
-    LEFT JOIN LATERAL (SELECT CASE WHEN $1::text IS NOT NULL THEN ARRAY[$1::text]
-      ELSE ARRAY(SELECT value FROM pg_catalog.jsonb_array_elements_text(
-        (credential.credential_snapshot->>'workspace_ids_json')::jsonb) selected(value) LIMIT 101) END AS ids) selected_workspace_ids ON true
+    LEFT JOIN LATERAL (SELECT ${selectedIds} AS ids) selected_workspace_ids ON true
     LEFT JOIN LATERAL (SELECT COALESCE(pg_catalog.jsonb_agg(selected_scope.workspace_snapshot ORDER BY selected_scope.workspace_snapshot->>'id'),'[]'::jsonb) AS snapshots
       FROM (${workspaceSql}) selected_scope(workspace_snapshot)) workspaces ON true`,
-  [capture.workspaceId, binding.userId, binding.credentialId, seatPolicy.mode, schema, tables]) as Row | undefined;
+  [capture.workspaceId, binding.userId, binding.credentialId, seatPolicy.mode, schema, tables,
+    ...(capture.copy ? [capture.copy.destinationWorkspaceId] : [])]) as Row | undefined;
   active(phase); validateHeader(phase, row);
   if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const credential = row!.credential as Row | null;
@@ -151,14 +173,16 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   if (!Array.isArray(rows) || rows.length > 100 || [credential, row!.seat, ...rows]
     .some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) failure('API_KEY_STATE_INVALID');
   const identity = phase.expectedSearchPath === undefined ? currentApiKeyIdentityFromSnapshot(capture.credential, credential)
-    : currentApiKeyCreateIdentityFromSnapshot(capture.credential, credential, phase.expectedSearchPath);
+    : currentApiKeyReceiptIdentityFromSnapshot(capture.credential, credential, phase.expectedSearchPath);
   phase.credentialExpiresAt = identity.expiresAt;
   const editing = capture.purpose === 'edit' || capture.purpose === 'edit_status';
   const creating = capture.purpose === 'create' || capture.purpose === 'import';
-  const requiredActions: readonly ApiKeyAction[] = capture.purpose === 'edit_status' ? ['edit', 'status']
+  const requiredActions: readonly ApiKeyAction[] = capture.copy ? capture.purpose === 'copy_status' ? ['copy', 'status']
+    : capture.purpose === 'copy_recover' ? ['copy', 'recover'] : ['copy'] : capture.purpose === 'edit_status' ? ['edit', 'status']
     : editing ? ['edit'] : creating ? [capture.purpose as ApiKeyDocumentCreatePurpose] : ['read'];
   if (requiredActions.some(action => !identity.actions.includes(action))
-    || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
+    || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)
+    || capture.copy && !identity.workspaceIds.includes(capture.copy.destinationWorkspaceId)) failure('API_KEY_ACCESS_DENIED');
   evaluateUserSeatAccessSnapshot(binding.userId, seatPolicy, row!.seat as CurrentSeatSnapshotRow | undefined);
   const actor = resolveWorkspaceActor({ id: identity.userId, email: typeof credential.account_email === 'string' ? credential.account_email : null,
     role: typeof credential.account_role === 'string' ? credential.account_role : null });
@@ -170,9 +194,11 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
       if (capture.workspaceId !== null) failure('API_KEY_ACCESS_DENIED');
       continue;
     }
-    if ((editing || creating) && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)) failure('API_KEY_ACCESS_DENIED');
+    const copyDestination = capture.copy?.destinationWorkspaceId === selected.workspaceId;
+    if ((editing || creating || copyDestination) && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)) failure('API_KEY_ACCESS_DENIED');
     const workspace = Object.freeze({ ...selected, permissions: Object.freeze({ ...selected.permissions,
-      canWrite: editing || creating, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: editing || creating }) });
+      canWrite: editing || creating || copyDestination, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false,
+      canRunAgent: editing || creating || copyDestination }) });
     const origin: ApiKeyDocumentReadOrigin = Object.freeze({ kind: 'api_key', userId: identity.userId, integrationId: identity.integrationId,
       credentialId: identity.credentialId, instanceId: identity.instanceId, workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId ?? null, customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null,
@@ -181,7 +207,9 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
       databaseOid: binding.realm.databaseOid, searchPath: binding.realm.searchPath });
     workspaces.push(workspace); origins.push(origin);
   }
-  if (capture.workspaceId !== null && (workspaces.length !== 1 || workspaces[0].workspaceId !== capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
+  if (capture.copy ? workspaces.length !== new Set([capture.copy.sourceWorkspaceId, capture.copy.destinationWorkspaceId]).size
+    || ![capture.copy.sourceWorkspaceId, capture.copy.destinationWorkspaceId].every(id => workspaces.some(workspace => workspace.workspaceId === id))
+    : capture.workspaceId !== null && (workspaces.length !== 1 || workspaces[0].workspaceId !== capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
   if (new Set(workspaces.map(workspace => workspace.workspaceId)).size !== workspaces.length) failure('API_KEY_STATE_INVALID');
   if (capture.origins && !isDeepStrictEqual(capture.origins, origins)) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
   capture.origins ??= Object.freeze(origins); for (const origin of origins) capture.observer?.(origin);
@@ -257,8 +285,62 @@ export async function withApiKeyDocumentCreatePrincipal<T>(credential: ApiKeyCre
     observer: origin => observer(Object.freeze({ ...origin, purpose, entryPoint: source })) }, consume);
 }
 
+/** Fixed Copy pair and action. No actor, root, permission or historical origin
+ * is accepted from the caller; both scopes use the same actual B snapshot. */
+export async function withApiKeyWorkspaceCopyPrincipal<T>(credential: ApiKeyCredential,
+  options: CopySelection & { purpose: ApiKeyWorkspaceCopyPurpose; source: 'request' | 'mcp' },
+  consume: (principal: ApiKeyWorkspaceCopyPrincipal) => Promise<T>): Promise<T> {
+  if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const sourceWorkspaceId: unknown = descriptors.sourceWorkspaceId?.value, destinationWorkspaceId: unknown = descriptors.destinationWorkspaceId?.value;
+  const purpose: unknown = descriptors.purpose?.value, source: unknown = descriptors.source?.value;
+  if (Reflect.ownKeys(descriptors).length !== 4 || !['sourceWorkspaceId', 'destinationWorkspaceId', 'purpose', 'source'].every(name =>
+    descriptors[name]?.enumerable && Object.hasOwn(descriptors[name], 'value'))
+    || !validId(sourceWorkspaceId) || !validId(destinationWorkspaceId) || !copyPurposes.includes(purpose as ApiKeyWorkspaceCopyPurpose)
+    || source !== 'request' && source !== 'mcp' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
+  return withCapture(credential, { workspaceId: sourceWorkspaceId, purpose: purpose as ApiKeyWorkspaceCopyPurpose, mcp: source === 'mcp',
+    copy: Object.freeze({ sourceWorkspaceId, destinationWorkspaceId }) }, consume);
+}
+
+/** Only a still-live exact capture can enter a later native Copy owner. This
+ * assertion performs no SQL and grants no transaction or storage authority. */
+export function assertApiKeyWorkspaceCopyPrincipalCaptured(principal: ApiKeyWorkspaceCopyPrincipal,
+  options: CopySelection & { purpose: ApiKeyWorkspaceCopyPurpose }): void {
+  const capture = shared.captures.get(principal);
+  try {
+    if (!capture?.active || !capture.accepting) failure('API_KEY_PRINCIPAL_REQUIRED');
+    if (capture.failure !== undefined) throw capture.failure;
+    if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
+    const descriptors = Object.getOwnPropertyDescriptors(options);
+    if (Reflect.ownKeys(descriptors).length !== 3 || !['sourceWorkspaceId', 'destinationWorkspaceId', 'purpose'].every(name =>
+      descriptors[name]?.enumerable && Object.hasOwn(descriptors[name], 'value')) || !capture.copy
+      || descriptors.sourceWorkspaceId.value !== capture.copy.sourceWorkspaceId || descriptors.destinationWorkspaceId.value !== capture.copy.destinationWorkspaceId
+      || descriptors.purpose.value !== capture.purpose || !copyPurposes.includes(capture.purpose as ApiKeyWorkspaceCopyPurpose)) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
+  } catch (error) { if (capture) capture.failure ??= error; throw error; }
+}
+
+export function withApiKeyWorkspaceCopyPrincipalOnConnection<T>(connection: SqlConnection, principal: ApiKeyWorkspaceCopyPrincipal,
+  purpose: ApiKeyWorkspaceCopyPurpose, consume: (access: ApiKeyWorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'copy', access => {
+    const capture = shared.captures.get(principal)!;
+    const source = access.workspaces.find(workspace => workspace.workspaceId === capture.copy!.sourceWorkspaceId);
+    const destination = access.workspaces.find(workspace => workspace.workspaceId === capture.copy!.destinationWorkspaceId);
+    if (!source || !destination) failure('API_KEY_ACCESS_DENIED');
+    const sourceWorkspace = Object.freeze({ ...source, permissions: Object.freeze({ ...source.permissions, canWrite: false, canRunAgent: false }) });
+    return consume(Object.freeze({ sourceWorkspace, destinationWorkspace: destination, userId: access.userId,
+      integrationId: access.integrationId, instanceId: access.instanceId, credentialId: capture.binding.credentialId,
+      purpose, entryPoint: capture.mcp ? 'mcp' : 'request', assertCurrent: access.assertCurrent,
+      assertActive: () => assertApiKeyWorkspaceCopyPrincipalActiveOnConnection(connection, principal, purpose) }));
+  }, purpose);
+}
+
+export function assertApiKeyWorkspaceCopyPrincipalActiveOnConnection(connection: SqlConnection,
+  principal: ApiKeyWorkspaceCopyPrincipal, purpose: ApiKeyWorkspaceCopyPurpose): void {
+  assertFixedWritePrincipalActiveOnConnection(connection, principal, copyPurposes.includes(purpose) ? [purpose] : []);
+}
+
 async function withCapture<T, P extends object>(credential: ApiKeyCredential,
-  selection: Pick<Capture, 'workspaceId' | 'purpose' | 'observer' | 'mcp'>, consume: (principal: P) => Promise<T>): Promise<T> {
+  selection: Pick<Capture, 'workspaceId' | 'purpose' | 'observer' | 'mcp' | 'copy'>, consume: (principal: P) => Promise<T>): Promise<T> {
   const binding = apiKeyCredentialBinding(credential), license = await getLicenseStatus();
   const capture: Capture = { ...selection, credential, binding, license, active: true, accepting: true, busy: false, pending: new Set() };
   const principal = Object.freeze({}) as P; shared.captures.set(principal, capture);
@@ -331,8 +413,8 @@ function assertFixedWritePrincipalActiveOnConnection(connection: SqlConnection, 
   }
 }
 
-function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit' | 'create',
-  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentCreatePurpose): Promise<T> {
+function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit' | 'create' | 'copy',
+  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentCreatePurpose | ApiKeyWorkspaceCopyPurpose): Promise<T> {
   const capture = shared.captures.get(principal);
   const held = shared.phases.get(connection);
   const reject = (error: unknown): Promise<never> => {
@@ -345,6 +427,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
     : family === 'list' ? capture.purpose === 'list'
       : family === 'edit' ? capture.purpose === 'edit' || capture.purpose === 'edit_status'
       : family === 'create' ? (browsePurpose === 'create' || browsePurpose === 'import') && capture.purpose === browsePurpose
+      : family === 'copy' ? !!capture.copy && copyPurposes.includes(browsePurpose as ApiKeyWorkspaceCopyPurpose) && capture.purpose === browsePurpose
       : (browsePurpose === 'tree' || browsePurpose === 'overview' || browsePurpose === 'manifest') && capture.purpose === browsePurpose;
   if (!matchesFamily) {
     return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_SCOPE_CHANGED', 'The fixed API-key principal family changed.', 409));
@@ -369,7 +452,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
         WHERE k.id=$1 AND i.id=$2 FOR SHARE OF k,i NOWAIT`, [capture.binding.credentialId, capture.binding.integrationId]);
       if (!locked) throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
       const workspaces = await current(phase);
-      if (capture.purpose === 'create' || capture.purpose === 'import') {
+      if (capture.purpose === 'create' || capture.purpose === 'import' || capture.copy) {
         // The existing immutable receipt trigger installs this exact schema
         // path during INSERT. Prove the raw entry first, then retain only this
         // server-derived path; other principal families keep their raw realm.

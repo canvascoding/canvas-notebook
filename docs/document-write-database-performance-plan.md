@@ -930,6 +930,43 @@ Sperrspeicherlimit (`out of shared memory`). Die zugehörigen Serverfehler wurde
 über Backend-PID und exakten Schema-Namen zugeordnet; beide eindeutig eigenen
 Schemas sind bereinigt. Die vollständigen sequenziellen Wiederholungen bestehen
 einschließlich Cleanup. Es wurde kein PostgreSQL-Limit erhöht.
+
+Für Copy ist eine eigene API-Key-Principal-Familie mit festen Zwecken
+`copy_preview`, `copy_apply`, `copy_status` und `copy_recover` hinzugekommen.
+Beide ausgewählten Workspaces werden in derselben tatsächlichen B-Beobachtung
+mit den aktuellen Key-, Seat- und Workspace-Rechten geprüft. Die Quelle benötigt
+Read; das Ziel Write und Agent-Zugriff. Auch bei gleichem Workspace bleibt die
+Quellansicht ausdrücklich schreibgeschützt. Copy gibt kein Delete-, Admin- oder
+Public-Link-Recht weiter. Alle Zwecke verlangen `copy`; Status zusätzlich
+`status`, Recover zusätzlich `recover`. Andere Principal-Familien und Zwecke
+können diese Captures nicht ausleihen.
+
+Die Verwaltung erlaubt jetzt schreibgeschützte Workspaces als mögliche
+Copy-Quellen in der expliziten Allowlist. Ein gemischter Aktionssatz mit Copy
+erteilt dadurch kein neues tatsächliches Schreibrecht: Jede einzelne Operation
+prüft weiterhin ihre aktuellen Rollen. Der echte Test weist insbesondere Edit
+an der schreibgeschützten Quelle ab und erlaubt dieselbe freigegebene Edit-Aktion
+am tatsächlich beschreibbaren Ziel. Ohne Copy behalten Edit-/Recover-only-
+Schlüsselausstellungen ihre bisherigen strengen Rechteprüfungen.
+
+Der reine feste Receipt-Pfad-Decoder wird nun von Create und Copy geteilt.
+Copy darf sowohl im rohen Auth-Realm als auch im bestehenden kanonischen
+Native-Inspection-Realm beginnen; ausschließlich der serverseitig abgeleitete
+Schema-Pfad ist zulässig. Die tatsächlichen Schema-/Datenbank-OIDs, Relationen
+und Transaktionsidentitäten werden unverändert geprüft. Create behält seinen
+rohen Eingangsnachweis, Read/Browse/Edit ihre bisherigen Realm-Grenzen.
+
+Neun echte PostgreSQL-/Auth-/Rollen-/Lebensdauer-Gruppen bestehen im dauerhaften
+Runner `test:api-keys:copies:native`. Eine Phase mit zusätzlichem aktuellem Check
+benötigt neun SQL-Anweisungen für beide Workspaces zusammen. Der Test prüft auch
+Allowlist- und Aktionsentzug, MCP-Toolschalter, echte synchrone Ablaufgrenzen,
+abgefangene Reentranz, Logout, Rotation und einen unabhängigen Widerruf, der an
+der wirklichen gehaltenen Zeilensperre wartet. Original-Dokument-, Yjs- und
+Revisionszeilen samt `xmin` und physische Originalbytes bleiben unverändert.
+Dies ist die aktuelle Copy-Autorisierungsgrundlage. Native Copy-Ursprünge,
+Owner-/Writer-Anschluss, öffentliche REST-/MCP-Adapter und installierte SDK-
+Copy-Abnahme sind weiterhin offen.
+
 **Die übrigen Schreib-/Job-Phasen, öffentlichen Datei-/Recovery-Key-Adapter und
 der Key-Import bereits vorhandener Originaldateien sowie die gesamte kompilierte
 API-/SDK-Abnahme sind noch offen.**

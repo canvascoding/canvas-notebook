@@ -172,17 +172,23 @@ export function currentApiKeyIdentityFromSnapshot(credential: ApiKeyCredential, 
   return decodeCurrentApiKeySnapshot(credential, snapshot);
 }
 
-/** Data decoder for the existing native-create receipt trigger's fixed schema
- * path. This does not admit a workspace or establish a Principal. The actual
- * Create phase first proves the raw realm and owns its own canonical SET. */
-export function currentApiKeyCreateIdentityFromSnapshot(credential: ApiKeyCredential, snapshot: unknown,
-  phaseSearchPath: string): CurrentApiKeyIdentity {
+/** Exact server-derived receipt path only. Data validation cannot establish a
+ * Principal or replace the actual transaction's schema/catalog proof. */
+export function assertApiKeyReceiptSearchPath(credential: ApiKeyCredential, phaseSearchPath: unknown): asserts phaseSearchPath is string {
   const binding = apiKeyCredentialBinding(credential), schema = binding.realm.schema;
   const quoted = `${quotePostgresIdentifier(schema)}, pg_catalog, pg_temp`;
   const plain = /^[a-z_][a-z0-9_$]*$/u.test(schema) ? `${schema}, pg_catalog, pg_temp` : undefined;
   if (typeof phaseSearchPath !== 'string' || phaseSearchPath !== quoted && phaseSearchPath !== plain) {
-    throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'Invalid native-create credential phase path.', 503);
+    throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'Invalid native receipt credential phase path.', 503);
   }
+}
+
+/** Data decoder for native receipt phases. Create first proves its raw realm;
+ * Copy may enter the existing native-inspection canonical realm. Each actual
+ * phase owns the catalog/transaction proof and its fixed canonical SET. */
+export function currentApiKeyReceiptIdentityFromSnapshot(credential: ApiKeyCredential, snapshot: unknown,
+  phaseSearchPath: string): CurrentApiKeyIdentity {
+  assertApiKeyReceiptSearchPath(credential, phaseSearchPath);
   return decodeCurrentApiKeySnapshot(credential, snapshot, phaseSearchPath);
 }
 

@@ -13,7 +13,7 @@ async function main() {
   await withDocumentReadToolDispatchFixture(async fixture => {
     const { createApiIntegration, updateApiIntegration } = await import('../app/lib/api-keys/management');
     const { authenticateApiKeyRequest } = await import('../app/lib/api-keys/authentication');
-    const { currentApiKeyIdentityFromSnapshot, currentApiKeyCreateIdentityFromSnapshot, apiKeyCredentialSnapshotSql } =
+    const { currentApiKeyIdentityFromSnapshot, currentApiKeyReceiptIdentityFromSnapshot, apiKeyCredentialSnapshotSql } =
       await import('../app/lib/api-keys/authentication');
     const { withApiKeyDocumentCreatePrincipal: capture, withApiKeyDocumentCreatePrincipalOnConnection: phase,
       assertApiKeyDocumentCreatePrincipalActiveOnConnection: active,
@@ -106,10 +106,10 @@ async function main() {
           const snapshot = await database.get(apiKeyCredentialSnapshotSql(), [issued.credential.id]); assert(snapshot);
           const actual = (await database.get("SELECT current_setting('search_path') AS path"))!.path as string;
           assert.throws(() => currentApiKeyIdentityFromSnapshot(credential, snapshot), code('API_KEY_INVALID'));
-          const decoded = currentApiKeyCreateIdentityFromSnapshot(credential, snapshot, actual);
+          const decoded = currentApiKeyReceiptIdentityFromSnapshot(credential, snapshot, actual);
           assert.equal(decoded.realm.searchPath, actual);
           for (const wrong of ['pg_catalog', 'another_schema, pg_catalog, pg_temp', actual + ', public']) {
-            assert.throws(() => currentApiKeyCreateIdentityFromSnapshot(credential, snapshot, wrong), code('API_KEY_STATE_INVALID'));
+            assert.throws(() => currentApiKeyReceiptIdentityFromSnapshot(credential, snapshot, wrong), code('API_KEY_STATE_INVALID'));
           }
           return decoded;
         })));
