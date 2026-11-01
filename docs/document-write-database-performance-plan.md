@@ -1005,8 +1005,55 @@ wiederaufgenommen; ein wirklicher ACL-Entzug nach B1 verhindert die spätere
 Scene-/Asset-Veröffentlichung. Unbekannte Status-/Recovery-Vorgänge erzeugen
 keine Operation und keine dauerhafte Stage.
 
-Die öffentlichen REST-/MCP-Copy-Adapter und die installierte SDK-Copy-Abnahme
-sind weiterhin offen.
+Die öffentlichen API-Key-Copy-Adapter sind ebenfalls implementiert:
+`POST /api/documents/copy` und das echte Direct-MCP-Werkzeug
+`copy_knowledge_source` führen Vorschau, Apply, Status und explizites Recover
+über denselben nativen Owner und dessen vorhandene View-Finalisierung aus.
+REST hat einen begrenzten CamelCase-V1-Vertrag, MCP den bestehenden
+SnakeCase-Vertrag; kein Eingang konstruiert eine Session oder OAuth-Autorität.
+`copy` erlaubt Vorschau/Apply, Status verlangt zusätzlich `status`, Recover
+zusätzlich `recover`. Der Browser-Eingang `/api/files/copy` behält seinen
+Session-Vertrag. Acht echte PostgreSQL-/Route-/MCP-Gruppen prüfen beide
+Protokolle, veröffentlichte Schemata, Proxy-Grenzen, echte Rotation und
+Widerruf, unabhängige Toolschalter und aktuelle Zielrechte, unveränderte
+historische Zeilen sowie verlorene tatsächliche B1-COMMIT-Bestätigungen.
+Die sechs bestehenden OAuth-Copy-Adaptergruppen bestehen weiterhin.
+
+Die installierte Copy-SDK-Abnahme hat dabei einen echten gemeinsamen Lesefehler
+aufgedeckt: neu kopierte native Markdown-Dokumente ohne physische Projektion
+fehlten im Manifest. Übersicht, Baum und Manifest verwenden jetzt dieselbe
+native Namespace-Quelle wie der UI-Dateibaum. Eine begrenzte Baumseite hält
+einen Katalog-Scope für sämtliche besuchten Verzeichnisse; sie eröffnet keinen
+zusätzlichen Katalog je Kind. Native Katalogänderungen invalidieren bestehende
+Cursor. Fremde Katalogpfade, Root-/Alias-Wechsel und Scene-Änderungen bleiben
+Abbruchgründe. Dreißig Baumprüfungen sowie die echten Key- und OAuth-Browse-
+Adapterprüfungen bestehen. Die noch physischen PI-`ls`-/Agent-Kontext-Leser
+werden im verbleibenden gemeinsamen Leserpaket gesondert geprüft; der
+Legacy-Suchvertrag wird nicht stillschweigend umgestellt.
+
+Ein Manifest unterscheidet physische Originaldatei-Hashes von aktuellen nativen
+Markdown-Hashes. Fehlt die physische Projektion, bleiben deren Hash und Revision
+null und `file_state` lautet `not_materialized`. Erst eine erfolgreiche echte
+native Lesung bestätigt den separaten Dokumenteintrag. Coverage heißt nun
+`visible_workspace_namespace`; ein fehlgeschlagener nativer Read macht sie
+unvollständig. Es wird kein Projektionsinhalt erfunden oder geschrieben.
+
+Das neu gebaute Wheel
+`58623027e9cd3464fd1bec1cf8c9c6e1a56bf7678b3cf4ac2cf6562d477a5dfe`
+und das Quellarchiv
+`21cccda635205bee33f2a9f64881ad0bf4b5edf0067653bd70a330928831ae43`
+sind unabhängig installiert geprüft. Unter Python 3.10 und 3.14 bestehen jeweils
+die vollständigen nativen SDK-Pakete für Read/Browse (4 Gruppen), Edit (6),
+Create/Import (7) und Copy (8). Jede Copy-Abnahme umfasst 40 ausschließlich mit
+dem Schlüssel authentifizierte echte HTTP-Anfragen, vier absichtliche HTTP-401-
+Abweisungen, vier beabsichtigte Operationen, eine verlorene HTTP-Erfolgsantwort
+und eine verlorene tatsächliche B1-COMMIT-Bestätigung. Es gibt keine automatische
+Schreibwiederholung; ursprüngliche Quellen bleiben unverändert. Sofortige
+Manifest-Sichtbarkeit und der native Hash werden gegen eine echte ID-Lesung
+geprüft. Beide Wheel-Installationen und die Python-3.10-Quellarchivinstallation
+bestehen jeweils 80 Paketprüfungen; Core-only-Import und Abhängigkeitsprüfungen
+bestehen. Diese HTTP-/Handler-/PostgreSQL-Nachweise ersetzen weder die noch
+offene kompilierte Container-Abnahme noch eine echte OAuth-Erstausstellung.
 
 **Die übrigen Schreib-/Job-Phasen, öffentlichen Datei-/Recovery-Key-Adapter und
 der Key-Import bereits vorhandener Originaldateien sowie die gesamte kompilierte

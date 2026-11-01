@@ -12,6 +12,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/api-key-python-sdk-copy-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-copy-mixed-source-fixture.ts',
+    'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts',
+    'app/lib/documents/copy-public-service.ts', 'app/lib/documents/copy-contract.ts', 'app/lib/files/workspace-file-operation-service.ts',
+    'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
+    'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts'],
+  'scripts/api-key-native-copy-adapters-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-copy-mixed-source-fixture.ts',
+    'app/api/documents/copy/route.ts', 'app/lib/documents/copy-http.ts', 'app/lib/documents/copy-contract.ts',
+    'app/lib/documents/copy-public-service.ts', 'app/lib/files/workspace-file-operation-service.ts',
+    'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
+    'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts', 'proxy.ts',
+    'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-status.ts'],
   'scripts/api-key-native-copy-owner-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-copy-mixed-source-fixture.ts',
     'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-phase.ts',

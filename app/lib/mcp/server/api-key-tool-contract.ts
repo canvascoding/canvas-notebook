@@ -12,7 +12,7 @@ import { apiKeyDocumentCreateSchemas } from '../../documents/create-json-schema'
  * initialize the separate API-key document adapter or its authorization code. */
 export const API_KEY_MCP_TOOLS: readonly DirectMcpToolId[] = Object.freeze(['list_workspaces', 'get_workspace_overview',
   'list_knowledge_tree', 'get_knowledge_manifest', 'read_knowledge_source', 'search_knowledge', 'edit_knowledge_source',
-  'create_knowledge_source', 'import_knowledge_file']);
+  'create_knowledge_source', 'import_knowledge_file', 'copy_knowledge_source']);
 type KeyScheme = { type: 'apiKey'; in: 'header'; name: 'X-Canvas-API-Key' };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -49,7 +49,8 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
   const create = descriptor.name === 'create_knowledge_source' || descriptor.name === 'import_knowledge_file'
     ? apiKeyDocumentCreateSchemas(descriptor.inputSchema) : null;
   const workspace_id = { type: 'string', minLength: 1, maxLength: 256 };
-  const inputSchema = create ? create.input : edit ? edit.input : descriptor.name === 'list_workspaces'
+  const copy = descriptor.name === 'copy_knowledge_source';
+  const inputSchema = copy ? descriptor.inputSchema : create ? create.input : edit ? edit.input : descriptor.name === 'list_workspaces'
     ? { type: 'object' as const, additionalProperties: false, properties: {} }
     : ['get_workspace_overview', 'list_knowledge_tree', 'get_knowledge_manifest'].includes(descriptor.name)
     ? { ...descriptor.inputSchema, properties: { ...descriptor.inputSchema.properties, workspace_id } }
@@ -70,6 +71,7 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
     apiVersion: { type: 'integer', const: 1 }, success: { type: 'boolean', const: false },
     code: { type: 'string', enum: ['INVALID_BROWSE_REQUEST', 'INVALID_TREE_REQUEST', 'WORKSPACE_TREE_CHANGED'] } } };
   return { ...descriptor, inputSchema, securitySchemes, _meta: { ...descriptor._meta, securitySchemes },
+    ...(copy ? { description: 'Native Copy V1 preview/apply/status/recover with explicit source and destination workspace IDs. Requires the key copy grant, current source Read and destination Write/Agent rights; Status additionally requires status, Recover additionally requires recover. Apply retains the caller operation_id, exact preview plan_id and resolved root selections. Inspect status after an uncertain result; explicit recover never changes the operation or automatically replays it.' } : {}),
     ...(create ? { description: 'Create a new native Markdown document or import a genuine HTTPS file reference. api_version:1 and a stable idempotency_key are required. Never overwrites an existing file. Retain the caller key after an uncertain outcome; explicitly repeat only the identical operation. Requires the separate create or import grant and current workspace rights. Success includes the stable documentId and confirmed durable version.' } : {}),
     ...(edit ? { description: 'Native documentId/full-version Edit V1 or read-only operation Status V1. Supply a stable idempotency_key. Only state:confirmed proves persistence. Retain the returned operationId after an uncertain outcome; inspect action:status with operation_id without replay. Edit requires the key edit grant; Status additionally requires status. Each call checks current user/workspace rights.' } : {}),
     ...(descriptor.name === 'get_workspace_overview' ? { description: 'Shows an explicitly allowed workspace, bounded top-level contents and read-adapter limits. API keys require current read rights; each call rechecks access.' } : {}),

@@ -2,10 +2,12 @@ import 'server-only';
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { withNativeWorkspaceFilesRead } from '../collaboration/workspace-native-file-read';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import type { WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
 import { readWorkspaceSceneCatalogue } from '../collaboration/workspace-scene-catalogue';
+import { readWorkspaceTreePage, normalizeVisibleWorkspaceTreePath, type WorkspaceTreePage } from './workspace-tree';
 import { buildFileTree } from '../filesystem/workspace-files';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath, resolveWorkspacePath } from '../workspaces/path-guard';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -155,6 +157,25 @@ export async function readWorkspaceDocumentTree(
   dependencies: WorkspaceDocumentTreeDependencies = {},
 ): Promise<FileNode[]> {
   workspace = structuredClone(workspace); directory = canonicalDirectory(directory); assertDepth(depth);
+  return withWorkspaceDocumentNamespace(workspace, directory, options, dependencies, reader => reader.read(directory, depth));
+}
+
+/** One authoritative namespace capture for the whole bounded page. Cursor
+ * frames retain the existing directory order and include native identities;
+ * no catalogue/Scene snapshot is reopened for each visited directory. */
+export async function readWorkspaceDocumentTreePage(workspace: WorkspaceContext,
+  selection: Readonly<{ path?: string; maxDepth?: number; maxEntries?: number; cursor?: string | null }>,
+  options: WorkspaceDocumentTreeOptions = {}, dependencies: WorkspaceDocumentTreeDependencies = {}): Promise<WorkspaceTreePage> {
+  workspace = structuredClone(workspace);
+  const directory = normalizeVisibleWorkspaceTreePath(selection.path ?? '.');
+  return withWorkspaceDocumentNamespace(workspace, directory, options, dependencies, reader =>
+    readWorkspaceTreePage({ workspaceId: workspace.workspaceId, rootPath: workspace.rootPath, ...selection, path: directory },
+      { readDirectory: selected => reader.read(selected, 0), version: reader.version }));
+}
+
+type NamespaceReader = Readonly<{ version: string; read: (directory: string, depth: number) => Promise<FileNode[]> }>;
+async function withWorkspaceDocumentNamespace<T>(workspace: WorkspaceContext, directory: string, options: WorkspaceDocumentTreeOptions,
+  dependencies: WorkspaceDocumentTreeDependencies, operation: (reader: NamespaceReader) => Promise<T>): Promise<T> {
   return withNativeWorkspaceFilesRead({ workspace, paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES }, async (scope, connection) => {
     // This is a namespace-only check. Keep it here rather than changing the
     // text export scope's Yjs semantics for ZIP/download consumers.
@@ -178,7 +199,8 @@ export async function readWorkspaceDocumentTree(
       throw Object.assign(new Error('Too many native documents in this tree scope.'), { status: 413, code: 'NATIVE_CATALOGUE_TOO_LARGE' });
     }
     for (const document of documents) {
-      if (document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)) {
+      if (document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)
+        || !isCanonicalAdmissionPath(document.path) || !inScope(document.path, directory)) {
         throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The native tree catalogue belongs to another workspace.');
       }
     }
@@ -196,23 +218,6 @@ export async function readWorkspaceDocumentTree(
         throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The workspace root changed while reading its tree.');
       }
     };
-    const nativeChildren = documents.some(document => document.authority !== 'pristine'
-      && document.path !== directory && inScope(document.path, directory) && visible(document.path, 'file'));
-    if (documents.some(document => document.path === directory && document.authority !== 'pristine')) conflict();
-    let logicalDirectory = false;
-    try {
-      await assertWorkspacePathHasNoAliases(workspace, directory, { readOnly: true });
-      const selected = await fs.lstat(directory === '.' ? root : resolveWorkspacePath(workspace, directory).absolutePath);
-      if (!selected.isDirectory()) conflict();
-    } catch (error) {
-      if (unavailable(error, 'ENOTDIR')) conflict();
-      if (directory === '.' || !unavailable(error, 'ENOENT')) throw error;
-      if (!nativeChildren) {
-        await assertRoot();
-        throw new WorkspaceDocumentTreeError('TREE_DIRECTORY_NOT_FOUND', 'The selected workspace directory does not exist.', 404);
-      }
-      logicalDirectory = true;
-    }
     // A missing suffix is valid; an actual file/alias in a native parent's
     // location is not. These are path/type observations, never text reads.
     for (const document of documents) {
@@ -226,21 +231,49 @@ export async function readWorkspaceDocumentTree(
         if (!unavailable(error, 'ENOENT')) throw error;
       }
     }
-    const physical = logicalDirectory ? [] : await (dependencies.buildPhysicalTree ?? buildFileTree)(directory, depth, 0, {
-      workspace, includeMetadata: options.includeMetadata ?? true, includeSymlinks: false, strictMetadata: true,
-    }).catch(error => {
-      if (unavailable(error, 'ENOENT')) {
-        throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The workspace directory changed while reading its tree.');
+    const version = createHash('sha256').update(JSON.stringify(documents.map(document => [document.id, document.path,
+      document.workspace_id, document.organization_id, document.status, document.state_version, document.authority])
+      .sort((a, b) => String(a[1]) < String(b[1]) ? -1 : String(a[1]) > String(b[1]) ? 1 : 0))).digest('hex');
+    let active = true;
+    const read = async (selectedDirectory: string, depth: number): Promise<FileNode[]> => {
+      if (!active) throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The namespace reader is no longer active.');
+      const selected = canonicalDirectory(selectedDirectory); assertDepth(depth);
+      if (!inScope(selected, directory)) invalid();
+      const selectedDocuments = documents.filter(document => inScope(document.path, selected));
+      const nativeChildren = selectedDocuments.some(document => document.authority !== 'pristine'
+        && document.path !== selected && inScope(document.path, selected) && visible(document.path, 'file'));
+      if (selectedDocuments.some(document => document.path === selected && document.authority !== 'pristine')) conflict();
+      let logicalDirectory = false;
+      try {
+        await assertWorkspacePathHasNoAliases(workspace, selected, { readOnly: true });
+        const current = await fs.lstat(selected === '.' ? root : resolveWorkspacePath(workspace, selected).absolutePath);
+        if (!current.isDirectory()) conflict();
+      } catch (error) {
+        if (unavailable(error, 'ENOTDIR')) conflict();
+        if (selected === '.' || !unavailable(error, 'ENOENT')) throw error;
+        if (!nativeChildren) {
+          await assertRoot();
+          throw new WorkspaceDocumentTreeError('TREE_DIRECTORY_NOT_FOUND', 'The selected workspace directory does not exist.', 404);
+        }
+        logicalDirectory = true;
       }
-      throw error;
-    });
-    const merged = mergeWorkspaceDocumentTree(physical, documents, directory, depth);
+      const physical = logicalDirectory ? [] : await (dependencies.buildPhysicalTree ?? buildFileTree)(selected, depth, 0, {
+        workspace, includeMetadata: options.includeMetadata ?? true, includeSymlinks: false, strictMetadata: true,
+      }).catch(error => {
+        if (unavailable(error, 'ENOENT')) throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The workspace directory changed while reading its tree.');
+        throw error;
+      });
+      if (!active) throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The namespace reader is no longer active.');
+      const merged = mergeWorkspaceDocumentTree(physical, selectedDocuments, selected, depth); await assertRoot(); return merged;
+    };
+    let result: T;
+    try { result = await operation(Object.freeze({ version, read })); } finally { active = false; }
     await assertRoot();
     const currentScenes = await (dependencies.readSceneCatalogue ?? readWorkspaceSceneCatalogue)(connection, workspace,
       { paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES });
     if (JSON.stringify(currentScenes) !== beforeScenes) {
       throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The scene tree catalogue changed while reading its namespace.');
     }
-    return merged;
+    return result;
   }, dependencies);
 }

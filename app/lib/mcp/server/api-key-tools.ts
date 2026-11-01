@@ -34,6 +34,10 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     } else if (tool === 'create_knowledge_source' || tool === 'import_knowledge_file') {
       const { createDocumentForApiKey } = await import('../../documents/create-public-service');
       page = await createDocumentForApiKey(credential, args, tool === 'create_knowledge_source' ? 'create' : 'import', 'mcp', signal);
+    } else if (tool === 'copy_knowledge_source') {
+      const [{ copyWorkspaceForApiKey }, { formatDirectMcpWorkspaceCopyResult }] = await Promise.all([
+        import('../../documents/copy-public-service'), import('./workspace-copy-tool-contract')]);
+      return formatDirectMcpWorkspaceCopyResult(await copyWorkspaceForApiKey(credential, args, 'mcp', signal));
     } else if (tool === 'edit_knowledge_source') {
       const selection = decodeDirectMcpNativeDocumentEditSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 and native Edit/Status arguments.');
@@ -56,6 +60,11 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page as Record<string, unknown> };
   } catch (error) {
     if (error instanceof ProtocolError) throw error;
+    if (tool === 'copy_knowledge_source') {
+      const { apiKeyWorkspaceCopyFailure } = await import('../../documents/copy-public-service');
+      const { body } = apiKeyWorkspaceCopyFailure(error, args, 'mcp');
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+    }
     if (tool === 'create_knowledge_source' || tool === 'import_knowledge_file') {
       if (error instanceof DocumentCreateError && error.code === 'INVALID_REQUEST') {
         throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 with exact native Markdown Create/Import arguments.');

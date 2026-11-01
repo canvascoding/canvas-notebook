@@ -9,7 +9,7 @@ import { createPlainTextYDoc, createRichMarkdownYDoc } from '../app/lib/collabor
 import { Y } from '../app/lib/collaboration/server-runtime';
 import type { SqlConnection } from '../app/lib/db';
 import { buildFileTree } from '../app/lib/filesystem/workspace-files';
-import { mergeWorkspaceDocumentTree, readWorkspaceDocumentTree, type WorkspaceDocumentTreeDependencies } from '../app/lib/files/workspace-document-tree';
+import { mergeWorkspaceDocumentTree, readWorkspaceDocumentTree, readWorkspaceDocumentTreePage, type WorkspaceDocumentTreeDependencies } from '../app/lib/files/workspace-document-tree';
 import type { FileNode } from '../app/lib/files/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
@@ -163,6 +163,45 @@ async function fixture(representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blo
   return { root, workspace: ws, rows, states, commands, controls, dependencies, add, connection,
     cleanup: async () => { assert(!controls.active); await fs.rm(root, { recursive: true, force: true }); } };
 }
+
+test('bounded native pages traverse virtual parents with one namespace lifetime and no content or projection reads', async () => {
+  const f = await fixture();
+  try {
+    f.add('virtual/deep/a.md'); f.add('virtual/deep/b.md');
+    const page = await readWorkspaceDocumentTreePage(f.workspace, { path: '.', maxDepth: 3, maxEntries: 20 }, { includeMetadata: false }, f.dependencies);
+    assert.deepEqual(page.entries.map(entry => entry.path), ['virtual', 'virtual/deep', 'virtual/deep/a.md', 'virtual/deep/b.md']);
+    assert.equal(page.has_more, false); assert.equal(page.truncated, false);
+    assert.equal(f.controls.checkouts, 1); assert.equal(f.controls.catalogueReads, 2); assert.equal(f.controls.stateReads, 0);
+    assert.equal(f.controls.physicalReads, 1); await assert.rejects(fs.lstat(path.join(f.root, 'virtual')), { code: 'ENOENT' });
+  } finally { await f.cleanup(); }
+});
+
+test('native cursor continuation preserves ordering and rejects an authoritative namespace change', async () => {
+  const f = await fixture();
+  try {
+    f.add('a.md'); f.add('b.md');
+    const first = await readWorkspaceDocumentTreePage(f.workspace, { maxDepth: 0, maxEntries: 1 }, { includeMetadata: false }, f.dependencies);
+    assert.deepEqual(first.entries.map(entry => entry.path), ['a.md']); assert(first.next_cursor);
+    const second = await readWorkspaceDocumentTreePage(f.workspace, { maxDepth: 0, maxEntries: 1, cursor: first.next_cursor }, { includeMetadata: false }, f.dependencies);
+    assert.deepEqual(second.entries.map(entry => entry.path), ['b.md']);
+    f.add('c.md');
+    await assert.rejects(readWorkspaceDocumentTreePage(f.workspace, { maxDepth: 0, maxEntries: 1, cursor: first.next_cursor },
+      { includeMetadata: false }, f.dependencies), { code: 'WORKSPACE_TREE_CHANGED' });
+    assert.equal(f.controls.stateReads, 0); assert.equal(f.commands.at(-1), 'ROLLBACK');
+  } finally { await f.cleanup(); }
+});
+
+test('a page rooted at a native-only directory neither creates that directory nor includes outside siblings', async () => {
+  const f = await fixture();
+  try {
+    f.add('virtual/deep/note.md'); f.add('sibling.md');
+    const page = await readWorkspaceDocumentTreePage(f.workspace, { path: 'virtual/deep', maxDepth: 0, maxEntries: 20 },
+      { includeMetadata: false }, f.dependencies);
+    assert.deepEqual(page.entries.map(entry => entry.path), ['virtual/deep/note.md']); assert.equal(page.truncated, false);
+    assert.equal(f.controls.physicalReads, 0); assert.equal(f.controls.stateReads, 0);
+    await assert.rejects(fs.lstat(path.join(f.root, 'virtual')), { code: 'ENOENT' });
+  } finally { await f.cleanup(); }
+});
 
 for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
   test(`${representation}: real catalogue + read fence list native-only names without loading content or falling back to projections`, async () => {
