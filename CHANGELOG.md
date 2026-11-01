@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.1.1] - 2026-11-01
+## [2026.11.1.2] - 2026-11-01
 
 ### Added
 
@@ -20,6 +20,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Fixed
 
+- Restore the optional Undici peer lock entry required by Node 22 Linux CLI builds while retaining Node 26 compatibility.
 - Preserve confirmed storage outcomes when later ingestion processing fails, and provide correlation, phase and retry details for uncertain or busy operations.
 - Reduce repeated workspace fact reads and Move proof queries while retaining authority checks.
 - Complete public Move responses independently of projection waiting and promptly resolve newly visible document links.
