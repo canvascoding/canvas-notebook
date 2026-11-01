@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.1.1] - 2026-11-01
+
+### Added
+
+- Read-only MCP creation status queries over original durable receipts and identity-bound links for native create, import and edit results.
+- Fully typed MCP edit patches and bounded, version-protected retrieval of edit targets for a selected block in large documents.
+
+### Fixed
+
+- Preserve confirmed storage outcomes when later ingestion processing fails, and provide correlation, phase and retry details for uncertain or busy operations.
+- Reduce repeated workspace fact reads and Move proof queries while retaining authority checks.
+- Complete public Move responses independently of projection waiting and promptly resolve newly visible document links.
+
+### Security
+
+- Update vulnerable glob-matching dependencies while retaining compatibility with legacy matching consumers.
+
+### Verification
+
+- `npm run verify:release` passed, including the strict third-party license gate.
+- Production-container OAuth/HTTP/browser MCP acceptance: 15 steps; installed Codex MCP-client acceptance including schema and parameter transport.
+- PostgreSQL fault, retry, authorization and selected-target regression suites.
+- Full `npm run test:all` executed; 310 browser cases passed initially, 17 passed after local fixture/timing corrections, and the dependent case passed separately. 272 feature-gated cases were skipped.
+
 ## [2026.10.31.1] - 2026-10-31
 
 ### Added

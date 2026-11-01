@@ -333,3 +333,25 @@ Die genaue Ursache aller historischen 40 Busy-Antworten bleibt ohne damalige
 korrelierte Logs offen; reale Sperrkonkurrenz, Freigabe, Abbruch, Retry und
 sequenzielle Writes wurden geprüft. Knowledge-Sync und Produktionsdokumente
 wurden nicht verändert.
+
+
+### Nachtrag zur PR-/Release-Abnahme
+
+PR #199 wurde nach vollständig erfolgreicher CI und Prüfung aller Kommentar-
+und Review-Endpunkte am 2026-11-01 gemergt (Merge `85fc78794460cbc6405d90f87a3ad106503c6ede`).
+Es lagen keine offenen Review-Threads vor. Der oben beschriebene allgemeine
+Fixture-Blocker wurde anschließend durch einen frischen, nicht abrechenbaren
+Seat-Quote und reguläre Aktivierung behoben: zwei aktive Benutzer, gemeinsamer
+Workspace und Ollama-Verifikation sind bestätigt.
+
+Zusätzlich wurde `npm run test:all` vollständig ausgeführt. Browser-Ergebnis:
+310 bestanden, 272 regulär übersprungen, 17 fehlgeschlagen, 1 nicht ausgeführt.
+Nach Korrektur der lokalen Fixture-Konfiguration (Shared Test Workspace,
+Sekundärbenutzer, PostgreSQL über 127.0.0.1:55433 und interner Browser-Port 3000)
+bestanden alle 17 gezielten Wiederholungen; der abhängige Folgetest bestand
+anschließend separat. Ein Auth-429 und ein Studio-Retry-Timing waren im
+Einzellauf nicht reproduzierbar. Es wurden dafür keine Produktdateien geändert.
+
+Logs: `/tmp/canvas-mcp-pr199-test-all.log`, `/tmp/canvas-mcp-pr199-recheck.log`,
+`/tmp/canvas-mcp-pr199-followup.log`, `/tmp/canvas-mcp-pr199-fixtures.log`.
+Die ausgelassenen Tests werden ausdrücklich nicht als bestanden ausgewiesen.
