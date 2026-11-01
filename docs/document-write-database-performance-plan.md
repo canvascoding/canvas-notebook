@@ -814,6 +814,32 @@ Test-Runtime-Aufbaus weiterhin. `test:api-keys:sdk:native` führt Lese- und
 Schreibprüfungen künftig nacheinander aus. Weitere Schreib-/Recovery-Methoden,
 OAuth-/Keyring-Gesamtabnahme und der frisch kompilierte Container bleiben offen.
 
+Für native Neuanlage und Import ist inzwischen eine eigene API-Key-Principal-
+Familie vorbereitet. Sechs echte PostgreSQL-Gruppen prüfen die getrennten
+`create`-/`import`-Aktionen, normale aktuelle Workspace-/Seat-Rechte, die feste
+Trennung von Read, Browse, List und Edit sowie echte MCP-Toolschalter und deren
+Entzug innerhalb einer gehaltenen Phase. Gefälschte oder abgelaufene Handles,
+Options-Getter, ein zur Laufzeit falsch übergebener Zweck und abgefangene
+Reentranz erlauben keine spätere Speicherung. Die synchrone letzte Ablaufprüfung
+verwendet den aktuellen Nachweis derselben tatsächlichen Transaktion.
+Die gemessene Phase mit Einstieg `request` benötigt auch hier acht SQL-Anweisungen
+einschließlich drei aktueller Beobachtungen. Das ist kein Budget für die gesamte
+Neuanlage. Nach echtem Logout
+bleibt der Schlüssel gültig; ein unabhängiger tatsächlicher Widerruf wartet auf
+die gehaltene Key-Zeilensperre und verweigert danach beide Zwecke.
+Die Ursprungsdaten halten Benutzer, Integration, Instanz, Credential, Zweck und
+REST-/MCP-Einstieg fest, ohne Browser-/OAuth-/PI-Sitzung. Diese Daten selbst
+erteilen keine Rechte. Dokument-, Yjs-, Revisions- und Projektionszeilen samt
+`xmin` bleiben unverändert. Der dauerhafte Runner
+`test:api-keys:creates:native` gehört zum nativen Key-Paket. Die bestehenden
+Schreibkerne und Birth-/Projektionsbelege sowie öffentliche Create-/Import-
+Adapter und deren SDK-Abnahme sind im nächsten Schritt anzuschließen.
+Die drei bestehenden Key-Dokument-, fünf Workspace- und beiden Edit-Suiten
+einschließlich der zwölf wirklichen Writer-/Route-/MCP-Gruppen bestehen nach der
+Erweiterung. Die installierten SDK-Lese- und Edit-Pakete bestehen ebenfalls unter
+Python 3.10.19 und 3.14.3; das belegt keine noch fehlenden SDK-Create-/Import-
+Key-Adapter. Reguläre Key-Suite, Release-Typecheck und gezieltes ESLint bestehen.
+
 Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
 nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
 Funktionsfälle, scheiterten aber beim gleichzeitigen `DROP SCHEMA` am PostgreSQL-

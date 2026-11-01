@@ -28,6 +28,9 @@ export type ApiKeyWorkspaceBrowsePurpose = 'tree' | 'overview' | 'manifest';
 declare const documentEditBrand: unique symbol;
 export type ApiKeyDocumentEditPrincipal = Readonly<{ [documentEditBrand]: never }>;
 export type ApiKeyDocumentEditPurpose = 'edit' | 'edit_status';
+declare const documentCreateBrand: unique symbol;
+export type ApiKeyDocumentCreatePrincipal = Readonly<{ [documentCreateBrand]: never }>;
+export type ApiKeyDocumentCreatePurpose = 'create' | 'import';
 export type ApiKeyDocumentReadOrigin = Readonly<{
   kind: 'api_key';
   userId: string; integrationId: string; instanceId: string; credentialId: string;
@@ -35,12 +38,15 @@ export type ApiKeyDocumentReadOrigin = Readonly<{
   projectId: string | null; ownerUserId: string | null; rootPath: string; rootRelativePath: string;
   legacy: false; status: 'active'; schema: string; schemaOid: number; databaseOid: number; searchPath: string;
 }>;
+export type ApiKeyDocumentCreateOrigin = ApiKeyDocumentReadOrigin & Readonly<{
+  purpose: ApiKeyDocumentCreatePurpose; entryPoint: 'request' | 'mcp';
+}>;
 type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integrationId: string; instanceId: string;
   assertCurrent: () => Promise<void> }>;
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
-  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose;
+  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose | ApiKeyDocumentCreatePurpose;
   license: LicenseStatus; observer?: (origin: ApiKeyDocumentReadOrigin) => void; origins?: readonly ApiKeyDocumentReadOrigin[];
   mcp: boolean; active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
 };
@@ -116,7 +122,8 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   const capture = phase.capture, binding = capture.binding, schema = quote(binding.realm.schema);
   const tool = ({ list: 'list_workspaces', read: 'read_knowledge_source', search: 'search_knowledge',
     tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest',
-    edit: 'edit_knowledge_source', edit_status: 'edit_knowledge_source' } as const)[capture.purpose];
+    edit: 'edit_knowledge_source', edit_status: 'edit_knowledge_source',
+    create: 'create_knowledge_source', import: 'import_knowledge_file' } as const)[capture.purpose];
   if (capture.mcp) { await assertApiKeyMcpToolEnabled(tool); active(phase); }
   const seatPolicy = resolveEffectiveSeatPolicy(capture.license);
   const pinned = policyTables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${schema}.${quote(name)})`).join(',');
@@ -144,7 +151,9 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   const identity = currentApiKeyIdentityFromSnapshot(capture.credential, credential);
   phase.credentialExpiresAt = identity.expiresAt;
   const editing = capture.purpose === 'edit' || capture.purpose === 'edit_status';
-  const requiredActions: readonly ApiKeyAction[] = capture.purpose === 'edit_status' ? ['edit', 'status'] : editing ? ['edit'] : ['read'];
+  const creating = capture.purpose === 'create' || capture.purpose === 'import';
+  const requiredActions: readonly ApiKeyAction[] = capture.purpose === 'edit_status' ? ['edit', 'status']
+    : editing ? ['edit'] : creating ? [capture.purpose as ApiKeyDocumentCreatePurpose] : ['read'];
   if (requiredActions.some(action => !identity.actions.includes(action))
     || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)) failure('API_KEY_ACCESS_DENIED');
   evaluateUserSeatAccessSnapshot(binding.userId, seatPolicy, row!.seat as CurrentSeatSnapshotRow | undefined);
@@ -158,9 +167,9 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
       if (capture.workspaceId !== null) failure('API_KEY_ACCESS_DENIED');
       continue;
     }
-    if (editing && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)) failure('API_KEY_ACCESS_DENIED');
+    if ((editing || creating) && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)) failure('API_KEY_ACCESS_DENIED');
     const workspace = Object.freeze({ ...selected, permissions: Object.freeze({ ...selected.permissions,
-      canWrite: editing, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: editing }) });
+      canWrite: editing || creating, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: editing || creating }) });
     const origin: ApiKeyDocumentReadOrigin = Object.freeze({ kind: 'api_key', userId: identity.userId, integrationId: identity.integrationId,
       credentialId: identity.credentialId, instanceId: identity.instanceId, workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId ?? null, customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null,
@@ -229,6 +238,22 @@ export async function withApiKeyDocumentEditPrincipal<T>(credential: ApiKeyCrede
   return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp', observer }, consume);
 }
 
+/** Fixed Create/Import family. Origin fields are comparison data; only the
+ * private captured credential and its actual phase grant current authority. */
+export async function withApiKeyDocumentCreatePrincipal<T>(credential: ApiKeyCredential,
+  options: { workspaceId: string; purpose: ApiKeyDocumentCreatePurpose; source: 'request' | 'mcp' },
+  observer: (origin: ApiKeyDocumentCreateOrigin) => void, consume: (principal: ApiKeyDocumentCreatePrincipal) => Promise<T>): Promise<T> {
+  if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const workspaceId: unknown = descriptors.workspaceId?.value, purpose: unknown = descriptors.purpose?.value, source: unknown = descriptors.source?.value;
+  if (Reflect.ownKeys(descriptors).length !== 3 || !['workspaceId', 'purpose', 'source'].every(name => descriptors[name]?.enumerable
+    && Object.hasOwn(descriptors[name], 'value')) || !validId(workspaceId)
+    || purpose !== 'create' && purpose !== 'import' || source !== 'request' && source !== 'mcp'
+    || typeof observer !== 'function' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
+  return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp',
+    observer: origin => observer(Object.freeze({ ...origin, purpose, entryPoint: source })) }, consume);
+}
+
 async function withCapture<T, P extends object>(credential: ApiKeyCredential,
   selection: Pick<Capture, 'workspaceId' | 'purpose' | 'observer' | 'mcp'>, consume: (principal: P) => Promise<T>): Promise<T> {
   const binding = apiKeyCredentialBinding(credential), license = await getLicenseStatus();
@@ -270,12 +295,31 @@ export function withApiKeyDocumentEditPrincipalOnConnection<T>(connection: SqlCo
     assertCurrent: access.assertCurrent, assertActive: () => assertApiKeyDocumentEditPrincipalActiveOnConnection(connection, principal) })));
 }
 
+/** The exact expected purpose prevents a Create capture from authorizing an
+ * import consumer, including one reached through an unsafe runtime cast. */
+export function withApiKeyDocumentCreatePrincipalOnConnection<T>(connection: SqlConnection, principal: ApiKeyDocumentCreatePrincipal,
+  purpose: ApiKeyDocumentCreatePurpose, consume: (access: Access & { purpose: ApiKeyDocumentCreatePurpose; assertActive: () => void }) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'create', access => consume(Object.freeze({
+    workspace: access.workspaces[0], userId: access.userId, integrationId: access.integrationId, instanceId: access.instanceId,
+    purpose, assertCurrent: access.assertCurrent,
+    assertActive: () => assertApiKeyDocumentCreatePrincipalActiveOnConnection(connection, principal, purpose) })), purpose);
+}
+
+export function assertApiKeyDocumentCreatePrincipalActiveOnConnection(connection: SqlConnection,
+  principal: ApiKeyDocumentCreatePrincipal, purpose: ApiKeyDocumentCreatePurpose): void {
+  assertFixedWritePrincipalActiveOnConnection(connection, principal, purpose === 'create' || purpose === 'import' ? [purpose] : []);
+}
+
 /** Synchronous final guard for the existing native writer's genuine B phase. */
 export function assertApiKeyDocumentEditPrincipalActiveOnConnection(connection: SqlConnection, principal: ApiKeyDocumentEditPrincipal): void {
+  assertFixedWritePrincipalActiveOnConnection(connection, principal, ['edit', 'edit_status']);
+}
+
+function assertFixedWritePrincipalActiveOnConnection(connection: SqlConnection, principal: object, purposes: readonly Capture['purpose'][]): void {
   const capture = shared.captures.get(principal), phase = shared.phases.get(connection);
   try {
     if (!capture || !phase || phase.capture !== capture || !capture.accepting || !phase.accepting) failure('API_KEY_PRINCIPAL_REQUIRED');
-    if (capture.purpose !== 'edit' && capture.purpose !== 'edit_status' || phase.checking || phase.pending.size) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
+    if (!purposes.includes(capture.purpose) || phase.checking || phase.pending.size) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
     active(phase);
   } catch (error) {
     if (capture) capture.failure ??= error;
@@ -284,8 +328,8 @@ export function assertApiKeyDocumentEditPrincipalActiveOnConnection(connection: 
   }
 }
 
-function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit',
-  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose): Promise<T> {
+function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit' | 'create',
+  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentCreatePurpose): Promise<T> {
   const capture = shared.captures.get(principal);
   const held = shared.phases.get(connection);
   const reject = (error: unknown): Promise<never> => {
@@ -297,6 +341,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
   const matchesFamily = family === 'document' ? capture.purpose === 'read' || capture.purpose === 'search'
     : family === 'list' ? capture.purpose === 'list'
       : family === 'edit' ? capture.purpose === 'edit' || capture.purpose === 'edit_status'
+      : family === 'create' ? (browsePurpose === 'create' || browsePurpose === 'import') && capture.purpose === browsePurpose
       : (browsePurpose === 'tree' || browsePurpose === 'overview' || browsePurpose === 'manifest') && capture.purpose === browsePurpose;
   if (!matchesFamily) {
     return reject(new ApiKeyAccessError('API_KEY_PRINCIPAL_SCOPE_CHANGED', 'The fixed API-key principal family changed.', 409));
