@@ -158,7 +158,22 @@ export async function verifyReplacementCompletionAcceptance(call, key) {
     assert.equal(repeated.structuredContent.operation_id, applied.structuredContent.operation_id);
     const read = await call('read_knowledge_source', { path }); assert.notEqual(read.isError, true);
     assert.equal(read.structuredContent.sha256, expected); assert.equal(read.structuredContent.content, replacement);
-    verified.push({ path, operationId: applied.structuredContent.operation_id, sha256: expected, createRetries });
+    let legacyExact;
+    if (index === 0) {
+      const request = { path, old_text: 'Changed local text.', new_text: 'Verified exact text.',
+        expected_sha256: expected, idempotency_key: `${key}-completion-exact` };
+      const edited = await call('edit_knowledge_source', request);
+      assert.notEqual(edited.isError, true, JSON.stringify(edited));
+      assert.equal(edited.structuredContent.status, 'applied');
+      const retry = await call('edit_knowledge_source', request);
+      assert.notEqual(retry.isError, true, JSON.stringify(retry));
+      assert.equal(retry.structuredContent.operation_id, edited.structuredContent.operation_id);
+      const final = await call('read_knowledge_source', { path }); assert.notEqual(final.isError, true);
+      const finalHash = createHash('sha256').update(replacement.replace('Changed local text.', 'Verified exact text.')).digest('hex');
+      assert.equal(final.structuredContent.sha256, finalHash);
+      legacyExact = { operationId: edited.structuredContent.operation_id, sha256: finalHash };
+    }
+    verified.push({ path, operationId: applied.structuredContent.operation_id, sha256: expected, createRetries, legacyExact });
   }
   return verified;
 }
