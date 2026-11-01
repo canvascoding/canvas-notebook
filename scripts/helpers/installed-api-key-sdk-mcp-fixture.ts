@@ -29,7 +29,7 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
   }
   const { handleDirectMcpPost, handleDirectMcpOptions, handleDirectMcpUnsupportedMethod } = await import('../../app/lib/mcp/server/streamable-http');
   const errors: unknown[] = [], requests = new Set<Promise<void>>(), statuses: number[] = [], deniedMethods: string[] = [];
-  const calls: Record<string, number> = {};
+  const calls: Record<string, number> = {}, pathCalls: Record<string, number> = {};
   const server = http.createServer(); server.requestTimeout = 40000; server.headersTimeout = 10000;
   let origin = '', keyHeaders = 0, drops = 0;
   server.on('request', (incoming, outgoing) => {
@@ -46,6 +46,12 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
           const key = `${id}:${args.action}`; calls[key] = (calls[key] ?? 0) + 1;
         }
       }
+      if (rpc?.method === 'tools/call' && (rpc.params?.name === 'move_knowledge_source' || rpc.params?.name === 'delete_knowledge_source')) {
+        const args = rpc.params.arguments, id = args?.operation_id;
+        if (typeof id === 'string' && typeof args?.action === 'string') {
+          const key = `${rpc.params.name}:${id}:${args.action}`; pathCalls[key] = (pathCalls[key] ?? 0) + 1;
+        }
+      }
       const request = new Request(`${origin}/mcp`, { method: incoming.method, headers,
         ...(incoming.method === 'POST' ? { body } : {}) });
       const response = incoming.method === 'POST' ? await handleDirectMcpPost(request)
@@ -60,7 +66,7 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => {
     server.removeListener('error', reject); resolve(); }); });
   const address = server.address(); assert(address && typeof address === 'object'); origin = `http://127.0.0.1:${address.port}`;
-  const child = spawn(options.python, ['-I', options.probe], { env: { PATH: process.env.PATH ?? '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(options.python, ['-I', options.probe], { env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let chain = Promise.resolve(), remainder = '', stdoutBytes = 0, stderrBytes = 0, complete = false, verified = false;
   const send = (reply: unknown) => { assert(!child.stdin.destroyed); child.stdin.write(JSON.stringify(reply) + '\n'); };
   const handle = async (line: string) => {
@@ -69,7 +75,10 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
     if (value.event === 'probe_failed') {
       assert(typeof value.stage === 'string' && /^[a-z_]{1,64}$/u.test(value.stage));
       assert(typeof value.kind === 'string' && /^[A-Za-z_]{1,64}$/u.test(value.kind));
-      console.error(JSON.stringify({ suite: 'installed-sdk-probe-failure', stage: value.stage, kind: value.kind }));
+      const exceptionTypes = value.exceptionTypes;
+      if (exceptionTypes !== undefined) assert(Array.isArray(exceptionTypes) && exceptionTypes.length <= 32
+        && exceptionTypes.every(item => typeof item === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,79}$/u.test(item)));
+      console.error(JSON.stringify({ suite: 'installed-sdk-probe-failure', stage: value.stage, kind: value.kind, exceptionTypes }));
       throw new Error('Installed SDK probe failed.');
     }
     if (value.event === 'wheel_verified') {
@@ -96,7 +105,7 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
     assert.equal(result.code, 0); assert.equal(result.signal, null); assert.equal(remainder, ''); assert(complete && verified);
     assert.equal(errors.length, 0); assert.equal(keyHeaders, statuses.length);
     assert.equal(sha(await readFile(options.probe)), probeSha256); assert.equal(sha(await readFile(options.wheel)), wheelSha256);
-    return { wheelSha256, keyHeaderOnlyRequests: keyHeaders, deniedMethods, calls, droppedAcknowledgements: drops, stderrBytes };
+    return { wheelSha256, keyHeaderOnlyRequests: keyHeaders, deniedMethods, calls, pathCalls, droppedAcknowledgements: drops, stderrBytes };
   } finally {
     clearTimeout(timeout);
     if (!complete || errors.length) console.error(JSON.stringify({ suite: 'installed-api-key-sdk-mcp-fixture', complete, verified,

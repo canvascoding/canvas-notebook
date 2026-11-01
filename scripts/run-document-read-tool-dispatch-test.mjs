@@ -1997,6 +1997,14 @@ criticalInputsByEntryPoint['scripts/api-key-native-path-adapters-postgres-test.t
   'app/lib/documents/request-json.ts', 'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
   'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts', 'proxy.ts',
 ])];
+criticalInputsByEntryPoint['scripts/api-key-python-sdk-path-postgres-test.ts'] = [...new Set([
+  ...criticalInputsByEntryPoint['scripts/api-key-public-path-service-postgres-test.ts'],
+  'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts',
+  'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/direct-server.ts',
+  'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
+  'app/lib/api-keys/mcp-runtime.ts', 'app/lib/documents/path-contract.ts',
+  'app/lib/documents/path-public-service.ts', 'app/lib/documents/service.ts',
+])];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];
 const importConditions = entryPoint === 'scripts/workspace-path-operation-attempts-runner-test.ts'

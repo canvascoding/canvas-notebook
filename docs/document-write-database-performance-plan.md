@@ -1304,9 +1304,51 @@ erhalten. Die bisherigen 219 Runner-Einträge behalten alle Quellwächter; Copy
 erhält den neuen gemeinsamen Leser als zusätzlichen Wächter und der neue
 Pfad-Adaptertest prüft 46 echte Eingangsquellen. Der neue Test gehört dauerhaft
 zum nativen Key-Pfadpaket, der Stream-Lesertest zur regulären Key-Suite.
-Installierte SDK-Pfadtests über tatsächliches TCP, aktuelle Image-/UI-Abnahme,
-die vollständige API-/SDK-Matrix, dedizierte CI und die übrigen vereinbarten
-Pakete bleiben weiterhin offen; dies ist keine Release-Abnahme.
+Die folgende SDK-Pfadprüfung ergänzt diese Adapterabnahme. Aktuelle Image-/UI-
+Abnahme, die vollständige API-/SDK-Matrix, dedizierte CI und die übrigen
+vereinbarten Pakete bleiben weiterhin offen; dies ist keine Release-Abnahme.
+
+Der neue installierte SDK-Pfadtest führt die vorhandenen Python-Methoden
+Preview/Apply/Status/Recover über echte TCP-/MCP-Anfragen aus. Der isolierte
+Client prüft Wheel-/Installationshashes und alle acht Laufzeitdateien gegen den
+aktuellen Checkout; er erhält den API-Key ausschließlich über den Eingabekanal
+und keine Datenbank-, Session- oder OAuth-Zugangsdaten. Der Messhelfer behält die
+vorhandenen Copy-Zähler bei und erfasst Move/Delete getrennt nach Tool,
+Aufruferkennung und Aktion, ohne Anfragen oder Antworten zu ersetzen.
+21 Gruppen bestehen auf Python 3.14.3 mit dem unveränderten geprüften Wheel:
+113 Key-Anfragen, 14 dauerhafte Operationen, zwei tatsächlich verlorene HTTP-
+Antworten und vier tatsächlich verlorene Claim-/Abschluss-COMMIT-Bestätigungen.
+Native, rein native, physische PDF-/PNG- und gemischte Ordnerinhalte behalten
+ihre Originalzustände/Bytes; Linkpflege, native Papierkorbzustände und
+ursprüngliche Historien einschließlich `xmin` bleiben geprüft. Dieselbe
+Aufruferkennung für Move und anschließendes Delete besitzt getrennte echte
+Operationskennungen. Rotation, Rechte-/Allowlist-/ACL-Entzug, abgeschaltete
+MCP-Tools und echter Widerruf bleiben wirksam. Ein API-Key funktioniert nach
+dem tatsächlichen Logout seiner ausstellenden Browser-Session weiter.
+Bei verlorener HTTP-Antwort beendet der offizielle MCP-Client den wartenden
+Task mit `CancelledError`; beim Schließen folgt die Gruppe mit dem echten
+Transportfehler. Das entspricht dem bestehenden SDK-Vertrag und dessen
+Abbruchtests: Cancellation wird nicht in einen gewöhnlichen Fehler
+umklassifiziert. Der neue Test verlangt entweder den unveränderten typisierten
+Unknown-Outcome-Fehler oder genau diesen erhaltenen Abbruch mit echtem HTTP-
+Transportfehler. In beiden Fällen müssen die vor dem Await gespeicherte
+Aufruferkennung, der Plan und die Originalpfade erhalten bleiben; Status und
+ausdrückliches Recover bestätigen dieselbe dauerhafte Operation. Kein
+Schreibaufruf wird automatisch wiederholt.
+Die acht bestehenden installierten Copy-SDK-Gruppen bestehen nach der
+Messhelfer-Erweiterung ebenfalls über echtes HTTP, einschließlich verlorener
+HTTP-/B1-Bestätigung. Beide isolierten Datenbank-/Datei-/Client-Kontexte werden
+vollständig freigegeben. Die neue Pfad-Suite gehört dauerhaft zum nativen
+SDK-Gesamtpaket; alle bisherigen 220 Runner-Einträge behalten ihre Quellwächter,
+der neue Eintrag ergänzt 44 echte Eingangsquellen.
+Python 3.14.3 ist hier ein Zwischenstand. Die endgültige Matrix umfasst weiter
+die deklarierte 3.10-Kompatibilität und die tatsächlich aktuelle stabile
+Version, mit frisch gebauten/prüfbaren Artefakten. Für den Stand vom 01.11.2026
+sind dies 3.10.22 und 3.15.2 laut der
+[Python-Downloadseite](https://www.python.org/downloads/). Die neuen Selected-Block-/
+Dokument-URL-Verträge aus Main, vollständige Auth-/UI-/Image-Abnahme,
+dedizierte CI und die übrigen Gesamtpakete bleiben offen. Review Center und
+Undo sind bei der neuen SDK-Pfadprüfung ausgeschaltet.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
