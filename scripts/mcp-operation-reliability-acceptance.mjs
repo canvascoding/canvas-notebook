@@ -130,3 +130,35 @@ export async function verifySourceCoverageAcceptance(call, key, seedInvalid) {
   return { code: failure.code, correlationId: failure.correlation_id, issues: failure.issues,
     preservedDocuments: documents.map(document => document.path) };
 }
+
+/** Regression for read-back racing the room's normal post-write release. */
+export async function verifyReplacementCompletionAcceptance(call, key) {
+  const verified = [];
+  for (let index = 0; index < 12; index++) {
+    const path = `completion-${key}-${index}.md`, content = `# Replacement ${index}\n\nOriginal local text.\n`;
+    const create = { api_version: 1, path, content, idempotency_key: `${key}-completion-create-${index}` };
+    let created = await call('create_knowledge_source', create), createRetries = 0;
+    while (created.isError && created.structuredContent?.retryable && createRetries < 10) {
+      createRetries++;
+      await new Promise(resolve => setTimeout(resolve, Math.min(2000, created.structuredContent.retry_after_ms || 250)));
+      created = await call('create_knowledge_source', create);
+    }
+    assert.notEqual(created.isError, true, JSON.stringify(created.structuredContent));
+    const original = await call('read_knowledge_source', { path }); assert.notEqual(original.isError, true);
+    const replacement = content.replace('Original', 'Changed');
+    const request = { path, content: replacement, expected_sha256: original.structuredContent.sha256,
+      idempotency_key: `${key}-completion-replace-${index}` };
+    const applied = await call('replace_knowledge_source', request);
+    assert.notEqual(applied.isError, true, JSON.stringify(applied));
+    assert.equal(applied.structuredContent.status, 'applied');
+    const expected = createHash('sha256').update(replacement).digest('hex');
+    assert.equal(applied.structuredContent.after_sha256, expected);
+    const repeated = await call('replace_knowledge_source', request);
+    assert.notEqual(repeated.isError, true, JSON.stringify(repeated));
+    assert.equal(repeated.structuredContent.operation_id, applied.structuredContent.operation_id);
+    const read = await call('read_knowledge_source', { path }); assert.notEqual(read.isError, true);
+    assert.equal(read.structuredContent.sha256, expected); assert.equal(read.structuredContent.content, replacement);
+    verified.push({ path, operationId: applied.structuredContent.operation_id, sha256: expected, createRetries });
+  }
+  return verified;
+}

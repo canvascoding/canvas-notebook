@@ -3,7 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
-import { verifyOperationReliabilityAcceptance, verifySourceCoverageAcceptance } from './mcp-operation-reliability-acceptance.mjs';
+import { verifyOperationReliabilityAcceptance, verifySourceCoverageAcceptance, verifyReplacementCompletionAcceptance } from './mcp-operation-reliability-acceptance.mjs';
 import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
@@ -224,6 +224,10 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'native-operation-link.png') });
     await page.close();
   });
+  let replacementCompletion;
+  await step('twelve sequential durable replacements survive room release and same-key replay', async () => {
+    replacementCompletion = await verifyReplacementCompletionAcceptance(call, runId);
+  });
   let sourceCoverage;
   await step('incomplete source coverage gives actionable delete diagnostics without mutation', async () => {
     sourceGapWorkspace = (await requireIngestE2EJson(await owner.request.post('/api/workspaces', {
@@ -244,7 +248,7 @@ try {
       });
   });
   await fs.writeFile(path.join(artifacts, 'report.json'), JSON.stringify({ passed: true, runId, workspaceId: workspace.id,
-    baseURL, steps, reliability, sourceCoverage, sourceGapWorkspaceId: sourceGapWorkspace.id, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
+    baseURL, steps, reliability, replacementCompletion, sourceCoverage, sourceGapWorkspaceId: sourceGapWorkspace.id, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
     evidence: 'Rebuilt managed container, real OAuth/HTTP/browser; local Codex connector verified separately.' }, null, 2));
   console.log(`Evidence: ${artifacts}`);
 } catch (error) {

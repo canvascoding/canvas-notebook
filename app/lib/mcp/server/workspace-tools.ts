@@ -113,6 +113,8 @@ import { editDocumentForDirectMcp, readDocumentEditStatusForDirectMcp } from '@/
 import { decodeDirectMcpNativeDocumentEditSelection, directMcpDocumentEditInputSchema, directMcpDocumentEditOutputSchema,
   formatDirectMcpNativeDocumentEditResult, formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
 import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
+import { readDirectMcpEditCompletion, DirectMcpEditCompletionBusyError } from './edit-completion';
+import { directMcpCorrelationId } from './diagnostics';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
   isDirectMcpReadableWorkspace,
@@ -1667,6 +1669,19 @@ async function executeUploadKnowledgeAsset(
 }
 
 function editErrorResult(error: unknown): CallToolResult {
+  if (error instanceof DirectMcpEditCompletionBusyError) {
+    const body = { code: error.code, error_code: error.code, message: error.message,
+      correlation_id: directMcpCorrelationId(), phase: 'completion', storage_status: 'confirmed',
+      operation_id: error.operationId, idempotency_key: error.idempotencyKey, retryable: true, retry_after_ms: 250 };
+    return { isError: true, structuredContent: body, content: [{ type: 'text', text: `${body.code}: ${body.message}` }] };
+  }
+  if (error instanceof Error && 'code' in error && error.code === 'ROOM_OWNER_BUSY') {
+    const body = { code: 'ROOM_OWNER_BUSY', error_code: 'ROOM_OWNER_BUSY',
+      message: 'The collaboration room is busy. Retry only with the original idempotency_key.',
+      correlation_id: directMcpCorrelationId(), phase: 'edit', storage_status: 'unknown', retryable: true, retry_after_ms: 250 };
+    return { isError: true, structuredContent: body, content: [{ type: 'text', text: `${body.code}: ${body.message}` }] };
+  }
+
   if (error instanceof DirectMcpEditAuthorityError
     || (error instanceof Error && 'code' in error && error.code === 'MCP_DIRECT_EDIT_AUTHORITY_CHANGED')) {
     return errorResult(`MCP_DIRECT_EDIT_AUTHORITY_CHANGED: ${error.message}`);
@@ -2111,10 +2126,16 @@ async function executeEditKnowledgeSource(
         }
         throw error;
       }
-      const after = await readCurrentCollaborationTextSnapshot({
-        documentId: prepared.documentId,
-        workspace,
+      const persisted = operation.durability === 'persisted_yjs'
+        || operation.durability === 'checkpointed_file';
+      const readAfter = () => readCurrentCollaborationTextSnapshot({
+        documentId: prepared.documentId, workspace, path: prepared.path,
+        lifecycleGeneration: prepared.lifecycleGeneration,
       });
+      const after = persisted ? await readDirectMcpEditCompletion({
+        operationId: operation.operationId, idempotencyKey: editIdentity.publicIdempotencyKey,
+        assertCurrent: () => mcpAuthority.verifyCurrent(), read: readAfter,
+      }) : await readAfter();
       const reviewRequired = operation.operationStatus === 'needs_review'
         || operation.operationStatus === 'partially_applied'
         || operation.operationStatus === 'semantic_conflict';
@@ -2124,8 +2145,6 @@ async function executeEditKnowledgeSource(
           operation.operationId,
         );
       }
-      const persisted = operation.durability === 'persisted_yjs'
-        || operation.durability === 'checkpointed_file';
       if (!persisted && !reviewRequired) {
         return errorResult(`The live edit outcome ${operation.operationId} could not be confirmed. Inspect it before retrying.`);
       }
