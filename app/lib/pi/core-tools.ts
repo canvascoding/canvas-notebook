@@ -1,6 +1,5 @@
 import { execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
-import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
@@ -97,7 +96,7 @@ import { addAgentFileLinkDiagnostics } from '@/app/lib/pi/agent-file-link-diagno
 import { parseExcalidrawCreateInput, parseExcalidrawGetInput, parseExcalidrawEditInput,
   excalidrawOperationFeedback } from '@/app/lib/excalidraw-collaboration/api-contract';
 import { ExcalidrawDocumentError } from '@/app/lib/excalidraw-collaboration/scene-service';
-import { formatWorkspaceTreePage, readWorkspaceTreePage } from '@/app/lib/files/workspace-tree';
+import { createWorkspaceListTool } from '@/app/lib/pi/workspace-list-tool';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 },
@@ -161,64 +160,7 @@ export const piTools: AgentTool[] = [
   createDocumentSearchTool(),
   ...createPdfTools(),
   ...createOfficeDocumentTools(),
-  {
-    name: 'ls',
-    label: 'Listing directory',
-    description: 'Lists files and directories in the active workspace. Supply max_depth for a bounded tree preview (0 lists direct children), max_entries for page size, and cursor to continue with the same path and depth. Set path to a child folder to explore deeper. Unloaded folders are not empty.',
-    parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: 'The path to list. Workspace-relative. Defaults to the active workspace root.' })),
-      max_depth: Type.Optional(Type.Integer({ minimum: 0, maximum: 6 })),
-      max_entries: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
-      cursor: Type.Optional(Type.String({ maxLength: 20000 })),
-    }),
-    execute: async (toolCallId, params) => {
-      try {
-        const { path: dirPath, max_depth, max_entries, cursor } = params as {
-          path?: string; max_depth?: number; max_entries?: number; cursor?: string;
-        };
-        const effectiveDir = dirPath || '.';
-        const fullPath = resolveAgentPath(effectiveDir);
-        await assertAgentPathAllowed(fullPath);
-        if (max_depth !== undefined || max_entries !== undefined || cursor !== undefined) {
-          const context = getAgentExecutionContext();
-          if (!context) throw new Error('Workspace tree browsing requires an active agent workspace.');
-          const tree = await readWorkspaceTreePage({ workspaceId: context.workspaceId, rootPath: context.workspaceRoot,
-            path: path.relative(context.workspaceRoot, fullPath).split(path.sep).join('/') || '.',
-            maxDepth: max_depth, maxEntries: max_entries, cursor });
-          return { content: [{ type: 'text', text: formatWorkspaceTreePage(tree) }], details: tree };
-        }
-        const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
-        const files = await Promise.all(
-          entries.map(async (entry) => {
-            // Keep dynamic directory listings out of Turbopack's file tracing. `readdir`
-            // guarantees that entry names are a single path segment.
-            const entryFullPath = `${fullPath}${fullPath.endsWith(path.sep) ? '' : path.sep}${entry.name}`;
-            const stats = await fsPromises.stat(entryFullPath);
-            return {
-              name: entry.name,
-              path: effectiveDir === '.'
-                ? entry.name
-                : `${effectiveDir}${effectiveDir.endsWith(path.sep) ? '' : path.sep}${entry.name}`,
-              type: entry.isDirectory() ? 'directory' : 'file',
-              size: stats.size,
-              modified: Math.floor(stats.mtimeMs / 1000),
-            };
-          })
-        );
-        const content = files.map(f => `${f.type === 'directory' ? '[DIR] ' : ''}${f.path}`).join('\n');
-        return {
-          content: [{ type: 'text', text: content || '(empty)' }],
-          details: { files },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
+  createWorkspaceListTool(),
   {
     name: 'read',
     label: 'Reading file',

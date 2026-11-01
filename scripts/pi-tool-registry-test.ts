@@ -249,7 +249,9 @@ async function main() {
   assert.match(getText(blockedReadResult), /restricted/i);
 
   const blockedLsResult = await lsTool.execute('ls-secret', { path: secretsDir });
-  assert.match(getText(blockedLsResult), /restricted/i);
+  assert.equal(Reflect.get(blockedLsResult, 'isError'), true);
+  assert.match(getText(blockedLsResult), /active agent workspace/i);
+  assert.equal(Reflect.get(blockedLsResult.details as object, 'files'), undefined);
 
   const blockedRgResult = await rgTool.execute('rg-secret', {
     pattern: 'OPENROUTER',
@@ -779,8 +781,11 @@ async function main() {
   await fs.writeFile(otherFile, 'no interesting text here\n', 'utf8');
 
   const lsResult = await lsTool.execute('ls-match', { path: tempDir });
-  assert.match(getText(lsResult), /match\.ts/);
-  assert.match(getText(lsResult), /other\.md/);
+  // A raw tool without the actual runtime invocation cannot grant a namespace.
+  // Genuine registered workspace/temp listing is covered by the owned PG suite.
+  assert.equal(Reflect.get(lsResult, 'isError'), true);
+  assert.match(getText(lsResult), /active agent workspace/i);
+  assert.equal(Reflect.get(lsResult.details as object, 'files'), undefined);
 
   const rgMatchResult = await rgTool.execute('rg-match', {
     pattern: 'needle',

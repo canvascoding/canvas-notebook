@@ -1031,6 +1031,42 @@ Adapterprüfungen bestehen. Die noch physischen PI-`ls`-/Agent-Kontext-Leser
 werden im verbleibenden gemeinsamen Leserpaket gesondert geprüft; der
 Legacy-Suchvertrag wird nicht stillschweigend umgestellt.
 
+**PI-`ls`: gemeinsamer Namespace statt Projektionsdateien.** Der erste
+Leserschritt verwendet für alle modernen Workspace-Aufrufe denselben nativen
+Baumseiten-Leser wie UI/API/MCP. Auch ein einfacher Aufruf ohne Parameter ist
+jetzt begrenzt (direkte Kinder, standardmäßig 200 Einträge); Cursor und
+Unvollständigkeit bleiben sichtbar. Die echten Runtime-Aufrufe liefern den
+vorhandenen opaken Agent-Prinzipal. Aktuelle Benutzer-/Agent-/Workspace-Rechte
+werden in kurzen eigenen Transaktionen vor der Namespace-Lesung und vor der
+Ausgabe geprüft. Ein bloßer Ausführungskontext kann keine native Liste erlauben.
+Der gesamte native Baum verwendet pro Seite einen Katalog-Scope. Es gibt keinen
+physischen Rückfall nach einem nativen Fehler und keine Projektionserstellung.
+Unverbrauchte Datei-Metadaten-Anreicherungen sind für `ls` abgeschaltet; Namen,
+Typ, Größe und Änderungszeit benötigen diese zusätzlichen Abfragen nicht.
+
+Separat erlaubte Skill-/Temp-Wurzeln behalten den bestehenden Pfadschutz und
+eine begrenzte physische Liste ohne erfundenen persönlichen Workspace. Ein
+bewiesener Root-Alias wird erst nach echter Autorisierung auf denselben
+Workspace gebunden; Aliase innerhalb des Workspace bleiben abgewiesen.
+Die bestehende `details.files`-Struktur bleibt neben den Baumseiten-Fakten
+erhalten; nicht vorhandene native Größen/Zeitpunkte bleiben null.
+
+Sieben echte Registry-/PostgreSQL-Gruppen bestehen für native Dokumente ohne
+Projektion, physische/gemischte Inhalte, Pagination und veraltete Cursor,
+Root-/interne Aliase und versteckte Pfade, echte Namenskonflikte ohne Rückfall,
+berechtigte Temp-/fremde Wurzeln sowie Rechteentzug vor und während der Lesung.
+Dokument-/Lineage-/State-/Metadaten-/Revisions-/Projektionszeilen samt `xmin`
+bleiben unverändert. Schema, Clients, Daten und Bundle schließen vollständig.
+Die bisherigen ungebundenen Positivtests prüfen jetzt die ausdrückliche
+Ablehnung; die echten Positivfälle sind im dauerhaften Runner
+`test:pi:workspace-tree:native`. Reguläre Baumtests und `test:pi:tools`
+einschließlich aller 13 echten Suchprozessfälle bestehen ohne neue Skips.
+Der Backend-Test startet mit `react-server`; der Suchtest überbrückt die
+tatsächlichen ESM-SDK-Namensräume, statt SDK- oder Tool-Ergebnisse zu fälschen.
+ESLint und strenge Typprüfung (3.737 Wurzeln/9.067 Quellen) bestehen fehlerfrei.
+Der Prompt-Dateibaum und die abschließende kompilierte Browser-/Release-Abnahme
+bleiben Teil der noch offenen Gesamtabnahme.
+
 Ein Manifest unterscheidet physische Originaldatei-Hashes von aktuellen nativen
 Markdown-Hashes. Fehlt die physische Projektion, bleiben deren Hash und Revision
 null und `file_state` lautet `not_materialized`. Erst eine erfolgreiche echte
