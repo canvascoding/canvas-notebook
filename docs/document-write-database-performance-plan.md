@@ -1138,8 +1138,27 @@ Die reine Callback-Lebensdauer ist mit dem bestehenden MCP-Adapter gemeinsam;
 die jeweiligen aktuellen Berechtigungsprüfungen bleiben getrennt. Sieben
 mechanische Gruppen und der echte Live-Incoming-Move-/Delete-Fall bestehen.
 Das vollständige Path-Paket und alle 43 bestehenden Owner-Fälle bestehen mit
-dieser Extraktion. Die nativen Effektpfade und öffentlichen
-Key-Adapter sind noch nicht an diesen neuen Policy-Adapter angeschlossen.
+dieser Extraktion.
+
+Der ursprüngliche native Move-Runner, seine Admission und seine tatsächlichen
+Owner-Transaktionen sind nun an die aktuelle Key-Policy angeschlossen. Ein
+kleiner gemeinsamer Dispatcher wählt ausschließlich den tatsächlich übergebenen
+MCP- oder Key-Principal; getrennte Eingabefelder verhindern, dass ein Key als
+MCP-Handle übergeben wird. Gemischte Handles, Getter, Proxies und zusätzliche
+Policy-Berechtigungsfelder werden abgewiesen. Der bestehende MCP-Zweig behält
+seine eigenen aktuellen Prüfungen. Eine Key-Operation erzeugt keine Session
+und keinen PI-Agenten; Undo wird dadurch nicht freigegeben.
+Zwei echte PostgreSQL-/Key-/Move-Gruppen bestehen bei ausgeschaltetem Review
+Center und Undo: mit physischer Projektion und mit ausschließlich nativem
+Quelldokument. Sie prüfen die vollständige Verschiebung, stabile Dokument- und
+Lineage-Identitäten, unveränderte Yjs-/State-Vector-Bytes, genau eine eingehende
+Linkänderung, unveränderte externe Links und mitverschobene Titel/Favoriten/Pins.
+Die tatsächlichen nativen Move- und Link-Belege werden anhand der Completion,
+ihrer Hashes und des sessionlosen Originalakteurs geprüft. Der dauerhafte
+Runner `test:api-keys:path-owners:native` gehört zum gesamten Path-Paket.
+Diese Prüfung deckt den Move-Effektkern ab. Delete-Effektpfade, reine
+Status-/Recovery-Kontexte, öffentliche Key-Adapter und deren installierte
+SDK-Abnahme sind weiterhin offen.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier

@@ -29,8 +29,10 @@ async function main() {
     const { withApiKeyWorkspacePathPrincipal: capture } = await import('../app/lib/api-keys/document-read-principal');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
     const { buildWorkspaceOperationBatchPlan } = await import('../app/lib/files/workspace-operation-batch-plan');
-    const { captureWorkspaceOperationApiKeyJobPrincipal: holder, withWorkspaceOperationApiKeyJobPolicyOnConnection: policy } =
+    const { captureWorkspaceOperationApiKeyJobPrincipal: holder } =
       await import('../app/lib/workspaces/workspace-operation-api-key-job-principal');
+    const { withWorkspaceOperationProgrammaticJobPolicyOnConnection: policy, captureWorkspaceOperationProgrammaticJobOptions: options } =
+      await import('../app/lib/workspaces/workspace-operation-programmatic-job-principal');
     const manager = new Headers((await h.request()).headers); manager.set('Origin', 'http://localhost');
     const session = await auth.api.getSession({ headers: manager }); assert(session); assert.equal(session.user.id, 'member');
     const workspace = await readPostgresWorkspaceForActorOnConnection(h.connection, resolveWorkspaceActor(session.user), h.source.workspaceId); assert(workspace);
@@ -85,8 +87,10 @@ async function main() {
             const row = (await h.admin.query('SELECT authorization_json,plan_json FROM workspace_file_operation_batches WHERE batch_id=$1', [claimed.batchId])).rows[0];
             originals.set(kind, { batch: claimed, authorization: row.authorization_json, plan: row.plan_json });
           }
+          const selected = options({ apiKeyPrincipal: holder({ transport: 'api-key', kind, purpose, principal }) });
+          assert(selected && 'transport' in selected); assert.equal(selected.principal, principal);
           return store.withClaim(claimed, async claim => {
-            const value = await consume({ claim, batch: result.batch, principal: holder({ transport: 'api-key', kind, purpose, principal }) });
+            const value = await consume({ claim, batch: result.batch, principal: selected });
             assert(await store.finishClaim(result.batch, { status: 'needs_recovery', errorCode: 'FIXTURE_POLICY_ONLY' })); return value;
           });
         });
@@ -113,6 +117,9 @@ async function main() {
       assert.throws(() => holder(new Proxy(principal, { get() { touched = true; throw new Error('Unexpected Proxy access.'); } })), code('API_KEY_JOB_PRINCIPAL_INVALID'));
       for (const purpose of ['move_preview', 'move_status', 'delete_preview', 'delete_status'])
         assert.throws(() => holder({ ...principal, purpose }), code('API_KEY_JOB_PRINCIPAL_INVALID'));
+      assert.throws(() => options({ mcpPrincipal: principal }), code('MCP_JOB_PRINCIPAL_INVALID'));
+      assert.throws(() => options({ mcpPrincipal: { kind: 'move', principal: {} }, apiKeyPrincipal: principal }), code('BATCH_CLAIM_CHANGED'));
+      assert.throws(() => options(Object.defineProperty({}, 'apiKeyPrincipal', { enumerable: true, get() { touched = true; return principal; } })), code('BATCH_CLAIM_CHANGED'));
       assert.equal(touched, false);
       const credential = await authenticate();
       await capture(credential, { workspaceId, purpose: 'move_apply', source: 'request' }, async live => {
@@ -120,12 +127,15 @@ async function main() {
         const unused = { get: async () => { queries++; assert.fail('No claim may reach SQL.'); } } as unknown as SqlConnection;
         await assert.rejects(policy(unused, { claim: {} as WorkspaceOperationBatchClaim,
           principal: holder({ ...principal, principal: live }) }, async () => assert.fail('Forged claim.')), code('BATCH_CLAIM_REQUIRED'));
+        await assert.rejects(policy(unused, { claim: {} as WorkspaceOperationBatchClaim,
+          principal: holder({ ...principal, principal: live }), permissions: { canWrite: true } } as unknown as Parameters<typeof policy>[1],
+        async () => assert.fail('Unexpected authority field.')), code('BATCH_CLAIM_CHANGED'));
         assert.equal(queries, 0);
       });
     });
     await check('actual Move and Delete claims share current key authority and retain the original sessionless actor', async () => {
       for (const kind of ['move', 'delete'] as const) await withJob(kind, `${kind}_apply`, job => transaction(job.claim, job.principal, async access => {
-        assert.equal(access.transport, 'api-key'); assert.equal(access.userId, 'member'); assert.equal(access.integrationId, issued.integration.id);
+        assert(access.transport === 'api-key'); assert.equal(access.userId, 'member'); assert.equal(access.integrationId, issued.integration.id);
         assert.equal(access.currentCredentialId, credentialId); assert.equal(access.actorSessionId, null); assert.equal(access.actorType, 'agent');
         assert.equal(Object.hasOwn(access, 'piSessionId'), false); assert.equal(access.batchId, job.batch.batchId);
         assert(job.batch.authorization.mode === 'api-key'); assert.equal(access.actorId, job.batch.authorization.actorId);
@@ -154,7 +164,7 @@ async function main() {
         { expectedRevision: revision++, requestId: randomUUID(), expiresAt: Date.now() + 3_600_000 });
       key = rotated.key; credentialId = rotated.credential.id; await assert.rejects(authenticate(oldKey), code('API_KEY_INVALID'));
       for (const kind of ['move', 'delete'] as const) await withJob(kind, `${kind}_recover`, job => transaction(job.claim, job.principal, async access => {
-        assert.equal(access.currentCredentialId, credentialId); assert(job.batch.authorization.mode === 'api-key');
+        assert(access.transport === 'api-key'); assert.equal(access.currentCredentialId, credentialId); assert(job.batch.authorization.mode === 'api-key');
         assert.equal(job.batch.authorization.credentialId, issued.credential.id); await access.assertCurrent();
       }));
       await assertOriginals(); assert.deepEqual(await protectedSnapshot(), before);
