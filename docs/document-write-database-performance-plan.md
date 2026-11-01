@@ -1124,6 +1124,23 @@ auch die reguläre Key-Suite, Release-Typprüfung und gezieltes Lint sind grün.
 Der Anschluss an native Key-Owner, reine Statusleser, öffentliche Adapter und
 das installierte SDK bleibt erforderlich.
 
+Die lebende Schreib-/Recovery-Policy für Key-Jobs ist inzwischen als eigener
+Adapter in `workspace-operation-api-key-job-principal.ts` ergänzt. Er verbindet
+einen echten Principal mit einem echten Store-Claim auf derselben aktuellen
+Verbindung, prüft vollständigen Originalplan und Namespace und behält den
+ursprünglichen Actor ohne Session-/PI-Zuordnung. Nur die festen Apply-/Recover-
+Zwecke werden angenommen. Vorschau und Status können diese Schreib-Policy nicht
+auswählen. Sechs echte PostgreSQL-/Key-/Claim-Gruppen prüfen diese Verbindung,
+fremde Zwecke und Handles, falsche Realms und Read-only-Transaktionen, Rotation
+sowie Action-Entzug und Widerruf nach bestätigtem Claim-Commit. Native Dokumente,
+History, Intents und Bytes bleiben dabei unverändert.
+Die reine Callback-Lebensdauer ist mit dem bestehenden MCP-Adapter gemeinsam;
+die jeweiligen aktuellen Berechtigungsprüfungen bleiben getrennt. Sieben
+mechanische Gruppen und der echte Live-Incoming-Move-/Delete-Fall bestehen.
+Das vollständige Path-Paket und alle 43 bestehenden Owner-Fälle bestehen mit
+dieser Extraktion. Die nativen Effektpfade und öffentlichen
+Key-Adapter sind noch nicht an diesen neuen Policy-Adapter angeschlossen.
+
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
 Route-/PostgreSQL-/Protokollgruppen prüfen die begrenzten Metadaten, den

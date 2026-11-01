@@ -11,6 +11,7 @@ import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationB
 import { decodeWorkspaceOperationMcpAuthorization,
   assertWorkspaceOperationMcpAuthorizationCurrent } from '../files/workspace-operation-mcp-authorization';
 import type { WorkspaceOperationJobPolicyAccess } from './workspace-operation-job-principal';
+import { withWorkspaceOperationJobPolicyLifetime } from './workspace-operation-job-policy-lifetime';
 
 /** A detached immutable holder of a genuine live handle. It is never stored. */
 export type WorkspaceOperationMcpJobPrincipal = Readonly<{ kind: 'move'; principal: DirectMcpWorkspaceMovePrincipal }>
@@ -74,77 +75,40 @@ export async function withWorkspaceOperationMcpJobPolicyOnConnection<T>(database
   const original = decodeWorkspaceOperationMcpAuthorization(binding.authorization);
   let closingFailure: unknown;
   const execute = async (current: DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess): Promise<T> => {
-    let active = true, accepting = true, checking = false, originalVerified = false, failure: unknown;
-    const pending = new Set<Promise<void>>();
-    const check = async (): Promise<void> => {
-      try {
-        if (!active) fail('MCP_JOB_PRINCIPAL_REQUIRED');
-        if (failure !== undefined) throw failure;
-        if (checking) fail('MCP_JOB_PRINCIPAL_REENTRANT');
-        checking = true;
-        try {
-          await current.assertCurrent();
-          if (await assertWorkspaceOperationBatchClaimOnConnection(database, claim) !== binding) fail('MCP_JOB_PRINCIPAL_CHANGED');
-          // The actual claim pins frozen plan/auth bytes and every later SQL
-          // check compares those original bytes again. Verify the complete
-          // plan hash once per B; the fixed MCP capture pins current identity
-          // and namespace while assertCurrent rechecks live rights each time.
-          if (!originalVerified) {
-            assertWorkspaceOperationMcpAuthorizationCurrent(original, { userId: current.userId,
-              clientId: current.clientId, sessionId: current.sessionId, workspace: current.workspace, tool: current.tool }, binding.plan);
-            originalVerified = true;
-          }
-          const realm = await database.get(`SELECT pg_catalog.current_schema() AS schema_name,
-            pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
-            (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
-            pg_catalog.current_setting('search_path') AS search_path`) as Record<string, unknown> | undefined;
-          if (!realm || realm.schema_name !== binding.source.schemaName || Number(realm.schema_oid) !== binding.source.schemaOid
-            || Number(realm.database_oid) !== binding.source.databaseOid || realm.search_path !== binding.source.searchPath) {
-            fail('MCP_JOB_PRINCIPAL_CHANGED');
-          }
-          if (readWorkspaceOperationBatchClaimBinding(claim) !== binding) fail('MCP_JOB_PRINCIPAL_CHANGED');
-        } finally { checking = false; }
-      } catch (error) { failure ??= error ?? new WorkspaceOperationMcpJobPrincipalError('MCP_JOB_PRINCIPAL_INVALID'); throw failure; }
-    };
-    const assertCurrent = (): Promise<void> => {
-      const promise = (async () => {
-        try {
-          if (!accepting) {
-            // Preserve the real Core phase's poison/drain contract even while
-            // its final policy check is still completing after our callback.
-            await current.assertCurrent();
-            fail('MCP_JOB_PRINCIPAL_REQUIRED');
-          }
-          await check();
-        } catch (error) {
-          failure ??= error ?? new WorkspaceOperationMcpJobPrincipalError('MCP_JOB_PRINCIPAL_INVALID');
-          closingFailure ??= failure;
-          throw failure;
+    let originalVerified = false;
+    return withWorkspaceOperationJobPolicyLifetime<WorkspaceOperationMcpJobPolicyAccess, T>({
+      check: async () => {
+        await current.assertCurrent();
+        if (await assertWorkspaceOperationBatchClaimOnConnection(database, claim) !== binding) fail('MCP_JOB_PRINCIPAL_CHANGED');
+        // The actual claim pins frozen plan/auth bytes and every later SQL
+        // check compares those original bytes again. Verify the complete
+        // plan hash once per B; the fixed MCP capture pins current identity
+        // and namespace while assertCurrent rechecks live rights each time.
+        if (!originalVerified) {
+          assertWorkspaceOperationMcpAuthorizationCurrent(original, { userId: current.userId,
+            clientId: current.clientId, sessionId: current.sessionId, workspace: current.workspace, tool: current.tool }, binding.plan);
+          originalVerified = true;
         }
-      })();
-      pending.add(promise);
-      void promise.finally(() => pending.delete(promise)).catch(() => undefined);
-      return promise;
-    };
-    try {
-      await check();
-      const result = await operation(Object.freeze({ workspace: current.workspace, userId: current.userId,
+        const realm = await database.get(`SELECT pg_catalog.current_schema() AS schema_name,
+          pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
+          (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
+          pg_catalog.current_setting('search_path') AS search_path`) as Record<string, unknown> | undefined;
+        if (!realm || realm.schema_name !== binding.source.schemaName || Number(realm.schema_oid) !== binding.source.schemaOid
+          || Number(realm.database_oid) !== binding.source.databaseOid || realm.search_path !== binding.source.searchPath) {
+          fail('MCP_JOB_PRINCIPAL_CHANGED');
+        }
+        if (readWorkspaceOperationBatchClaimBinding(claim) !== binding) fail('MCP_JOB_PRINCIPAL_CHANGED');
+      },
+      assertCoreCurrent: () => current.assertCurrent(),
+      error: reason => new WorkspaceOperationMcpJobPrincipalError(({
+        required: 'MCP_JOB_PRINCIPAL_REQUIRED', invalid: 'MCP_JOB_PRINCIPAL_INVALID',
+        reentrant: 'MCP_JOB_PRINCIPAL_REENTRANT', detached: 'MCP_JOB_PRINCIPAL_DETACHED',
+      } as const)[reason]),
+      closingFailure: error => { closingFailure ??= error; },
+      access: assertCurrent => Object.freeze({ workspace: current.workspace, userId: current.userId,
         actorType: 'agent', actorId: original.actorId, batchId: binding.batchId, planId: binding.planId,
-        transport: 'direct-mcp', clientId: current.clientId, currentSessionId: current.sessionId, assertCurrent }));
-      accepting = false;
-      if (pending.size) {
-        failure ??= new WorkspaceOperationMcpJobPrincipalError('MCP_JOB_PRINCIPAL_DETACHED');
-        await Promise.allSettled([...pending]);
-      }
-      if (failure !== undefined) throw failure;
-      await check();
-      if (failure !== undefined) throw failure;
-      return result;
-    } finally {
-      accepting = false;
-      if (pending.size) await Promise.allSettled([...pending]);
-      active = false;
-    }
+        transport: 'direct-mcp', clientId: current.clientId, currentSessionId: current.sessionId, assertCurrent }),
+    }, operation);
   };
   const result = live.kind === 'move' ? await withDirectMcpWorkspaceMovePrincipalOnConnection(database, live.principal, execute)
     : await withDirectMcpWorkspaceDeletePrincipalOnConnection(database, live.principal, execute);

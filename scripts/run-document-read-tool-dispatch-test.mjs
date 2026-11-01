@@ -12,6 +12,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/api-key-workspace-path-job-policy-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
+    'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts',
+    'app/lib/workspaces/workspace-operation-api-key-job-principal.ts', 'app/lib/workspaces/workspace-operation-job-policy-lifetime.ts',
+    'app/lib/files/workspace-operation-batch-store.ts', 'app/lib/files/workspace-operation-api-key-authorization.ts',
+    'app/lib/files/workspace-operation-batch-plan.ts'],
   'scripts/api-key-workspace-path-claim-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
     'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/files/workspace-operation-batch-store.ts',
@@ -1347,6 +1353,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-original-delete.ts', 'app/lib/collaboration/lifecycle-transaction.ts',
     'app/lib/filesystem/file-watcher.ts', 'app/lib/utils/file-tree-cache.ts', 'app/lib/db/index.ts'],
   'scripts/direct-mcp-workspace-path-owner-postgres-test.ts': [entryPoint,
+    'app/lib/workspaces/workspace-operation-job-policy-lifetime.ts',
     'app/lib/files/workspace-path-html-native-delete-preparation.ts',
     'app/lib/files/workspace-operation-native-delete-html-plan.ts',
     'app/lib/files/workspace-operation-original-delete-html-graph.ts',
