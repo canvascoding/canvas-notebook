@@ -87,6 +87,24 @@ async function readRecord(recordPath: string): Promise<IngestRecord | null> {
   }
 }
 
+/** Historical receipt data only. The caller must hold current workspace/tool
+ * authority. Absence and a prepared intent never prove that nothing was stored. */
+export async function readDirectMcpLegacyIngestStatus(input: {
+  operationId: string; workspaceId: string; path: string; expectedFingerprint?: string;
+}) {
+  if (!/^[a-f0-9]{64}$/u.test(input.operationId)) throw new DirectMcpFileIngestError('MCP_INGEST_INVALID_INPUT', 'Invalid operation identifier.');
+  const record = await readRecord(path.join(resolveCanvasDataRoot(), 'system', 'mcp-file-ingest', `${input.operationId}.json`));
+  if (!record) return null;
+  if (input.expectedFingerprint && record.fingerprint !== input.expectedFingerprint
+    || record.receipt && (record.receipt.workspace_id !== input.workspaceId || record.receipt.path !== input.path)) {
+    throw new DirectMcpFileIngestError('MCP_INGEST_IDEMPOTENCY_CONFLICT', 'This key belongs to a different creation request.');
+  }
+  return { operation_id: input.operationId, workspace_id: input.workspaceId, path: input.path,
+    storage_status: record.phase === 'completed' ? 'confirmed' as const : 'unknown' as const,
+    processing_status: record.phase === 'completed' ? 'completed' as const : 'unconfirmed' as const,
+    ...(record.receipt ? { receipt: record.receipt } : {}) };
+}
+
 /** Historical dispatch facts only. The fixed caller holds the existing
  * workspace Flock and separately establishes current authority. */
 export async function observeLegacyDirectMcpIngestOriginal(input: Readonly<{

@@ -199,8 +199,13 @@ test('private MCP ingest journal protects create-only publication and durable re
       await assert.rejects(fs.stat(recordPath(item.key)), hasCode('ENOENT'));
     });
 
+    await suite.test('lexical Markdown identity preserves leading spaces without normalizing to a hidden path', () => {
+      assert.equal(normalizeDirectMcpIngestPath(' .private/note.md'), ' .private/note.md');
+      assert.throws(() => normalizeDirectMcpIngestPath('.private/note.md'));
+    });
+
     await suite.test('hidden, traversal and absolute destinations are blocked before reading input', async () => {
-      for (const invalid of ['.env', ' .env', ' .private/note.md', 'notes/.private/file.md', '../outside.md', 'notes/../outside.md',
+      for (const invalid of ['.env', ' .env', 'notes/.private/file.md', '../outside.md', 'notes/../outside.md',
         '/absolute.md', 'notes//empty.md', 'notes\\..\\outside.md', 'C:\\outside.md', '.']) {
         assert.throws(() => normalizeDirectMcpIngestPath(invalid));
         const item = request(invalid, '# Invalid\n');

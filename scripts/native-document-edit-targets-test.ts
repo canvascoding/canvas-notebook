@@ -165,6 +165,7 @@ check('same-proof detached guards match actual block/table reader without source
     const targets = unchanged(doc, () => captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof));
     assert.deepEqual(targets, expected); frozen(targets);
     for (const target of targets) {
+      assert.deepEqual(unchanged(doc, () => captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof, target.id)), [target]);
       assert.deepEqual(Object.keys(target).sort(), ['id', 'type', 'parentId', 'beforeId', 'attrs', 'subtreeHash', 'placementHash',
         ...(target.tableOperationTarget ? ['tableOperationTarget'] : [])].sort());
       assert(!Object.hasOwn(target, 'text')); assert(!Object.hasOwn(target, 'operations')); assert(!Object.hasOwn(target, 'initial'));
@@ -314,3 +315,31 @@ check('raw-store budgets only tighten and reject giant operation arrays before t
 
 assert.equal(groups, 8);
 console.log('Native document edit targets tests passed: 8/8. Pure helpers/selectors only; no auth, room, SQL or durable outcome asserted.');
+
+check('targeted guards work beyond whole-list budgets without returning body or other targets', () => {
+  const doc = blockDoc(Array.from({ length: 600 }, (_, index) => paragraph(`target-${index}`, 'x'.repeat(200))));
+  try {
+    const current = inspect(doc);
+    assert.throws(() => captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof), code('DOCUMENT_TOO_LARGE'));
+    const before = sourceReceipt(doc);
+    const all = readAgentBlockStructure(doc);
+    for (const index of [0, 299, 599]) {
+      const selected = captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof, `target-${index}`);
+      const { text: _text, ...expected } = all[index];
+      assert.deepEqual(selected, [expected]);
+      const encoded = encodeDocumentReadBodyV1({ ...observation(doc), editTargetBlockId: `target-${index}`, editTargets: selected }, 'native');
+      const body = JSON.parse(Buffer.from(encoded.bytes).toString('utf8'));
+      assert.equal(body.content, undefined); assert.deepEqual(body.editTargets, selected);
+      assert(encoded.totalBytes < 1024);
+    }
+    assert.deepEqual(captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof, 'absent'), []);
+    assertSource(doc, before);
+    assertNativeDocumentWithinReadBudget(doc, nativeDocumentEditTargetsReadBudget(undefined, true));
+    const expected_version = `canvas-document-v1:${'a'.repeat(64)}`;
+    assert.equal(decodeDirectMcpDocumentReadSelection({ ...mcpSelection, include_edit_targets: true,
+      edit_target_block_id: 'target-0', expected_version })?.editTargetBlockId, 'target-0');
+    for (const extra of [{}, { include_edit_targets: false, expected_version }, { include_edit_targets: true }]) {
+      assert.throws(() => decodeDirectMcpDocumentReadSelection({ ...mcpSelection, edit_target_block_id: 'target-0', ...extra }), code('INVALID_REQUEST'));
+    }
+  } finally { doc.destroy(); }
+});

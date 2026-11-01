@@ -33,9 +33,12 @@ function unavailable(): never { throw new DocumentReadError('DOCUMENT_FORMAT_UNA
 /** Opt-in only; a caller's existing smaller limits are never raised. Bounds
  * the original binary before decode and the actual live Yjs store before PM
  * extraction. The ordinary read and search defaults remain unchanged. */
-export function nativeDocumentEditTargetsReadBudget(requested?: NativeDocumentReadBudget): NativeDocumentReadBudget {
-  const selected = requested === undefined ? sourceBudget : captureNativeDocumentReadBudget(requested);
-  const minimum = (key: keyof NativeDocumentReadBudget) => Math.min(sourceBudget[key], selected[key]);
+export function nativeDocumentEditTargetsReadBudget(requested?: NativeDocumentReadBudget, targeted = false): NativeDocumentReadBudget {
+  // Selected-target inspection never builds the complete guard list. Keep the
+  // structural/private-entry limits, but allow the bounded document text budget.
+  const maximum = targeted ? { ...sourceBudget, maxStringBytes: 5 * 1024 * 1024, maxStateBytes: 8 * 1024 * 1024 } : sourceBudget;
+  const selected = requested === undefined ? maximum : captureNativeDocumentReadBudget(requested);
+  const minimum = (key: keyof NativeDocumentReadBudget) => Math.min(maximum[key], selected[key]);
   return Object.freeze({ maxStateBytes: minimum('maxStateBytes'), maxVectorBytes: minimum('maxVectorBytes'),
     maxClients: minimum('maxClients'), maxStructs: minimum('maxStructs'), maxNodes: minimum('maxNodes'),
     maxDepth: minimum('maxDepth'), maxStringBytes: minimum('maxStringBytes'), maxBinaryBytes: minimum('maxBinaryBytes') });
@@ -142,10 +145,11 @@ function freeze<T>(value: T): T {
  * callback. It reuses the existing guard algorithm, then drops duplicated
  * block text and all private initial/operation/receipt data. */
 export function captureNativeDocumentEditTargets(doc: Doc, content: NativeCollaborationContent,
-  observedStateProof: string): readonly NativeDocumentEditTargetV1[] {
+  observedStateProof: string, selectedBlockId?: string): readonly NativeDocumentEditTargetV1[] {
   assertNativeDocumentEditTargetStorageBudget(doc);
-  assertVisibleNodeBudget(content);
-  const blocks = readAgentBlockStructure(doc);
+  if (selectedBlockId === undefined) assertVisibleNodeBudget(content);
+  else if (!identifier(selectedBlockId)) throw new DocumentReadError('INVALID_REQUEST');
+  const blocks = readAgentBlockStructure(doc, selectedBlockId);
   if (blocks.length > MAX_NATIVE_DOCUMENT_EDIT_TARGETS) tooLarge();
   const targets: NativeDocumentEditTargetV1[] = blocks.map(block => {
     if (!identifier(block.id) || !identifier(block.type, 256)

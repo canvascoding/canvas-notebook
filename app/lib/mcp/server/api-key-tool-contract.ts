@@ -18,25 +18,24 @@ type KeyScheme = { type: 'apiKey'; in: 'header'; name: 'X-Canvas-API-Key' };
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
-/** Reuse the canonical descriptor's native branches. This pure metadata module
+/** Reuse the canonical descriptor's native fields. This pure metadata module
  * must not import the runtime edit service merely to advertise its schema. */
 function nativeEditSchemas(descriptor: DirectMcpToolDescriptor) {
   const input = descriptor.inputSchema, output = descriptor.outputSchema;
-  const inputs = Array.isArray(input.oneOf) ? input.oneOf.filter(branch => {
-    const action = record(record(record(branch)?.properties)?.action)?.const;
-    return action === 'edit' || action === 'status';
-  }) : [];
   const outputs = output && Array.isArray(output.oneOf) ? output.oneOf.filter(branch =>
     record(record(record(branch)?.properties)?.apiVersion)?.const === 1) : [];
-  if (inputs.length !== 2 || outputs.length !== 2) throw new Error('Native edit descriptor branches are unavailable.');
-  const keys = [...new Set(inputs.flatMap(branch => Object.keys(record(record(branch)?.properties) ?? {})))];
+  if (outputs.length !== 2) throw new Error('Native edit descriptor branches are unavailable.');
+  const keys = ['api_version', 'action', 'workspace_id', 'document_id', 'expected_version', 'idempotency_key', 'patch', 'operation_id'];
   const properties: NonNullable<Tool['inputSchema']['properties']> = {};
   for (const key of keys) {
     const property = input.properties?.[key];
     if (property === undefined) throw new Error('Native edit descriptor properties are unavailable.');
     properties[key] = property;
   }
-  return { input: { ...input, properties, oneOf: inputs }, output: { ...output, oneOf: outputs } };
+  return { input: { type: 'object' as const, additionalProperties: false, properties,
+    required: ['api_version', 'action', 'workspace_id'], $defs: input.$defs, examples: input.examples,
+    description: 'Native edit requires api_version=1, action=edit, workspace_id, document_id, expected_version, idempotency_key and patch. Native status requires api_version=1, action=status, workspace_id and operation_id. Mixing shapes is rejected.' },
+    output: { ...output, oneOf: outputs } };
 }
 
 export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): Tool & { securitySchemes: KeyScheme[] } {

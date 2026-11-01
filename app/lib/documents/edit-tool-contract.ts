@@ -127,6 +127,20 @@ export const DOCUMENT_EDIT_PATCH_JSON_SCHEMA_V1 = { oneOf: [
     operations: { type: 'array', minItems: 1, maxItems: 32, items: structuredOperation } }, required: ['kind', 'operations'] },
 ] } as const;
 
+/** MCP adapters commonly understand anyOf but drop oneOf-only objects and
+ * untyped constants. Only transform our static declaration; runtime decoding
+ * remains the strict discriminated contract above. */
+function mcpEditSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(mcpEditSchema);
+  if (!value || typeof value !== 'object') return value;
+  const source = value as Record<string, unknown>;
+  const result = Object.fromEntries(Object.entries(source).map(([key, item]) =>
+    [key === 'oneOf' ? 'anyOf' : key, mcpEditSchema(item)]));
+  if (!result.type && typeof result.const === 'string') result.type = 'string';
+  if (!result.type && Array.isArray(result.enum) && result.enum.every(item => typeof item === 'string')) result.type = 'string';
+  return result;
+}
+
 function inputSchema<Schema extends LegacySchema>(legacy: Schema, flavor: Flavor): Tool['inputSchema'] {
   const n = names[flavor];
   const nativeProperties: Record<string, unknown> = {
@@ -137,6 +151,23 @@ function inputSchema<Schema extends LegacySchema>(legacy: Schema, flavor: Flavor
       description: 'Stable caller retry key for this exact native patch. Reuse it across tool calls; never use a new key to recover uncertainty.' },
     [n.operation]: operationId, patch: DOCUMENT_EDIT_PATCH_JSON_SCHEMA_V1,
   };
+  if (flavor === 'mcp') {
+    return { type: 'object', additionalProperties: false,
+      required: ['workspace_id'],
+      description: 'Choose exactly one request shape. Legacy: workspace_id, path, old_text, new_text and expected_sha256 are required; expected_occurrences or replace_all and idempotency_key are optional. Native edit: api_version=1, action=edit, workspace_id, document_id, expected_version, idempotency_key and patch; all seven fields required. Native status: api_version=1, action=status, workspace_id and operation_id; all four fields required. Mixing shapes is rejected.',
+      properties: { ...legacy.properties, ...nativeProperties, patch: mcpEditSchema(DOCUMENT_EDIT_PATCH_JSON_SCHEMA_V1) },
+      $defs: { nativeEditNode: editNode },
+      examples: [
+        { api_version: 1, action: 'edit', workspace_id: 'workspace-id', document_id: 'document-id',
+          expected_version: `canvas-document-v1:${'a'.repeat(64)}`, idempotency_key: 'edit-example-001',
+          patch: { kind: 'native_text_replace', blockId: 'block-id', edits: [{ oldText: 'Draft', newText: 'Final', expectedOccurrences: 1 }] } },
+        { api_version: 1, action: 'edit', workspace_id: 'workspace-id', document_id: 'document-id',
+          expected_version: `canvas-document-v1:${'a'.repeat(64)}`, idempotency_key: 'block-example-001',
+          patch: { kind: 'native_blocks', operations: [{ kind: 'delete_block', blockId: 'block-id', subtreeHash: 'b'.repeat(64) }] } },
+        { api_version: 1, action: 'status', workspace_id: 'workspace-id', operation_id: 'recorded-operation-id' },
+      ],
+    } as Tool['inputSchema'];
+  }
   return { type: 'object' as const, properties: { ...legacy.properties, ...nativeProperties }, additionalProperties: false,
     $defs: { nativeEditNode: editNode }, oneOf: [legacy,
       { type: 'object', additionalProperties: false,

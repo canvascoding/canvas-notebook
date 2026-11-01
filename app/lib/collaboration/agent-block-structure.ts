@@ -58,7 +58,7 @@ export function validateAgentBlockDocument(doc: Y.Doc): 'schema_invalid' | 'limi
 }
 
 /** Read the visible authoritative block tree; never imports or migrates a document. */
-export function readAgentBlockStructure(doc: Y.Doc): AgentBlockStructure[] {
+export function readAgentBlockStructure(doc: Y.Doc, selectedBlockId?: string): AgentBlockStructure[] {
   if (!doc.share.has(BLOCK_TREE_KEY) || doc.share.has('body')) {
     throw new Error('Structured agent operations require a tiptap_blocks document.');
   }
@@ -89,9 +89,11 @@ export function readAgentBlockStructure(doc: Y.Doc): AgentBlockStructure[] {
     parent.forEach((node) => {
       const id = node.attrs.id as string;
       if (!projection.parents.has(id) || projection.deleted.has(id)) return;
-      const subtreeHash = hashAgentBlockJson(node.toJSON());
+      const selected = selectedBlockId === undefined || id === selectedBlockId;
+      // Targeted inspection hashes only the selected subtree and its table guard.
+      const subtreeHash = selected || node.type.name === 'table' ? hashAgentBlockJson(node.toJSON()) : '';
       const containingTableHash = node.type.name === 'table' ? subtreeHash : tableHash;
-      result.push({
+      if (selected) result.push({
         id, type: node.type.name, parentId: projection.parents.get(id) ?? null,
         beforeId: nextSiblings.get(id) ?? null,
         attrs: structuredClone(node.attrs), text: node.textContent,

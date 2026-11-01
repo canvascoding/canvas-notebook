@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-local-codex-client-e2e.mjs <report.json>
  */
 import assert from 'node:assert/strict';
+import { verifyOperationReliabilityAcceptance } from './mcp-operation-reliability-acceptance.mjs';
 import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
@@ -79,6 +80,20 @@ try {
   // No turn/start is issued: only the real MCP client is exercised.
   const listed = await rpc('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly' });
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-tool-catalog.json'), JSON.stringify(listed, null, 2), { mode: 0o600 });
+  const catalog = listed.data.find(server => server.name === serverName)?.tools;
+  assert(catalog?.read_knowledge_source && catalog?.edit_knowledge_source);
+  const readSchema = catalog.read_knowledge_source.inputSchema;
+  for (const name of ['workspace_id', 'document_id', 'format', 'cursor', 'max_bytes', 'expected_version', 'edit_target_block_id']) {
+    assert(readSchema.properties[name], `Client lost read field ${name}`);
+  }
+  assert.equal(readSchema.oneOf, undefined);
+  const editSchema = catalog.edit_knowledge_source.inputSchema;
+  assert.equal(editSchema.oneOf, undefined);
+  assert.equal(editSchema.properties.patch.anyOf.length, 2);
+  for (const variant of editSchema.properties.patch.anyOf) {
+    assert.equal(variant.type, 'object'); assert.equal(variant.properties.kind.type, 'string');
+    assert(variant.required.includes('kind'));
+  }
   const call = (tool, args) => rpc('mcpServer/tool/call', { threadId, server: serverName, tool,
     arguments: { workspace_id: fixture.workspaceId, ...args } });
   await verifyCapabilitiesAcceptance(call);
@@ -120,8 +135,9 @@ try {
   await verifyUploadAcceptance(call, serverName);
   await verifyReplaceAcceptance(call, fixture.documents[1], `${serverName}-replace`);
   await verifyManifestAcceptance(call, fixture.documents.map(row => row.path));
+  const reliability = await verifyOperationReliabilityAcceptance(call, randomUUID());
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
-    client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
+    reliability, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
       'native read continuation', 'wrong version conflict', 'native search continuation',
       'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation', 'upload retries/status/checksum'],

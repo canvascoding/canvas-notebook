@@ -158,8 +158,13 @@ async function main() {
       await check('legacy and modern MCP advertise native-only Edit/Status and execute actual writes', async () => {
         for (const modern of [false, true]) {
           const listing = await rpc('tools/list', {}, modern); assert.equal(listing.status, 200);
+          assert.equal(listing.body.error, undefined, 'API-key tools/list must preserve the current shared MCP declaration.');
           const descriptor = listing.body.result.tools.find((tool: { name: string }) => tool.name === 'edit_knowledge_source'); assert(descriptor);
           assert.deepEqual(descriptor.securitySchemes, [{ type: 'apiKey', in: 'header', name: 'X-Canvas-API-Key' }]);
+          assert.equal(JSON.stringify(descriptor.inputSchema).includes('"oneOf"'), false);
+          assert.deepEqual(descriptor.inputSchema.required, ['api_version', 'action', 'workspace_id']);
+          assert.deepEqual(Object.keys(descriptor.inputSchema.properties).sort(),
+            ['api_version', 'action', 'workspace_id', 'document_id', 'expected_version', 'idempotency_key', 'patch', 'operation_id'].sort());
           const inputValidator = new AjvJsonSchemaValidator().getValidator(descriptor.inputSchema);
           const outputValidator = new AjvJsonSchemaValidator().getValidator(descriptor.outputSchema);
           const current = await read(); const suffix = modern ? ' modern' : ' legacy';
@@ -169,6 +174,9 @@ async function main() {
           assert.equal(inputValidator(input).valid, true);
           const response = await mcp(input, modern); assert.equal(response.status, 200); assert.equal(response.body.result?.isError, undefined);
           const value = response.body.result.structuredContent; assert.equal(value.state, 'confirmed'); assert.equal(outputValidator(value).valid, true);
+          const documentUrl = new URL(value.document_url);
+          assert.equal(documentUrl.searchParams.get('documentId'), target.documentId);
+          assert.equal(documentUrl.searchParams.get('lineageId'), value.document.lineageId);
           const args = { api_version: 1, action: 'status', workspace_id: h.source.workspaceId, operation_id: value.operationId };
           assert.equal(inputValidator(args).valid, true);
           const status = await mcp(args, modern); assert.equal(status.body.result.isError, undefined);
