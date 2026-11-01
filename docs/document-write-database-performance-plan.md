@@ -1059,6 +1059,24 @@ offene kompilierte Container-Abnahme noch eine echte OAuth-Erstausstellung.
 der Key-Import bereits vorhandener Originaldateien sowie die gesamte kompilierte
 API-/SDK-Abnahme sind noch offen.**
 
+Für Move und Delete ist die echte API-Key-Principal-Familie jetzt ergänzt. Ihre
+acht festen Zwecke trennen Vorschau, Apply, Status und Recover je Operationsart.
+Status verlangt zusätzlich `status`, Recover zusätzlich `recover`; Read-/Copy-
+Handles können diese Familie nicht ersetzen. Jeder tatsächliche B prüft aktuelle
+Lese-, Schreib-, Lösch- und Agent-Rechte. Workspace-Verwaltung und öffentliche
+Freigaben werden nicht gewährt. Die vorhandenen Realm-, Schema-/OID-,
+Transaktions-, Rechte-/Key-Lock- und Lebensdauerprüfungen bleiben gemeinsam.
+Acht unabhängige PostgreSQL-Gruppen prüfen alle Zwecke, Action- und Allowlist-
+Entzug, echte Rechteänderungen, fremde Familien, Proxies/Getter, rohe und
+kanonische Schema-Pfade, Toolschalter, Rotation, Ablauf, Reentranz und eine
+tatsächlich wartende Widerrufstransaktion. Dokument-/Yjs-/History-Zeilen samt
+`xmin` und Originalbytes bleiben unverändert. Der dauerhafte Runner liegt unter
+`test:api-keys:paths:native` und ist in das gesamte native Key-Paket aufgenommen.
+Die reguläre Key-Suite und das vollständige native Key-Paket einschließlich der
+vorhandenen Read-/Browse-/Edit-/Create-/Copy-Wege bestehen mit dieser Erweiterung.
+Das ist die Autorisierungsgrundlage; die noch offenen nativen Move-/Delete-Job-
+Owner, öffentlichen Adapter und deren installierte SDK-Abnahme folgen darauf.
+
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
 Route-/PostgreSQL-/Protokollgruppen prüfen die begrenzten Metadaten, den
