@@ -169,6 +169,24 @@ export function apiKeyCredentialBinding(credential: ApiKeyCredential): ApiKeyCre
 
 /** Pure validation of a real query reply. The returned data is not a Principal. */
 export function currentApiKeyIdentityFromSnapshot(credential: ApiKeyCredential, snapshot: unknown): CurrentApiKeyIdentity {
+  return decodeCurrentApiKeySnapshot(credential, snapshot);
+}
+
+/** Data decoder for the existing native-create receipt trigger's fixed schema
+ * path. This does not admit a workspace or establish a Principal. The actual
+ * Create phase first proves the raw realm and owns its own canonical SET. */
+export function currentApiKeyCreateIdentityFromSnapshot(credential: ApiKeyCredential, snapshot: unknown,
+  phaseSearchPath: string): CurrentApiKeyIdentity {
+  const binding = apiKeyCredentialBinding(credential), schema = binding.realm.schema;
+  const quoted = `${quotePostgresIdentifier(schema)}, pg_catalog, pg_temp`;
+  const plain = /^[a-z_][a-z0-9_$]*$/u.test(schema) ? `${schema}, pg_catalog, pg_temp` : undefined;
+  if (typeof phaseSearchPath !== 'string' || phaseSearchPath !== quoted && phaseSearchPath !== plain) {
+    throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'Invalid native-create credential phase path.', 503);
+  }
+  return decodeCurrentApiKeySnapshot(credential, snapshot, phaseSearchPath);
+}
+
+function decodeCurrentApiKeySnapshot(credential: ApiKeyCredential, snapshot: unknown, phaseSearchPath?: string): CurrentApiKeyIdentity {
   apiKeyCredentialBinding(credential);
   if (snapshot != null && (typeof snapshot !== 'object' || types.isProxy(snapshot) || Object.getPrototypeOf(snapshot) !== Object.prototype)) {
     throw new ApiKeyAccessError('API_KEY_STATE_INVALID', 'Invalid credential snapshot.', 503);
@@ -176,6 +194,7 @@ export function currentApiKeyIdentityFromSnapshot(credential: ApiKeyCredential, 
   const capture = captures.get(credential)!;
   const current = identity(snapshot as CredentialRow | undefined, capture.secretHash);
   if (current.integrationId !== capture.integrationId || current.userId !== capture.userId || current.instanceId !== capture.instanceId
-    || Object.entries(capture.realm).some(([name, value]) => current.realm[name as keyof ApiKeyCredentialRealm] !== value)) invalid();
+    || Object.entries(capture.realm).some(([name, value]) => current.realm[name as keyof ApiKeyCredentialRealm]
+      !== (name === 'searchPath' && phaseSearchPath !== undefined ? phaseSearchPath : value))) invalid();
   return current;
 }

@@ -13,6 +13,8 @@ async function main() {
   await withDocumentReadToolDispatchFixture(async fixture => {
     const { createApiIntegration, updateApiIntegration } = await import('../app/lib/api-keys/management');
     const { authenticateApiKeyRequest } = await import('../app/lib/api-keys/authentication');
+    const { currentApiKeyIdentityFromSnapshot, currentApiKeyCreateIdentityFromSnapshot, apiKeyCredentialSnapshotSql } =
+      await import('../app/lib/api-keys/authentication');
     const { withApiKeyDocumentCreatePrincipal: capture, withApiKeyDocumentCreatePrincipalOnConnection: phase,
       assertApiKeyDocumentCreatePrincipalActiveOnConnection: active,
       withApiKeyDocumentReadPrincipal: readCapture, withApiKeyDocumentReadPrincipalOnConnection: readPhase,
@@ -47,7 +49,7 @@ async function main() {
         })));
     const check = async (name: string, consume: () => Promise<void>) => { stage = name; await consume(); groups++;
       console.log(`API-key Create/Import principal passed: ${name}`); };
-    await check('both fixed actions use real current rights, actual eight-statement phases and key-only attribution', async () => {
+    await check('both fixed actions use real current rights, a pinned receipt search path and key-only attribution', async () => {
       for (const purpose of ['create', 'import'] as const) {
         const origins: ApiKeyDocumentCreateOrigin[] = []; statements.length = 0;
         await capture(credential, { workspaceId: fixture.workspaceId, purpose, source: 'request' }, value => origins.push(value),
@@ -57,7 +59,7 @@ async function main() {
               canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false });
             access.assertActive(); await access.assertCurrent(); access.assertActive();
           })));
-        assert.equal(statements.length, 8); assert.equal(origins.length, 3);
+        assert.equal(statements.length, 9); assert.equal(origins.length, 3);
         for (const origin of origins) { assert(Object.isFrozen(origin)); assert.deepEqual(origin, origins[0]); }
         assert.equal(origins[0].kind, 'api_key'); assert.equal(origins[0].purpose, purpose); assert.equal(origins[0].entryPoint, 'request');
         assert.equal(origins[0].credentialId, issued.credential.id);
@@ -97,6 +99,26 @@ async function main() {
       Object.defineProperty(options, 'purpose', { enumerable: true, get() { getters++; throw new Error('Untrusted getter.'); } });
       await assert.rejects(capture(credential, options, () => undefined, async () => assert.fail('Getter input.')), code('API_KEY_PRINCIPAL_REQUIRED'));
       assert.equal(getters, 0);
+    });
+    await check('only the pinned native-create schema path is admitted; decoded credential data is never a principal', async () => {
+      const metadata = await capture(credential, { workspaceId: fixture.workspaceId, purpose: 'create', source: 'request' }, () => undefined,
+        principal => transaction(database => phase(database, principal, 'create', async () => {
+          const snapshot = await database.get(apiKeyCredentialSnapshotSql(), [issued.credential.id]); assert(snapshot);
+          const actual = (await database.get("SELECT current_setting('search_path') AS path"))!.path as string;
+          assert.throws(() => currentApiKeyIdentityFromSnapshot(credential, snapshot), code('API_KEY_INVALID'));
+          const decoded = currentApiKeyCreateIdentityFromSnapshot(credential, snapshot, actual);
+          assert.equal(decoded.realm.searchPath, actual);
+          for (const wrong of ['pg_catalog', 'another_schema, pg_catalog, pg_temp', actual + ', public']) {
+            assert.throws(() => currentApiKeyCreateIdentityFromSnapshot(credential, snapshot, wrong), code('API_KEY_STATE_INVALID'));
+          }
+          return decoded;
+        })));
+      await assert.rejects(transaction(database => phase(database, metadata as unknown as ApiKeyDocumentCreatePrincipal, 'create',
+        async () => assert.fail('Credential metadata cannot grant a Principal.'))), code('API_KEY_PRINCIPAL_REQUIRED'));
+      await assert.rejects(capture(credential, { workspaceId: fixture.workspaceId, purpose: 'create', source: 'request' }, () => undefined,
+        principal => transaction(database => phase(database, principal, 'create', async access => {
+          await database.run("SET LOCAL search_path='pg_catalog'"); await access.assertCurrent();
+        }))), code('API_KEY_PRINCIPAL_SCOPE_CHANGED'));
     });
     await check('current action grants are independent and never replace ordinary workspace or seat rights', async () => {
       let revision = 1;

@@ -10,6 +10,7 @@ import { resolveCanvasDataRoot } from '../runtime-data-paths';
 import { getFdPublicationBackend, type FdPublicationBackend } from './fd-publication';
 import { isDeepStrictEqual, types } from 'node:util';
 import { inCollaborationProjectionPhase } from '../collaboration/projection-errors';
+import { captureApiKeyDocumentCreateOrigin } from '../api-keys/document-create-origin';
 
 type Identity = Readonly<{ dev: string; ino: string; uid: number; mode: number }>;
 type Observation = Readonly<{ state: 'intent' | 'prepared' | 'born' | 'complete'; fingerprint: string;
@@ -21,6 +22,12 @@ export type MarkdownCreateBirthOriginal = Readonly<{ id: string; fingerprint: st
 export type DirectMcpMarkdownCreateSourceBinding = Readonly<{
   kind: 'direct-mcp-markdown-v1'; workspaceId: string; targetPath: string; actorUserId: string; actorSessionId: string;
   clientId: string; tool: 'create_knowledge_source' | 'import_knowledge_file'; operationId: string; requestId: string;
+  ingestRequestFingerprint: string; sourceHash: string; sourceBytes: number; fileId: string | null;
+  declaredMimeType: string | null; ingestValidationJson: string;
+}>;
+export type ApiKeyMarkdownCreateSourceBinding = Readonly<{
+  kind: 'api-key-markdown-v1'; workspaceId: string; targetPath: string; actorUserId: string; actorSessionId: null;
+  integrationId: string; instanceId: string; credentialId: string; purpose: 'create' | 'import'; operationId: string; requestId: string;
   ingestRequestFingerprint: string; sourceHash: string; sourceBytes: number; fileId: string | null;
   declaredMimeType: string | null; ingestValidationJson: string;
 }>;
@@ -248,6 +255,31 @@ export function directMcpMarkdownCreateAttribution(intent: Record<string, unknow
     : !boundedId(source.fileId) || source.declaredMimeType !== null && (typeof source.declaredMimeType !== 'string'
       || !source.declaredMimeType.length || source.declaredMimeType.length > 200)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   return Object.freeze(Object.fromEntries(directMcpSourceKeys.map(key => [key, source[key]]))) as DirectMcpMarkdownCreateSourceBinding;
+}
+
+/** Key origin and source audit data only. The private Key owner and actual
+ * Principal separately guard every storage action and synchronous link. */
+export function apiKeyMarkdownCreateAttribution(intent: Record<string, unknown>): ApiKeyMarkdownCreateSourceBinding {
+  const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'integrationId', 'instanceId', 'credentialId',
+    'purpose', 'operationId', 'requestId', 'ingestRequestFingerprint', 'sourceHash', 'sourceBytes', 'fileId', 'declaredMimeType', 'ingestValidationJson'] as const;
+  if (!plainBirthRecord(intent) || !plainBirthData(intent.source, keys)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  const source = intent.source, origin = captureApiKeyDocumentCreateOrigin(intent.origin);
+  if (!origin || source.kind !== 'api-key-markdown-v1' || source.actorSessionId !== null
+    || source.workspaceId !== origin.workspaceId || source.actorUserId !== origin.userId || source.integrationId !== origin.integrationId
+    || source.instanceId !== origin.instanceId || source.credentialId !== origin.credentialId || source.purpose !== origin.purpose
+    || !['operationId', 'ingestRequestFingerprint', 'sourceHash'].every(key => typeof source[key] === 'string' && /^[a-f0-9]{64}$/u.test(source[key] as string))
+    || source.operationId !== intent.operationId || source.requestId !== `api-key-create:${source.operationId}`
+    || typeof source.targetPath !== 'string' || !source.targetPath || source.targetPath.length > 1024 || source.targetPath !== intent.targetPath
+    || !/\.(?:md|markdown)$/iu.test(source.targetPath) || source.targetPath.split('/').some(name => !name || name === '.' || name === '..'
+      || origin.entryPoint === 'mcp' && name.startsWith('.') || /[\\\u0000-\u001f\u007f]/u.test(name))
+    || !Number.isSafeInteger(source.sourceBytes) || Number(source.sourceBytes) < 0 || Number(source.sourceBytes) > 512 * 1024
+    || !directMcpValidationJson(source.ingestValidationJson)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  if (source.purpose === 'create' ? source.fileId !== null || source.declaredMimeType !== null
+    : typeof source.fileId !== 'string' || !source.fileId || source.fileId.length > 200
+      || source.declaredMimeType !== null && (typeof source.declaredMimeType !== 'string' || !source.declaredMimeType || source.declaredMimeType.length > 200)) {
+    return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  }
+  return Object.freeze(Object.fromEntries(keys.map(key => [key, source[key]]))) as ApiKeyMarkdownCreateSourceBinding;
 }
 
 /** Original PI attribution only; the private Create owner supplies authority. */
@@ -555,6 +587,7 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
     if (Object.hasOwn(selected, 'kind')) {
       const attribution = selected.kind === 'manual-empty-v1' ? manualEmptyAttribution(intent)
         : selected.kind === 'direct-mcp-markdown-v1' ? directMcpMarkdownCreateAttribution(intent)
+          : selected.kind === 'api-key-markdown-v1' ? apiKeyMarkdownCreateAttribution(intent)
           : selected.kind === 'agent-markdown-v1' ? agentMarkdownCreateAttribution(intent)
           : fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
       if (selected.kind === 'manual-empty-v1' && serialized !== '' || !frame.fixedSourceWithinTurn
@@ -653,7 +686,7 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
   withStoragePhase?: MarkdownCreateBirthStoragePhase): Promise<T> {
   const captured = captureBirthInput(input);
   if (withStoragePhase !== undefined && (typeof withStoragePhase !== 'function'
-    || !['agent-markdown-v1', 'direct-mcp-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+    || !['agent-markdown-v1', 'direct-mcp-markdown-v1', 'api-key-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   let fixedSourceGuard: ((stage: string) => Promise<void>) | undefined, fixedSourceWithinTurn: (() => void) | undefined;
   if (Object.hasOwn(captured.source, 'kind')) {
     const context = await import('../collaboration/markdown-file-import-persistence');
@@ -671,6 +704,10 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       agentMarkdownCreateAttribution(captured);
       fixedSourceGuard = stage => context.assertAuthenticatedAgentMarkdownBirthStorageAllowed(captured, stage);
       fixedSourceWithinTurn = () => context.assertAuthenticatedAgentMarkdownBirthWithinTurn(captured);
+    } else if (captured.source.kind === 'api-key-markdown-v1') {
+      apiKeyMarkdownCreateAttribution(captured);
+      fixedSourceGuard = stage => context.assertAuthenticatedApiKeyMarkdownBirthStorageAllowed(captured, stage);
+      fixedSourceWithinTurn = () => context.assertAuthenticatedApiKeyMarkdownBirthWithinTurn(captured);
     } else return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     await fixedSourceGuard('entry');
   }

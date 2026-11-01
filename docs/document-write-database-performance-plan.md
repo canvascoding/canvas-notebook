@@ -815,25 +815,59 @@ Schreibprüfungen künftig nacheinander aus. Weitere Schreib-/Recovery-Methoden,
 OAuth-/Keyring-Gesamtabnahme und der frisch kompilierte Container bleiben offen.
 
 Für native Neuanlage und Import ist inzwischen eine eigene API-Key-Principal-
-Familie vorbereitet. Sechs echte PostgreSQL-Gruppen prüfen die getrennten
+Familie implementiert. Sieben echte PostgreSQL-Gruppen prüfen die getrennten
 `create`-/`import`-Aktionen, normale aktuelle Workspace-/Seat-Rechte, die feste
 Trennung von Read, Browse, List und Edit sowie echte MCP-Toolschalter und deren
 Entzug innerhalb einer gehaltenen Phase. Gefälschte oder abgelaufene Handles,
 Options-Getter, ein zur Laufzeit falsch übergebener Zweck und abgefangene
 Reentranz erlauben keine spätere Speicherung. Die synchrone letzte Ablaufprüfung
 verwendet den aktuellen Nachweis derselben tatsächlichen Transaktion.
-Die gemessene Phase mit Einstieg `request` benötigt auch hier acht SQL-Anweisungen
-einschließlich drei aktueller Beobachtungen. Das ist kein Budget für die gesamte
-Neuanlage. Nach echtem Logout
+Die gemessene Phase mit Einstieg `request` benötigt neun SQL-Anweisungen
+einschließlich drei aktueller Beobachtungen. Der zusätzliche Schritt setzt nach
+Prüfung des tatsächlichen Eingangs-Realm den festen Schema-Pfad des bestehenden
+Receipt-Triggers. Weitere Beobachtungen prüfen diesen wirklichen Pfad und alle
+unveränderten Realm-/Credential-Bindungen; es wird keine SQL-Antwort umgeschrieben.
+Andere Pfade und kopierte Credential-Metadaten eröffnen keine Principal-Phase.
+Read-/Browse-/Edit-Familien behalten ihre bisherigen Realm-Prüfungen. Das ist kein
+Budget für die gesamte Neuanlage. Nach echtem Logout
 bleibt der Schlüssel gültig; ein unabhängiger tatsächlicher Widerruf wartet auf
 die gehaltene Key-Zeilensperre und verweigert danach beide Zwecke.
 Die Ursprungsdaten halten Benutzer, Integration, Instanz, Credential, Zweck und
 REST-/MCP-Einstieg fest, ohne Browser-/OAuth-/PI-Sitzung. Diese Daten selbst
 erteilen keine Rechte. Dokument-, Yjs-, Revisions- und Projektionszeilen samt
 `xmin` bleiben unverändert. Der dauerhafte Runner
-`test:api-keys:creates:native` gehört zum nativen Key-Paket. Die bestehenden
-Schreibkerne und Birth-/Projektionsbelege sowie öffentliche Create-/Import-
-Adapter und deren SDK-Abnahme sind im nächsten Schritt anzuschließen.
+`test:api-keys:creates:native` gehört zum nativen Key-Paket. Es prüft inzwischen
+zusätzlich den Anschluss an den vorhandenen Neuanlage-Kern, seine tatsächlichen
+Dateisystem- und Birth-Grenzen, native Speicherung, Historie und erste Projektion.
+Ein eigener `api-key-markdown-v1`-Quellbeleg und strenge Ursprungsdaten halten
+die wirkliche Integration und ursprüngliche Credential-ID fest; die Session ist
+`null`. Gemeinsame Byteprüfung und Speichermechanik bleiben bei den bestehenden
+Browser-/Upload-, Agenten- und OAuth-Wegen. Der Python-Dateisystemhelfer versteht
+denselben ausdrücklichen Key-Beleg. Kopierte Belege können dessen privaten
+Owner-/Phasen-Kontext nicht herstellen.
+
+Neun echte PostgreSQL-/FD-/Birth-/HTTPS-Gruppen prüfen befüllte und leere Anlage,
+Anlage ohne Read-Aktion, Integrationsisolation, unveränderte Originale bei
+Wiederholung und Rotation sowie den Import unabhängig geladener Bytes von einer
+festen öffentlichen HTTPS-Quelle. Eine abgeschlossene Wiederholung verwendet
+ihren Originalbeleg auch bei inzwischen unbrauchbarer Download-URL. URL und
+Zugangsschlüssel erscheinen nicht im privaten Herkunftsbeleg.
+Der native Request-Einstieg erlaubt regulär zulässige versteckte Workspace-Pfade;
+MCP schließt diese weiterhin aus, auch bei einer Wiederholung mit vorhandenem
+Request-Ursprung. Diese Prüfung betrifft den echten Kern und seine Herkunftsgrenzen;
+die öffentliche HTTP-/MCP-Transportabnahme bleibt ein eigener Schritt.
+Ein tatsächlicher Verlust des erfolgreichen Native-COMMIT-Acknowledgements
+erzeugt keinen zweiten Receipt-Insert. Bei wirklicher Schlüsselrotation nach
+Native-COMMIT stoppt der alte Aufruf vor der Dateiprojektion. Ein expliziter
+Wiederholungsaufruf mit dem neuen Schlüssel derselben Integration setzt dieselbe
+Operation unter aktuellen Rechten fort: Receipt und Ursprungsdaten samt alter
+Credential-ID sowie ursprüngliche Yjs-Bytes, Vektor und Sequenz bleiben erhalten;
+es entsteht kein zweiter Native-Insert. Logout benötigt keine Ersatzsitzung;
+Widerruf und deaktivierte MCP-Werkzeuge verweigern weitere Anlage. Ein eigenes
+Kontroll-Dokument einschließlich Zeilen, `xmin` und physischer Bytes bleibt
+unverändert. Die großen Schema-Fixtures werden vollständig geschlossen.
+Die öffentlichen REST-/MCP-Adapter und die installierte SDK-Create-/Import-
+Key-Abnahme bleiben ausdrücklich offen.
 Die drei bestehenden Key-Dokument-, fünf Workspace- und beiden Edit-Suiten
 einschließlich der zwölf wirklichen Writer-/Route-/MCP-Gruppen bestehen nach der
 Erweiterung. Die installierten SDK-Lese- und Edit-Pakete bestehen ebenfalls unter

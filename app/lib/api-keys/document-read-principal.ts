@@ -16,6 +16,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { ApiKeyAccessError, type ApiKeyAction } from './contracts';
 import { assertApiKeyMcpToolEnabled } from './mcp-runtime';
 import { apiKeyCredentialBinding, apiKeyCredentialSnapshotSql, currentApiKeyIdentityFromSnapshot,
+  currentApiKeyCreateIdentityFromSnapshot,
   type ApiKeyCredential, type ApiKeyCredentialBinding } from './authentication';
 
 declare const principalBrand: unique symbol;
@@ -43,6 +44,7 @@ export type ApiKeyDocumentCreateOrigin = ApiKeyDocumentReadOrigin & Readonly<{
 }>;
 type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integrationId: string; instanceId: string;
   assertCurrent: () => Promise<void> }>;
+export type ApiKeyDocumentCreatePrincipalAccess = Access & Readonly<{ purpose: ApiKeyDocumentCreatePurpose; assertActive: () => void }>;
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
@@ -52,7 +54,7 @@ type Capture = {
 };
 type Identity = { backend: number; start: string; xid: string };
 type Phase = { capture: Capture; connection: SqlConnection; identity?: Identity; deadline: number; credentialExpiresAt?: number;
-  active: boolean; accepting: boolean; checking: boolean; failure?: unknown; pending: Set<Promise<unknown>> };
+  active: boolean; accepting: boolean; checking: boolean; failure?: unknown; pending: Set<Promise<unknown>>; expectedSearchPath?: string };
 type Registry = { captures: WeakMap<object, Capture>; phases: WeakMap<SqlConnection, Phase> };
 type Row = Record<string, unknown>;
 const policyTables = ['canvas_organization_settings', 'team_memberships', 'team_membership_sync_state', 'user',
@@ -103,7 +105,7 @@ function validateHeader(phase: Phase, row: Row | undefined): void {
   active(phase);
   const realm = phase.capture.binding.realm;
   if (!row || row.schema !== realm.schema || Number(row.schema_oid) !== realm.schemaOid || Number(row.database_oid) !== realm.databaseOid
-    || row.search_path !== realm.searchPath || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin'
+    || row.search_path !== (phase.expectedSearchPath ?? realm.searchPath) || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin'
     || !Number.isSafeInteger(Number(row.backend)) || Number(row.backend) < 1
     || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
     || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)) failure('API_KEY_PRINCIPAL_SCOPE_CHANGED');
@@ -148,7 +150,8 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   const rows = row!.workspaces;
   if (!Array.isArray(rows) || rows.length > 100 || [credential, row!.seat, ...rows]
     .some(value => value && Reflect.get(value, 'scalar_types_supported') !== true)) failure('API_KEY_STATE_INVALID');
-  const identity = currentApiKeyIdentityFromSnapshot(capture.credential, credential);
+  const identity = phase.expectedSearchPath === undefined ? currentApiKeyIdentityFromSnapshot(capture.credential, credential)
+    : currentApiKeyCreateIdentityFromSnapshot(capture.credential, credential, phase.expectedSearchPath);
   phase.credentialExpiresAt = identity.expiresAt;
   const editing = capture.purpose === 'edit' || capture.purpose === 'edit_status';
   const creating = capture.purpose === 'create' || capture.purpose === 'import';
@@ -298,7 +301,7 @@ export function withApiKeyDocumentEditPrincipalOnConnection<T>(connection: SqlCo
 /** The exact expected purpose prevents a Create capture from authorizing an
  * import consumer, including one reached through an unsafe runtime cast. */
 export function withApiKeyDocumentCreatePrincipalOnConnection<T>(connection: SqlConnection, principal: ApiKeyDocumentCreatePrincipal,
-  purpose: ApiKeyDocumentCreatePurpose, consume: (access: Access & { purpose: ApiKeyDocumentCreatePurpose; assertActive: () => void }) => Promise<T>): Promise<T> {
+  purpose: ApiKeyDocumentCreatePurpose, consume: (access: ApiKeyDocumentCreatePrincipalAccess) => Promise<T>): Promise<T> {
   return withFixedPrincipalOnConnection(connection, principal, 'create', access => consume(Object.freeze({
     workspace: access.workspaces[0], userId: access.userId, integrationId: access.integrationId, instanceId: access.instanceId,
     purpose, assertCurrent: access.assertCurrent,
@@ -366,6 +369,16 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
         WHERE k.id=$1 AND i.id=$2 FOR SHARE OF k,i NOWAIT`, [capture.binding.credentialId, capture.binding.integrationId]);
       if (!locked) throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
       const workspaces = await current(phase);
+      if (capture.purpose === 'create' || capture.purpose === 'import') {
+        // The existing immutable receipt trigger installs this exact schema
+        // path during INSERT. Prove the raw entry first, then retain only this
+        // server-derived path; other principal families keep their raw realm.
+        const configured = await connection.get(`SELECT pg_catalog.set_config('search_path',pg_catalog.quote_ident($1)||', pg_catalog, pg_temp',true) AS actual,
+          pg_catalog.quote_ident($1)||', pg_catalog, pg_temp' AS expected`, [capture.binding.realm.schema]) as Row | undefined;
+        active(phase);
+        if (!configured || typeof configured.expected !== 'string' || configured.actual !== configured.expected) failure('API_KEY_STATE_INVALID');
+        phase.expectedSearchPath = configured.expected;
+      }
       const assertCurrent = () => {
         const check = (async () => {
           try {
