@@ -1601,6 +1601,30 @@ bleiben unverändert; ein neuer Einstieg und ein natives Kommando kommen hinzu.
 Diese interne
 Integration ist noch kein veröffentlichtes Release oder Gesamtfluss-Budget.
 
+**Originaldatei-Import – öffentlicher REST-Key-Zugang, 01.11.2026:** Die
+bestehenden `/api/documents/import-existing`- und `/status`-POST-Routen
+verwenden bei vorhandenem `X-Canvas-API-Key` den echten Key-Zugang. Ein leerer,
+ungültiger oder mit Cookie/Bearer vermischter Key fällt nicht auf eine Session
+zurück. Ohne Key bleiben die vorhandenen Session-Pfade erhalten. Beide
+Zugänge liefern dieselben begrenzten ursprünglichen Importfakten und die
+Operations-ID des Aufrufers; interne Key-Zuordnung und native Receipt-Felder
+werden nicht als Autorität oder aktueller Dokumentstand ausgegeben. Key-
+Fehler und Rate-Limits behalten stabile Codes und begrenzte Retry-Header.
+
+Acht neue echte TCP-/HTTP-/PG-Gruppen bestehen mit 27 Anfragen. Sie prüfen
+Import, danach tatsächliches natives API-Lesen und -Bearbeiten, unveränderte
+Importhistorie trotz Bearbeitung, Rotation, Grant-Grenzen, gemischte und
+ungültige Zugangsdaten, strikte Body-/UTF-8-/Größenprüfung, eine tatsächlich
+verlorene HTTP-Antwort mit anschließendem Status/Retry sowie Widerruf. Beide
+eigenen Fixtures schließen; die bisherigen sieben Session-HTTP-Gruppen und
+die reguläre Key-Suite einschließlich Verwaltungs-UI bleiben grün. Typprüfung:
+3.728 Wurzeln, 9.058 Quellen, null Fehler; ESLint besteht. Der neue Einstieg
+ergänzt die native Gesamtsuite dauerhaft; alle 220 bisherigen Runner-Arrays
+und 30 bisherigen nativen Kommandos bleiben unverändert. Das ist eine echte
+HTTP-/Handler-Abnahme, keine kompilierte Next-/Browser- oder installierte
+SDK-Abnahme. Die MCP-Originaldatei-Variante und das SDK bleiben der nächste
+Schritt; die abschließenden Gesamt-, CI-, UI- und Release-Gates bleiben offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
