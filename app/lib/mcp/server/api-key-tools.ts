@@ -32,6 +32,11 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
       catch { throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use bounded workspace browse arguments and visible relative paths.'); }
       page = await browseWorkspaceForApiKeyMcp(credential, selection);
     } else if (tool === 'create_knowledge_source' || tool === 'import_knowledge_file') {
+      if (tool === 'import_knowledge_file') {
+        const { decodeApiKeyOriginalMarkdownImportMcpSelection, executeApiKeyOriginalMarkdownImportMcp } = await import('./original-markdown-import-tool');
+        const original = decodeApiKeyOriginalMarkdownImportMcpSelection(args);
+        if (original) return await executeApiKeyOriginalMarkdownImportMcp(credential, original, signal);
+      }
       const { createDocumentForApiKey } = await import('../../documents/create-public-service');
       page = await createDocumentForApiKey(credential, args, tool === 'create_knowledge_source' ? 'create' : 'import', 'mcp', signal);
     } else if (tool === 'copy_knowledge_source') {

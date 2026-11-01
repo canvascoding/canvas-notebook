@@ -15,10 +15,12 @@ export const DOCUMENT_CREATE_FAILURE_JSON_SCHEMA_V1 = {
 
 /** Pure advertised native contract; importing it cannot initialize authority. */
 export function apiKeyDocumentCreateSchemas(input: Tool['inputSchema']) {
+  const properties = Object.fromEntries(Object.entries(input.properties ?? {}).filter(([name]) => name !== 'action'));
+  const payload = Object.hasOwn(properties, 'file') ? 'file' : 'content';
   return {
     input: { type: 'object' as const, additionalProperties: false,
-      properties: { ...input.properties, api_version: { type: 'integer', const: 1 } },
-      required: [...(input.required ?? []), 'api_version'] },
+      properties: { ...properties, api_version: { type: 'integer', const: 1 } },
+      required: [...new Set([...(input.required ?? []), 'api_version', payload])] },
     output: { type: 'object' as const, anyOf: [DOCUMENT_CREATE_MUTATION_RESULT_JSON_SCHEMA_V1, DOCUMENT_CREATE_FAILURE_JSON_SCHEMA_V1] },
   };
 }

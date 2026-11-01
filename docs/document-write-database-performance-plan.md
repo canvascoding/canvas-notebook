@@ -1625,6 +1625,45 @@ HTTP-/Handler-Abnahme, keine kompilierte Next-/Browser- oder installierte
 SDK-Abnahme. Die MCP-Originaldatei-Variante und das SDK bleiben der nächste
 Schritt; die abschließenden Gesamt-, CI-, UI- und Release-Gates bleiben offen.
 
+**Originaldatei-Import – MCP-Key-Adapter, 01.11.2026:** Das vorhandene
+`import_knowledge_file` erhält in seiner Key-Definition die strikten Aktionen
+`import_existing` und `status_existing`. Import verlangt `api_version:1`,
+`workspace_id`, einen sichtbaren relativen Markdown-Pfad, eine stabile
+`operation_id` und die tatsächliche `expected_file_version` aus dem Manifest.
+Status verlangt ausschließlich Version, Aktion, Workspace und dieselbe
+Operations-ID. Upload, Original-Import und Status sind getrennte exakte
+Schema-Zweige; ihre Felder dürfen nicht gemischt werden. Der vorhandene
+Upload ohne `action` bleibt erhalten. Die Key-Create-/Upload-Metadaten
+verlangen jetzt auch das ohnehin im Writer erforderliche `content`/`file`;
+die dort nicht unterstützten OAuth-Upload-Aktionsfelder werden nicht mehr
+im Key-Schema angekündigt. Die OAuth-Upload-Definition bleibt unverändert.
+
+Der Adapter ruft den gemeinsamen Original-Owner mit echtem Key und Einstieg
+`mcp` auf. Er verwendet den vorhandenen Import-Schalter und dieselben
+begrenzten öffentlichen Importfakten/Fehler wie REST. Es entsteht weder ein
+paralleler Import-Schalter noch eine rekonstruierte Session oder ein Upload-
+Grant für bestehende Dateien. Elf echte PG-/MCP-Handler-Gruppen bestehen
+mit 41 JSON-RPC-Anfragen über die Protokolle 2025-11-25 und 2026-07-28:
+Schema/Argumente, tatsächliches Manifest → Import → natives Lesen/Bearbeiten,
+historischer Status nach Bearbeitung, Rotation und REST-Status, Feld-/Tool-
+Konflikte, versteckte HTTP-Originale, Import-/Statusrechte und Schalterentzug,
+tatsächlicher COMMIT-Antwortverlust, abgelaufene Aussteller-Session und echter
+Key-Widerruf. Der erste Testlauf hatte ein zusätzliches `api_version` beim
+bestehenden MCP-Lesen gesendet; der Test wurde an dessen strikten Vertrag
+angepasst, der Produkt-Leser bleibt unverändert. Die eigenen Ressourcen
+schließen vollständig. Die reguläre Suite, ESLint und strenge Typprüfung
+(3.731 Wurzeln/9.061 Quellen, null Fehler) bestehen. Das ist eine echte
+Handler-/Protokoll-/Datenabnahme; installierter MCP-Client, SDK, kompilierte
+UI und abschließende Gesamtmatrix bleiben eigene verpflichtende Gates.
+Die vollständige native Key-Suite besteht auf diesem MCP-Stand mit 32
+seriellen Kommandos, darunter 29 echte PG-ESM-Suiten und die zwei weiteren
+nativen Verwaltungs-/Authentifizierungs-Fixtures. Alle 29 eigenen Bundles
+und Schema-/Client-/Daten-Fixtures sind entfernt. Die bisherigen 221 Runner-
+Arrays und 31 nativen Kommandos bleiben unverändert. Die neue Scopeprüfung
+weist neun Dateien/48 Symbole/sieben MCP-Abläufe und HIGH aus; der vollständige
+PR-Vergleich umfasst 202 Dateien/1.831 Symbole/43 Abläufe und CRITICAL. Der
+breitere Dispatcher-Umfang wurde vor dem Commit ausdrücklich benannt.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API

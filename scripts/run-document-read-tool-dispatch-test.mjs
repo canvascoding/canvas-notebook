@@ -12,6 +12,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/api-key-original-markdown-import-mcp-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
+    'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts', 'app/lib/mcp/server/original-markdown-import-tool.ts',
+    'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/ingest-tools.ts',
+    'app/lib/documents/original-markdown-import-json-schema.ts', 'app/lib/documents/original-markdown-import-http.ts',
+    'app/lib/documents/create-json-schema.ts', 'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/document-read-principal.ts',
+    'app/lib/api-keys/management.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/collaboration/api-key-original-markdown-import-contract.ts', 'app/lib/collaboration/api-key-original-markdown-import-history.ts',
+    'app/lib/db/index.ts', 'server/collaboration-server.ts'],
   'scripts/api-key-original-markdown-import-http-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
     'app/api/documents/import-existing/route.ts', 'app/api/documents/import-existing/status/route.ts',
