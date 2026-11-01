@@ -93,6 +93,7 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         end: async () => { await client.end(); ownerClients.delete(client); } }, onInvalidated);
       owners.add(owner); return owner;
     };
+    const { DIRECT_MCP_NATIVE_EDIT_RESULT_JSON_SCHEMA } = await import('../app/lib/mcp/server/document-edit-tool-contract');
     const validator = new AjvJsonSchemaValidator();
     const validateResult = validator.getValidator<DocumentEditOperationResultV1>(DOCUMENT_EDIT_OPERATION_RESULT_JSON_SCHEMA_V1);
     const validateFailure = validator.getValidator(DOCUMENT_EDIT_FAILURE_JSON_SCHEMA_V1);
@@ -128,9 +129,15 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
     const result = (out: Row): DocumentEditOperationResultV1 => {
       if (out.isError === true) console.error(JSON.stringify({ diagnostic: 'Unexpected public Edit tool error', currentCase, code: object(out.structuredContent).code }));
       assert.notEqual(out.isError, true); const body = object(out.structuredContent); assert.deepEqual(JSON.parse(text(out as { content: unknown })), body);
-      const checked = validateResult(body); assert.equal(checked.valid, true, checked.errorMessage ?? 'Native result schema');
+      const { document_url: documentUrl, ...nativeBody } = body;
+      assert.equal(typeof documentUrl, 'string');
+      const link = new URL(documentUrl as string);
+      assert.equal(link.pathname, '/notebook'); assert.equal(link.searchParams.get('workspaceId'), workspaceId);
+      assert.equal(link.searchParams.get('documentId'), object(body.document).documentId);
+      assert.equal(link.searchParams.get('lineageId'), object(body.document).lineageId);
+      const checked = validateResult(nativeBody); assert.equal(checked.valid, true, checked.errorMessage ?? 'Native result schema');
       assert(outputValidator); assert.equal(outputValidator(body).valid, true); publicOnly(body);
-      assert.deepEqual(encodeDocumentEditOperationResultV1(body), body); assert(Buffer.byteLength(JSON.stringify(body)) <= 8192);
+      assert.deepEqual(encodeDocumentEditOperationResultV1(nativeBody), nativeBody); assert(Buffer.byteLength(JSON.stringify(body)) <= 8192);
       return checked.data!;
     };
     const failure = (out: Row, code: string) => {
@@ -194,9 +201,16 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         const listed = await rpc('tools/list'); assert.equal(listed.response.status, 200); const tools = object(listed.body.result).tools; assert(Array.isArray(tools));
         const edit = object(tools.find(value => object(value).name === 'edit_knowledge_source'));
         const input = object(edit.inputSchema), output = object(edit.outputSchema); assert.equal(input.type, 'object'); assert.equal(output.type, 'object');
-        assert(Array.isArray(input.oneOf) && input.oneOf.length === 3); assert(Array.isArray(output.oneOf) && output.oneOf.length === 3);
-        assert.deepEqual(output.oneOf[1], DOCUMENT_EDIT_OPERATION_RESULT_JSON_SCHEMA_V1); assert.deepEqual(output.oneOf[2], DOCUMENT_EDIT_FAILURE_JSON_SCHEMA_V1);
-        assert(object(object(input.oneOf[0]).properties).path); assert(object(object(output.oneOf[0]).properties).path);
+        assert.equal(input.oneOf, undefined); assert(Array.isArray(output.oneOf) && output.oneOf.length === 3);
+        const patch = object(object(input.properties).patch);
+        assert(Array.isArray(patch.anyOf) && patch.anyOf.length === 2);
+        for (const branch of patch.anyOf) {
+          assert.equal(object(branch).type, 'object');
+          assert.equal(object(object(object(branch).properties).kind).type, 'string');
+        }
+        assert.equal(JSON.stringify(input).includes('\"oneOf\"'), false);
+        assert.deepEqual(output.oneOf[1], DIRECT_MCP_NATIVE_EDIT_RESULT_JSON_SCHEMA); assert.deepEqual(output.oneOf[2], DOCUMENT_EDIT_FAILURE_JSON_SCHEMA_V1);
+        assert(object(input.properties).path); assert(object(object(output.oneOf[0]).properties).path);
         inputValidator = validator.getValidator(input); outputValidator = validator.getValidator(output);
       });
       await check('registered MCP edit persists the actual room effect and pure status/read report its full version', async () => {
@@ -239,7 +253,10 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         for (const args of [{ ...original, api_version: 2 }, { ...original, api_version: '1' },
           { ...original, path: plain.filePath }, { ...original, apiVersion: 1 },
           { api_version: 1, workspace_id: workspaceId, path: plain.filePath, old_text: 'Changed', new_text: 'BAD' }]) {
-          assert(inputValidator); assert.equal(inputValidator(args).valid, false);
+          assert(inputValidator);
+          // Flat adapter declarations retain scalar constraints; cross-field
+          // selection remains enforced by the real handler below.
+          if (args.api_version !== 1 || Object.hasOwn(args, 'apiVersion')) assert.equal(inputValidator(args).valid, false);
           const rejected = await rpc('tools/call', { name: 'edit_knowledge_source', arguments: args });
           // The registered low-level server delegates to the strict native
           // selector, which returns the advertised bounded tool failure.

@@ -2,12 +2,12 @@ import 'server-only';
 
 import { ProtocolError, ProtocolErrorCode, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 
-import { DirectMcpAuthorizationError } from './access-token-verifier';
+import { DirectMcpAuthorizationError, verifyDirectMcpAccessToken } from './access-token-verifier';
 import { createDirectMcpIngestAuthority } from './ingest-authority';
 import { downloadDirectMcpFile, type DirectMcpFileReference, DirectMcpIngestDownloadError } from './ingest-download';
 import { createDirectMcpWorkspaceFile, directMcpIngestFingerprint, DirectMcpFileIngestError, normalizeDirectMcpIngestPath } from './file-ingest';
 import { DirectMcpIngestValidationError, encodeDirectMcpTextContent, isDirectMcpTextPath, validateDirectMcpIngestContent } from './ingest-validation';
-import { parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
+import { buildDirectMcpDocumentUrl, parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
 import { directMcpToolAuthorizationError } from './tool-auth';
 import type { DirectMcpToolDescriptor } from './tool-descriptor';
 import { persistAndProjectDirectMcpMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
@@ -17,10 +17,14 @@ import { MarkdownCreateBirthError } from '@/app/lib/files/markdown-create-birth'
 import { DirectMcpDocumentReadPrincipalError } from './document-read-principal';
 import { WorkspaceFileLifecycleBusyError } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
+import { readDirectMcpIngestStatus } from './ingest-status';
+import { directMcpCorrelationId } from './diagnostics';
+import { directMcpFailurePhase, logDirectMcpToolFailure } from './tool-failure';
 
 type IngestTool = 'create_knowledge_source' | 'import_knowledge_file';
 const securitySchemes = [{ type: 'oauth2' as const, scopes: ['knowledge:write'] }];
 const commonProperties = {
+  action: { type: 'string', enum: ['create', 'status'], default: 'create', description: 'Use status with workspace_id, path and the original idempotency_key to inspect durable storage without writing or resubmitting content.' },
   api_version: { type: 'integer', const: 1, description: 'Request the native document result with stable identity and confirmed versions. Requires native Markdown creation; omit for the legacy file receipt.' },
   workspace_id: { type: 'string', minLength: 1, maxLength: 200, description: 'An explicitly allowed, writable Canvas workspace.' },
   path: { type: 'string', minLength: 1, maxLength: 1024, description: 'New workspace-relative file path. Existing files are never overwritten.' },
@@ -46,7 +50,7 @@ export function getDirectMcpIngestToolDescriptor(id: IngestTool): DirectMcpToolD
       : 'Create a new complete UTF-8 text file, up to 512 KiB. Supply actual Markdown content, not a local file path. Use valid YAML frontmatter when present, a blank line before lists/tables, matching table headers and separators, and fenced code blocks. Canvas checks with its editor parser. Unsupported rich-editor syntax is preserved with warnings. Never overwrites an existing document; use edit_knowledge_source for subsequent edits.',
     inputSchema: {
       type: 'object', additionalProperties: false,
-      required: ['workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'],
+      required: ['workspace_id', 'path', 'idempotency_key'],
       properties: {
         ...commonProperties,
         ...(isImport ? { file: {
@@ -76,9 +80,10 @@ function string(value: unknown, name: string, max: number): string {
 }
 
 export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, authInfo?: AuthInfo, signal?: AbortSignal): Promise<CallToolResult> {
+  const correlationId = directMcpCorrelationId();
   const args = record(raw);
   const isImport = id === 'import_knowledge_file';
-  if (Object.keys(args).some(name => !['api_version', 'workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].includes(name))) {
+  if (Object.keys(args).some(name => !['action', 'api_version', 'workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].includes(name))) {
     invalid('The request contains unsupported arguments.');
   }
   if (args.api_version !== undefined && args.api_version !== 1) invalid('api_version must be 1 when provided.');
@@ -88,6 +93,23 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
   try { key = parseDirectMcpEditIdempotencyKey(args.idempotency_key); }
   catch { invalid('idempotency_key must contain 8–128 safe identifier characters.'); }
   if (!key) invalid('idempotency_key is required.');
+  if (args.action !== undefined && args.action !== 'create' && args.action !== 'status') invalid('action must be create or status.');
+  if (args.action === 'status') {
+    if ('content' in args || 'file' in args) invalid('Status accepts no content or file.');
+    if (!authInfo?.token) return directMcpToolAuthorizationError(undefined, 'knowledge:write');
+    try {
+      const status = await readDirectMcpIngestStatus(authInfo, { workspaceId, path: destination, idempotencyKey: key, tool: id });
+      const body = { ...status, correlation_id: correlationId };
+      return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:write');
+      const body = { code: error instanceof DirectMcpFileIngestError ? error.code : 'MCP_INGEST_STATUS_UNCONFIRMED',
+        correlation_id: correlationId, phase: 'status', storage_status: 'unknown',
+        retryable: !(error instanceof DirectMcpFileIngestError && error.code === 'MCP_INGEST_IDEMPOTENCY_CONFLICT') };
+      logDirectMcpToolFailure(body);
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+    }
+  }
   let file: DirectMcpFileReference | undefined;
   let text: string | undefined;
   if (isImport) {
@@ -107,7 +129,10 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     text = args.content;
   }
   if (!authInfo?.token) return directMcpToolAuthorizationError(undefined, 'knowledge:write');
+  let operationId: string | undefined;
   try {
+    const principal = await verifyDirectMcpAccessToken(authInfo.token, ['knowledge:write']);
+    operationId = directMcpIngestFingerprint([principal.clientId, principal.userId, workspaceId, key]);
     const nativeMarkdown = authenticatedNativeTextSessionEnabled() && /\.(?:md|markdown)$/iu.test(destination);
     if (args.api_version === 1 && !nativeMarkdown) {
       throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'api_version 1 requires enabled native Markdown creation.');
@@ -120,7 +145,9 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
       if (native.kind === 'native') {
         const result = args.api_version === 1 ? native.mutationResult : native.receipt;
         if (!result) throw new DirectMcpFileIngestError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED', 'The native creation result could not be confirmed.');
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+        const body = args.api_version === 1 && native.mutationResult
+          ? { ...result, document_url: buildDirectMcpDocumentUrl(native.mutationResult.document) } : result;
+        return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
       }
       if (args.api_version === 1) {
         throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'This operation belongs to an existing legacy file creation.');
@@ -151,8 +178,35 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
       || error instanceof WorkspaceMutationLockError;
     const known = native || error instanceof DirectMcpFileIngestError || error instanceof DirectMcpIngestValidationError
       || error instanceof DirectMcpIngestDownloadError;
-    const detail = { code: known ? error.code : 'MCP_INGEST_FAILED',
-      message: native ? error.code : known ? error.message : 'The file could not be imported. The destination may require inspection before retrying.' };
+    // A failed response/cleanup after COMMIT must not erase durable success.
+    // Observe the original request under fresh authority; never replay a write.
+    const code = known ? error.code : 'MCP_INGEST_FAILED';
+    const rejectedRequest = ['MCP_INGEST_IDEMPOTENCY_CONFLICT', 'MCP_INGEST_DESTINATION_CHANGED',
+      'MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'MARKDOWN_IMPORT_REQUEST_CONFLICT',
+      'MARKDOWN_IMPORT_TARGET_CHANGED', 'MARKDOWN_IMPORT_INVALID_INPUT'].includes(code);
+    if (!rejectedRequest) {
+      try {
+        const status = await readDirectMcpIngestStatus(authInfo, { workspaceId, path: destination, idempotencyKey: key,
+          tool: id, expectedFingerprint: directMcpIngestFingerprint([id, destination, file ? [file.file_id, file.mime_type ?? null] : text]) });
+        if (status.storage_status === 'confirmed') {
+          const body = { ...status, outcome: 'stored', processing_error_code: code, correlation_id: correlationId };
+          logDirectMcpToolFailure({ ...body, code, phase: directMcpFailurePhase(error, 'create'), retryable: false });
+          return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+        }
+      } catch (recoveryError) {
+        if (recoveryError instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(recoveryError, 'knowledge:write');
+        // An unsuccessful observation cannot establish absence or confirm a commit.
+      }
+    }
+    const busy = error instanceof WorkspaceFileLifecycleBusyError
+      || error instanceof WorkspaceMutationLockError && error.retryable
+      || error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_BUSY';
+    const detail = { code,
+      message: native ? error.code : known ? error.message : 'The storage outcome is unknown. Query status with the original idempotency_key before retrying.',
+      correlation_id: correlationId, phase: directMcpFailurePhase(error, busy ? 'admission' : 'create'), storage_status: 'unknown',
+      ...(operationId ? { operation_id: operationId } : {}), retryable: busy,
+      ...(busy ? { retry_after_ms: 250 } : {}) };
+    logDirectMcpToolFailure(detail);
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(detail) }], structuredContent: detail };
   }
 }

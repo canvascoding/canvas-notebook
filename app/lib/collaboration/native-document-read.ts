@@ -30,6 +30,7 @@ export type NativeDocumentReadObservation = Readonly<{
   metadata: Readonly<{ title: string | null; revision: number | null }>;
   /** Comparison data captured synchronously from the same observed native Doc. */
   editTargets?: readonly NativeDocumentEditTargetV1[];
+  editTargetBlockId?: string;
 }>;
 const MAX_STATE_BYTES = 64 * 1024 * 1024, MAX_VECTOR_BYTES = 1024 * 1024;
 const reads = new WeakMap<SqlConnection, { poison: (error: unknown) => void }>();
@@ -317,6 +318,7 @@ export async function readNativeDocumentHeaderByIdOnConnection(connection: SqlCo
 export async function readNativeDocumentByIdOnConnection(connection: SqlConnection,
   input: { workspace: WorkspaceContext; documentId: string; budget?: NativeDocumentReadBudget;
     includeEditTargets?: boolean;
+    editTargetBlockId?: string;
     expectedPersistedBinary?: Readonly<{ stateSha256: string; vectorSha256: string }> }): Promise<NativeDocumentReadObservation> {
   const previous = reads.get(connection);
   if (previous) {
@@ -327,8 +329,15 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
   if (targetDescriptor && (!targetDescriptor.enumerable || !Object.prototype.hasOwnProperty.call(targetDescriptor, 'value')
     || typeof targetDescriptor.value !== 'boolean')) fail('INVALID_REQUEST');
   const includeEditTargets = targetDescriptor?.value === true;
+  const selectedDescriptor = Object.getOwnPropertyDescriptor(input, 'editTargetBlockId');
+  const selectedBlockId: unknown = selectedDescriptor?.value;
+  if (selectedDescriptor && (!selectedDescriptor.enumerable || !Object.hasOwn(selectedDescriptor, 'value')
+    || !includeEditTargets || typeof selectedBlockId !== 'string' || !selectedBlockId || selectedBlockId.length > 512
+    || selectedBlockId !== selectedBlockId.trim() || /[\u0000-\u001f\u007f]/u.test(selectedBlockId)
+    || Buffer.from(selectedBlockId, 'utf8').toString('utf8') !== selectedBlockId)) fail('INVALID_REQUEST');
+  const editTargetBlockId = selectedBlockId as string | undefined;
   const requestedBudget = input.budget === undefined ? undefined : captureNativeDocumentReadBudget(input.budget);
-  const budget = includeEditTargets ? nativeDocumentEditTargetsReadBudget(requestedBudget) : requestedBudget;
+  const budget = includeEditTargets ? nativeDocumentEditTargetsReadBudget(requestedBudget, editTargetBlockId !== undefined) : requestedBudget;
   let expectedBinary: Readonly<{ stateSha256: string; vectorSha256: string }> | undefined;
   if (input.expectedPersistedBinary !== undefined) {
     const value = input.expectedPersistedBinary;
@@ -433,7 +442,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
           if (includeEditTargets) assertNativeDocumentEditTargetStorageBudget(doc);
           assertNativeDocumentSchema(doc, state.representation, inspectionSchema);
           const current = inspectNativeDocument(doc, state.representation);
-          if (includeEditTargets) editTargets = captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof);
+          if (includeEditTargets) editTargets = captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof, editTargetBlockId);
           const durable = current.version.stateProof === version.stateProof;
           observed = { ...snapshot, source: durable ? 'persisted_yjs' : 'live_yjs',
             observed: { ...current.version, content: current.content, durable }, durable: version };
@@ -466,7 +475,8 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
       lifecycleGeneration: native.lifecycleGeneration, representation: native.representation, schemaVersion: native.schemaVersion },
     native, metadata: { title: initial.metadata_title as string | null,
       revision: initial.metadata_revision === null ? null : Number(initial.metadata_revision) },
-    ...(editTargets === undefined ? {} : { editTargets }) });
+    ...(editTargets === undefined ? {} : { editTargets }),
+    ...(editTargetBlockId === undefined ? {} : { editTargetBlockId }) });
   } catch (error) {
     if (error instanceof DocumentReadError) throw error;
     if (error instanceof CollaborationCheckpointQuarantinedError) fail('DOCUMENT_QUARANTINED');

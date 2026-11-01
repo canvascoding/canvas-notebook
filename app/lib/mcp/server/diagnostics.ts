@@ -26,6 +26,12 @@ export type DirectMcpDiagnosticPhase =
 
 const directMcpDiagnosticStorage = new AsyncLocalStorage<DirectMcpDiagnosticContext>();
 
+/** Join a public tool result to the existing HTTP history without exposing any
+ * principal, token, request arguments or document content. */
+export function directMcpCorrelationId(): string {
+  return directMcpDiagnosticStorage.getStore()?.requestId ?? randomUUID();
+}
+
 export type DirectMcpDiagnosticContext = {
   requestId: string;
   flowRef: string | null;

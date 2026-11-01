@@ -12,6 +12,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/mcp-upload-schema-test.ts': [entryPoint, 'app/lib/mcp/server/workspace-tools.ts'],
+  'scripts/mcp-edit-target-selection-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/documents/contracts.ts',
+    'app/lib/documents/service.ts', 'app/lib/documents/read-body.ts',
+    'app/lib/collaboration/native-document-read.ts', 'app/lib/collaboration/native-document-edit-targets.ts',
+    'app/lib/collaboration/agent-block-structure.ts', 'app/lib/mcp/server/document-read-tool-contract.ts'],
+  'scripts/mcp-ingest-busy-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/mcp/server/ingest-tools.ts',
+    'app/lib/files/workspace-file-lifecycle-guard.ts', 'app/lib/mcp/server/streamable-http.ts'],
+  'scripts/mcp-ingest-status-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/mcp/server/ingest-tools.ts',
+    'app/lib/mcp/server/ingest-status.ts', 'app/lib/mcp/server/file-ingest.ts',
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/mcp/server/streamable-http.ts'],
   'scripts/http-document-initial-workspace-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/workspaces/request.ts',
     'app/lib/workspaces/request-principal.ts', 'app/lib/workspaces/postgres-runtime.ts',
