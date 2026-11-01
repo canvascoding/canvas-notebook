@@ -107,3 +107,35 @@ test('review links target the exact workspace lineage and operation without cred
   assert.equal(reviewUrl.username, '');
   assert.equal(reviewUrl.password, '');
 });
+
+test('MCP declaration preserves typed patch variants while runtime rejects mixed requests', async () => {
+  const { directMcpDocumentEditInputSchema, piDocumentEditInputSchema, decodeDirectMcpNativeDocumentEditSelection } =
+    await import('../app/lib/documents/edit-tool-contract');
+  const legacy = { type: 'object' as const, properties: { path: { type: 'string' } } };
+  const schema = directMcpDocumentEditInputSchema(legacy);
+  assert.equal(Object.hasOwn(schema, 'oneOf'), false);
+  assert.equal(JSON.stringify(schema).includes('"oneOf"'), false);
+  assert(Object.hasOwn(piDocumentEditInputSchema(legacy), 'oneOf'), 'PI contract is unchanged');
+  type Shape = { type?: string; const?: string; properties?: Record<string, Shape>; anyOf?: Shape[]; items?: Shape; required?: string[]; maxItems?: number };
+  const patch = schema.properties!.patch as Shape;
+  assert.equal(patch.anyOf?.length, 2);
+  const text = patch.anyOf![0], blocks = patch.anyOf![1];
+  assert.equal(text.properties!.kind.type, 'string');
+  assert.equal(text.properties!.edits.maxItems, 32);
+  assert.deepEqual(text.required, ['kind', 'edits']);
+  const operations = blocks.properties!.operations.items!.anyOf!;
+  assert.equal(operations.length, 6);
+  for (const operation of operations) {
+    assert.equal(operation.type, 'object');
+    assert.equal(operation.properties!.kind.type, 'string');
+    assert(operation.required!.includes('kind'));
+    for (const field of operation.required!) assert(operation.properties![field], field);
+  }
+  const examples = (schema as unknown as { examples: Record<string, unknown>[] }).examples;
+  for (const example of examples) assert(decodeDirectMcpNativeDocumentEditSelection(example));
+  assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], path: 'mixed.md' }));
+  assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], patch: {
+    kind: 'native_text_replace', edits: [{ oldText: 'x', newText: 'y' }], operations: [],
+  } }));
+  assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[2], patch: examples[0].patch }));
+});

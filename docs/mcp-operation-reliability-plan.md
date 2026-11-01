@@ -38,7 +38,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
   - Interne Details ausschließlich serverseitig; keine Inhalte, Tokens oder
     Download-URLs protokollieren. Unbestätigte Speicherung niemals als fehlend melden.
   - Tests: unerwartete Ausnahmen und Ausgabevalidierung vor/nach Persistierung.
-- [ ] 4. Sichtbare Tool-Schemas
+- [x] 4. Sichtbare Tool-Schemas (Code und Integration; Client-E2E unter 7)
   - Read-Parameter am tatsächlichen tools/list- und Client-Ende prüfen.
   - Edit-Patches vollständig typisiert einschließlich Pflichtfeldern, Grenzen
     und Beispielen veröffentlichen; Adapter-Kompatibilität real testen.
@@ -163,3 +163,23 @@ auslösen. Bekannte Parameter-/Protokollfehler bleiben erhalten.
 
 Jede Anforderung oben benötigt passende aktuelle Laufzeitevidenz;
 Quellcodeprüfung allein gilt nicht als Connector- oder Browser-Abnahme.
+
+### Schritt 4 — implementiert und integrationsgeprüft
+
+Der MCP-Edit-Eingang veröffentlicht alle Felder direkt am Objekt, statt sie in
+einer Root-Union zu verstecken. Patch- und Blockvarianten verwenden `anyOf`
+mit explizit typisierten Diskriminatoren, Pflichtfeldern und Grenzen. Beispiele
+zeigen Textpatch, Blockpatch und Status. Die strikte Laufzeitdekodierung bleibt
+unverändert; sie lehnt auch Mischformen ab, die eine flache Client-Deklaration
+allein nicht ausschließen kann. Der PI-Schemavertrag bleibt unverändert.
+
+- Vier Schema-/Vertragstests bestanden: `/tmp/canvas-mcp-schema-contract.log`.
+- Neun echte PostgreSQL-/MCP-Dispatch-Gruppen bestanden, einschließlich
+  tools/list, nativem Edit/Status, falschen Versionen, Mischformen und
+  unverändertem Legacy-Edit: `/tmp/canvas-mcp-schema-dispatch.log`.
+- Read-Schema-/Decoder-Vertragstests bestanden unverändert:
+  `/tmp/canvas-mcp-read-schema.log` (direkter `tsx --test`-Runner).
+- Scoped ESLint bestanden. Client-Projektion wird erst in Schritt 7 abgenommen.
+- GitNexus: Produktions-Schemafunktion LOW; Testfunktion CRITICAL über einen
+  veralteten indirekten Graph. Direkte Quellprüfung zeigt ausschließlich den
+  lokalen Selbstaufruf der Testdatei; keine Produktionsaufrufer dieser Funktion.
