@@ -516,6 +516,7 @@ function sourceCoverageDiagnostic(values: readonly unknown[]) {
   const count = Object.getOwnPropertyDescriptor(failure, 'issueCount')?.value;
   const issueCount = Number.isSafeInteger(count) && count >= issues.length ? count : issues.length;
   return { issues, issue_count: issueCount, issues_truncated: issueCount > issues.length,
+    ...(Object.getOwnPropertyDescriptor(failure, 'retryable')?.value === true ? { retryable: true, retry_after_ms: 250 } : {}),
     hint: 'Workspace sources could not be fully inspected. Review the listed sources before retrying. No executable plan was issued.' };
 }
 export function formatDirectMcpWorkspacePathError(error: unknown, selectedOperationId?: string, phase?: string): CallToolResult {

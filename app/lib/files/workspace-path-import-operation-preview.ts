@@ -45,11 +45,14 @@ export class WorkspacePathSourceIncompleteError extends Error {
   readonly status = 409;
   readonly issues: readonly Readonly<{ code: string; path: string }>[];
   readonly issueCount: number;
+  readonly retryable: boolean;
   constructor(issues: readonly Readonly<{ code: string; path: string }>[]) {
     super('Workspace link analysis is incomplete. Inspect the reported sources before retrying.');
     this.name = 'WorkspacePathSourceIncompleteError';
     const unique = [...new Map(issues.map(issue => [JSON.stringify([issue.code, issue.path]), issue])).values()];
     this.issueCount = unique.length;
+    this.retryable = unique.length > 0 && unique.every(issue =>
+      issue.code === 'physical-source-changed' || issue.code === 'physical-scope-changed');
     this.issues = Object.freeze(unique.slice(0, 50).map(({ code, path }) => Object.freeze({ code, path })));
   }
 }
@@ -122,6 +125,12 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
         if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)) {
           await access.assertCurrent();
           throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+        }
+        // A rejected/incoherent observation intentionally has no catalogue
+        // witness. Report its gaps instead of passing it to an evidence parser.
+        if (!observation.privateCatalogue) {
+          await access.assertCurrent();
+          throw new WorkspacePathSourceIncompleteError(observation.stage.coverage.gaps);
         }
         const scope = captureWorkspaceOperationJobScope(workspace);
         const physicalPath = captured.selections.length === 1 ? captured.selections[0].sourcePath : null;

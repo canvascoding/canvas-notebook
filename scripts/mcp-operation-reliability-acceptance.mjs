@@ -88,11 +88,22 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
     const readBack = success(await call('read_knowledge_source', { path }));
     assert.equal(readBack.sha256, createHash('sha256').update(content).digest('hex'));
     assert.equal(readBack.content, content);
-    const preview = success(await call('delete_knowledge_source', { api_version: 1, action: 'preview', path }));
+    const previewRequest = { api_version: 1, action: 'preview', path };
+    let response = await call('delete_knowledge_source', previewRequest);
+    const retries = [];
+    while (response.isError && response.structuredContent?.retryable === true
+      && ['PATH_SOURCE_INCOMPLETE', 'PATH_BUSY'].includes(response.structuredContent.code) && retries.length < 10) {
+      const failure = response.structuredContent;
+      assert(failure.correlation_id); assert.equal(failure.phase, 'preview');
+      retries.push({ code: failure.code, correlationId: failure.correlation_id, issues: failure.issues });
+      await new Promise(resolve => setTimeout(resolve, Math.min(2000, failure.retry_after_ms || 250)));
+      response = await call('delete_knowledge_source', previewRequest);
+    }
+    const preview = success(response);
     assert.equal(preview.action, 'preview');
     assert.equal(preview.preview.kind, 'delete');
     assert.equal(preview.preview.readiness, 'ready');
-    deletePreviews.push({ path, sha256: readBack.sha256, planId: preview.preview.planId, readiness: preview.preview.readiness });
+    deletePreviews.push({ path, sha256: readBack.sha256, planId: preview.preview.planId, readiness: preview.preview.readiness, retries });
   }
   checks.push('missing path domain error and six sequential native creates with delete previews');
   return { checks, deletePreviews, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };

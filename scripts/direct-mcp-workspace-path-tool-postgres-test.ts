@@ -286,6 +286,29 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      await group('a changed physical projection rejects preview with source diagnostics', async () => {
+        const target = 'projection-race.md', full = path.join(h.source.rootPath, target);
+        await h.upload(target, Buffer.from('# Projection race\n'));
+        const before = await domain(), files = await filesystem();
+        let catalogues = 0, changed = false;
+        const blocked = await h.withProbe(async event => {
+          if (event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId
+            && JSON.stringify(event.values[1]) === '[""]' && ++catalogues === 2) {
+            const future = new Date(Date.now() + 5000); await fs.utimes(full, future, future); changed = true;
+          }
+        }, () => call('delete', { ...slots, action: 'preview', path: target }));
+        assert(changed, 'The real projection changed after its initial observation.');
+        assert.equal(blocked.result.isError, true); assert.equal(blocked.value.code, 'PATH_SOURCE_INCOMPLETE');
+        assert.equal(blocked.value.error_code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(blocked.value.phase, 'preview');
+        assert.deepEqual(blocked.value.issues, [{ code: 'physical-source-changed', path: target }]);
+        assert.equal(blocked.value.retryable, true); assert.equal(blocked.value.retry_after_ms, 250);
+        assert.deepEqual(await domain(), before);
+        const relative = path.relative(h.dataRoot, full);
+        const withoutInjectedTimes = (rows: unknown[]) => rows.map(value => {
+          const row = object(value); return row.path === relative ? { ...row, mtime: null, ctime: null } : row;
+        });
+        assert.deepEqual(withoutInjectedTimes(await filesystem()), withoutInjectedTimes(files));
+      });
       await group('incomplete native source coverage reports blockers without a mutation', async () => {
         const target = 'coverage-target.md', invalid = 'coverage-invalid-frontmatter.md';
         await h.upload(target, Buffer.from('# Safe target\n'));
