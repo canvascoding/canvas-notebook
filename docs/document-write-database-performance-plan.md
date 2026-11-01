@@ -963,8 +963,26 @@ Allowlist- und Aktionsentzug, MCP-Toolschalter, echte synchrone Ablaufgrenzen,
 abgefangene Reentranz, Logout, Rotation und einen unabhängigen Widerruf, der an
 der wirklichen gehaltenen Zeilensperre wartet. Original-Dokument-, Yjs- und
 Revisionszeilen samt `xmin` und physische Originalbytes bleiben unverändert.
-Dies ist die aktuelle Copy-Autorisierungsgrundlage. Native Copy-Ursprünge,
-Owner-/Writer-Anschluss, öffentliche REST-/MCP-Adapter und installierte SDK-
+Die native Herkunftsstruktur enthält inzwischen zusätzlich ein ausdrückliches
+API-Key-V3-Format. Es bindet Benutzer, stabile Integration, Instanz und beide
+Original-Workspace-Scopes. Die ursprüngliche Credential-Kennung und der
+Einstiegspunkt bleiben nach Rotation unverändert; es wird keine Login- oder
+PI-Sitzung erfunden. Diese gespeicherten Fakten ersetzen keine aktuelle
+Autorisierung. Die neue Copy-Komposition verlangt auf jedem tatsächlichen B den
+lebenden Key-Principal mit dem vom Aufrufer fest vorgegebenen Zweck und prüft
+weiterhin aktuelle Quell-/Zielrechte.
+
+Neun zusätzliche PostgreSQL-/Auth-/Herkunfts-Gruppen prüfen diese Komposition,
+die vollständige V3-Speicherung im echten Journal, unveränderte Journalbytes und
+`xmin` bei Wiederholung und Rotation, fremde Integrationen/Scopes, Logout,
+Widerruf und die Trennung von Session, PI und OAuth. Die bisherigen Original-
+und OAuth-Sitzungen behalten ihre Erneuerungsregeln. Der ältere lokale Session-/
+PI-Test verwendet nun einen über `realpath` aufgelösten temporären Datenpfad:
+Der macOS-Alias `/var` darf nicht als Verzeichnis ohne Symlinks ausgegeben
+werden. Die produktiven FD-/Symlink-Prüfungen bleiben unverändert.
+
+Dies ist die aktuelle Copy-Autorisierungs- und Herkunftsgrundlage. Der native
+Owner-/Writer-Anschluss, öffentliche REST-/MCP-Adapter und die installierte SDK-
 Copy-Abnahme sind weiterhin offen.
 
 **Die übrigen Schreib-/Job-Phasen, öffentlichen Datei-/Recovery-Key-Adapter und

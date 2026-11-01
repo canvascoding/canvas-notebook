@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'dotenv';
@@ -67,7 +67,7 @@ async function runWorkspaceCopyPrincipalPostgresFixture(): Promise<void> {
   assert.match(schema, /^copy_principal_[a-f0-9]{32}$/u);
   const applicationName = `copy-principal-${crypto.randomUUID().replaceAll('-', '')}`;
   const environment = { ...process.env }, originalFetch = globalThis.fetch;
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-copy-principal-'));
+  const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'canvas-copy-principal-')));
   const control = new Client({ connectionString, connectionTimeoutMillis: 5000,
     options: '-c statement_timeout=15000', application_name: `${applicationName}-admin` });
   const clients = new Set<Client>();
