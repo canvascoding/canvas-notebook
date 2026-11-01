@@ -28,7 +28,7 @@ export type NativeDocumentEditAuthorityOrigin = Readonly<
   WorkspaceRequestHistoricalOrigin & { transport: 'request' }
   | DirectMcpDocumentEditCurrentOrigin & { transport: 'direct-mcp' }
   | WorkspaceAgentToolHistoricalOrigin & { transport: 'agent-tool' }
-  | Omit<ApiKeyDocumentReadOrigin, 'kind'> & { transport: 'api_key' }
+  | Omit<ApiKeyDocumentReadOrigin, 'kind'> & { transport: 'api_key'; entryPoint: 'request' | 'mcp' }
 >;
 export type NativeDocumentEditWriteAuthorityAccess = Readonly<{
   workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
@@ -258,7 +258,7 @@ export async function withNativeDocumentEditApiKeyAuthority<T>(credential: ApiKe
   return withApiKeyDocumentEditPrincipal(credential, { workspaceId: selected, purpose, source }, value => {
     const { kind, ...origin } = value;
     if (kind !== 'api_key') failure('AUTHENTICATION_REQUIRED');
-    observe(current, { ...origin, transport: 'api_key' });
+    observe(current, { ...origin, transport: 'api_key', entryPoint: source });
   }, principal => retain(selected, (connection, consumeAccess) =>
     withApiKeyDocumentEditPrincipalOnConnection(connection, principal, access => consumeAccess(Object.freeze({
       workspace: access.workspace, userId: access.userId, actorType: 'agent', actorId: apiKeyActorId(access),

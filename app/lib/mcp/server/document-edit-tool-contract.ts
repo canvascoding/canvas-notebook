@@ -26,6 +26,6 @@ export function formatDirectMcpNativeDocumentEditError(error: unknown): CallTool
     : inspectable && error instanceof DirectMcpAuthorizationError ? error : null;
   // Keep the actual OAuth challenge object unchanged; only the model-safe
   // bounded body is encoded. The recovery ID is data, not an authority.
-  return { ...(authorization ? directMcpToolAuthorizationError(authorization, 'knowledge:write') : {}),
+  return { ...(authorization instanceof DirectMcpAuthorizationError ? directMcpToolAuthorizationError(authorization, 'knowledge:write') : {}),
     isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
 }

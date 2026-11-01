@@ -1,12 +1,15 @@
 import 'server-only';
 
 import { types } from 'node:util';
+import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '../api-keys/authentication';
+import { ApiKeyAccessError } from '../api-keys/contracts';
 import { NativeDocumentEditOperationError } from '../collaboration/native-document-edit-operation-contract';
 import { DirectMcpAuthorizationError } from '../mcp/server/access-token-verifier';
 import { decodeDocumentEditRequestV1, DocumentEditError, type DecodedDocumentEditRequestV1 } from './edit-contracts';
 import { withNativeDocumentEditRequestAuthority, withNativeDocumentEditMcpAuthority,
-  withNativeDocumentEditPiAuthority, type NativeDocumentEditWriteAuthority } from './edit-principal';
+  withNativeDocumentEditApiKeyAuthority, withNativeDocumentEditPiAuthority, type NativeDocumentEditWriteAuthority } from './edit-principal';
 import { decodeDocumentEditStatusRequestV1, type DocumentEditOperationResultV1 } from './edit-result-contract';
 import { readNativeDocumentEditOperationStatus } from './edit-operation-status';
 import { applyNativeDocumentEdit } from './edit-service';
@@ -23,15 +26,16 @@ function ownData(value: object, key: string): unknown {
   return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value as unknown : undefined;
 }
 
-/** Keeps the genuine OAuth error, including its exact challenge, unchanged.
+/** Keeps the genuine transport denial, including an OAuth challenge, unchanged.
  * The bounded reference is recovery data only; neither field grants access.
  * Adapters must encode public fields, never serialize this error object. */
 export class NativeDocumentEditAuthorizationError extends Error {
-  readonly authorization: DirectMcpAuthorizationError;
+  readonly authorization: DirectMcpAuthorizationError | ApiKeyAccessError;
   readonly operationId: string;
-  constructor(authorization: DirectMcpAuthorizationError, knownOperationId: string) {
+  constructor(authorization: DirectMcpAuthorizationError | ApiKeyAccessError, knownOperationId: string) {
     super('The document edit requires authorization; retain its recovery reference.');
-    if (!authorization || types.isProxy(authorization) || !(authorization instanceof DirectMcpAuthorizationError)) {
+    if (!authorization || types.isProxy(authorization)
+      || !(authorization instanceof DirectMcpAuthorizationError) && !(authorization instanceof ApiKeyAccessError)) {
       throw new DocumentEditError('EDIT_OUTCOME_UNCONFIRMED');
     }
     const selected = operationId(knownOperationId);
@@ -81,7 +85,7 @@ function knownCode(code: unknown): EditCode {
  * optimistic Busy or success. Error data never mints a transport authority. */
 export function normalizeDocumentEditPublicError(error: unknown): Error {
   if (!error || typeof error !== 'object' || types.isProxy(error)) return new DocumentEditError('DOCUMENT_EDIT_UNAVAILABLE');
-  if (error instanceof NativeDocumentEditAuthorizationError || error instanceof DirectMcpAuthorizationError) return error;
+  if (error instanceof NativeDocumentEditAuthorizationError || error instanceof DirectMcpAuthorizationError || error instanceof ApiKeyAccessError) return error;
   const code = knownCode(ownData(error, 'code'));
   const retained = operationId(ownData(error, 'operationId'));
   return retained ? new NativeDocumentEditOperationError(code, retained) : new DocumentEditError(code);
@@ -94,7 +98,7 @@ function recoveryError(error: unknown, recovery: Recovery): Error {
     return normalized.operationId === retained ? normalized
       : new NativeDocumentEditAuthorizationError(normalized.authorization, retained);
   }
-  if (normalized instanceof DirectMcpAuthorizationError) return new NativeDocumentEditAuthorizationError(normalized, retained);
+  if (normalized instanceof DirectMcpAuthorizationError || normalized instanceof ApiKeyAccessError) return new NativeDocumentEditAuthorizationError(normalized, retained);
   // The normalizer returns only the two authorization variants or a safe
   // DocumentEditError. A known actual operation always keeps its own ID.
   return new NativeDocumentEditOperationError(normalized instanceof DocumentEditError
@@ -118,7 +122,21 @@ export async function editDocumentForRequest(request: Request, value: unknown): 
   const recovery: Recovery = {};
   try {
     const selected = decodeDocumentEditRequestV1(value);
-    return await withNativeDocumentEditRequestAuthority(request, { workspaceId: selected.workspaceId },
+    if (!request || types.isProxy(request) || !(request instanceof Request)) throw new DocumentEditError('INVALID_REQUEST');
+    const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+    if (hasApiKeyCredential(original)) return await withNativeDocumentEditApiKeyAuthority(await authenticateApiKeyRequest(original),
+      { workspaceId: selected.workspaceId }, 'request', 'edit', authority => editAndReadStatus(authority, selected, recovery));
+    return await withNativeDocumentEditRequestAuthority(original, { workspaceId: selected.workspaceId },
+      authority => editAndReadStatus(authority, selected, recovery));
+  } catch (error) { throw recoveryError(error, recovery); }
+}
+
+/** Explicit /mcp key proof and current fixed Edit policy, without OAuth fabrication. */
+export async function editDocumentForApiKeyMcp(credential: ApiKeyCredential, value: unknown): Promise<DocumentEditOperationResultV1> {
+  const recovery: Recovery = {};
+  try {
+    const selected = decodeDocumentEditRequestV1(value);
+    return await withNativeDocumentEditApiKeyAuthority(credential, { workspaceId: selected.workspaceId }, 'mcp', 'edit',
       authority => editAndReadStatus(authority, selected, recovery));
   } catch (error) { throw recoveryError(error, recovery); }
 }
@@ -148,7 +166,19 @@ export async function editDocumentForAgentTool(value: unknown): Promise<Document
 export async function readDocumentEditStatusForRequest(request: Request, value: unknown): Promise<DocumentEditOperationResultV1> {
   try {
     const selected = decodeDocumentEditStatusRequestV1(value);
-    return await withNativeDocumentEditRequestAuthority(request, { workspaceId: selected.workspaceId },
+    if (!request || types.isProxy(request) || !(request instanceof Request)) throw new DocumentEditError('INVALID_REQUEST');
+    const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+    if (hasApiKeyCredential(original)) return await withNativeDocumentEditApiKeyAuthority(await authenticateApiKeyRequest(original),
+      { workspaceId: selected.workspaceId }, 'request', 'edit_status', authority => readNativeDocumentEditOperationStatus(authority, selected));
+    return await withNativeDocumentEditRequestAuthority(original, { workspaceId: selected.workspaceId },
+      authority => readNativeDocumentEditOperationStatus(authority, selected));
+  } catch (error) { throw normalizeDocumentEditPublicError(error); }
+}
+
+export async function readDocumentEditStatusForApiKeyMcp(credential: ApiKeyCredential, value: unknown): Promise<DocumentEditOperationResultV1> {
+  try {
+    const selected = decodeDocumentEditStatusRequestV1(value);
+    return await withNativeDocumentEditApiKeyAuthority(credential, { workspaceId: selected.workspaceId }, 'mcp', 'edit_status',
       authority => readNativeDocumentEditOperationStatus(authority, selected));
   } catch (error) { throw normalizeDocumentEditPublicError(error); }
 }

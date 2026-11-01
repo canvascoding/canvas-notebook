@@ -12,6 +12,9 @@ import { browseWorkspaceForApiKeyMcp, listWorkspacesForApiKey, readDocumentForAp
 import type { DirectMcpToolId } from './config';
 import { decodeDirectMcpDocumentReadSelection } from './document-read-tool-contract';
 import { decodeDirectMcpDocumentSearchSelection } from './document-search-tool-contract';
+import { decodeDirectMcpNativeDocumentEditSelection, formatDirectMcpNativeDocumentEditResult,
+  formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
+import { editDocumentForApiKeyMcp, readDocumentEditStatusForApiKeyMcp } from '../../documents/edit-public-service';
 
 export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown, credential: ApiKeyCredential): Promise<CallToolResult> {
   try {
@@ -27,6 +30,12 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
       try { selection = decodeMcpWorkspaceBrowseRequest(tool, args); }
       catch { throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use bounded workspace browse arguments and visible relative paths.'); }
       page = await browseWorkspaceForApiKeyMcp(credential, selection);
+    } else if (tool === 'edit_knowledge_source') {
+      const selection = decodeDirectMcpNativeDocumentEditSelection(args);
+      if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 and native Edit/Status arguments.');
+      const result = selection.action === 'edit' ? await editDocumentForApiKeyMcp(credential, selection.request)
+        : await readDocumentEditStatusForApiKeyMcp(credential, selection.request);
+      return formatDirectMcpNativeDocumentEditResult(result);
     } else if (tool === 'read_knowledge_source') {
       const selection = decodeDirectMcpDocumentReadSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use a stable document_id for API-key native reads.');
@@ -42,11 +51,12 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     } else throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'The requested API-key adapter is not available.');
     return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page as Record<string, unknown> };
   } catch (error) {
+    if (error instanceof ProtocolError) throw error;
+    if (tool === 'edit_knowledge_source') return formatDirectMcpNativeDocumentEditError(error);
     if (error instanceof ApiKeyAccessError || error instanceof DocumentReadError || error instanceof DocumentSearchError || error instanceof WorkspaceBrowseError) {
       const failure = { apiVersion: 1, success: false, code: error.code };
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
     }
-    if (error instanceof ProtocolError) throw error;
     const failure = { apiVersion: 1, success: false, code: 'DOCUMENT_READ_UNAVAILABLE' };
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
   }

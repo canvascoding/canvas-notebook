@@ -91,7 +91,7 @@ export function captureNativeDocumentEditOrigin(value: unknown): NativeDocumentE
   const transport: unknown = descriptor.value;
   const extra = transport === 'request' ? ['sessionId', 'impersonatedBy']
     : transport === 'direct-mcp' ? ['clientId', 'sessionId', 'tool']
-      : transport === 'api_key' ? ['integrationId', 'instanceId', 'credentialId']
+      : transport === 'api_key' ? ['integrationId', 'instanceId', 'credentialId', 'entryPoint']
       : transport === 'agent-tool' ? ['agentId', 'piSessionId', 'toolName', 'toolCallId', 'agentTurnId',
         'piSessionDbId', 'agentProfileId', 'agentProfileRevision', 'workflowVersion', 'workflowRevision'] : null;
   if (!extra) invalid();
@@ -108,7 +108,8 @@ export function captureNativeDocumentEditOrigin(value: unknown): NativeDocumentE
   } else if (transport === 'direct-mcp') {
     if (!text(row.sessionId) || !text(row.clientId) || row.tool !== 'edit_knowledge_source') invalid();
   } else if (transport === 'api_key') {
-    if (!text(row.integrationId) || !text(row.instanceId) || !text(row.credentialId)) invalid();
+    if (!text(row.integrationId) || !text(row.instanceId) || !text(row.credentialId)
+      || row.entryPoint !== 'request' && row.entryPoint !== 'mcp') invalid();
   } else {
     for (const key of ['agentId', 'piSessionId', 'toolName', 'toolCallId']) if (!text(row[key])) invalid();
     if (row.agentTurnId !== null && !text(row.agentTurnId)

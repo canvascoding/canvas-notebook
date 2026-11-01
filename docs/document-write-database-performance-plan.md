@@ -268,7 +268,7 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Nativen Edit-/Status-Kern an HTTP/MCP und installiertes SDK anschließen; anschließend Create/Import und Datei-/Recovery-Adapter ergänzen. Verwaltung und Leseadapter einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
+| 4a | in Umsetzung | Native Edit-/Status-Adapter über installiertes SDK abnehmen; anschließend Create/Import und Datei-/Recovery-Adapter ergänzen. Verwaltung, Leseadapter und native HTTP-/MCP-Edits sind teilweise abgenommen, siehe 5a. |
 | 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
@@ -765,15 +765,35 @@ Session-Spalte sind für diesen Zugang `null`. Es entsteht keine Browser-/OAuth-
 PI-Sitzung. Die vorhandene binäre Versionshistorie akzeptiert diesen fehlenden
 Session-Wert ausschließlich im geprüften nativen Key-Kontext nach Vergleich des
 gespeicherten Originals, tatsächlichen After-Belegs und exakten Payloads.
-Vier PostgreSQL-/Native-Runtime-Gruppen prüfen echte Speicherung, After und
-HistoryOnly-Version, unveränderte Belege bei Wiederholung/Rotation, fremde
-Integrationsgrenzen, Widerruf und abgewiesene fingierte Session-Zuordnung.
+Zwölf PostgreSQL-/Native-Runtime-/Route-/MCP-Gruppen prüfen echte Speicherung,
+After und HistoryOnly-Version, unveränderte Belege bei Wiederholung/Rotation,
+fremde Integrationsgrenzen, Widerruf und abgewiesene fingierte Session-Zuordnung.
+Die öffentlichen Key-Adapter verwenden unter `/api/documents/edit` und
+`/api/documents/edit/status` dieselben nativen Kerne. MCP bietet ausschließlich
+deren native Edit-/Status-Eingaben an; beide Protokollversionen sind mit echten
+Schlüsseln und veröffentlichten Schemata geprüft. Der gespeicherte Key-Ursprung
+unterscheidet REST und MCP, während dieselbe Integration ihren Status auch nach
+Rotation und über den jeweils anderen Transport lesen kann. Versteckte MCP-
+Pfade, aktuelle Seat-/Schreibrechte, entzogene Aktionen und echte Key-Limits
+werden vor der Änderung geprüft. Die sichere Fehlerdarstellung veröffentlicht
+nur Fehlercode, gegebenenfalls begrenzte Wartezeit und tatsächliche Operations-ID.
+Ein verlorenes Acknowledgement nach dem wirklichen Schreib-COMMIT erzeugt keine
+zweite Operation. Läuft der Schlüssel erst nach dem abgeschlossenen Schreibvorgang
+ab, bleibt dessen Referenz für die Statusabfrage mit einem neu ausgestellten
+Schlüssel erhalten. Nach dem tatsächlichen Löschen der ausstellenden Browser-
+Sitzung funktionieren native Key-Edits und Status weiterhin ohne Ersatzsitzung.
 Neun bestehende Principal-Familien, zehn reale Edit-Owner-Gruppen mit Peer-
 Änderungen und sechs Historiengruppen bestehen ebenfalls. Typecheck, ESLint
 und vollständiger Test-Cleanup sind bestätigt. Der dauerhafte Key-Runner ist
 `scripts/api-key-native-edit-owner-postgres-test.ts` in `test:api-keys:edits:native`.
-Die öffentlichen Key-Edit-/Status-Adapter und ihre SDK-/Container-Abnahme sind
-noch anzuschließen.
+Die drei vorhandenen Key-Dokument- und fünf Workspace-Suiten, die zehn Session-
+Owner-Gruppen, neun registrierten MCP-/PI-Dispatch-Gruppen sowie Resultat-,
+MCP-Vertrags- und Nutzungsanzeigentests bestehen. Der bisherige CJS-Start des
+MCP-Vertragstests wurde auf den bereits vorhandenen ESM-Test-Runner umgestellt:
+Das installierte `pi-ai/compat` besitzt ausschließlich einen Import-Export.
+Der vollständige Paketbefehl besteht ohne ausgelassene Tests. Release-Typecheck
+und gezieltes ESLint bestehen. Die installierte SDK-Schreib- und kompilierte
+Container-Abnahme bleiben offen.
 
 Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
 nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
@@ -782,7 +802,7 @@ Sperrspeicherlimit (`out of shared memory`). Die zugehörigen Serverfehler wurde
 über Backend-PID und exakten Schema-Namen zugeordnet; beide eindeutig eigenen
 Schemas sind bereinigt. Die vollständigen sequenziellen Wiederholungen bestehen
 einschließlich Cleanup. Es wurde kein PostgreSQL-Limit erhöht.
-**Die übrigen Schreib-/Job-Phasen und öffentlichen Schreibadapter sowie
+**Die übrigen Schreib-/Job-Phasen und öffentlichen Create-/Import-/Dateiadapter sowie
 die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
