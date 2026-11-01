@@ -25,7 +25,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
     Unbekannter Ausgang bleibt ausdrücklich unbekannt; Retry mit gleichem Key.
   - Tests: Fehler vor Commit, nach Commit, Projektionfehler, verlorene Antwort,
     Neustart, identischer Retry, abweichender Inhalt und entzogene Berechtigung.
-- [ ] 2. Lifecycle-Busy und sequenzielle Writes
+- [x] 2. Lifecycle-Busy und sequenzielle Writes (Code und Integration; gemeinsame E2E unter 7)
   - Sperrbesitzer, Geltungsbereich und Freigabe einschließlich Abbruch prüfen.
   - Konflikt mit `retryable`, `retry_after_ms` und stabilem Vorgangsbezug ausgeben;
     gültige Requests nicht als Argumentfehler klassifizieren.
@@ -113,6 +113,29 @@ Evidenz (lokal, keine Produktionsdaten):
   ausgeführt; ergänzende direkte Diff-/Aufruferprüfung erforderlich, da der Index alt ist.
 - Der ältere direkte `tsx`-Ingest-Unit-Harness scheitert beim Laden relativer
   Modulsubstitutionen (`./document-read-principal`); nicht als bestanden gewertet.
+
+### Schritt 2 — implementiert und integrationsgeprüft
+
+Busy-Antworten enthalten `retryable: true`, `retry_after_ms: 250`,
+`phase: admission`, `correlation_id` und dieselbe `operation_id` wie ein späterer
+erfolgreicher Create. Die ID wird erst aus einem verifizierten OAuth-Principal
+gebildet. Die öffentliche MCP-Antwort ist ein fachlicher Tool-Konflikt, kein
+JSON-RPC-InvalidParams. Eine zusätzliche Client-Einstufung muss im echten Client
+geprüft werden.
+
+Der bestehende native Create-Pfad wartet bereits bis zu vier Sekunden auf die
+workspaceweite Admission-Sperre. Sie schützt auch Räume und Reservierungen;
+die dedizierte Session wird im `finally` verworfen. Diese Sicherheitsgrenze
+wurde nicht verengt. Derselbe Wartepfad ist bereits im Release 2026.10.31.1.
+Die historischen 40 Konflikte sind ohne damalige Sperrhalter-/Phasenbelege nicht
+auf einen bestimmten Freigabefehler zurückzuführen.
+
+`scripts/mcp-ingest-busy-postgres-test.ts` besteht mit dem realen MCP-Dispatcher:
+echte konkurrierende PostgreSQL-Sperre, korrekte Konfliktantwort, keine Anlage
+vor Zulassung, Retry mit derselben ID, zwölf sequenzielle Creates unter kurzen
+gemeinsamen Lesesperren sowie Abbruch und anschließender erfolgreicher Retry.
+Log: `/tmp/canvas-mcp-busy-test.log`, Exit 0. Produktions-Typecheck
+(`/tmp/canvas-mcp-busy-types.log`) und scoped ESLint: Exit 0.
 
 Jede Anforderung oben benötigt passende aktuelle Laufzeitevidenz;
 Quellcodeprüfung allein gilt nicht als Connector- oder Browser-Abnahme.

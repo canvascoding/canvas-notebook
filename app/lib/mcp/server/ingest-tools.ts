@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ProtocolError, ProtocolErrorCode, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 
-import { DirectMcpAuthorizationError } from './access-token-verifier';
+import { DirectMcpAuthorizationError, verifyDirectMcpAccessToken } from './access-token-verifier';
 import { createDirectMcpIngestAuthority } from './ingest-authority';
 import { downloadDirectMcpFile, type DirectMcpFileReference, DirectMcpIngestDownloadError } from './ingest-download';
 import { createDirectMcpWorkspaceFile, directMcpIngestFingerprint, DirectMcpFileIngestError, normalizeDirectMcpIngestPath } from './file-ingest';
@@ -126,7 +126,10 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     text = args.content;
   }
   if (!authInfo?.token) return directMcpToolAuthorizationError(undefined, 'knowledge:write');
+  let operationId: string | undefined;
   try {
+    const principal = await verifyDirectMcpAccessToken(authInfo.token, ['knowledge:write']);
+    operationId = directMcpIngestFingerprint([principal.clientId, principal.userId, workspaceId, key]);
     const nativeMarkdown = authenticatedNativeTextSessionEnabled() && /\.(?:md|markdown)$/iu.test(destination);
     if (args.api_version === 1 && !nativeMarkdown) {
       throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'api_version 1 requires enabled native Markdown creation.');
@@ -189,9 +192,14 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
         // An unsuccessful observation cannot establish absence or confirm a commit.
       }
     }
+    const busy = error instanceof WorkspaceFileLifecycleBusyError
+      || error instanceof WorkspaceMutationLockError && error.retryable
+      || error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_BUSY';
     const detail = { code,
       message: native ? error.code : known ? error.message : 'The storage outcome is unknown. Query status with the original idempotency_key before retrying.',
-      correlation_id: correlationId, phase: 'create', storage_status: 'unknown' };
+      correlation_id: correlationId, phase: busy ? 'admission' : 'create', storage_status: 'unknown',
+      ...(operationId ? { operation_id: operationId } : {}), retryable: busy,
+      ...(busy ? { retry_after_ms: 250 } : {}) };
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(detail) }], structuredContent: detail };
   }
 }
