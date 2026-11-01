@@ -12,7 +12,7 @@ import { apiKeyDocumentCreateSchemas } from '../../documents/create-json-schema'
  * initialize the separate API-key document adapter or its authorization code. */
 export const API_KEY_MCP_TOOLS: readonly DirectMcpToolId[] = Object.freeze(['list_workspaces', 'get_workspace_overview',
   'list_knowledge_tree', 'get_knowledge_manifest', 'read_knowledge_source', 'search_knowledge', 'edit_knowledge_source',
-  'create_knowledge_source', 'import_knowledge_file', 'copy_knowledge_source']);
+  'create_knowledge_source', 'import_knowledge_file', 'copy_knowledge_source', 'move_knowledge_source', 'delete_knowledge_source']);
 type KeyScheme = { type: 'apiKey'; in: 'header'; name: 'X-Canvas-API-Key' };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -38,6 +38,17 @@ function nativeEditSchemas(descriptor: DirectMcpToolDescriptor) {
     output: { ...output, oneOf: outputs } };
 }
 
+function nativePathOutputSchema(descriptor: DirectMcpToolDescriptor) {
+  const schema = descriptor.outputSchema, branches = schema?.oneOf;
+  if (!Array.isArray(branches)) throw new Error('Native path descriptor branches are unavailable.');
+  const native = branches.filter(branch => {
+    const preview = record(record(branch)?.properties)?.preview;
+    return record(record(record(preview)?.properties)?.kind)?.const !== 'native-path-import-preparation';
+  });
+  if (branches.length - native.length !== 2) throw new Error('Native path import descriptor branches are unavailable.');
+  return { ...schema, oneOf: native };
+}
+
 export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): Tool & { securitySchemes: KeyScheme[] } {
   const securitySchemes: KeyScheme[] = [{ type: 'apiKey', in: 'header', name: 'X-Canvas-API-Key' }];
   const credentialFailure = { type: 'object', additionalProperties: false, required: ['apiVersion', 'success', 'code'],
@@ -49,7 +60,8 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
     ? apiKeyDocumentCreateSchemas(descriptor.inputSchema) : null;
   const workspace_id = { type: 'string', minLength: 1, maxLength: 256 };
   const copy = descriptor.name === 'copy_knowledge_source';
-  const inputSchema = copy ? descriptor.inputSchema : create ? create.input : edit ? edit.input : descriptor.name === 'list_workspaces'
+  const path = descriptor.name === 'move_knowledge_source' || descriptor.name === 'delete_knowledge_source';
+  const inputSchema = copy || path ? descriptor.inputSchema : create ? create.input : edit ? edit.input : descriptor.name === 'list_workspaces'
     ? { type: 'object' as const, additionalProperties: false, properties: {} }
     : ['get_workspace_overview', 'list_knowledge_tree', 'get_knowledge_manifest'].includes(descriptor.name)
     ? { ...descriptor.inputSchema, properties: { ...descriptor.inputSchema.properties, workspace_id } }
@@ -60,7 +72,7 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
       properties: { workspace_id, ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         query: { type: 'string', minLength: 2, maxLength: 200 }, path: { type: 'string', maxLength: 4096, default: '.' },
         max_results: { type: 'integer', minimum: 1, maximum: 25 } } };
-  const outputSchema = create?.output ?? edit?.output ?? descriptor.outputSchema ?? (descriptor.name === 'get_knowledge_manifest' ? {
+  const outputSchema = (path ? nativePathOutputSchema(descriptor) : null) ?? create?.output ?? edit?.output ?? descriptor.outputSchema ?? (descriptor.name === 'get_knowledge_manifest' ? {
     type: 'object', additionalProperties: false, required: ['workspace_id', 'path', 'entries', 'directories', 'next_cursor', 'has_more', 'truncated_by_depth', 'coverage'],
     properties: { workspace_id: { type: 'string' }, path: { type: 'string' }, entries: { type: 'array', items: { type: 'object' } },
       directories: { type: 'array', items: { type: 'object' } }, next_cursor: { type: ['string', 'null'] }, has_more: { type: 'boolean' },
@@ -70,6 +82,7 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
     apiVersion: { type: 'integer', const: 1 }, success: { type: 'boolean', const: false },
     code: { type: 'string', enum: ['INVALID_BROWSE_REQUEST', 'INVALID_TREE_REQUEST', 'WORKSPACE_TREE_CHANGED'] } } };
   return { ...descriptor, inputSchema, securitySchemes, _meta: { ...descriptor._meta, securitySchemes },
+    ...(path ? { description: 'Native Move/Delete V1 preview/apply/status/recover in one explicitly allowed workspace. Requires the key move or delete grant and current native workspace permissions; Status additionally requires status, Recover additionally requires recover. Delete supports native documents, physical files and mixed folder cohorts. Existing originals must be imported through a separately granted operation; these tools never implicitly import. Retain the exact caller operation_id, preview plan_id and original paths after uncertainty. Inspect status, then explicitly recover the same operation; never automatically replay or generate a replacement ID. Native mutations must be enabled for Preview/Apply/Recover; historical Status retains current authorization checks.' } : {}),
     ...(copy ? { description: 'Native Copy V1 preview/apply/status/recover with explicit source and destination workspace IDs. Requires the key copy grant, current source Read and destination Write/Agent rights; Status additionally requires status, Recover additionally requires recover. Apply retains the caller operation_id, exact preview plan_id and resolved root selections. Inspect status after an uncertain result; explicit recover never changes the operation or automatically replays it.' } : {}),
     ...(create ? { description: 'Create a new native Markdown document or import a genuine HTTPS file reference. api_version:1 and a stable idempotency_key are required. Never overwrites an existing file. Retain the caller key after an uncertain outcome; explicitly repeat only the identical operation. Requires the separate create or import grant and current workspace rights. Success includes the stable documentId and confirmed durable version.' } : {}),
     ...(edit ? { description: 'Native documentId/full-version Edit V1 or read-only operation Status V1. Supply a stable idempotency_key. Only state:confirmed proves persistence. Retain the returned operationId after an uncertain outcome; inspect action:status with operation_id without replay. Edit requires the key edit grant; Status additionally requires status. Each call checks current user/workspace rights.' } : {}),

@@ -1239,8 +1239,8 @@ offenen Gesamtmessung. Das gesamte native Key-Pfadpaket, elf echte öffentliche
 MCP-Pfadgruppen und zwölf MCP-Berechtigungsfamilien bestehen lokal. Der strenge
 Release-/Test-Typecheck umfasst 3.664 Prüfdateien und 8.954 Quellen ohne Fehler;
 die anschließende CI- und Release-Abnahme dieses Schritts bleibt erforderlich.
-Die äußeren Key-REST-/MCP-Adapter und die installierte SDK-Abnahme für
-Apply/Status/Recover sind weiterhin offen.
+Die installierte SDK-Abnahme für Apply/Status/Recover bleibt weiterhin offen;
+die äußeren Key-REST-/MCP-Adapter sind im folgenden Abschnitt dokumentiert.
 
 Die gemeinsame native Pfadsteuerung ist inzwischen auch an echte Key-Principals
 angeschlossen. MCP und API-Key verwenden denselben Planner, Claim-Ablauf,
@@ -1266,9 +1266,47 @@ gleichen unveränderten Quellstand. Alle isolierten Datenbank-/Dateiressourcen
 sind danach freigegeben. Release-TypeScript und die strenge erweiterte Prüfung
 mit 3.667 Wurzeln/8.958 Quellen sowie ESLint bestehen. Die bisherigen 218
 Runner-Einträge behalten ihre Quellwächter; der neue Eintrag ergänzt 35 echte
-Quellabhängigkeiten. Dies ist eine Dienst-/Fixture-Abnahme; aktuelle
-HTTP-/SDK-Pfadadapter, kompiliertes Image, Gesamtbudgets, CI und Release bleiben
-eigene offene Abnahmen. Review Center und Undo bleiben ausgeschaltet.
+Quellabhängigkeiten. Dies ist eine Dienst-/Fixture-Abnahme; die folgende
+Adapterprüfung ergänzt sie. Installiertes SDK, kompiliertes Image,
+Gesamtbudgets und Release bleiben eigene offene Abnahmen. Review Center und
+Undo bleiben ausgeschaltet.
+
+Die getrennten Key-Routen `POST /api/documents/move` und
+`POST /api/documents/delete` sowie beide registrierten MCP-Pfadtools sind jetzt
+an diesen Dienst angeschlossen. REST akzeptiert den begrenzten CamelCase-V1-
+Vertrag, MCP den vorhandenen strengen SnakeCase-Vertrag. Die aktuelle
+Key-Authentifizierung läuft vor dem Lesen des HTTP-Bodys; gemischte Credentials
+werden abgewiesen. Der strenge UTF-8-/Stream-Leser wird mit Copy geteilt,
+während jede Aktion ihre Fehlerfamilie und Größenregel behält. Nur die exakten
+neuen Routen umgehen das Proxy-Body-Buffering; benachbarte APIs behalten ihren
+Schutz. Die echten MCP-Schemas beider Protokollversionen werben die neuen
+Key-Aktionen und ihre zusätzlichen Status-/Recover-Rechte aus, ohne implizite
+Originalimport-Vorschauen zu veröffentlichen.
+Sechzehn echte REST-/registrierte-MCP-/PostgreSQL-Gruppen bestehen. Sie führen
+Move und Delete jeweils für native, rein native, physische PDF- und gemischte
+Ordner aus; native Originalzustände, Dateibytes beim physischen Move, Linkpflege, unveränderte Historien
+einschließlich `xmin`, Rotation und die gleichen Aufruferkennungen bleiben
+erhalten. Vier Fälle verlieren tatsächlich die Claim- oder Abschluss-COMMIT-
+Bestätigung und prüfen lesenden Status sowie ausdrückliches Recover derselben
+Operation. Fehlende Jobs, Rechte-/ACL-Entzug, versteckte MCP-Pfade, gemischte
+Credentials, abgeschaltete Tools und echter Schlüsselwiderruf bleiben
+begrenzte Ablehnungen. Die acht bestehenden nativen Copy-Adaptergruppen und
+elf OAuth-MCP-Pfadgruppen bestehen ebenfalls. Vier zusätzliche Read-/Browse-
+Gruppen des installierten SDKs über echtes TCP/HTTP bestehen am selben
+Produktstand mit dem unveränderten Wheel und Python 3.14.3. Dies ist eine
+Regression der bisherigen Lesezugänge; die endgültige aktuelle/minimale
+Python-Matrix und die SDK-Pfadabnahme bleiben offen. Alle vier isolierten
+Fixtures geben ihre Schemas, Daten und Clients vollständig frei.
+Release-TypeScript und der strenge erweiterte Test-Typecheck mit 3.674 Wurzeln/
+8.972 Quellen sowie ESLint bestehen. Die Typkorrekturen am neuen Adaptertest
+erzeugen bytegleiches ESM/CommonJS; die bestehenden Laufzeit-Assertions bleiben
+erhalten. Die bisherigen 219 Runner-Einträge behalten alle Quellwächter; Copy
+erhält den neuen gemeinsamen Leser als zusätzlichen Wächter und der neue
+Pfad-Adaptertest prüft 46 echte Eingangsquellen. Der neue Test gehört dauerhaft
+zum nativen Key-Pfadpaket, der Stream-Lesertest zur regulären Key-Suite.
+Installierte SDK-Pfadtests über tatsächliches TCP, aktuelle Image-/UI-Abnahme,
+die vollständige API-/SDK-Matrix, dedizierte CI und die übrigen vereinbarten
+Pakete bleiben weiterhin offen; dies ist keine Release-Abnahme.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier

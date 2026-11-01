@@ -59,7 +59,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts'],
   'scripts/api-key-native-copy-adapters-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-copy-mixed-source-fixture.ts',
-    'app/api/documents/copy/route.ts', 'app/lib/documents/copy-http.ts', 'app/lib/documents/copy-contract.ts',
+    'app/api/documents/copy/route.ts', 'app/lib/documents/copy-http.ts', 'app/lib/documents/copy-contract.ts', 'app/lib/documents/request-json.ts',
     'app/lib/documents/copy-public-service.ts', 'app/lib/files/workspace-file-operation-service.ts',
     'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
     'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts', 'proxy.ts',
@@ -1989,6 +1989,13 @@ criticalInputsByEntryPoint['scripts/api-key-public-path-service-postgres-test.ts
   'app/lib/collaboration/lifecycle-transaction.ts',
   'app/lib/files/workspace-operation-native-path-status.ts',
   'app/lib/files/workspace-path-operation-service.ts',
+])];
+criticalInputsByEntryPoint['scripts/api-key-native-path-adapters-postgres-test.ts'] = [...new Set([
+  ...criticalInputsByEntryPoint['scripts/api-key-public-path-service-postgres-test.ts'],
+  'app/api/documents/move/route.ts', 'app/api/documents/delete/route.ts',
+  'app/lib/documents/path-contract.ts', 'app/lib/documents/path-public-service.ts', 'app/lib/documents/path-http.ts',
+  'app/lib/documents/request-json.ts', 'app/lib/mcp/server/api-key-tools.ts', 'app/lib/mcp/server/api-key-tool-contract.ts',
+  'app/lib/mcp/server/direct-server.ts', 'app/lib/mcp/server/streamable-http.ts', 'proxy.ts',
 ])];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];

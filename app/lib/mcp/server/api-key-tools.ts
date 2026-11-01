@@ -38,6 +38,11 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
       const [{ copyWorkspaceForApiKey }, { formatDirectMcpWorkspaceCopyResult }] = await Promise.all([
         import('../../documents/copy-public-service'), import('./workspace-copy-tool-contract')]);
       return formatDirectMcpWorkspaceCopyResult(await copyWorkspaceForApiKey(credential, args, 'mcp', signal));
+    } else if (tool === 'move_knowledge_source' || tool === 'delete_knowledge_source') {
+      const [{ moveWorkspaceForApiKey, deleteWorkspaceForApiKey }, { formatDirectMcpWorkspacePathResult }] = await Promise.all([
+        import('../../documents/path-public-service'), import('./workspace-path-tool-contract')]);
+      const operation = tool === 'move_knowledge_source' ? moveWorkspaceForApiKey : deleteWorkspaceForApiKey;
+      return formatDirectMcpWorkspacePathResult(await operation(credential, args, 'mcp', signal));
     } else if (tool === 'edit_knowledge_source') {
       const selection = decodeDirectMcpNativeDocumentEditSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 and native Edit/Status arguments.');
@@ -60,6 +65,11 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page as Record<string, unknown> };
   } catch (error) {
     if (error instanceof ProtocolError) throw error;
+    if (tool === 'move_knowledge_source' || tool === 'delete_knowledge_source') {
+      const { apiKeyWorkspacePathFailure } = await import('../../documents/path-public-service');
+      const { body } = apiKeyWorkspacePathFailure(error, args, 'mcp');
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+    }
     if (tool === 'copy_knowledge_source') {
       const { apiKeyWorkspaceCopyFailure } = await import('../../documents/copy-public-service');
       const { body } = apiKeyWorkspaceCopyFailure(error, args, 'mcp');

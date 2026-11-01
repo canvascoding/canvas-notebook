@@ -45,7 +45,7 @@ async function main() {
       const text = JSON.stringify(value); assert(!text.includes(key)); assert(!text.includes(h.dataRoot));
       assert(!text.includes('apiKeyPrincipal')); assert(!text.includes(issued.credential.id));
     };
-    const post = async (value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array) => {
+    const post = async (value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array<ArrayBuffer>) => {
       const response = await POST(new NextRequest('http://localhost/api/documents/copy', { method: 'POST',
         headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras }, body: raw ?? JSON.stringify(value) }));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
@@ -75,7 +75,7 @@ async function main() {
       return rows;
     };
     const completed = async (selected: Job, result: Extract<DirectMcpWorkspaceCopyResultV1, { action: 'apply' | 'recover' }>, known: boolean) => {
-      assert.equal(result.apiVersion, 1); assert.equal(result.execution.status, 'complete', result.execution.errorCode);
+      assert.equal(result.apiVersion, 1); assert.equal(result.execution.status, 'complete', result.execution.errorCode ?? 'Native Copy did not complete');
       assert.equal(result.alreadyKnown, known); assert.deepEqual(result.copied, [selected.destinationPath]);
       const row = (await h.admin.query('SELECT * FROM workspace_file_operations WHERE operation_id=$1', [selected.operationId])).rows[0];
       assert.equal(row.status, 'completed'); assert.equal(JSON.parse(row.request_json).origin.version, 3);

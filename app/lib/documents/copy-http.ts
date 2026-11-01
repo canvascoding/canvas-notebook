@@ -4,23 +4,13 @@ import { applyRateLimit } from '../api/route-helpers';
 import { authenticateApiKeyRequest } from '../api-keys/authentication';
 import { WORKSPACE_COPY_REQUEST_MAX_BYTES, WorkspaceCopyToolError } from '../mcp/server/workspace-copy-tool-contract';
 import { apiKeyWorkspaceCopyFailure, copyWorkspaceForApiKey } from './copy-public-service';
+import { readNativeDocumentRequestJson } from './request-json';
 
 const headers = { 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' };
 async function readBody(request: NextRequest): Promise<unknown> {
-  const reader = request.body?.getReader(); if (!reader) throw new WorkspaceCopyToolError('INVALID_REQUEST');
-  const chunks: Uint8Array[] = []; let bytes = 0;
-  try {
-    while (true) {
-      const item = await reader.read(); if (item.done) break;
-      bytes += item.value.byteLength;
-      if (bytes > WORKSPACE_COPY_REQUEST_MAX_BYTES) {
-        void reader.cancel().catch(() => undefined); throw new WorkspaceCopyToolError('COPY_TOO_LARGE');
-      }
-      chunks.push(item.value);
-    }
-    try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))) as unknown; }
-    catch { throw new WorkspaceCopyToolError('INVALID_REQUEST'); }
-  } finally { reader.releaseLock(); }
+  return readNativeDocumentRequestJson(request, { maxBytes: WORKSPACE_COPY_REQUEST_MAX_BYTES,
+    invalidRequest: () => new WorkspaceCopyToolError('INVALID_REQUEST'),
+    tooLarge: () => new WorkspaceCopyToolError('COPY_TOO_LARGE') });
 }
 
 /** Independent native programmatic route. Authentication precedes body reads;
