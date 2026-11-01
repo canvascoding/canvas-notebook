@@ -13,7 +13,8 @@ import { readHistoricalNativeFileOperationSideEffectsOnConnection } from '../mar
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError } from './workspace-operation-native-read-context';
+import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError,
+  type WorkspaceOperationNativeBatchReadContext } from './workspace-operation-native-read-context';
 import { createWorkspaceOperationOriginalMoveAdmissionRequest } from './workspace-operation-original-move-admission';
 import { parseWorkspaceOperationOriginalMoveIntent, decodeWorkspaceOperationOriginalMoveParentReceipt,
   decodeWorkspaceOperationOriginalMovePathReceipt, decodeWorkspaceOperationOriginalMoveCompletion,
@@ -104,6 +105,19 @@ async function observe(database: SqlConnection, schema: string, context: Workspa
   return Object.freeze({ apply: 'complete', intent, paths, completion });
 }
 
+/** Factual observation inside the existing authenticated historical snapshot. */
+export async function observeWorkspaceOperationNativeMoveBatchStatus(context:WorkspaceOperationNativeBatchReadContext):Promise<WorkspaceOperationNativeMoveBatchStatus>{
+  const {database,schema,batch,plan}=context;
+  if(plan.version!==3||batch.authorization.mode!=='direct'&&batch.authorization.mode!=='direct-mcp'&&batch.authorization.mode!=='api-key')throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
+  const auth=batch.authorization;
+  const original:WorkspaceOperationOriginalMoveContext={batchId:batch.batchId,requestHash:auth.requestHash,
+    actor:{userId:auth.actorUserId,actorId:auth.actorId,actorType:auth.actorType,actorSessionId:auth.actorSessionId??null},plan};
+  let observation:WorkspaceOperationOriginalMoveObservation;
+  try{observation=await observe(database,schema,original);}
+  catch(error){if(error instanceof WorkspaceOperationNativeMoveStatusError)throw error;invalid(error);}
+  return Object.freeze({batch,plan,observation:observation!});
+}
+
 /** Current authenticated read plus immutable history. No workspace is converted
  * into a mutation principal or an execution claim for this GET-style path. */
 export async function withWorkspaceOperationNativeMoveReadContext<T>(input: Input,
@@ -113,15 +127,8 @@ export async function withWorkspaceOperationNativeMoveReadContext<T>(input: Inpu
     const principal = captureWorkspaceOperationProgrammaticJobReadOptions(input);
     return await withWorkspaceOperationNativeBatchReadContext({ batchId: input.batchId, scope: input.scope,
       expectedPlan: input.expectedPlan, ...workspaceOperationProgrammaticJobReadOptions(principal), planVersion: 3 }, async context => {
-      const { database, schema, workspace, batch, plan } = context;
-      if (plan.version !== 3 || batch.authorization.mode !== 'direct' && batch.authorization.mode !== 'direct-mcp' && batch.authorization.mode !== 'api-key') throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
-      const auth = batch.authorization;
-      const original: WorkspaceOperationOriginalMoveContext = { batchId: batch.batchId, requestHash: auth.requestHash,
-        actor: { userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null }, plan };
-      let observation: WorkspaceOperationOriginalMoveObservation;
-      try { observation = await observe(database, schema, original); }
-      catch (error) { if (error instanceof WorkspaceOperationNativeMoveStatusError) throw error; invalid(error); }
-      const status = Object.freeze({ batch, plan, observation: observation! });
+      const { database, schema, workspace } = context;
+      const status = await observeWorkspaceOperationNativeMoveBatchStatus(context);
       return operation(Object.freeze({ database, schema, workspace, status }));
     });
   } catch (error) {

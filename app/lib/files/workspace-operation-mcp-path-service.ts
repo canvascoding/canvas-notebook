@@ -1,10 +1,10 @@
 import { decodeWorkspaceOperationPhysicalDeleteBatchPlanV5, type WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
-import { readWorkspaceOperationPhysicalDeleteBatchStatusV5, type WorkspaceOperationPhysicalDeleteBatchStatusV5 } from './workspace-operation-physical-delete-status-v5';
+import type { WorkspaceOperationPhysicalDeleteBatchStatusV5 } from './workspace-operation-physical-delete-status-v5';
 import { workspaceOperationPhysicalDeleteExecutionResultV5, projectWorkspaceOperationPhysicalDeleteExecutionV5 } from './workspace-operation-physical-delete-execution-public-v5';
 import { workspaceOperationMcpPhysicalHtmlDeletePreviewV3 } from './workspace-operation-physical-delete-public-v5';
 import 'server-only';
 import { decodeWorkspaceOperationCohortDeletePlan, type WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
-import { readWorkspaceOperationCohortDeleteStatus, type WorkspaceOperationCohortDeleteStatus } from './workspace-operation-cohort-delete-status';
+import type { WorkspaceOperationCohortDeleteStatus } from './workspace-operation-cohort-delete-status';
 import { workspaceOperationCohortDeleteExecutionResult, projectWorkspaceOperationCohortDeleteExecution, workspaceOperationMcpCohortDeletePreview } from './workspace-operation-cohort-delete-public';
 
 import { isDeepStrictEqual, types } from 'node:util';
@@ -32,10 +32,9 @@ import { WorkspaceOperationBatchStore, type WorkspaceOperationBatchRecord,
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchExecutionResult,
   WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import { readWorkspaceOperationNativeMoveBatchStatus,
-  type WorkspaceOperationNativeMoveBatchStatus } from './workspace-operation-native-move-status';
-import { readWorkspaceOperationNativeDeleteBatchStatus,
-  type WorkspaceOperationNativeDeleteBatchStatus } from './workspace-operation-native-delete-status';
+import type { WorkspaceOperationNativeMoveBatchStatus } from './workspace-operation-native-move-status';
+import type { WorkspaceOperationNativeDeleteBatchStatus } from './workspace-operation-native-delete-status';
+import { readWorkspaceOperationNativePathStatus } from './workspace-operation-native-path-status';
 import { executeWorkspaceOperationBatch } from './workspace-operation-batch-executor';
 import { projectWorkspaceOperationNativeMoveExecution, workspaceOperationNativeMoveExecutionResult,
   workspaceOperationNativeMoveEffects } from './workspace-operation-native-move-execution-public';
@@ -140,16 +139,8 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
 
 async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
   batchId: string, scope: WorkspaceOperationBatchScope): Promise<NativeStatus | null> {
-  if (live.kind === 'move') {
-    const value = await readWorkspaceOperationNativeMoveBatchStatus({ batchId, scope, mcpPrincipal: live });
-    return value ? Object.freeze({ kind: 'move', value }) : null;
-  }
-  const cohort=await readWorkspaceOperationCohortDeleteStatus({batchId,scope,mcpPrincipal:live});
-  if(cohort)return Object.freeze({kind:'cohort-delete',value:cohort});
-  const value = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId, scope, mcpPrincipal: live });
-  if (value) return Object.freeze({ kind: 'delete', value });
-  const physical = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({ batchId, scope, mcpPrincipal: live });
-  return physical ? Object.freeze({ kind: 'delete', value: physical }) : null;
+  const observation = await readWorkspaceOperationNativePathStatus({ batchId, scope, mcpPrincipal: live });
+  return observation?.status ?? null;
 }
 
 function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobPrincipal,

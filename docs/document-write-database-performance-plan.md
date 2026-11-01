@@ -1215,6 +1215,30 @@ isolierten Kontext bereit, prüft feste Quellhashes vor/nach dem Kindprozess und
 bestätigt dessen Ende sowie die vollständige Fixture-Freigabe. Dieser Aufruf
 gehört jetzt ebenfalls zum gesamten nativen Key-Path-Paket. Review Center und
 Undo bleiben ausgeschaltet.
+Der gemeinsame native Statusdispatcher wählt inzwischen Move 3, natives Delete 2,
+physisches Delete 5 oder Sammel-Delete 6 anhand des gespeicherten Headers in
+demselben schreibgeschützten Snapshot. Die vorhandenen numerischen Leser und
+der Dispatcher verwenden dieselben reinen historischen Beobachtungsfunktionen.
+Die öffentliche MCP-Pfadsteuerung verwendet diesen Dispatcher ebenfalls.
+Ein Key-Lookup mit Workspace und tatsächlicher Aufrufer-Operations-ID ermittelt
+die aktuelle Workspace-Zuordnung und stabile Jobkennung direkt in der bestehenden
+ersten Berechtigungsphase. Die zurückgegebene Zuordnung ist eine Faktensicht;
+Schreib-Principal und Claim bleiben eigene geprüfte Eingänge.
+Sieben echte native Key-Owner-Fälle vergleichen numerischen Leser, gemeinsamen
+Leser mit Scope und gemeinsamen Lookup mit Operations-ID. Alle drei Zugänge
+liefern dieselbe Originalhistorie, behalten Domainzeilen einschließlich `xmin`
+bei und verwenden genau einen Repeatable-Read-/Read-Only-Snapshot sowie zwei
+aktuelle Berechtigungsphasen. Neun zusätzliche Grenzfallgruppen prüfen echte
+Rechteänderungen, Rotation/Widerruf nach dem Snapshot, Realm-Wechsel, fremde
+Integrationen und fehlende Jobs; gefälschte/gemischte/Accessor-Handles und
+ungültige/gemischte Operations-Selektoren werden vor dem SQL-Zugriff abgewiesen.
+Der isolierte Key-Statusleser benötigt dabei 88 Anwendungs-SQL für Move, 60 für
+natives beziehungsweise physisches Delete und 58 für Sammel-Delete.
+HTTP-Eingangsprüfung und kompletter Operationsablauf gehören zur weiterhin
+offenen Gesamtmessung. Das gesamte native Key-Pfadpaket, elf echte öffentliche
+MCP-Pfadgruppen und zwölf MCP-Berechtigungsfamilien bestehen lokal. Der strenge
+Release-/Test-Typecheck umfasst 3.664 Prüfdateien und 8.954 Quellen ohne Fehler;
+die anschließende CI- und Release-Abnahme dieses Schritts bleibt erforderlich.
 Die gesamte öffentliche Key-Apply-/Status-/Recover-
 Steuerung über REST/MCP und die installierte SDK-Abnahme sind weiterhin offen.
 

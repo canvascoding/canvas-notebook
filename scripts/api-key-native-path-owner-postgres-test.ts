@@ -54,6 +54,7 @@ async function main() {
     const { readWorkspaceOperationNativeDeleteBatchStatus: deleteStatus } = await import('../app/lib/files/workspace-operation-native-delete-status');
     const { readWorkspaceOperationPhysicalDeleteBatchStatusV5: physicalStatus } = await import('../app/lib/files/workspace-operation-physical-delete-status-v5');
     const { readWorkspaceOperationCohortDeleteStatus: cohortStatus } = await import('../app/lib/files/workspace-operation-cohort-delete-status');
+    const { readWorkspaceOperationNativePathStatus: pathStatus } = await import('../app/lib/files/workspace-operation-native-path-status');
     const { openDb } = await import('../app/lib/db');
     const { loadCollaborationStateOnConnection: load } = await import('../app/lib/collaboration/persistence');
     const { inspectPersistedDocumentLinks: links } = await import('../app/lib/markdown/workspace-native-link-inventory');
@@ -93,6 +94,7 @@ async function main() {
       return result;
     };
     const samples = new Map<number, { plan: OwnerPlan; batchId: string }>();
+    const operationIds = new Map<string, string>();
     const readStatus = async (plan: OwnerPlan, input: Omit<Parameters<typeof moveStatus>[0], 'expectedPlan'>) => {
       assert([2, 3, 5, 6].includes(plan.version));
       return plan.version === 3 ? moveStatus({ ...input, expectedPlan: plan })
@@ -104,27 +106,46 @@ async function main() {
       assert([2, 3, 5, 6].includes(plan.version)); const kind = plan.version === 3 ? 'move' : 'delete';
       const purpose = purposeOverride ?? (kind === 'move' ? 'move_status' : 'delete_status');
       const expected = await store.get(batchId); assert(expected); const before = await domainSnapshot();
-      const active = new Set<object>(); let snapshots = 0;
-      await h.withProbe(async event => {
-        const sql = event.text.trim();
-        if (/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY$/iu.test(sql)) {
-          assert.equal(active.has(event.client), false); active.add(event.client);
-          const facts = (await event.raw("SELECT current_setting('transaction_read_only') AS readonly,current_setting('transaction_isolation') AS isolation")).rows[0];
-          assert.deepEqual(facts, { readonly: 'on', isolation: 'repeatable read' });
-        }
-        if (active.has(event.client)) {
-          assert.equal(/^\s*(?:INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)\b/iu.test(sql), false);
-          assert.equal(/\b(?:pg_notify|NOTIFY)\b/iu.test(sql), false);
-          if (/^(?:COMMIT|ROLLBACK)$/iu.test(sql)) { assert(/^COMMIT$/iu.test(sql)); active.delete(event.client); snapshots++; }
-        }
-      }, () => run(purpose, async principal => {
-        const selected = await scope(principal, purpose), apiKeyPrincipal = readHolder({ transport: 'api-key', kind, purpose, principal });
-        if (purpose.endsWith('_status')) assert.throws(() => holder(apiKeyPrincipal), error => errorCode(error) === 'API_KEY_JOB_PRINCIPAL_INVALID');
-        const input = { batchId, scope: selected, apiKeyPrincipal };
-        const result = await readStatus(plan, input);
-        assert(result); assert.equal(result.batch.status, 'applied'); assert.deepEqual(result.batch, expected); assert.equal(result.plan.planId, plan.planId);
-      }));
-      assert.equal(snapshots, 1); assert.equal(active.size, 0); assert.deepEqual(await domainSnapshot(), before);
+      const operationId = operationIds.get(batchId); assert(operationId);
+      let reference: Awaited<ReturnType<typeof readStatus>> | undefined;
+      for (const mode of ['numeric', 'family-scoped', 'family-operation'] as const) {
+        const active = new Set<object>(); let snapshots = 0, authorizations = 0, statements = 0;
+        await run(purpose, async principal => {
+          const apiKeyPrincipal = readHolder({ transport: 'api-key', kind, purpose, principal });
+          if (purpose.endsWith('_status')) assert.throws(() => holder(apiKeyPrincipal), error => errorCode(error) === 'API_KEY_JOB_PRINCIPAL_INVALID');
+          const selected = mode === 'family-operation' ? undefined : await scope(principal, purpose);
+          await h.withProbe(async event => {
+            statements++; const sql = event.text.trim();
+            if (/^BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE$/iu.test(sql)) authorizations++;
+            if (/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY$/iu.test(sql)) {
+              assert.equal(active.has(event.client), false); active.add(event.client);
+              const facts = (await event.raw("SELECT current_setting('transaction_read_only') AS readonly,current_setting('transaction_isolation') AS isolation")).rows[0];
+              assert.deepEqual(facts, { readonly: 'on', isolation: 'repeatable read' });
+            }
+            if (active.has(event.client)) {
+              assert.equal(/^\s*(?:INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)\b/iu.test(sql), false);
+              assert.equal(/\b(?:pg_notify|NOTIFY)\b/iu.test(sql), false);
+              if (/^(?:COMMIT|ROLLBACK)$/iu.test(sql)) { assert(/^COMMIT$/iu.test(sql)); active.delete(event.client); snapshots++; }
+            }
+          }, async () => {
+            let result: Awaited<ReturnType<typeof readStatus>>;
+            if (mode === 'numeric') result = await readStatus(plan, { batchId, scope: selected!, apiKeyPrincipal });
+            else {
+              const observed = await pathStatus(mode === 'family-operation' ? { workspaceId, operationId, apiKeyPrincipal }
+                : { batchId, scope: selected!, apiKeyPrincipal }); assert(observed);
+              assert.equal(observed.status.kind, plan.version === 3 ? 'move' : plan.version === 6 ? 'cohort-delete' : 'delete');
+              assert.equal(observed.scope.workspace.workspaceId, workspaceId);
+              assert.equal(observed.scope.fileOptions.workspace, observed.scope.workspace);
+              result = observed.status.value;
+            }
+            assert(result); assert.equal(result.batch.status, 'applied'); assert.deepEqual(result.batch, expected); assert.equal(result.plan.planId, plan.planId);
+            if (reference) assert.deepEqual(result, reference); else reference = result;
+          });
+        });
+        assert.equal(snapshots, 1); assert.equal(authorizations, 2); assert.equal(active.size, 0);
+        assert.deepEqual(await domainSnapshot(), before);
+        console.log(JSON.stringify({ suite: 'api-key-native-path-status-profile', mode, version: plan.version, purpose, snapshots, authorizations, statements }));
+      }
       if (!samples.has(plan.version)) samples.set(plan.version, { plan, batchId });
     };
     const applyDelete = async (plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan) => {
@@ -164,6 +185,7 @@ async function main() {
         assert(recovered.kind === 'historical-header'); assert.equal(recovered.batch.batchId, applied.batchId);
         assert.deepEqual(recovered.batch.authorization, applied.original); assert.equal(recovered.batch.status, 'applied');
       });
+      operationIds.set(applied.batchId, operationId);
       stage += ': pure status'; await verifyStatus(plan, applied.batchId);
       return applied;
     };
@@ -187,8 +209,9 @@ async function main() {
       let pathCommits = 0;
       stage = `${label}: execute`;
       const applied = await run('move_apply', async principal => {
-        const selected = await scope(principal, 'move_apply'), result = await store.createApiKeyMoveAndClaim(principal, { operationId: randomUUID(), plan });
+        const selected = await scope(principal, 'move_apply'), operationId = randomUUID(), result = await store.createApiKeyMoveAndClaim(principal, { operationId, plan });
         assert(result.kind === 'claimed'); const batch = result.batch; assert(batch.authorization.mode === 'api-key');
+        operationIds.set(batch.batchId, operationId);
         const original = batch.authorization; assert.equal(original.actorSessionId, null); assert.equal(original.credentialId, issued.credential.id);
         return store.withClaim(batch, async claim => {
           const apiKeyPrincipal = holder({ transport: 'api-key', kind: 'move', purpose: 'move_apply', principal });
@@ -411,14 +434,32 @@ async function main() {
       const input = { batchId: sample.batchId, scope: selected, expectedPlan: sample.plan, apiKeyPrincipal: fake };
       await h.withProbe(async () => { queries++; }, async () => {
         await assert.rejects(readStatus(sample.plan, input), denied('API_KEY_PRINCIPAL_REQUIRED'));
+        await assert.rejects(pathStatus({ batchId: sample.batchId, scope: selected, apiKeyPrincipal: fake }), denied('API_KEY_PRINCIPAL_REQUIRED'));
         await assert.rejects(readStatus(sample.plan, { ...input, mcpPrincipal: { kind: 'move', principal: {} } } as unknown as Parameters<typeof readStatus>[1]), denied('BATCH_CLAIM_CHANGED'));
+        await assert.rejects(pathStatus({ batchId: sample.batchId, scope: selected, apiKeyPrincipal: fake,
+          mcpPrincipal: { kind: 'move', principal: {} } } as unknown as Parameters<typeof pathStatus>[0]), denied('BATCH_CLAIM_CHANGED'));
         const getter = Object.defineProperty({ batchId: sample.batchId, scope: selected }, 'apiKeyPrincipal', { enumerable: true,
           get() { touched = true; return fake; } });
         await assert.rejects(moveStatus(getter), denied('BATCH_CLAIM_CHANGED'));
+        await assert.rejects(pathStatus(getter), denied('BATCH_CLAIM_CHANGED'));
         assert.throws(() => readHolder({ ...fake, purpose: 'move_preview' }), denied('API_KEY_JOB_PRINCIPAL_INVALID'));
         assert.throws(() => holder(fake), denied('API_KEY_JOB_PRINCIPAL_INVALID'));
       });
       assert.equal(queries, 0); assert.equal(touched, false);
+    });
+    await checkRead('derived operation selectors reject malformed IDs and mixed namespaces before any SQL', async () => {
+      let queries = 0;
+      await run('move_status', async principal => {
+        const apiKeyPrincipal = readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal });
+        await h.withProbe(async () => { queries++; }, async () => {
+          for (const operationId of ['short', 'invalid operation identifier']) {
+            await assert.rejects(pathStatus({ workspaceId, operationId, apiKeyPrincipal }), denied('BATCH_SCOPE_CHANGED'));
+          }
+          await assert.rejects(pathStatus({ workspaceId, operationId: randomUUID(), apiKeyPrincipal,
+            batchId: sample.batchId, scope: selected }), denied('BATCH_SCOPE_CHANGED'));
+        });
+      });
+      assert.equal(queries, 0);
     });
     await checkRead('missing status grant and another genuine integration cannot read this original job', async () => {
       for (const actions of [['move'], ['move', 'status']] as const) {
@@ -426,6 +467,16 @@ async function main() {
         await assert.rejects(run('move_status', principal => readStatus(sample.plan, { batchId: sample.batchId, scope: selected,
           apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }), other.key),
         denied(actions.length === 1 ? 'API_KEY_ACCESS_DENIED' : 'API_KEY_JOB_AUTHORIZATION_CHANGED'));
+        const operationId = operationIds.get(sample.batchId); assert(operationId);
+        if (actions.length === 1) {
+          await assert.rejects(run('move_status', principal => pathStatus({ workspaceId, operationId,
+            apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }), other.key), denied('API_KEY_ACCESS_DENIED'));
+        } else {
+          await assert.rejects(run('move_status', principal => pathStatus({ batchId: sample.batchId, scope: selected,
+            apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }), other.key), denied('API_KEY_JOB_AUTHORIZATION_CHANGED'));
+          await run('move_status', async principal => assert.equal(await pathStatus({ workspaceId, operationId,
+            apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }), null), other.key);
+        }
       }
     });
     await checkRead('absent status across all four profiles creates no job or history', async () => {
@@ -434,9 +485,12 @@ async function main() {
         const kind = plan.version === 3 ? 'move' : 'delete', purpose = kind === 'move' ? 'move_status' : 'delete_status';
         await run(purpose, async principal => assert.equal(await readStatus(plan, { batchId: randomUUID(), scope: await scope(principal, purpose),
           apiKeyPrincipal: readHolder({ transport: 'api-key', kind, purpose, principal }) }), null));
+        await run(purpose, async principal => assert.equal(await pathStatus({ workspaceId, operationId: randomUUID(),
+          apiKeyPrincipal: readHolder({ transport: 'api-key', kind, purpose, principal }) }), null));
       }
     });
-    const readSample = () => run('move_status', async principal => readStatus(sample.plan, { batchId: sample.batchId, scope: await scope(principal, 'move_status'),
+    const sampleOperationId = operationIds.get(sample.batchId); assert(sampleOperationId);
+    const readSample = () => run('move_status', principal => pathStatus({ workspaceId, operationId: sampleOperationId,
       apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }));
     const afterSnapshotCommit = async (change: () => Promise<void>) => {
       let snapshot = false, changed = false, exposed = false;

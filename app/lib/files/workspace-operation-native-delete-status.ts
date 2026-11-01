@@ -8,7 +8,8 @@ import { captureWorkspaceOperationProgrammaticJobReadOptions, workspaceOperation
   type WorkspaceOperationProgrammaticJobReadOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import type { WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
-import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError } from './workspace-operation-native-read-context';
+import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError,
+  type WorkspaceOperationNativeBatchReadContext } from './workspace-operation-native-read-context';
 import { readWorkspaceOperationOriginalDeleteObservationOnConnection,
   type WorkspaceOperationOriginalDeleteObservation } from './workspace-operation-original-delete-observation';
 import { assertOriginalDeleteIntentPlan } from './workspace-operation-original-delete-evidence';
@@ -26,6 +27,16 @@ type Input = { batchId: string; scope: WorkspaceOperationBatchScope; expectedPla
 type ReadContext = Readonly<{ database: SqlConnection; schema: string; workspace: WorkspaceContext;
   status: WorkspaceOperationNativeDeleteBatchStatus }>;
 
+/** Factual observation inside the existing authenticated historical snapshot. */
+export async function observeWorkspaceOperationNativeDeleteBatchStatus(context:WorkspaceOperationNativeBatchReadContext):Promise<WorkspaceOperationNativeDeleteBatchStatus>{
+  const {database,schema,workspace,batch,plan}=context;
+  if(plan.version!==2||batch.authorization.mode!=='direct'&&batch.authorization.mode!=='direct-mcp'&&batch.authorization.mode!=='api-key')throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED');
+  const observation=await readWorkspaceOperationOriginalDeleteObservationOnConnection(database,{schema,
+    context:{batchId:batch.batchId,planId:batch.planId,workspaceId:batch.workspaceId,authorization:batch.authorization,sourcePath:plan.nativeTarget.path},workspace,dataRoot:resolveWorkspaceDataRoot()});
+  if(observation.original){try{assertOriginalDeleteIntentPlan(observation.original,plan);}catch{throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED');}}
+  return Object.freeze({batch,plan,observation});
+}
+
 /** Internal read adapter for an already authenticated caller. A workspace is
  * never converted into a RequestPrincipal, claim or mutation capability. */
 export async function withWorkspaceOperationNativeDeleteReadContext<T>(input: Input,
@@ -35,16 +46,8 @@ export async function withWorkspaceOperationNativeDeleteReadContext<T>(input: In
     const principal = captureWorkspaceOperationProgrammaticJobReadOptions(input);
     return await withWorkspaceOperationNativeBatchReadContext({ batchId: input.batchId, scope: input.scope,
       expectedPlan: input.expectedPlan, ...workspaceOperationProgrammaticJobReadOptions(principal), planVersion: 2 }, async context => {
-      const { database, schema, workspace, batch, plan } = context;
-      if (plan.version !== 2 || batch.authorization.mode !== 'direct' && batch.authorization.mode !== 'direct-mcp' && batch.authorization.mode !== 'api-key') throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED');
-      const observation = await readWorkspaceOperationOriginalDeleteObservationOnConnection(database, { schema,
-        context: { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
-          authorization: batch.authorization, sourcePath: plan.nativeTarget.path }, workspace, dataRoot: resolveWorkspaceDataRoot() });
-      if (observation.original) {
-        try { assertOriginalDeleteIntentPlan(observation.original, plan); }
-        catch { throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED'); }
-      }
-      const status = Object.freeze({ batch, plan, observation });
+      const { database, schema, workspace } = context;
+      const status = await observeWorkspaceOperationNativeDeleteBatchStatus(context);
       return operation(Object.freeze({ database, schema, workspace, status }));
     });
   } catch (error) {

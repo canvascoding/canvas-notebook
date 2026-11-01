@@ -27,6 +27,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-native-read-context.ts', 'app/lib/files/workspace-operation-native-move-status.ts',
     'app/lib/files/workspace-operation-native-delete-status.ts', 'app/lib/files/workspace-operation-physical-delete-status-v5.ts',
     'app/lib/files/workspace-operation-cohort-delete-status.ts',
+    'app/lib/files/workspace-operation-native-path-status.ts',
     'app/lib/files/workspace-operation-native-path-admission.ts', 'app/lib/files/workspace-operation-job-lifecycle-owner.ts'],
   'scripts/api-key-workspace-path-job-policy-postgres-test.ts': [entryPoint,
     'app/lib/workspaces/workspace-operation-programmatic-job-principal.ts',

@@ -24,6 +24,7 @@ import { captureWorkspaceOperationJobScope, workspaceOperationJobScopeMatches } 
 import { assertWorkspaceOperationMcpAuthorizationCurrent,
   type WorkspaceOperationMcpAuthorizationCurrent } from './workspace-operation-mcp-authorization';
 import { assertWorkspaceOperationApiKeyAuthorizationCurrent,
+  workspaceOperationApiKeyBatchId,
   type WorkspaceOperationApiKeyAuthorization, type WorkspaceOperationApiKeyAuthorizationCurrent } from './workspace-operation-api-key-authorization';
 
 type NativePlan = WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan;
@@ -42,8 +43,12 @@ function changed():never{throw new WorkspaceOperationNativeReadError('BATCH_SCOP
 function freeze<T>(value:T):T{if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;}
 export type WorkspaceOperationNativeBatchReadContext=Readonly<{database:SqlConnection;schema:string;workspace:WorkspaceContext;
   batch:WorkspaceOperationBatchRecord;plan:NativePlan}>;
-type Input={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6;expectedPlan?:NativePlan}
-  &WorkspaceOperationProgrammaticJobReadOptions;
+type SnapshotInput={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6|'path';expectedPlan?:NativePlan};
+export type WorkspaceOperationNativePathReadInput=
+  |({batchId:string;scope:WorkspaceOperationBatchScope}&WorkspaceOperationProgrammaticJobReadOptions)
+  |{workspaceId:string;operationId:string;apiKeyPrincipal:WorkspaceOperationApiKeyJobReadPrincipal;mcpPrincipal?:never};
+type Input=({batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6;expectedPlan?:NativePlan}
+  |(WorkspaceOperationNativePathReadInput&{planVersion:'path';expectedPlan?:never}))&WorkspaceOperationProgrammaticJobReadOptions;
 type McpRealm=Readonly<{schemaName:string;schemaOid:number;databaseOid:number;searchPath:string;tableOid:number}>;
 type McpAuthority=Readonly<{facts:WorkspaceOperationMcpAuthorizationCurrent;realm:McpRealm}>;
 type ApiKeyAuthority=Readonly<{transport:'api-key';facts:WorkspaceOperationApiKeyAuthorizationCurrent;realm:McpRealm}>;
@@ -129,7 +134,7 @@ async function readApiKeyStatusAuthority(live:WorkspaceOperationApiKeyJobReadPri
 
 /** Read-only current-ACL and immutable job binding shared by native status
  * consumers. This creates neither a claim nor owner/DA04 mutation authority. */
-async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'|'apiKeyPrincipal'>,
+async function readNativeBatchSnapshot<T>(input:SnapshotInput,
   operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>,mcp?:ProgrammaticAuthority):Promise<Snapshot<T>>{
   const workspace=input.scope.workspace,other=input.scope.fileOptions.workspace,userId=workspace.actor?.userId;
   if(!userId||!workspace.permissions.canRead||workspace.status!=='active'||!other||other.actor?.userId!==userId
@@ -163,7 +168,8 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'|'apiKe
     if(mcp?batch.authorization.mode!==('transport' in mcp?'api-key':'direct-mcp'):
       batch.authorization.mode==='direct-mcp'||batch.authorization.mode==='api-key')changed();
     if(mcp&&batch.actionMode!=='apply')changed();
-    if(batch.plan.version!==version)return null;
+    if(version!=='path'&&batch.plan.version!==version)return null;
+    if(![2,3,5,6].includes(batch.plan.version))changed();
     const plan=batch.plan.version===6?decodeWorkspaceOperationCohortDeletePlan(batch.plan):batch.plan.version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(batch.plan):batch.plan.version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(batch.plan):decodeWorkspaceOperationNativeMoveBatchPlan(batch.plan),auth=batch.authorization;
     if(mcp){
       if('transport' in mcp){if(auth.mode!=='api-key')changed();assertWorkspaceOperationApiKeyAuthorizationCurrent(auth,mcp.facts,plan);}
@@ -178,7 +184,7 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'|'apiKe
     // stable search_path alone does not rule out a shadow history schema.
     let historyRelations: readonly Record<string,unknown>[] | undefined;
     const assertHistorySchema=async()=>{
-      if(version!==3)return;
+      if(plan.version!==3)return;
       const resolved=await database.all(`SELECT expected.name,expected.ordinality::integer AS ordinal,
         c.oid::bigint AS table_oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,
         pg_catalog.to_regclass(pg_catalog.quote_ident(expected.name))::oid::bigint AS resolved_oid,
@@ -231,20 +237,29 @@ export async function withWorkspaceOperationNativeBatchReadContext<T>(input:Inpu
   operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<T|null>{
   if(types.isProxy(input))changed();
   const live=captureWorkspaceOperationProgrammaticJobReadOptions(input),version=input.planVersion;
-  if(live===undefined)return(await readNativeBatchSnapshot(input,operation)).value;
-  if((live.kind==='move'?version!==3:version!==2&&version!==5&&version!==6)||typeof operation!=='function')changed();
-  const batchId=input.batchId,workspace=input.scope.workspace,other=input.scope.fileOptions.workspace;
-  if(!other)changed();
-  const namespace=captureWorkspaceOperationJobScope(workspace),otherNamespace=captureWorkspaceOperationJobScope(other);
+  if(live===undefined){if(version==='path')changed();return(await readNativeBatchSnapshot(input,operation)).value;}
+  if((version!=='path'&&(live.kind==='move'?version!==3:version!==2&&version!==5&&version!==6))||typeof operation!=='function')changed();
+  if(version==='path'&&input.expectedPlan!==undefined)changed();
+  const keyLookup='operationId' in input;
+  if(keyLookup&&(version!=='path'||!('transport' in live)||Object.hasOwn(input,'scope')||Object.hasOwn(input,'batchId')
+    ||typeof input.workspaceId!=='string'||!input.workspaceId||input.workspaceId.length>256
+    ||typeof input.operationId!=='string'||!/^[A-Za-z0-9_-]{16,128}$/u.test(input.operationId)))changed();
+  const workspace=keyLookup?undefined:input.scope.workspace,other=keyLookup?undefined:input.scope.fileOptions.workspace;
+  if(!keyLookup&&!other)changed();
+  const namespace=workspace&&captureWorkspaceOperationJobScope(workspace),otherNamespace=other&&captureWorkspaceOperationJobScope(other);
   const expected=input.expectedPlan&&(version===6?decodeWorkspaceOperationCohortDeletePlan(input.expectedPlan):version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.expectedPlan):version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
-  const options={workspaceId:namespace.workspaceId};
+  const options={workspaceId:keyLookup?input.workspaceId:namespace!.workspaceId};
   if('transport' in live)assertApiKeyWorkspacePathPrincipalCaptured(live.principal,{...options,purpose:live.purpose});
   else if(live.kind==='move')assertDirectMcpWorkspaceMovePrincipalCaptured(live.principal,options);
   else assertDirectMcpWorkspaceDeletePrincipalCaptured(live.principal,options);
   const first='transport' in live?await readApiKeyStatusAuthority(live):await readMcpStatusAuthority(live);
   const currentNamespace=captureWorkspaceOperationJobScope(first.facts.workspace);
-  if(!isDeepStrictEqual(namespace,currentNamespace)||!isDeepStrictEqual(otherNamespace,currentNamespace))changed();
+  if(!keyLookup&&(!isDeepStrictEqual(namespace,currentNamespace)||!isDeepStrictEqual(otherNamespace,currentNamespace)))changed();
   const scope:WorkspaceOperationBatchScope={workspace:first.facts.workspace,fileOptions:{workspace:first.facts.workspace}};
+  let batchId:string;
+  if(keyLookup){if(!('transport' in first))changed();batchId=workspaceOperationApiKeyBatchId({userId:first.facts.userId,
+    integrationId:first.facts.integrationId,instanceId:first.facts.instanceId,workspaceId:currentNamespace.workspaceId,
+    kind:first.facts.kind,operationId:input.operationId});}else batchId=input.batchId;
   const snapshot=await readNativeBatchSnapshot({batchId,scope,planVersion:version,expectedPlan:expected},operation,first);
   if('transport' in live){if(!('transport' in first))changed();await readApiKeyStatusAuthority(live,first,snapshot.original);}
   else{if('transport' in first)changed();await readMcpStatusAuthority(live,first,snapshot.original);}
