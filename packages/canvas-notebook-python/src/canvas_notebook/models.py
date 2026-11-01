@@ -129,6 +129,47 @@ class DocumentCreateResult(TypedDict):
     projection: DocumentProjection
 
 
+class OriginalImportedDocument(TypedDict):
+    """Immutable initial import facts, without a current document version."""
+
+    workspaceId: str
+    organizationId: str | None
+    documentId: str
+    lineageId: str
+    path: str
+    representation: Literal["plain_text", "tiptap_xml", "tiptap_blocks"]
+    lifecycleGeneration: int
+    schemaVersion: Literal[1]
+    documentSequence: Literal[0]
+    stateProof: str
+    persistedAt: int
+
+
+class OriginalImportSource(TypedDict):
+    sha256: str
+    bytes: int
+
+
+class OriginalDocumentImportConfirmedResult(TypedDict):
+    apiVersion: Literal[1]
+    operationId: str
+    status: Literal["confirmed"]
+    outcome: Literal["imported", "already_imported"]
+    documentAtImport: OriginalImportedDocument
+    source: OriginalImportSource
+    requiresFreshFileActionPreview: Literal[True]
+
+
+class OriginalDocumentImportNotFoundResult(TypedDict):
+    apiVersion: Literal[1]
+    operationId: str
+    status: Literal["not_found"]
+    requiresFreshFileActionPreview: Literal[True]
+
+
+OriginalDocumentImportResult = OriginalDocumentImportConfirmedResult | OriginalDocumentImportNotFoundResult
+
+
 class EditEffect(TypedDict):
     outcome: Literal["applied", "no_change"]
     beforeVersion: str

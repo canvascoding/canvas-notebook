@@ -1664,6 +1664,48 @@ weist neun Dateien/48 Symbole/sieben MCP-Abläufe und HIGH aus; der vollständig
 PR-Vergleich umfasst 202 Dateien/1.831 Symbole/43 Abläufe und CRITICAL. Der
 breitere Dispatcher-Umfang wurde vor dem Commit ausdrücklich benannt.
 
+**SDK-Originalimport über den vorhandenen MCP-Transport.** Die Python-Fassade
+ergänzt `import_existing_markdown` und `original_import_status` auf demselben
+`import_knowledge_file`-Werkzeug. Sie verlangt die tatsächliche Key-Fähigkeit,
+einen vor dem Await aufbewahrten Caller-Auftrag und die exakte physische
+`file_version` aus dem Manifest. Uploads und bestehende Originale bleiben
+getrennte Verträge. Fünf exportierte Typen kennzeichnen die unveränderlichen
+Initialfakten; eine spätere Bearbeitung verwendet eine frische native Leseversion.
+Eine fehlerhafte Vergleichsantwort bleibt als vollständiges Original erhalten
+und löst keinen erneuten Import aus. Transportfehler behalten den ursprünglichen
+Caller im bestehenden Unsicherheitsfehler; Task-Abbruch wird weitergereicht.
+Die Fassade erzeugt keine Schlüssel und rekonstruiert keine Session.
+
+Neun neue mechanische Testgruppen prüfen genaue Argumente und Rückgabetypen,
+Unicode/Dateinamens-Leerzeichen, UTF-16-Grenzen, lokale Ablehnung vor dem
+Transport, unveränderte Fehler-/Abbruchobjekte und fehlerhafte Initialfakten.
+Zwölf frische Wheel-/Sdist-Installationen bestehen auf Python 3.10.22 und
+3.15.2 in den Profilen Core, MCP und MCP/Keyring: alle acht Laufzeitdateien
+stimmen mit der Quelle überein, Core bleibt ohne Adapterabhängigkeiten ladbar,
+jede Adapterinstallation besteht alle 92 Tests.
+
+Der dauerhafte Runner `test:api-keys:sdk:original-imports:native` verwendet den
+vorhandenen echten HTTP-/MCP-Fixture und den nativen PG-/Room-Owner. Sieben
+Gruppen prüfen Manifest → Originalimport → natives Lesen/Bearbeiten, eine
+vorregistrierte nie initialisierte Identität, unveränderliche historische
+Belege nach Bearbeitung und Rotation, aktuelle Import-/Statusrechte,
+Dateiversions-/Auftragskonflikte, Aussteller-Logout und echten Widerruf.
+Eine Antwort wird erst nach belegtem Commit beider Originalbelege verworfen.
+Der tatsächliche Transport kann dabei einen Abbruch mit gebündelter
+HTTP-Transportursache melden; der Test erhält das konkrete Fehlerobjekt und
+den vollständigen Auftrag. Vor einer ausdrücklich aufgerufenen Statusabfrage
+und Wiederholung gibt es genau einen Importaufruf. Die ursprünglichen Belege
+bleiben bytegleich; das unbeteiligte native Dokument bleibt unverändert.
+
+Die gesamte installierte SDK-Suite besteht auf Python 3.10.22 und 3.15.2 mit
+je sechs seriellen Bereichen und 53 Gruppen. Beide Prozesse beenden sich mit
+Exit 0; alle zwölf eigenen Bundles und zehn Metadaten-Owner-Fixtures sind
+vollständig entfernt. ESLint und die strenge Typprüfung mit 3.732 Wurzeln/9.062 Quellen
+bestehen mit null Fehlern. Alle bisherigen Runner-Einträge bleiben unverändert;
+der SDK-Aggregator hängt ausschließlich den neuen Originalimport-Runner an.
+Die kompilierte UI, echte OAuth-/OS-Store-Gesamtabnahme, portable CI-Gates und
+Release-/Produktionsabnahme bleiben die folgenden verpflichtenden Schritte.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API

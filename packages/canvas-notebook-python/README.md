@@ -78,7 +78,7 @@ async with CanvasMcpTransport(ENDPOINT, api_key=key_from_secret_store) as transp
 
 Create the key under **Settings → Connections → API access** with explicit workspace and action grants. Its full secret is shown once; the server stores a hash. This SDK sends only `X-Canvas-API-Key` in this mode, uses HTTPS outside loopback, and does not refresh, persist or automatically replace the key. OAuth, `access_token` and `api_key` cannot be combined. Canvas-internal clients must obtain credentials through the existing central Secrets service; external clients use their own secret store.
 
-The current branch exposes workspace listing, overview, paginated tree/manifest, native ID-based Read/Search, Markdown Create/Import V1, native Edit/Status and Copy/Move/Delete with Status/Recover to regularly issued API keys. `create_markdown()` requires `create`, `import_markdown()` requires `import`, and full reads require `read`. The native REST routes `/api/documents/create`, `/api/documents/import`, `/api/documents/copy`, `/api/documents/move` and `/api/documents/delete` accept only explicit keys; the SDK uses the same central services through `/mcp`. Copy, Move and Delete require their corresponding action grant for every action, plus `status` or `recover` for the respective action. Current source Read and destination Write/Agent rights are still mandatory. Importing an existing original file is a separate contract whose key adapter remains pending.
+The current branch exposes workspace listing, overview, paginated tree/manifest, native ID-based Read/Search, Markdown Create/Import V1, original-file Import/Status, native Edit/Status and Copy/Move/Delete with Status/Recover to regularly issued API keys. `create_markdown()` requires `create`, both import methods require `import`, original-import Status additionally requires `status`, and full reads require `read`. The native REST routes `/api/documents/create`, `/api/documents/import`, `/api/documents/copy`, `/api/documents/move` and `/api/documents/delete` accept only explicit keys; `/api/documents/import-existing` and its `/status` route also preserve their existing Session contract. The SDK uses these central services through `/mcp`. Copy, Move and Delete require their corresponding action grant for every action, plus `status` or `recover` for the respective action. Current source Read and destination Write/Agent rights are still mandatory. An existing-original import requires the server-advertised API-key capability; the OAuth upload descriptor does not advertise these actions.
 
 Installed-wheel HTTP runners exercise key access, pagination, rotation, current grant reduction, issuing-session logout, revocation, exact retries, conflicts and operation ownership. The Create/Import runner separately drops one actual response after each durable write. The Copy runner checks resolved collision roots, immediate manifest/read access, a lost durable HTTP acknowledgement and explicit recovery after actual B1 acknowledgement loss under a rotated key. The path runner checks native and physical Move/Delete, separate action namespaces, actual HTTP and COMMIT acknowledgement loss, explicit recovery and preserved originals/history. Close a failed transport lifetime before reconnecting; retain the original idempotency key and exact request or known operation ID. No mutation is automatically replayed. Per-run records identify the actual Python runtime and installed wheel hash. The mechanical SDK tests and these source HTTP runners do not claim compiled-container or deployed-release acceptance.
 
@@ -145,6 +145,32 @@ A completed native import retry can avoid downloading a replacement URL when Can
 Edit uses a stable ID and the complete opaque document version, never a path or content SHA as a substitute. The supported patch families are `native_text_replace` and `native_blocks`; the latter uses Canvas's actual block operation shapes and guarded targets. Nested patch keys remain camelCase. No local patch compiler or raw Yjs writer is included.
 
 Edit status is historical. It preserves the recorded effect, persistence, projection and history facts; its After version is not a claim about today's document. A returned `pending`, `conflict` or `failed` state is not a confirmed edit, even if `.require_success()` returned a payload. Reauthorization of the same user/client can permit a later status or idempotent retry under fresh rights without changing the original operation's attribution.
+
+### Import an existing original file
+
+`import_existing_markdown()` initializes an existing visible `.md` or `.markdown` file through the native original-file service. It preserves the source bytes and any registered, never-initialized document identity. It takes no upload URL, content body or caller-supplied authority.
+
+```python
+page = (await notebook.get_manifest(workspace_id, path="notes", max_entries=20)).require_success()
+# Follow next_cursor explicitly if the exact path is not on this page.
+entry = next(item for item in page["entries"] if item["path"] == "notes/original.md")
+request = {
+    "workspace_id": workspace_id, "path": entry["path"],
+    "operation_id": "original-import-example-001",
+    "expected_file_version": entry["file_version"],
+    "initial_representation": "auto",
+}
+# Persist this entire request before awaiting a write.
+imported = (await notebook.import_existing_markdown(**request)).require_success()
+current = await notebook.read_all(workspace_id, imported["documentAtImport"]["documentId"], format="markdown")
+# Use current.document["version"] for a subsequent edit.
+```
+
+The caller operation ID is 8–128 ASCII letters, digits, `_` or `-`, beginning with a letter or digit. `expected_file_version` is the manifest's exact physical file version; a SHA, manifest revision or native document version cannot replace it. Legal filename whitespace and Unicode are retained. The representation may be `auto`, `plain_text`, `tiptap_xml` or `tiptap_blocks`.
+
+`OriginalDocumentImportResult` is a typed union of historical `confirmed` and `not_found` results. A confirmation's `documentAtImport` describes initial sequence zero and its initial state proof, and `source` describes the imported bytes. Neither describes today's document version or path. The complete original tool result remains available. A malformed comparison envelope raises `CanvasProtocolError` without retrying the import.
+
+After a lost response, `CanvasMutationOutcomeUnknown.idempotency_key` retains the original caller operation ID. Cancellation propagates; it does not prove that no write occurred. Query `original_import_status(workspace_id, request["operation_id"])` explicitly on a usable connection, retaining the original request. Status performs one observation and never imports, polls or repairs. `not_found` is not proof that no document or earlier work exists. Confirmation still requires a fresh document read or file-action preview before later work; the SDK never silently replays a mutation.
 
 ## Copy with a retained plan and request
 
@@ -230,6 +256,7 @@ SDK error messages omit document contents and credentials. Original results and 
 | `read_page`, `read_all` | `read_knowledge_source`, stable-ID branch |
 | `create_markdown` | `create_knowledge_source`, native V1 |
 | `import_markdown` | `import_knowledge_file`, native V1 |
+| `import_existing_markdown`, `original_import_status` | `import_knowledge_file`, explicit `import_existing` / `status_existing` V1 action |
 | `edit_document`, `edit_status` | `edit_knowledge_source`, explicit V1 action |
 | `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | `copy_knowledge_source`, explicit V1 action |
 | `move_preview`, `move_apply`, `move_status`, `move_recover` | `move_knowledge_source`, explicit V1 action |

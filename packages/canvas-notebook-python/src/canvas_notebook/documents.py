@@ -15,6 +15,8 @@ from .models import (
     DocumentReadPage,
     DocumentSearchPage,
     FileReference,
+    OriginalDocumentImportConfirmedResult,
+    OriginalDocumentImportResult,
     ReadFormat,
     ToolTransport,
     WorkspaceCopyExecutionResult,
@@ -33,6 +35,10 @@ _METADATA_VERSION = re.compile(r"canvas-document-metadata-v1:[a-f0-9]{64}\Z")
 _KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\Z")
 _OPERATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _CURSOR = re.compile(r"[A-Za-z0-9_-]+\Z")
+_ORIGINAL_OPERATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,127}\Z")
+_FILE_VERSION = re.compile(r"[0-9]+:[0-9]+:[0-9]+:-?[0-9]+(?:\.[0-9]+)?:-?[0-9]+(?:\.[0-9]+)?\Z")
+_SHA256 = re.compile(r"[a-f0-9]{64}\Z")
+_INITIAL_STATE_PROOF = re.compile(r"yjs-snapshot-sha256-v1:[a-f0-9]{64}\Z")
 _MEDIA = {
     "native": "application/vnd.canvas.native-document+json",
     "text": "text/plain",
@@ -310,6 +316,82 @@ def _path_operation_request(
     if len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) > 65536:
         raise ValueError("The complete workspace path JSON arguments exceed 64 KiB.")
     return arguments
+
+
+def _original_identifier(value: str, label: str) -> str:
+    value = _copy_text(value, label, 256)
+    if value[0] in _COPY_TRIM or value[-1] in _COPY_TRIM or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError(f"{label} must be an exact original-import identifier.")
+    return value
+
+
+def _original_import_scope(workspace_id: str, operation_id: str) -> dict[str, Any]:
+    workspace_id = _original_identifier(workspace_id, "workspace_id")
+    if type(operation_id) is not str or not _ORIGINAL_OPERATION.fullmatch(operation_id):
+        raise ValueError("operation_id must contain 8–128 original-import identifier characters.")
+    return {"api_version": 1, "workspace_id": workspace_id, "operation_id": operation_id}
+
+
+def _original_import_path(value: str) -> str:
+    value = _copy_text(value, "path", 4096)
+    if (
+        "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        or any(not segment or segment.startswith(".") for segment in value.split("/"))
+        or not value.lower().endswith((".md", ".markdown"))
+    ):
+        raise ValueError("path must be a visible canonical .md or .markdown workspace path.")
+    return value
+
+
+def _original_import_result(result: CanvasToolResult[Any], workspace_id: str, operation_id: str,
+                            *, expected_path: str | None = None) -> CanvasToolResult[Any]:
+    """Validate comparison data while retaining the complete original result.
+
+    A malformed reply can follow persistence. The caller must retain its
+    operation before awaiting; no validation error retries an import.
+    """
+    payload = result.structured_content
+    if result.is_error or isinstance(payload, dict) and payload.get("success") is False:
+        return result
+    invalid = lambda: CanvasProtocolError("ORIGINAL_IMPORT_ENVELOPE_MISMATCH", result=result.raw)
+    common = {"apiVersion", "operationId", "status", "requiresFreshFileActionPreview"}
+    if (
+        not isinstance(payload, dict) or type(payload.get("apiVersion")) is not int or payload["apiVersion"] != 1
+        or payload.get("operationId") != operation_id or payload.get("requiresFreshFileActionPreview") is not True
+    ):
+        raise invalid()
+    if payload.get("status") == "not_found":
+        if expected_path is not None or set(payload) != common:
+            raise invalid()
+        return result
+    if payload.get("status") != "confirmed" or set(payload) != common | {"outcome", "documentAtImport", "source"}:
+        raise invalid()
+    document, source = payload["documentAtImport"], payload["source"]
+    if (
+        payload["outcome"] not in ("imported", "already_imported") or not isinstance(document, dict)
+        or set(document) != {"workspaceId", "organizationId", "documentId", "lineageId", "path", "representation",
+                             "lifecycleGeneration", "schemaVersion", "documentSequence", "stateProof", "persistedAt"}
+        or document.get("workspaceId") != workspace_id or document.get("representation") not in ("plain_text", "tiptap_xml", "tiptap_blocks")
+        or not _safe_int(document.get("lifecycleGeneration"), 1)
+        or type(document.get("schemaVersion")) is not int or document["schemaVersion"] != 1
+        or type(document.get("documentSequence")) is not int or document["documentSequence"] != 0
+        or not isinstance(document.get("stateProof"), str) or not _INITIAL_STATE_PROOF.fullmatch(document["stateProof"])
+        or not _safe_int(document.get("persistedAt")) or not isinstance(source, dict) or set(source) != {"sha256", "bytes"}
+        or not isinstance(source.get("sha256"), str) or not _SHA256.fullmatch(source["sha256"])
+        or not _safe_int(source.get("bytes")) or source["bytes"] > 5 * 1024 * 1024
+    ):
+        raise invalid()
+    try:
+        for name in ("documentId", "lineageId"):
+            _original_identifier(document[name], name)
+        if document["organizationId"] is not None:
+            _original_identifier(document["organizationId"], "organizationId")
+        observed_path = _original_import_path(document["path"])
+        if expected_path is not None and observed_path != expected_path:
+            raise ValueError
+    except ValueError:
+        raise invalid() from None
+    return result
 
 
 class CanvasNotebook:
@@ -595,6 +677,50 @@ class CanvasNotebook:
         arguments = self._creation_arguments(workspace_id, path, idempotency_key)
         arguments["file"] = _json_object(file, "file")
         return await self._mutate("import_knowledge_file", arguments, idempotency_key)
+
+    async def import_existing_markdown(
+        self, workspace_id: str, path: str, *, operation_id: str, expected_file_version: str,
+        initial_representation: Literal["auto", "plain_text", "tiptap_xml", "tiptap_blocks"] = "auto",
+    ) -> CanvasToolResult[OriginalDocumentImportConfirmedResult]:
+        """Import one existing visible workspace file through Original Import V1.
+
+        Requires the server's import_existing capability (API-key import and
+        current Write/Agent rights). Use the manifest's exact file_version,
+        never its revision or a document version. Preserve this entire request
+        before await. One call is made; a missing result retains operation_id
+        in CanvasMutationOutcomeUnknown.idempotency_key. Cancellation propagates.
+        Confirmed facts describe the initial import, not today's path/version.
+        Read documentAtImport.documentId before editing or requesting a preview.
+        """
+        arguments = _original_import_scope(workspace_id, operation_id)
+        path = _original_import_path(path)
+        _copy_text(expected_file_version, "expected_file_version", 1024)
+        if not _FILE_VERSION.fullmatch(expected_file_version):
+            raise ValueError("expected_file_version must be the exact physical manifest file_version.")
+        if type(initial_representation) is not str or initial_representation not in ("auto", "plain_text", "tiptap_xml", "tiptap_blocks"):
+            raise ValueError("initial_representation is not supported by Original Import V1.")
+        arguments.update(action="import_existing", path=path, expected_file_version=expected_file_version,
+                         initial_representation=initial_representation)
+        result = await self._mutate("import_knowledge_file", arguments, operation_id)
+        return cast(CanvasToolResult[OriginalDocumentImportConfirmedResult],
+                    _original_import_result(result, workspace_id, operation_id, expected_path=path))
+
+    async def original_import_status(
+        self, workspace_id: str, operation_id: str,
+    ) -> CanvasToolResult[OriginalDocumentImportResult]:
+        """Read original import facts once; no path probe, import or replay.
+
+        Uses the actual status_existing capability. API keys need Import and
+        Status plus current workspace rights. not_found is a historical lookup
+        result, not a claim that no earlier work or document exists. A malformed
+        reply retains its original result in CanvasProtocolError; it triggers
+        no retry. Obtain a fresh document read/action preview after confirmation.
+        """
+        arguments = _original_import_scope(workspace_id, operation_id)
+        arguments["action"] = "status_existing"
+        result = await self._call("import_knowledge_file", arguments)
+        return cast(CanvasToolResult[OriginalDocumentImportResult],
+                    _original_import_result(result, workspace_id, operation_id))
 
     @staticmethod
     def _creation_arguments(workspace_id: str, path: str, idempotency_key: str) -> dict[str, Any]:
