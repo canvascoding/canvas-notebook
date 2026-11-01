@@ -29,7 +29,7 @@ export type CohortDeletePhysical=Readonly<CohortDeletePrepared&{receipt:Prepared
 const quote=(value:string)=>`"${value.replaceAll('"','""')}"`;
 export async function prepareCohortDeleteIntent(access:WorkspaceOperationJobLifecycleAccess,binding:WorkspaceOperationBatchClaimBinding,
   prepared:readonly CohortDeletePrepared[]):Promise<CohortDeleteIntent>{
-  if(binding.plan.version!==6||binding.actionMode!=='apply'||binding.authorization.mode!=='direct'&&binding.authorization.mode!=='direct-mcp')return failCohortDelete();
+  if(binding.plan.version!==6||binding.actionMode!=='apply'||binding.authorization.mode!=='direct'&&binding.authorization.mode!=='direct-mcp'&&binding.authorization.mode!=='api-key')return failCohortDelete();
   const plan=binding.plan,auth=binding.authorization,schema=binding.source.schemaName,prefix=quote(schema);
   await access.assertCurrent();
   const observation=await access.readOriginalNativeDeleteSources(),currentWitness=captureWorkspaceOperationCohortDeleteCurrent(plan,observation,auth.jobScope!);

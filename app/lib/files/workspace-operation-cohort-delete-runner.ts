@@ -5,7 +5,8 @@ import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import type { WorkspaceContext } from '../workspaces/types';
 import { withPreparedWorkspacePathTrashes, withRecoveredWorkspacePathTrashes, readPreparedWorkspacePathTrashDisposition,
   readPreparedWorkspacePathTrashReceipt, trashPreparedWorkspacePath, assertPreparedWorkspacePathTrashCurrent } from '../filesystem/prepared-workspace-path-trash';
-import type { WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobOptions,
+  type WorkspaceOperationProgrammaticJobOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { withWorkspaceOperationJobLifecycleOwner, withWorkspaceOperationJobLifecycleTransaction,
   readWorkspaceOperationCohortDeleteJobHistory, completeWorkspaceOperationCohortDeleteJob,
@@ -18,14 +19,15 @@ import type { CohortDeletePrepared, CohortDeletePhysical } from './workspace-ope
 
 /** One original cohort and one genuine Owner. No legacy FS fallback or child
  * Delete jobs; partial FS progress always retains this exact B1. */
-export async function executeWorkspaceOperationCohortDelete(input:Readonly<{claim:WorkspaceOperationBatchClaim;workspace:WorkspaceContext;
-  mcpPrincipal?:WorkspaceOperationMcpJobPrincipal}>):Promise<CohortDeleteResult>{
+export async function executeWorkspaceOperationCohortDelete(input:Readonly<{claim:WorkspaceOperationBatchClaim;workspace:WorkspaceContext}>
+  &WorkspaceOperationProgrammaticJobOptions):Promise<CohortDeleteResult>{
+  const programmaticPrincipal=captureWorkspaceOperationProgrammaticJobOptions(input);
   const binding=readWorkspaceOperationBatchClaimBinding(input.claim);
   if(binding.plan.version!==6||binding.actionMode!=='apply')return failCohortDelete();
   const plan=decodeWorkspaceOperationCohortDeletePlan(binding.plan),dataRoot=resolveWorkspaceDataRoot();
-  const history=await readWorkspaceOperationCohortDeleteJobHistory(input.claim,openDb,input.mcpPrincipal);
+  const history=await readWorkspaceOperationCohortDeleteJobHistory(input.claim,openDb,programmaticPrincipal);
   if(history)return history;
-  await waitForWorkspaceOperationNativePathAdmission(input.claim,openDb,input.mcpPrincipal);
+  await waitForWorkspaceOperationNativePathAdmission(input.claim,openDb,programmaticPrincipal);
   return withWorkspaceOperationJobLifecycleOwner(input.claim,async owner=>{
     const observed=await readWorkspaceOperationCohortDeleteObservationJob(owner);
     if(observed.result)return observed.result;
@@ -52,5 +54,5 @@ export async function executeWorkspaceOperationCohortDelete(input:Readonly<{clai
       const target=current.namespace.find(target=>target.path===step.sourcePath);if(!target)return failCohortDelete();
       return {stepKey:`path:${String(index).padStart(4,'0')}`,canonicalPath:step.sourcePath,trashEntryId:`trash-${randomUUID()}`,
         sourceKind:target.filesystemIdentity===null?'projection_absent' as const:target.kind==='directory'?'directory' as const:'regular_file' as const};})},apply);
-  },openDb,input.mcpPrincipal);
+  },openDb,programmaticPrincipal);
 }

@@ -1156,9 +1156,26 @@ Linkänderung, unveränderte externe Links und mitverschobene Titel/Favoriten/Pi
 Die tatsächlichen nativen Move- und Link-Belege werden anhand der Completion,
 ihrer Hashes und des sessionlosen Originalakteurs geprüft. Der dauerhafte
 Runner `test:api-keys:path-owners:native` gehört zum gesamten Path-Paket.
-Diese Prüfung deckt den Move-Effektkern ab. Delete-Effektpfade, reine
-Status-/Recovery-Kontexte, öffentliche Key-Adapter und deren installierte
-SDK-Abnahme sind weiterhin offen.
+Der ursprüngliche Delete-Runner, seine Originaldaten-/Admission-Verträge und
+seine Einzel-/Sammel-Owner akzeptieren jetzt ebenfalls den tatsächlichen
+Key-Delete-Principal. Der gespeicherte Akteur bleibt sessionlos; die strikte
+ursprüngliche Key-/Plan-/Workspace-Zuordnung wird bei jeder aktuellen
+Owner-Phase geprüft. Der Key-Zweig erhält keinen Undo-/Restore-Zugang.
+Fünf zusätzliche echte PostgreSQL-/Key-Owner-Gruppen bestehen: natives Delete
+mit und ohne physische Projektion, physisches PDF und PNG sowie zwei gemeinsam
+gelöschte Ordner mit nativen, rein nativen und physischen Dateien. Vollständige
+Yjs-/State-Vector-Bytes und native Identitäten bleiben im Archiv erhalten;
+vorhandene Originaldateien werden bytegleich in den Papierkorb verschoben.
+Alle betroffenen Links einer Rückverweisquelle werden in genau einer nativen
+Mutation angepasst. Ein unbeteiligtes Dokument und seine persönlichen Metadaten
+bleiben einschließlich ihrer Datenbankrevisionen unverändert. Der echte
+erneute Owner-Historienaufruf und explizite Recover-Header-Zugriff nach Abschluss
+erzeugen keine zweite Mutation. Der Runner prüft damit insgesamt sieben
+Move-/Delete-Owner-Gruppen bei ausgeschaltetem Review Center und Undo.
+Die externe Linkerhaltung wird strukturell anhand des vollständigen `href`
+geprüft; die frühere Teilzeichenfolgenprüfung des Beispiel-URLs ist ersetzt.
+Diese Prüfungen decken die Effektkerne ab. Reine Status-/Recovery-Kontexte,
+öffentliche Key-Adapter und deren installierte SDK-Abnahme sind weiterhin offen.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier

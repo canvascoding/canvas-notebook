@@ -13,6 +13,7 @@ import { captureCollaborationAdmissionOutcomeResult, readHistoricalCollaboration
 import type { WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { decodeWorkspaceOperationApiKeyAuthorization } from './workspace-operation-api-key-authorization';
 import { WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
@@ -51,8 +52,11 @@ function deleteAdmissionRequest(originalFields: DeleteAdmissionOriginal,
 export function createWorkspaceOperationOriginalDeleteAdmissionRequest(binding: WorkspaceOperationBatchClaimBinding): CollaborationAdmissionRequest {
   if (binding.plan.version === 6) return createCohortDeleteAdmissionRequest(binding);
   const auth = binding.authorization;
-  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope
+  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key' || !auth.jobScope
     || binding.plan.version !== 2 && binding.plan.version !== 5) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_INVALID');
+  if (auth.mode === 'api-key' && decodeWorkspaceOperationApiKeyAuthorization(auth).kind !== 'delete') {
+    throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_INVALID');
+  }
   const plan = decodeWorkspaceOperationDeleteBatchPlan(binding.plan);
   if (plan.version===6) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_INVALID');
   if (binding.planId !== plan.planId || binding.workspaceId !== plan.workspaceId || !equal(plan.sourceEvidence.workspaceScope, auth.jobScope)) {

@@ -10,6 +10,7 @@ import type { WorkspaceOperationBatchClaimBinding } from './workspace-operation-
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationOriginalDeleteIntent, WorkspaceOperationOriginalDeleteReceipt } from './workspace-operation-original-delete-repository';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
+import { decodeWorkspaceOperationApiKeyAuthorization } from './workspace-operation-api-key-authorization';
 import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-operation-native-original-source';
 import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { captureOriginalDeleteAdmissionBinding, type OriginalDeleteAdmissionBinding } from './workspace-operation-original-delete-evidence';
@@ -39,11 +40,12 @@ export type CohortDeleteCompletion=Readonly<{version:1;kind:'cohort-delete-compl
 export type CohortDeleteResult=CohortDeleteCompletion&Readonly<{receiptDigest:string}>;
 const sha=(text:string)=>createHash('sha256').update(text).digest('hex');
 export function cohortDeleteActor(binding:CohortDeleteEvidenceBinding):CohortDeleteActor{
-  const auth=binding.authorization;if(auth.mode!=='direct'&&auth.mode!=='direct-mcp')return failCohortDelete();
+  const auth=binding.authorization;if(auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key')return failCohortDelete();
+  if(auth.mode==='api-key'&&(binding.actionMode!=='apply'||decodeWorkspaceOperationApiKeyAuthorization(auth).kind!=='delete'))return failCohortDelete();
   return freezeCohortDelete({userId:auth.actorUserId,actorId:auth.actorId,actorType:auth.actorType,actorSessionId:auth.actorSessionId??null});
 }
 export function cohortDeleteLinkContext(binding:CohortDeleteEvidenceBinding){
-  const auth=binding.authorization;if(auth.mode!=='direct'&&auth.mode!=='direct-mcp')return failCohortDelete();
+  const auth=binding.authorization;if(auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key')return failCohortDelete();
   return {batchId:binding.batchId,workspaceId:binding.workspaceId,sourcePath:binding.plan.pathSteps[0].sourcePath,
     requestHash:auth.requestHash,actor:cohortDeleteActor(binding)};
 }
@@ -90,7 +92,7 @@ export function parseCohortDeleteIntent(row:WorkspaceOperationOriginalDeleteInte
   workspace:WorkspaceContext,dataRoot:string):CohortDeleteIntent{
   if(binding.plan.version!==6||binding.actionMode!=='apply')return failCohortDelete();
   const value=captureCohortDeleteData<CohortDeleteIntent>(JSON.parse(row.intentText),1048576),auth=binding.authorization;
-  if(auth.mode!=='direct'&&auth.mode!=='direct-mcp')return failCohortDelete();
+  if(auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key')return failCohortDelete();
   const expected=['version','kind','batchId','planId','requestHash','actor','jobScope','currentWitness','roots','targets','nativeLinks','admission'];
   if(!equal(Object.keys(value).sort(),expected.sort())||row.batchId!==binding.batchId||row.planId!==binding.planId||row.workspaceId!==binding.workspaceId
     ||row.requestHash!==auth.requestHash||sha(row.intentText)!==row.intentDigest||value.batchId!==binding.batchId||value.planId!==binding.planId

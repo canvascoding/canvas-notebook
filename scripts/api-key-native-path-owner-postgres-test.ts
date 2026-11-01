@@ -5,6 +5,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ApiKeyWorkspacePathPrincipal, ApiKeyWorkspacePathPurpose } from '../app/lib/api-keys/document-read-principal';
 import type { NativeFileOperationReceipt } from '../app/lib/markdown/native-file-operation-handoff';
+import type { WorkspaceOperationDeleteBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationCohortDeletePlan } from '../app/lib/files/workspace-operation-cohort-delete-plan';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 let stage = 'setup', groups = 0;
@@ -13,6 +15,15 @@ const errorCode = (error: unknown): string | undefined => {
   return typeof value === 'string' && /^[A-Z0-9_]{1,128}$/u.test(value) ? value : undefined;
 };
 const absent = async (file: string) => assert.rejects(fs.lstat(file), error => errorCode(error) === 'ENOENT');
+function linkHrefs(value: unknown): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const node = value as { marks?: unknown; content?: unknown }, result: string[] = [];
+  if (Array.isArray(node.marks)) for (const mark of node.marks) {
+    if (mark && typeof mark === 'object' && mark.type === 'link' && typeof mark.attrs?.href === 'string') result.push(mark.attrs.href);
+  }
+  if (Array.isArray(node.content)) for (const child of node.content) result.push(...linkHrefs(child));
+  return result;
+}
 async function main() {
   process.env.FILE_VERSION_CENTER_MODE = 'off';
   process.env.BASE_URL = 'http://localhost';
@@ -31,6 +42,10 @@ async function main() {
     const { buildWorkspaceOperationBatchPlan } = await import('../app/lib/files/workspace-operation-batch-plan');
     const { advanceWorkspaceOperationNativePathAdmission } = await import('../app/lib/files/workspace-operation-native-path-admission');
     const { executeWorkspaceOperationOriginalMove } = await import('../app/lib/files/workspace-operation-original-move-runner');
+    const { executeWorkspaceOperationOriginalDelete } = await import('../app/lib/files/workspace-operation-original-delete');
+    const { executeWorkspaceOperationCohortDelete } = await import('../app/lib/files/workspace-operation-cohort-delete-runner');
+    const { workspaceOperationBatchTotalActions } = await import('../app/lib/files/workspace-operation-native-delete-effects');
+    const { readWorkspaceOperationOriginalDeleteIntentOnConnection: readDeleteIntent } = await import('../app/lib/files/workspace-operation-original-delete-repository');
     const { openDb } = await import('../app/lib/db');
     const { loadCollaborationStateOnConnection: load } = await import('../app/lib/collaboration/persistence');
     const { inspectPersistedDocumentLinks: links } = await import('../app/lib/markdown/workspace-native-link-inventory');
@@ -41,7 +56,7 @@ async function main() {
       actions: ['move', 'delete', 'status', 'recover'], expiresAt: Date.now() + 3_600_000 });
     const store = new WorkspaceOperationBatchStore();
     const run = async <T>(purpose: ApiKeyWorkspacePathPurpose, consume: (principal: ApiKeyWorkspacePathPrincipal) => Promise<T>) => {
-      const credential = await authenticateApiKeyRequest(new Request('http://localhost/api/documents/move', { headers: { 'X-Canvas-API-Key': issued.key } }));
+      const credential = await authenticateApiKeyRequest(new Request(`http://localhost/api/documents/${purpose.startsWith('delete_') ? 'delete' : 'move'}`, { headers: { 'X-Canvas-API-Key': issued.key } }));
       return capture(credential, { workspaceId, purpose, source: 'request' }, consume);
     };
     const scope = async (principal: ApiKeyWorkspacePathPrincipal, purpose: ApiKeyWorkspacePathPurpose) => {
@@ -57,6 +72,39 @@ async function main() {
         try { await db.run('ROLLBACK'); } catch (rollback) { failure = new AggregateError([failure, rollback]); }
         throw failure;
       } finally { await db.close(failure); }
+    };
+    const applyDelete = async (plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan) => {
+      const operationId = randomUUID();
+      const applied = await run('delete_apply', async principal => {
+        const selected = await scope(principal, 'delete_apply'), result = await store.createApiKeyDeleteAndClaim(principal, { operationId, plan });
+        assert(result.kind === 'claimed'); const batch = result.batch; assert(batch.authorization.mode === 'api-key');
+        const original = batch.authorization; assert.equal(original.actorSessionId, null); assert.equal(original.kind, 'delete');
+        return store.withClaim(batch, async claim => {
+          const apiKeyPrincipal = holder({ transport: 'api-key', kind: 'delete', purpose: 'delete_apply', principal });
+          assert.equal((await advanceWorkspaceOperationNativePathAdmission(claim, { apiKeyPrincipal })).status, 'ready');
+          const invoke = () => plan.version === 6
+            ? executeWorkspaceOperationCohortDelete({ claim, workspace: selected.workspace, apiKeyPrincipal })
+            : executeWorkspaceOperationOriginalDelete(claim, undefined, apiKeyPrincipal);
+          const completion = await invoke();
+          stage += ': completed history'; assert.deepEqual(await invoke(), completion);
+          const trashEntryIds = 'kind' in completion ? completion.physical.map(item => item.receipt.original.trashEntryId) : [completion.trashEntryId];
+          const finished = await store.finishClaim(batch, { status: 'applied', completedActions: workspaceOperationBatchTotalActions(plan), trashEntryIds, phase: 'complete' });
+          assert(finished); assert.equal(finished.status, 'applied'); assert.deepEqual(finished.authorization, original);
+          const intent = await readDeleteIntent(h.connection, { schema: h.schema, batchId: batch.batchId }); assert(intent);
+          assert.equal(intent.requestHash, original.requestHash); assert.equal(intent.intentText.includes(issued.key), false);
+          const data = JSON.parse(intent.intentText); assert.equal(data.actor.actorId, original.actorId); assert.equal(data.actor.actorSessionId, null);
+          assert.equal(data.actor.userId, 'member');
+          assert.equal(Number((await h.admin.query('SELECT count(*)::int AS n FROM agents WHERE agent_id=$1', [original.actorId])).rows[0].n), 0);
+          assert.equal(Number((await h.admin.query('SELECT count(*)::int AS n FROM pi_sessions WHERE agent_id=$1', [original.actorId])).rows[0].n), 0);
+          return { batchId: batch.batchId, completion, original, intent };
+        });
+      });
+      await run('delete_recover', async principal => {
+        const recovered = await store.claimExistingApiKeyPath(principal, 'delete_recover', { operationId, workspaceId, planId: plan.planId });
+        assert(recovered.kind === 'historical-header'); assert.equal(recovered.batch.batchId, applied.batchId);
+        assert.deepEqual(recovered.batch.authorization, applied.original); assert.equal(recovered.batch.status, 'applied');
+      });
+      return applied;
     };
     for (const missingProjection of [false, true]) {
       const label = missingProjection ? 'native Move without physical projection' : 'native Move with physical projection'; stage = label;
@@ -103,7 +151,8 @@ async function main() {
       assert.equal(incomingAfter.documentSequence, incomingBefore.documentSequence + 1);
       const inventory = links(incomingAfter); assert(inventory.links.some(link => link.targetPathText === destinationPath));
       assert.equal(inventory.links.some(link => link.targetPathText === sourcePath), false);
-      assert(JSON.stringify(authoritativeNativeCollaborationSnapshot(incomingAfter).content).includes('https://example.test/keep'));
+      const preservedContent = authoritativeNativeCollaborationSnapshot(incomingAfter).content; assert(preservedContent.kind === 'rich_text');
+      assert(linkHrefs(preservedContent.document).some(href => href === 'https://example.test/keep'));
       const registryAfter = (await h.admin.query('SELECT id,lineage_id,path,status FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0];
       assert.equal(registryAfter.id, registryBefore.id); assert.equal(registryAfter.lineage_id, registryBefore.lineage_id);
       assert.equal(registryAfter.path, destinationPath); assert.equal(registryAfter.status, 'active');
@@ -135,8 +184,121 @@ async function main() {
       assert.equal(Number((await h.admin.query('SELECT count(*)::int AS n FROM pi_sessions WHERE agent_id=$1', [applied.actorId])).rows[0].n), 0);
       groups++; console.log(`API-key native path owner passed: ${stage}; real native Move, one incoming mutation, stable D/L/Yjs and no PI actor with review rollout off`);
     }
+    for (const missingProjection of [false, true]) {
+      const label = missingProjection ? 'native Delete without physical projection' : 'native Delete with physical projection'; stage = label;
+      const sourcePath = `key-delete-${randomUUID()}.md`, incomingPath = `key-delete-incoming-${randomUUID()}.md`;
+      const bytes = Buffer.from('# Archived key document\n\nKeep all original native bytes.\n');
+      const target = await h.upload(sourcePath, bytes), incoming = await h.upload(incomingPath, Buffer.from(`[Keep label](${sourcePath}) [Web](https://example.test/keep-delete)\n`));
+      await h.metadata(h.source, sourcePath, { title: 'Deleted title', isFavorite: true, pinned: true }, 'member');
+      const before = await load(h.connection, target.documentId), incomingBefore = await load(h.connection, incoming.documentId); assert(before && incomingBefore);
+      const registryBefore = (await h.admin.query('SELECT id,lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0]; assert(registryBefore);
+      if (missingProjection) await fs.unlink(path.join(h.source.rootPath, sourcePath));
+      const plan = await run('delete_preview', async principal => buildWorkspaceOperationBatchPlan({ scope: await scope(principal, 'delete_preview'),
+        actions: [{ reviewId: randomUUID(), kind: 'delete', selections: [{ sourcePath }] }] }));
+      assert(plan.version === 2); assert.equal(plan.readiness, 'ready');
+      stage = `${label}: execute`;
+      const applied = await applyDelete(plan), completion = applied.completion; assert(!('kind' in completion));
+      stage = `${label}: archive invariants`; assert(completion.native); assert.equal(completion.nativeLinks?.length, 1);
+      await absent(path.join(h.source.rootPath, sourcePath));
+      const raw = (await h.admin.query('SELECT status,lifecycle_generation,yjs_state,state_vector FROM collaboration_yjs_states WHERE document_id=$1', [target.documentId])).rows[0]; assert(raw);
+      assert.equal(raw.status, 'archived'); assert.equal(Number(raw.lifecycle_generation), before.lifecycleGeneration + 1);
+      assert.deepEqual(raw.yjs_state, Buffer.from(before.yjsState)); assert.deepEqual(raw.state_vector, Buffer.from(before.stateVector));
+      const registry = (await h.admin.query('SELECT id,lineage_id,path,status FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0];
+      assert.deepEqual(registry, { id: target.documentId, lineage_id: registryBefore.lineage_id, path: sourcePath, status: 'archived' });
+      assert.deepEqual((await h.admin.query('SELECT path,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1', [registryBefore.lineage_id])).rows,
+        [{ path: sourcePath, status: 'archived', trash_entry_id: completion.trashEntryId }]);
+      stage = `${label}: incoming links`;
+      const after = await load(h.connection, incoming.documentId); assert(after); assert.equal(after.documentSequence, incomingBefore.documentSequence + 1);
+      assert.equal(links(after).links.some(link => link.targetPathText === sourcePath), false);
+      const snapshot = authoritativeNativeCollaborationSnapshot(after), content = JSON.stringify(snapshot.content);
+      assert(snapshot.content.kind === 'rich_text');
+      assert(content.includes('Keep label')); assert(linkHrefs(snapshot.content.document).some(href => href === 'https://example.test/keep-delete'));
+      stage = `${label}: retained Trash`;
+      const trash = (await h.admin.query('SELECT status,original_path,deleted_by_user_id,metadata_json FROM workspace_trash_entries WHERE id=$1', [completion.trashEntryId])).rows[0]; assert(trash);
+      assert.equal(trash.status, 'trashed'); assert.equal(trash.original_path, sourcePath); assert.equal(trash.deleted_by_user_id, 'member');
+      const metadata = JSON.parse(trash.metadata_json); assert.equal(metadata.payloadKind, missingProjection ? 'native_archive' : 'file');
+      assert.equal(metadata.nativeDocumentId, target.documentId); assert.equal(metadata.nativeLineageId, registryBefore.lineage_id);
+      const payload = path.join(h.dataRoot, completion.physical.original.trashRelativePath);
+      if (missingProjection) await absent(payload); else assert.deepEqual(await fs.readFile(payload), bytes);
+      assert.equal((await h.admin.query('SELECT path FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [workspaceId, sourcePath])).rows.length, 0);
+      assert.equal((await h.admin.query('SELECT path FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2', [workspaceId, sourcePath])).rows.length, 0);
+      groups++; console.log(`API-key native path owner passed: ${label}; genuine archive/Trash, stable native bytes and one incoming mutation, completed history without replay`);
+    }
+    for (const extension of ['pdf', 'png']) {
+      const label = `physical ${extension.toUpperCase()} Delete`; stage = label;
+      const sourcePath = `key-delete-${randomUUID()}.${extension}`, bytes = Buffer.from(extension === 'pdf' ? '%PDF-1.7\nOriginal key PDF bytes\n' : '\u0089PNG\r\n\u001a\nOriginal key image bytes');
+      await fs.writeFile(path.join(h.source.rootPath, sourcePath), bytes, { mode: 0o600, flag: 'wx' });
+      const incoming = await h.upload(`key-physical-incoming-${randomUUID()}.md`, Buffer.from(`[Keep file label](${sourcePath}) [Web](https://example.test/keep-physical)\n`));
+      const before = await load(h.connection, incoming.documentId); assert(before);
+      const plan = await run('delete_preview', async principal => buildWorkspaceOperationBatchPlan({ scope: await scope(principal, 'delete_preview'),
+        actions: [{ reviewId: randomUUID(), kind: 'delete', selections: [{ sourcePath }] }] }));
+      assert(plan.version === 5); assert.equal(plan.readiness, 'ready');
+      stage = `${label}: execute`; const applied = await applyDelete(plan), completion = applied.completion; assert(!('kind' in completion));
+      stage = `${label}: retained bytes and incoming links`;
+      assert.equal(completion.native, null); assert.equal(completion.nativeLinks?.length, 1); assert(completion.physicalRegistry);
+      await absent(path.join(h.source.rootPath, sourcePath));
+      assert.deepEqual(await fs.readFile(path.join(h.dataRoot, completion.physical.original.trashRelativePath)), bytes);
+      const after = await load(h.connection, incoming.documentId); assert(after); assert.equal(after.documentSequence, before.documentSequence + 1);
+      assert.equal(links(after).links.some(link => link.targetPathText === sourcePath), false);
+      const snapshot = authoritativeNativeCollaborationSnapshot(after).content; assert(snapshot.kind === 'rich_text');
+      assert(linkHrefs(snapshot.document).some(href => href === 'https://example.test/keep-physical'));
+      const trash = (await h.admin.query('SELECT status,original_path,metadata_json FROM workspace_trash_entries WHERE id=$1', [completion.trashEntryId])).rows[0];
+      assert(trash); assert.equal(trash.status, 'trashed'); assert.equal(trash.original_path, sourcePath);
+      const metadata = JSON.parse(trash.metadata_json); assert.equal(metadata.payloadKind, 'file'); assert.equal(metadata.nativeDocumentId, null);
+      groups++; console.log(`API-key native path owner passed: ${label}; exact physical bytes retained, one incoming native mutation and completed history without replay`);
+    }
+    {
+      const label = 'mixed two-root cohort Delete'; stage = label;
+      const roots = [`key-cohort-a-${randomUUID()}`, `key-cohort-b-${randomUUID()}`];
+      for (const root of roots) await fs.mkdir(path.join(h.source.rootPath, root), { mode: 0o700 });
+      const nativePaths = [`${roots[0]}/note.md`, `${roots[1]}/virtual.md`];
+      const nativeBytes = [Buffer.from('# Original cohort note\n'), Buffer.from('# Native-only cohort note\n')];
+      const natives = [await h.upload(nativePaths[0], nativeBytes[0]), await h.upload(nativePaths[1], nativeBytes[1])];
+      await fs.unlink(path.join(h.source.rootPath, nativePaths[1]));
+      const physicalPaths = [`${roots[0]}/paper.pdf`, `${roots[1]}/photo.png`], physicalBytes = [Buffer.from('%PDF-1.7\nCohort PDF\n'), Buffer.from('Original cohort PNG bytes\n')];
+      for (let index = 0; index < physicalPaths.length; index++) await fs.writeFile(path.join(h.source.rootPath, physicalPaths[index]), physicalBytes[index], { mode: 0o600, flag: 'wx' });
+      const keepPath = `key-cohort-kept-${randomUUID()}.md`, keptBytes = Buffer.from('# Keep unrelated native document\n');
+      const kept = await h.upload(keepPath, keptBytes); await h.metadata(h.source, keepPath, { title: 'Keep title', isFavorite: true, pinned: true }, 'member');
+      const incoming = await h.upload(`key-cohort-incoming-${randomUUID()}.md`, Buffer.from([...nativePaths, ...physicalPaths, keepPath].map((file, index) => `[Label ${index}](${file})`).join(' ') + ' [Web](https://example.test/keep-cohort)\n'));
+      const beforeStates = await Promise.all(natives.map(native => load(h.connection, native.documentId))); assert(beforeStates.every(Boolean));
+      const incomingBefore = await load(h.connection, incoming.documentId), keptBefore = await load(h.connection, kept.documentId); assert(incomingBefore && keptBefore);
+      const beforeMetadata = (await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [workspaceId, keepPath])).rows;
+      const beforePersonal = (await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2', [workspaceId, keepPath])).rows;
+      const plan = await run('delete_preview', async principal => buildWorkspaceOperationBatchPlan({ scope: await scope(principal, 'delete_preview'),
+        actions: [{ reviewId: randomUUID(), kind: 'delete', selections: roots.map(sourcePath => ({ sourcePath })) }] }));
+      assert(plan.version === 6); assert.equal(plan.readiness, 'ready');
+      stage = `${label}: execute`; const applied = await applyDelete(plan), completion = applied.completion; assert('kind' in completion);
+      stage = `${label}: archive and Trash invariants`;
+      assert.equal(completion.physical.length, 2); assert.equal(completion.targets.length, 4); assert.equal(completion.nativeLinks.length, 1);
+      for (const root of roots) await absent(path.join(h.source.rootPath, root));
+      for (let index = 0; index < natives.length; index++) {
+        const before = beforeStates[index]; assert(before);
+        const raw = (await h.admin.query('SELECT status,lifecycle_generation,yjs_state,state_vector FROM collaboration_yjs_states WHERE document_id=$1', [natives[index].documentId])).rows[0];
+        assert(raw); assert.equal(raw.status, 'archived'); assert.equal(Number(raw.lifecycle_generation), before.lifecycleGeneration + 1);
+        assert.deepEqual(raw.yjs_state, Buffer.from(before.yjsState)); assert.deepEqual(raw.state_vector, Buffer.from(before.stateVector));
+        const archived = completion.targets.find(target => target.path === nativePaths[index]); assert(archived?.native);
+        assert.equal(archived.native.after.identity.documentId, natives[index].documentId);
+        const physical = completion.physical.find(item => item.receipt.original.canonicalPath === roots[index]); assert(physical);
+        const payload = path.join(h.dataRoot, physical.receipt.original.trashRelativePath);
+        if (index === 0) assert.deepEqual(await fs.readFile(path.join(payload, path.basename(nativePaths[index]))), nativeBytes[index]);
+        else await absent(path.join(payload, path.basename(nativePaths[index])));
+        assert.deepEqual(await fs.readFile(path.join(payload, path.basename(physicalPaths[index]))), physicalBytes[index]);
+        const trash = (await h.admin.query('SELECT status,original_path,deleted_by_user_id FROM workspace_trash_entries WHERE id=$1', [physical.receipt.original.trashEntryId])).rows[0];
+        assert.deepEqual(trash, { status: 'trashed', original_path: roots[index], deleted_by_user_id: 'member' });
+      }
+      stage = `${label}: one incoming mutation and unrelated preservation`;
+      const incomingAfter = await load(h.connection, incoming.documentId); assert(incomingAfter); assert.equal(incomingAfter.documentSequence, incomingBefore.documentSequence + 1);
+      const inventory = links(incomingAfter); assert.equal(inventory.links.some(link => [...nativePaths, ...physicalPaths].includes(link.targetPathText)), false);
+      assert(inventory.links.some(link => link.targetPathText === keepPath));
+      const snapshot = authoritativeNativeCollaborationSnapshot(incomingAfter).content; assert(snapshot.kind === 'rich_text');
+      assert(linkHrefs(snapshot.document).some(href => href === 'https://example.test/keep-cohort'));
+      assert.deepEqual(await load(h.connection, kept.documentId), keptBefore); assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, keepPath)), keptBytes);
+      assert.deepEqual((await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [workspaceId, keepPath])).rows, beforeMetadata);
+      assert.deepEqual((await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2', [workspaceId, keepPath])).rows, beforePersonal);
+      groups++; console.log(`API-key native path owner passed: ${label}; mixed native/physical originals retained, one source mutation and unchanged unrelated document/metadata`);
+    }
   });
-  console.log(`API-key native path owners: ${groups} actual Move groups passed; Delete, status/recovery/public adapters and installed SDK remain separate.`);
+  console.log(`API-key native path owners: ${groups} actual Move/Delete groups passed; public status/recovery/adapters and installed SDK remain separate.`);
 }
 function describe(error: unknown, depth = 0): unknown {
   if (!error || typeof error !== 'object' || depth > 3) return undefined;

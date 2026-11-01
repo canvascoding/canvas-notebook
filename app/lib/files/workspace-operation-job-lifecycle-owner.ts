@@ -1585,7 +1585,7 @@ export function readWorkspaceOperationOriginalDeleteJobHistory(claim: WorkspaceO
 ): Promise<WorkspaceOperationOriginalDeleteResult | null> {
   if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization, plan = binding.plan;
-  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
+  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key' || !auth.jobScope || auth.jobScope.legacy
     || plan.version === 3 || plan.version === 6 || plan.pathSteps.length !== 1 || plan.pathSteps[0].kind !== 'delete'
     || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
   const mcpPrincipal = captureProgrammaticJobPrincipal(binding, mcp, false);
@@ -1877,7 +1877,7 @@ export function readWorkspaceOperationCohortDeleteJobHistory(claim:WorkspaceOper
   openConnection:()=>Promise<SqlConnection>=openDb,mcp?:WorkspaceOperationProgrammaticJobPrincipal):Promise<CohortDeleteResult|null>{
   if(context.getStore()||hasCollaborationHandoffExecutionContext())return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding=readWorkspaceOperationBatchClaimBinding(claim),auth=binding.authorization,plan=binding.plan;
-  if(binding.actionMode!=='apply'||auth.mode!=='direct'&&auth.mode!=='direct-mcp'||!auth.jobScope||auth.jobScope.legacy
+  if(binding.actionMode!=='apply'||auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key'||!auth.jobScope||auth.jobScope.legacy
     ||plan.version!==6||plan.workspaceId!==binding.workspaceId||plan.planId!==binding.planId)return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
   decodeWorkspaceOperationCohortDeletePlan(plan);const principal=captureProgrammaticJobPrincipal(binding,mcp,false);
   return withWorkspaceOperationJobClaimPhase(claim,async()=>{
