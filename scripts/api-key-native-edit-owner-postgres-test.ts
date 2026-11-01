@@ -1,13 +1,11 @@
 import 'next/dist/server/node-environment-baseline';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import http from 'node:http';
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Client } from 'pg';
-import { Hocuspocus } from '@hocuspocus/server';
 import type { NativeDocumentEditWriteAuthority } from '../app/lib/documents/edit-principal';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+import { withNativeApiKeyEditRuntime } from './helpers/native-api-key-edit-runtime';
 
 let stage = 'setup', groups = 0;
 const code = (wanted: string) => (error: unknown) => Boolean(error && typeof error === 'object' && Reflect.get(error, 'code') === wanted);
@@ -30,8 +28,7 @@ async function main() {
     const { readDocumentForRequest } = await import('../app/lib/documents/service');
     const { openDb } = await import('../app/lib/db');
     const { executeLifecycleTransaction } = await import('../app/lib/collaboration/lifecycle-transaction');
-    const { createCollaborationServer, flushCollaborationDocuments } = await import('../server/collaboration-server');
-    const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+    const { flushCollaborationDocuments } = await import('../server/collaboration-server');
     const { createPlainTextYDoc } = await import('../app/lib/collaboration/markdown-state');
     const { Y } = await import('../app/lib/collaboration/server-runtime');
     const { NextRequest } = await import('next/server');
@@ -80,27 +77,9 @@ async function main() {
       return { status: response.status, body: await response.json() };
     };
     const mcp = (args: Record<string, unknown>, modern = false) => rpc('tools/call', { name: 'edit_knowledge_source', arguments: args }, modern);
-    const server = http.createServer();
-    const clients = new Set<Client>(), ownerSessions = new Set<Awaited<ReturnType<typeof createCollaborationRoomOwnerSession>>>();
-    let runtime: Hocuspocus | undefined, wss: ReturnType<typeof createCollaborationServer> | undefined;
-    const originalHooks = Hocuspocus.prototype.hooks;
     const check = async (name: string, action: () => Promise<void>) => { stage = name; await action(); groups++;
       console.log(`API-key native edit owner passed: ${name}`); };
-    try {
-      Hocuspocus.prototype.hooks = (async function(this: Hocuspocus, name: string, payload: Record<string, unknown>, ...args: unknown[]) {
-        // Observation only; the actual Hocuspocus hook always runs.
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        runtime = this; return Reflect.apply(originalHooks, this, [name, payload, ...args]);
-      }) as typeof originalHooks;
-      wss = createCollaborationServer(server, { roomOwner: { heartbeatMs: 1000, createSession: async onInvalidated => {
-        const client = new Client({ connectionString: process.env.DATABASE_URL, application_name: h.applicationName,
-          options: `-c search_path=${h.schema},pg_catalog -c statement_timeout=15000`, connectionTimeoutMillis: 5000 });
-        clients.add(client); client.on('error', () => undefined); await client.connect();
-        const session = await createCollaborationRoomOwnerSession({ query: client.query.bind(client), on: client.on.bind(client),
-          end: async () => { await client.end(); clients.delete(client); } }, onInvalidated);
-        ownerSessions.add(session); return session;
-      } } });
-      await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    await withNativeApiKeyEditRuntime(h, async ({ runtime }) => {
       await check('genuine native authority has an API-key origin and no borrowed session', async () => {
         await run('edit', authority => executeLifecycleTransaction({ openConnection: openDb,
           execute: database => phase(database, authority, async access => {
@@ -264,7 +243,7 @@ async function main() {
         let writer: unknown, knownId: string | undefined, injected = false;
         const response = await h.withProbe(async event => {
           if (/INSERT INTO collaboration_agent_native_edit_payloads/iu.test(event.text)
-            && runtime?.documents.get(target.documentId)?.getText('content').toString() === nextText) {
+            && runtime()?.documents.get(target.documentId)?.getText('content').toString() === nextText) {
             writer = event.client; assert.equal(typeof event.values[0], 'string'); knownId = event.values[0] as string;
           }
           if (!injected && writer && event.client === writer && event.text.trim() === 'COMMIT') {
@@ -326,22 +305,7 @@ async function main() {
         // This key's genuine manager session is now absent. The complete owned
         // fixture schema, including its credentials, is removed after runtime shutdown.
       });
-    } finally {
-      const errors: unknown[] = [];
-      try { await flushCollaborationDocuments(); } catch (error) { errors.push(error); }
-      if (runtime) {
-        for (const doc of [...runtime.documents.values()]) try { await runtime.unloadDocument(doc); } catch (error) { errors.push(error); }
-        for (const pending of [...runtime.unloadingDocuments.values()]) try { await pending; } catch (error) { errors.push(error); }
-      }
-      if (wss) try { await new Promise<void>((resolve, reject) => wss!.close(error => error ? reject(error) : resolve())); } catch (error) { errors.push(error); }
-      try { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); } catch (error) { errors.push(error); }
-      for (const session of ownerSessions) try { await session.close(); } catch (error) { errors.push(error); }
-      for (const client of clients) try { await client.end(); clients.delete(client); } catch (error) { errors.push(error); }
-      Hocuspocus.prototype.hooks = originalHooks;
-      assert.equal(server.listening, false); assert.equal(clients.size, 0);
-      if (errors.length) throw new AggregateError(errors, 'Native API-key room cleanup failed.');
-      console.log(JSON.stringify({ suite: 'api-key-native-edit-owner', roomOwnersClosed: true, listeningHttpServers: 0, reviewCenterEnabled: false }));
-    }
+    });
   });
   console.log(`API-key native edit owner: ${groups} PostgreSQL/native-runtime/route/MCP groups passed. Installed SDK writes and compiled acceptance remain separate.`);
 }

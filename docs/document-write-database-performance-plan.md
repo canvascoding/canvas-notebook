@@ -268,7 +268,7 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Native Edit-/Status-Adapter über installiertes SDK abnehmen; anschließend Create/Import und Datei-/Recovery-Adapter ergänzen. Verwaltung, Leseadapter und native HTTP-/MCP-Edits sind teilweise abgenommen, siehe 5a. |
+| 4a | in Umsetzung | Create/Import und Datei-/Recovery-Adapter ergänzen; vollständige kompilierte Abnahme durchführen. Verwaltung, Leseadapter und native HTTP-/MCP-Edits einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
 | 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
@@ -792,8 +792,27 @@ MCP-Vertrags- und Nutzungsanzeigentests bestehen. Der bisherige CJS-Start des
 MCP-Vertragstests wurde auf den bereits vorhandenen ESM-Test-Runner umgestellt:
 Das installierte `pi-ai/compat` besitzt ausschließlich einen Import-Export.
 Der vollständige Paketbefehl besteht ohne ausgelassene Tests. Release-Typecheck
-und gezieltes ESLint bestehen. Die installierte SDK-Schreib- und kompilierte
-Container-Abnahme bleiben offen.
+und gezieltes ESLint bestehen. Die kompilierte Container-Abnahme bleibt offen.
+Der getrennte Runner `test:api-keys:sdk:edits:native` besteht mit dem oben
+genannten installierten Wheel unter Python 3.10.19 und 3.14.3: jeweils sechs
+Gruppen und 31 ausschließlich über Key authentifizierte HTTP-Anfragen prüfen
+native Änderung, Status, exakte Wiederholung, Versionskonflikt, Rotation,
+fremde Integrationen, aktuelle Aktionsrechte, echten Logout und Widerruf.
+Eine tatsächlich gekappte HTTP-Antwort nach bestätigter Speicherung führt zu
+keinem automatischen zweiten Schreibaufruf. Der offizielle MCP-Client beendet
+dabei seine Verbindung; nach deren vollständigem Schließen öffnet der Test eine
+frische Verbindung. Die ausdrücklich vom Aufrufer gestartete Wiederholung
+liefert dieselbe dauerhafte Operation zurück, deren Status bestätigt ist.
+Der unabhängige Datenbankleser prüft die gespeicherten Yjs-Bytes; ein vorübergehend
+im RAM gehaltener Raum wird nicht als Dauerhaftigkeitsnachweis verwendet.
+Genau drei tatsächliche Änderungen entstehen; Originalbelege bleiben bei
+Wiederholung unverändert. Ein separates Kontroll-Dokument einschließlich
+nativer Zeilen, `xmin` und physischer Bytes bleibt erhalten. Review Center ist
+ausgeschaltet, alle eigenen Ressourcen und Schema-Fixtures schließen vollständig.
+Die zwölf HTTP-/MCP-Owner-Gruppen bestehen nach Auslagerung ihres gemeinsamen
+Test-Runtime-Aufbaus weiterhin. `test:api-keys:sdk:native` führt Lese- und
+Schreibprüfungen künftig nacheinander aus. Weitere Schreib-/Recovery-Methoden,
+OAuth-/Keyring-Gesamtabnahme und der frisch kompilierte Container bleiben offen.
 
 Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
 nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
