@@ -7,7 +7,7 @@ import { createDirectMcpIngestAuthority } from './ingest-authority';
 import { downloadDirectMcpFile, type DirectMcpFileReference, DirectMcpIngestDownloadError } from './ingest-download';
 import { createDirectMcpWorkspaceFile, directMcpIngestFingerprint, DirectMcpFileIngestError, normalizeDirectMcpIngestPath } from './file-ingest';
 import { DirectMcpIngestValidationError, encodeDirectMcpTextContent, isDirectMcpTextPath, validateDirectMcpIngestContent } from './ingest-validation';
-import { parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
+import { buildDirectMcpDocumentUrl, parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
 import { directMcpToolAuthorizationError } from './tool-auth';
 import type { DirectMcpToolDescriptor } from './tool-descriptor';
 import { persistAndProjectDirectMcpMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
@@ -145,7 +145,9 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
       if (native.kind === 'native') {
         const result = args.api_version === 1 ? native.mutationResult : native.receipt;
         if (!result) throw new DirectMcpFileIngestError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED', 'The native creation result could not be confirmed.');
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+        const body = args.api_version === 1 && native.mutationResult
+          ? { ...result, document_url: buildDirectMcpDocumentUrl(native.mutationResult.document) } : result;
+        return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
       }
       if (args.api_version === 1) {
         throw new DirectMcpFileIngestError('MCP_INGEST_NATIVE_DOCUMENT_REQUIRED', 'This operation belongs to an existing legacy file creation.');

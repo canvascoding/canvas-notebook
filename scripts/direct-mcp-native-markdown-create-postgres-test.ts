@@ -297,13 +297,18 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
     };
     const mutationV1 = (result: ObjectValue): DocumentCreateMutationResultV1 => {
       assert.notEqual(result.isError, true); const value = object(result.structuredContent);
-      assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'operationId', 'outcome', 'document', 'currency', 'projection'].sort());
+      assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'operationId', 'outcome', 'document', 'currency', 'projection', 'document_url'].sort());
       assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
       assert.deepEqual(JSON.parse(String(object(result.content[0]).text)), value);
       assert.equal(value.apiVersion, 1); assert.equal(typeof value.operationId, 'string'); assert(value.operationId);
       assert(['created', 'already_created'].includes(String(value.outcome)));
       const document = object(value.document), currency = object(value.currency), projection = object(value.projection);
       assert.equal(document.kind, 'native_document'); assert.equal(document.workspaceId, workspaceId);
+      const link = new URL(String(value.document_url)); assert.equal(link.pathname, '/notebook');
+      assert.equal(link.searchParams.get('workspaceId'), workspaceId);
+      assert.equal(link.searchParams.get('path'), document.path);
+      assert.equal(link.searchParams.get('documentId'), document.documentId);
+      assert.equal(link.searchParams.get('lineageId'), document.lineageId);
       assert.equal(document.lifecycleGeneration, 1); assert.equal(document.schemaVersion, 1);
       assert.match(String(document.version), /^canvas-document-v1:[a-f0-9]{64}$/u);
       assert.match(String(document.metadataVersion), /^canvas-document-metadata-v1:[a-f0-9]{64}$/u);

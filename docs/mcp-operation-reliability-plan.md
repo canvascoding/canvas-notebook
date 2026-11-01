@@ -51,7 +51,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
   - Fortsetzungen an Dokumentversion, Auswahl und aktuelle Leserechte binden.
   - Tests: großes strukturiertes Dokument, vollständige eindeutige Zielabdeckung,
     Versionswechsel und Berechtigungsentzug zwischen Seiten.
-- [ ] 6. Einheitliche Dokumentlinks
+- [x] 6. Einheitliche Dokumentlinks (Code und Integration; Browser unter 7)
   - Create, Import und Edit liefern den tatsächlich adressierten Dokumentlink.
   - Zentralen Linkbuilder und autoritative Dokument-/Lineage-Identität verwenden.
   - Tests: Linkfelder und Öffnen im Browser nach Create/Import/Edit.
@@ -213,3 +213,21 @@ Evidenz: `/tmp/canvas-mcp-target-unit.log`, `/tmp/canvas-mcp-target-postgres.log
 Die 15 bestehenden Read-Dispatch-Gruppen bleiben grün
 (`/tmp/canvas-mcp-target-read-regression.log`), ebenso Read-Vertragstests,
 Produktions-Typecheck und scoped ESLint. Kein produktives Dokument verändert.
+
+### Schritt 6 — native Ergebnislinks
+
+Native V1-Create-/Import-Antworten enthalten zusätzlich `document_url` aus dem
+zentralen Linkbuilder und der tatsächlich zurückgegebenen Dokumentidentität.
+Native Edit-/Status-Antworten enthalten denselben Feldnamen mit stabiler
+Dokument-/Lineage-ID. Weil historische Edit-Belege keinen aktuellen Pfad
+beweisen, löst Notebook den aktuellen Pfad beim Öffnen anhand dieser IDs auf.
+Es werden weder Pfade geraten noch zusätzliche Lese-/Schreibrechte abgeleitet.
+Die MCP-Ausgabedeklaration wurde erweitert; der interne strikte V1-Beleg und
+PI bleiben unverändert.
+
+Neun Edit-Dispatch-Gruppen und 15 native Create-/Import-Gruppen bestehen,
+einschließlich echten HTTPS-Imports und wiederholter Requests. Alle nativen
+Ergebnisse werden auf Workspace, Dokument-ID, Lineage und Create-Pfad geprüft.
+Logs: `/tmp/canvas-mcp-links-edit.log`, `/tmp/canvas-mcp-links-create-import.log`.
+Produktions-Typecheck und scoped ESLint bestanden. Das tatsächliche Öffnen
+im neu gebauten Container wird im gemeinsamen E2E geprüft.
