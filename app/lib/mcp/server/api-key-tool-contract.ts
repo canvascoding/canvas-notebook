@@ -6,11 +6,13 @@ import { DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES } from './document-read-tool
 import { DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES } from './document-search-tool-contract';
 import type { DirectMcpToolDescriptor } from './tool-descriptor';
 import { DOCUMENT_READ_ERROR_JSON_SCHEMA_V1 } from '../../documents/read-json-schema';
+import { apiKeyDocumentCreateSchemas } from '../../documents/create-json-schema';
 
 /** Pure advertised transport contract. Loading an OAuth server must not
  * initialize the separate API-key document adapter or its authorization code. */
 export const API_KEY_MCP_TOOLS: readonly DirectMcpToolId[] = Object.freeze(['list_workspaces', 'get_workspace_overview',
-  'list_knowledge_tree', 'get_knowledge_manifest', 'read_knowledge_source', 'search_knowledge', 'edit_knowledge_source']);
+  'list_knowledge_tree', 'get_knowledge_manifest', 'read_knowledge_source', 'search_knowledge', 'edit_knowledge_source',
+  'create_knowledge_source', 'import_knowledge_file']);
 type KeyScheme = { type: 'apiKey'; in: 'header'; name: 'X-Canvas-API-Key' };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -44,8 +46,10 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
       code: { type: 'string', pattern: '^API_KEY_[A-Z_]+$' },
       operationId: { type: 'string', maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' } } };
   const edit = descriptor.name === 'edit_knowledge_source' ? nativeEditSchemas(descriptor) : null;
+  const create = descriptor.name === 'create_knowledge_source' || descriptor.name === 'import_knowledge_file'
+    ? apiKeyDocumentCreateSchemas(descriptor.inputSchema) : null;
   const workspace_id = { type: 'string', minLength: 1, maxLength: 256 };
-  const inputSchema = edit ? edit.input : descriptor.name === 'list_workspaces'
+  const inputSchema = create ? create.input : edit ? edit.input : descriptor.name === 'list_workspaces'
     ? { type: 'object' as const, additionalProperties: false, properties: {} }
     : ['get_workspace_overview', 'list_knowledge_tree', 'get_knowledge_manifest'].includes(descriptor.name)
     ? { ...descriptor.inputSchema, properties: { ...descriptor.inputSchema.properties, workspace_id } }
@@ -56,7 +60,7 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
       properties: { workspace_id, ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         query: { type: 'string', minLength: 2, maxLength: 200 }, path: { type: 'string', maxLength: 4096, default: '.' },
         max_results: { type: 'integer', minimum: 1, maximum: 25 } } };
-  const outputSchema = edit?.output ?? descriptor.outputSchema ?? (descriptor.name === 'get_knowledge_manifest' ? {
+  const outputSchema = create?.output ?? edit?.output ?? descriptor.outputSchema ?? (descriptor.name === 'get_knowledge_manifest' ? {
     type: 'object', additionalProperties: false, required: ['workspace_id', 'path', 'entries', 'directories', 'next_cursor', 'has_more', 'truncated_by_depth', 'coverage'],
     properties: { workspace_id: { type: 'string' }, path: { type: 'string' }, entries: { type: 'array', items: { type: 'object' } },
       directories: { type: 'array', items: { type: 'object' } }, next_cursor: { type: ['string', 'null'] }, has_more: { type: 'boolean' },
@@ -66,6 +70,7 @@ export function apiKeyMcpToolDescriptor(descriptor: DirectMcpToolDescriptor): To
     apiVersion: { type: 'integer', const: 1 }, success: { type: 'boolean', const: false },
     code: { type: 'string', enum: ['INVALID_BROWSE_REQUEST', 'INVALID_TREE_REQUEST', 'WORKSPACE_TREE_CHANGED'] } } };
   return { ...descriptor, inputSchema, securitySchemes, _meta: { ...descriptor._meta, securitySchemes },
+    ...(create ? { description: 'Create a new native Markdown document or import a genuine HTTPS file reference. api_version:1 and a stable idempotency_key are required. Never overwrites an existing file. Retain the caller key after an uncertain outcome; explicitly repeat only the identical operation. Requires the separate create or import grant and current workspace rights. Success includes the stable documentId and confirmed durable version.' } : {}),
     ...(edit ? { description: 'Native documentId/full-version Edit V1 or read-only operation Status V1. Supply a stable idempotency_key. Only state:confirmed proves persistence. Retain the returned operationId after an uncertain outcome; inspect action:status with operation_id without replay. Edit requires the key edit grant; Status additionally requires status. Each call checks current user/workspace rights.' } : {}),
     ...(descriptor.name === 'get_workspace_overview' ? { description: 'Shows an explicitly allowed workspace, bounded top-level contents and read-adapter limits. API keys require current read rights; each call rechecks access.' } : {}),
     ...(outputSchema ? { outputSchema: { type: 'object', anyOf: [outputSchema, credentialFailure, DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, browseFailure] } } : {}) };

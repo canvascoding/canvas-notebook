@@ -115,7 +115,7 @@ export function createDirectMcpServer(
     recordDirectMcpRequestOperation('tools/call', tool.id);
     try {
       const result = apiKeyCredential
-        ? await (await import('./api-key-tools')).executeApiKeyMcpTool(tool.id, request.params.arguments, apiKeyCredential)
+        ? await (await import('./api-key-tools')).executeApiKeyMcpTool(tool.id, request.params.arguments, apiKeyCredential, context.mcpReq.signal)
         : await tool.execute(request.params.arguments, context.http?.authInfo, context.mcpReq.signal);
       if (result.isError) recordDirectMcpToolFailure();
       else await recordDirectMcpSuccessfulOperation();

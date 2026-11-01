@@ -6,7 +6,7 @@ sectionOrder: 11
 order: 1
 locale: en
 translationKey: developers.document-api
-updatedAt: 2026-10-19
+updatedAt: 2026-11-01
 ---
 
 # Document API
@@ -20,13 +20,16 @@ Use this sequence: search for a document, keep its stable identity, read its ful
 | Transport | Authentication | Available document operations |
 | --- | --- | --- |
 | REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
+| Explicit key REST routes and Direct MCP at `/mcp` | A regularly issued key in `X-Canvas-API-Key` | Workspace listing/browse, native Read/Search, Markdown Create/Import V1, and Edit/Status V1 |
 | Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled Copy/Move/Delete |
 
 These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
 
 REST requests send `Content-Type: application/json` with the actual user-session cookie or `Authorization: Bearer` followed by the issued Session Bearer. Use the normal supported sign-in flow to obtain that session. Signing out its source session revokes subsequent uses; a copied Bearer is not an independent long-lived API key.
 
-For MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
+Create an independent key under **Settings → Connections → API access**, selecting its workspaces, actions and expiry. The full key is shown once; store it in your application's secret store. Key requests send `X-Canvas-API-Key` without an additional Session/OAuth Bearer or session cookie. Rotation atomically invalidates the old key while retaining its integration's operation ownership; logout of the issuing browser session does not revoke it. Key actions are checked separately: `create` permits new Markdown creation, `import` permits new Markdown import, `edit` permits edits and `edit` plus `status` permits edit-status lookup. Read is a separate action. Current user/workspace/seat rights still apply, and MCP additionally requires each tool to be enabled. Copy/Move/Delete/Recover key adapters remain pending in this preview.
+
+For OAuth MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
 
 | Tool | Scope |
 | --- | --- |
@@ -115,9 +118,25 @@ For a complete body, concatenate fragments in order until `nextCursor` is null. 
 
 `document.version` is an opaque full native content token, including deletion evidence. `metadataVersion` separately identifies path/title metadata. `currency.observedDurable` distinguishes the observed body from a durable observation; `durableVersion` and `durableSequence` describe persistence. `projection.status` reports `current`, `pending`, or `unavailable` independently. A matching visible text string is not a substitute for these fields.
 
-## Create or import native Markdown through MCP
+## Create or import native Markdown
 
-There is no create endpoint in the REST V1 surface documented here. Use `create_knowledge_source` for complete UTF-8 Markdown or `import_knowledge_file` for a host-provided file reference. Supply `api_version: 1` to request the native result explicitly.
+Use `create_knowledge_source` for complete UTF-8 Markdown or `import_knowledge_file` for a host-provided file reference. Supply `api_version: 1` to request the native result explicitly. API-key connections require this version and a `.md` or `.markdown` destination; they never fall back to legacy file creation.
+
+Key-only REST adapters are `POST /api/documents/create` and `POST /api/documents/import`. Send `Content-Type: application/json` and your actual `X-Canvas-API-Key`. Their selectors use camelCase and accept exactly `apiVersion`, `workspaceId`, `path`, `idempotencyKey`, and either `content` or `file`. For example, a Create body is:
+
+```json
+{
+  "apiVersion": 1,
+  "workspaceId": "your-workspace-id",
+  "path": "notes/example.md",
+  "idempotencyKey": "create-example-001",
+  "content": "# Example\n\nComplete Markdown.\n"
+}
+```
+
+For Import, replace `content` with the actual `file` object shown below; its nested `download_url`, `file_id`, `mime_type`, and `file_name` retain their host-reference names. These two REST routes do not accept a browser Session Bearer. Existing authenticated browser creation/upload entry points remain separate. REST permits ordinary allowed hidden workspace paths; MCP excludes hidden path segments. Both use the same native writer and return the native result below. At most 512 KiB of valid UTF-8 text is accepted. Empty Markdown is allowed. Existing files are never overwritten.
+
+Key REST failures contain `apiVersion: 1`, `success: false` and a safe `code`, including key-authentication codes. Conflicting content/path under the same caller key returns HTTP 409. The abuse limit returns HTTP 429 and a bounded `Retry-After` header. A failed or lost response does not prove that nothing was persisted: retain the original idempotency key and source identity. After restoring access, explicitly retry that exact operation; a completed import can use a renewed download URL with the same file ID and MIME selection. An incomplete import may still require its original source bytes.
 
 ```json
 {

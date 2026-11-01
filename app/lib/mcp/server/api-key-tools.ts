@@ -15,8 +15,9 @@ import { decodeDirectMcpDocumentSearchSelection } from './document-search-tool-c
 import { decodeDirectMcpNativeDocumentEditSelection, formatDirectMcpNativeDocumentEditResult,
   formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
 import { editDocumentForApiKeyMcp, readDocumentEditStatusForApiKeyMcp } from '../../documents/edit-public-service';
+import { DocumentCreateError } from '../../documents/create-contract';
 
-export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown, credential: ApiKeyCredential): Promise<CallToolResult> {
+export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown, credential: ApiKeyCredential, signal?: AbortSignal): Promise<CallToolResult> {
   try {
     await assertApiKeyMcpToolEnabled(tool);
     let page: unknown;
@@ -30,6 +31,9 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
       try { selection = decodeMcpWorkspaceBrowseRequest(tool, args); }
       catch { throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use bounded workspace browse arguments and visible relative paths.'); }
       page = await browseWorkspaceForApiKeyMcp(credential, selection);
+    } else if (tool === 'create_knowledge_source' || tool === 'import_knowledge_file') {
+      const { createDocumentForApiKey } = await import('../../documents/create-public-service');
+      page = await createDocumentForApiKey(credential, args, tool === 'create_knowledge_source' ? 'create' : 'import', 'mcp', signal);
     } else if (tool === 'edit_knowledge_source') {
       const selection = decodeDirectMcpNativeDocumentEditSelection(args);
       if (!selection) throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 and native Edit/Status arguments.');
@@ -52,6 +56,14 @@ export async function executeApiKeyMcpTool(tool: DirectMcpToolId, args: unknown,
     return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page as Record<string, unknown> };
   } catch (error) {
     if (error instanceof ProtocolError) throw error;
+    if (tool === 'create_knowledge_source' || tool === 'import_knowledge_file') {
+      if (error instanceof DocumentCreateError && error.code === 'INVALID_REQUEST') {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Use api_version:1 with exact native Markdown Create/Import arguments.');
+      }
+      const { documentCreateFailureV1 } = await import('../../documents/create-public-service');
+      const { body } = documentCreateFailureV1(error);
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
+    }
     if (tool === 'edit_knowledge_source') return formatDirectMcpNativeDocumentEditError(error);
     if (error instanceof ApiKeyAccessError || error instanceof DocumentReadError || error instanceof DocumentSearchError || error instanceof WorkspaceBrowseError) {
       const failure = { apiVersion: 1, success: false, code: error.code };

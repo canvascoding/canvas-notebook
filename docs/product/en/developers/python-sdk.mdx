@@ -6,7 +6,7 @@ sectionOrder: 11
 order: 2
 locale: en
 translationKey: developers.python-sdk
-updatedAt: 2026-10-19
+updatedAt: 2026-11-01
 ---
 
 # Python SDK
@@ -30,6 +30,10 @@ python -m pip install './sdk-dist/canvas_notebook_python-0.1.0.dev0-py3-none-any
 The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.0` and matching MCP types. `keyring` adds supported OS credential storage. The core `CanvasNotebook` facade and DTO/error types have no runtime MCP dependency; a controlled agent-runtime adapter is a separate, currently unimplemented connection.
 
 ## Authorize and read progressively
+
+The development API also accepts independent keys issued under **Settings → Connections → API access**. Pass `api_key=key_from_your_secret_store` to `CanvasMcpTransport` instead of OAuth or `access_token`; these modes are mutually exclusive. This mode sends `X-Canvas-API-Key`, has no automatic credential refresh, and checks the key's explicit workspaces/actions together with current user rights. It supports the branch's native Read/Search, workspace browse, Markdown Create/Import and Edit/Status adapters. The corresponding key Copy/Move/Delete/Recover adapters remain pending. The full access matrix and compiled-container/released deployment acceptance remain in progress.
+
+`create_markdown(..., idempotency_key=...)` needs `create`, and `import_markdown(..., idempotency_key=...)` needs `import`; full document reads need the separate `read` action. Both methods request native API version 1 and return stable document identity and confirmed durable versions. Following a socket failure after a write, close that transport lifetime before opening a fresh one. Keep the original idempotency key and explicitly retry the identical operation; the SDK does not automatically replay it. A temporary URL may be replaced for the same import file identity. No API-key mode provides browser-session, admin or Secrets API access.
 
 Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit, Edit status and all Copy/Move/Delete actions require `knowledge:write` and their current server-side access checks.
 

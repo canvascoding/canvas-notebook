@@ -268,7 +268,7 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Create/Import und Datei-/Recovery-Adapter ergänzen; vollständige kompilierte Abnahme durchführen. Verwaltung, Leseadapter und native HTTP-/MCP-Edits einschließlich installiertem SDK sind teilweise abgenommen, siehe 5a. |
+| 4a | in Umsetzung | Datei-/Recovery-Adapter und Key-Import bestehender Originaldateien ergänzen; vollständige kompilierte Abnahme durchführen. Verwaltung, Leseadapter sowie native HTTP-/MCP-Create-/Import-/Edit-Wege einschließlich installiertem SDK sind lokal teilweise abgenommen, siehe 5a. |
 | 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
@@ -866,13 +866,62 @@ es entsteht kein zweiter Native-Insert. Logout benötigt keine Ersatzsitzung;
 Widerruf und deaktivierte MCP-Werkzeuge verweigern weitere Anlage. Ein eigenes
 Kontroll-Dokument einschließlich Zeilen, `xmin` und physischer Bytes bleibt
 unverändert. Die großen Schema-Fixtures werden vollständig geschlossen.
-Die öffentlichen REST-/MCP-Adapter und die installierte SDK-Create-/Import-
-Key-Abnahme bleiben ausdrücklich offen.
+Diese Kernfälle sind von den öffentlichen REST-/MCP- und installierten SDK-
+Create-/Import-Grenzen getrennt; deren weitere Nachweise folgen unten.
 Die drei bestehenden Key-Dokument-, fünf Workspace- und beiden Edit-Suiten
 einschließlich der zwölf wirklichen Writer-/Route-/MCP-Gruppen bestehen nach der
 Erweiterung. Die installierten SDK-Lese- und Edit-Pakete bestehen ebenfalls unter
-Python 3.10.19 und 3.14.3; das belegt keine noch fehlenden SDK-Create-/Import-
-Key-Adapter. Reguläre Key-Suite, Release-Typecheck und gezieltes ESLint bestehen.
+Python 3.10.19 und 3.14.3. Reguläre Key-Suite, Release-Typecheck und gezieltes
+ESLint bestehen.
+
+Die neuen öffentlichen Key-Routen `POST /api/documents/create` und
+`POST /api/documents/import` sowie die registrierten Key-MCP-Werkzeuge
+`create_knowledge_source` und `import_knowledge_file` verwenden nun denselben
+nativen Kern. Der REST-Einstieg erwartet einen echten ausdrücklichen
+`X-Canvas-API-Key` und CamelCase-Selektoren, MCP die eigenen SnakeCase-Selektoren;
+beide verlangen API-Version 1 und verweigern einen Legacy-Fallback.
+Browser-Session-Anlage und -Upload behalten ihre vorhandenen Datei-Einstiege.
+Die öffentliche Key-Werkzeugbeschreibung bleibt ein reines Metadatenmodul.
+Erst eine tatsächliche Create-/Import-Ausführung lädt den Writer; der wirkliche
+MCP-Abbruch-Signalpfad wird bis zum Kern weitergereicht.
+
+Acht zusätzliche echte Route-/MCP-/PostgreSQL-/FD-/HTTPS-Gruppen prüfen beide
+Protokolltransporte und ihre publizierten Ein-/Ausgabe-Schemas, leere und befüllte
+Anlage, vollständige native Versionen und identische Wiederholung über REST/MCP.
+HTTP 400/401/403/409/413/422/429 werden an ihren tatsächlichen Grenzen geprüft,
+einschließlich ungültigem UTF-8/Text, MIME-Widerspruch, gemischten Credentials
+und wirklichem Abuse-Limit mit begrenztem Retry-Header. Die HTTPS-Quelle wird
+unabhängig geladen und mit physischer Datei und Quellhash verglichen. Versteckte
+REST-Pfade bleiben von MCP ausgeschlossen. Rotation, Logout und Widerruf
+erhalten Original-Receipt und Eigentümerschaft. Ein eigenes Kontrolldokument
+bleibt samt nativen Zeilen, `xmin` und physischen Bytes unverändert.
+
+Der neue dauerhafte Runner `test:api-keys:sdk:creates:native` ergänzt das
+SDK-Gesamtpaket. Sieben Gruppen bestehen pro Python 3.10.19 und 3.14.3 mit dem
+tatsächlich installierten neuen Wheel über echte Loopback-HTTP-Verbindungen.
+Sie umfassen Create/Import, Konflikt und exakte Wiederholung, Rotation, getrennte
+Aktionsrechte, Issuer-Logout und Widerruf. Für Create und Import wird jeweils
+eine wirkliche erfolgreiche HTTP-Antwort nach dauerhafter Speicherung verworfen.
+Der SDK-Aufruf wiederholt keine Mutation automatisch. Nach geschlossenem
+Transport setzt ein ausdrücklicher Aufruf mit demselben ursprünglichen Idempotenzschlüssel
+jeweils genau dieselbe Operation fort; native Receipt-Zeile und `xmin` bleiben
+unverändert. Pro Lauf entstehen fünf beabsichtigte neue Operationen.
+Alle 32 HTTP-Anfragen verwenden ausschließlich den Key-Header. Nach Widerruf
+scheitern moderne Discovery und der offizielle Legacy-Initialisierungsversuch
+vor einem weiteren Werkzeugaufruf; das sind keine Schreibwiederholungen.
+Kontrolldokument und Originale bleiben unverändert; alle Prozesse, Datenbank-
+Schemas, HTTP-Server und Verbindungen werden geschlossen.
+
+Neues Wheel: `642c6fbfe2cc9c4f91661fd5942c1f18fecd22b486b1f3a20a6bc761481f5a0f`.
+Neue Source-Distribution:
+`c650d2b82d1c47c0f03afa79dd6431f9bb8850b5240b1d91c685fb12dfa1fc87`.
+Installierte Moduldateien werden gegen Wheel und aktuelle Quellen verglichen.
+Alle 80 mechanischen SDK-Tests bestehen mit dem neuen Wheel unter beiden
+Python-Versionen und nach Installation aus der Source-Distribution unter 3.10;
+die Core-Installation ohne MCP-Extras besteht ebenfalls. Die vollständigen
+bisherigen SDK-Lese- und Edit-HTTP-Runner bestehen mit diesem neuen Wheel unter
+beiden Python-Versionen weiterhin. Dies ist Source-HTTP-/Paket-Abnahme, noch
+keine Abnahme eines neuen kompilierten Containers oder veröffentlichten Releases.
 
 Die großen Schema-Fixtures am gemeinsam verwalteten PostgreSQL werden
 nacheinander ausgeführt. Zwei parallel gestartete Regressionen bestanden ihre
@@ -881,8 +930,9 @@ Sperrspeicherlimit (`out of shared memory`). Die zugehörigen Serverfehler wurde
 über Backend-PID und exakten Schema-Namen zugeordnet; beide eindeutig eigenen
 Schemas sind bereinigt. Die vollständigen sequenziellen Wiederholungen bestehen
 einschließlich Cleanup. Es wurde kein PostgreSQL-Limit erhöht.
-**Die übrigen Schreib-/Job-Phasen und öffentlichen Create-/Import-/Dateiadapter sowie
-die gesamte kompilierte API-/SDK-Abnahme sind noch offen.**
+**Die übrigen Schreib-/Job-Phasen, öffentlichen Datei-/Recovery-Key-Adapter und
+der Key-Import bereits vorhandener Originaldateien sowie die gesamte kompilierte
+API-/SDK-Abnahme sind noch offen.**
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
