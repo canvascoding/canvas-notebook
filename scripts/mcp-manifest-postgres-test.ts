@@ -1,9 +1,10 @@
 import 'next/dist/server/node-environment-baseline';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { writeFile, mkdir, symlink, truncate } from 'node:fs/promises';
+import { writeFile, mkdir, symlink, truncate, lstat, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
+import { filesystemFileVersion } from '../app/lib/filesystem/file-version';
 
 async function main() {
   await withDocumentReadToolDispatchFixture(async fixture => {
@@ -48,14 +49,22 @@ async function main() {
     const first = entries.get('bytes.bin');
     assert.equal(first.sha256, createHash('sha256').update(bytes).digest('hex'));
     assert.equal(first.size, bytes.length); assert.equal(first.revision, `sha256:${first.sha256}`);
+    assert.equal(first.file_version, filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, 'bytes.bin'))));
     assert.equal(first.hash_basis, 'original_file_bytes'); assert.ok(first.document_url);
+    const replacement = path.join(fixture.workspaceRoot, '.replacement-bytes.bin');
+    await writeFile(replacement, bytes); await rename(replacement, path.join(fixture.workspaceRoot, 'bytes.bin'));
+    const replaced = (await call()).structuredContent.entries.find((entry: { path: string }) => entry.path === 'bytes.bin');
+    assert.equal(replaced.sha256, first.sha256); assert.equal(replaced.revision, first.revision);
+    assert.notEqual(replaced.file_version, first.file_version);
+    assert.equal(replaced.file_version, filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, 'bytes.bin'))));
     const before = (await call({ max_entries: 1, max_depth: 0 })).structuredContent;
     await writeFile(path.join(fixture.workspaceRoot, 'added.txt'), 'changed');
     const changed = await call({ max_entries: 1, max_depth: 0, cursor: before.next_cursor });
     assert.equal(changed.isError, true); assert.equal(changed.structuredContent.code, 'WORKSPACE_TREE_CHANGED');
     const huge = path.join(fixture.workspaceRoot, 'huge.bin'); await writeFile(huge, ''); await truncate(huge, 101 * 1024 * 1024);
     const page = (await call()).structuredContent;
-    assert.equal(page.entries.find((entry: { path: string }) => entry.path === 'huge.bin').error, 'MANIFEST_FILE_TOO_LARGE');
+    const oversized = page.entries.find((entry: { path: string }) => entry.path === 'huge.bin');
+    assert.equal(oversized.error, 'MANIFEST_FILE_TOO_LARGE'); assert.equal(oversized.file_version, null);
     await fixture.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE workspace_id=$1', [fixture.workspaceId]);
     assert.equal((await call()).isError, true);
     console.log('PASS shared overview/tree/manifest: real OAuth/workspace authority, metadata and links, binary SHA/size/revision, pages, hidden and symlink exclusion, changed cursor, bounded hash, revoked grant');

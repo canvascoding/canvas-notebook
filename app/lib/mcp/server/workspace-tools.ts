@@ -490,7 +490,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
   if (tool === 'get_knowledge_manifest') {
     return {
       name: tool, title: 'Read workspace file manifest',
-      description: 'Page visible physical files with original-byte SHA-256, size, content revision and direct document links. Native Markdown additionally reports its authoritative current export hash separately; physical projections may lag. Each entry is an observed revision, not a workspace-wide snapshot. Follow next_cursor and expand depth-limited directories. Missing/oversized hashes are explicit errors, never equality evidence.',
+      description: 'Page visible physical files with original-byte SHA-256, size, content revision and direct document links. file_version is the opaque physical version from the same verified file read; retain it for an explicit original-file import, never substitute a content revision or native hash. It is null when no physical file was verified. Native Markdown additionally reports its authoritative current export hash separately; physical projections may lag. Each entry is an observed revision, not a workspace-wide snapshot. Follow next_cursor and expand depth-limited directories. Missing/oversized hashes are explicit errors, never equality evidence.',
       inputSchema: { type: 'object' as const, properties: {
         workspace_id: { type: 'string' }, path: { type: 'string', default: '.' },
         max_depth: { type: 'integer', minimum: 0, maximum: 6, default: 2 },

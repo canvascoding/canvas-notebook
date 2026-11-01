@@ -1513,6 +1513,28 @@ Verwaltungs-UI-Prüfung besteht ebenfalls. Das ersetzt weder die abschließende
 kompilierte Browser-/OAuth-/Keyring-Abnahme noch `test:all`, die Gesamtfluss-
 Leistungsbudgets oder die spätere Veröffentlichung.
 
+**Vorhandene Originaldateien – erster Integrationsschritt, 01.11.2026:**
+Der bestehende explizite Import verlangt `expectedFileVersion`; der bisherige
+Manifest-`revision` ist dagegen eine Inhaltsrevision (`sha256:…`). Das
+gemeinsame Manifest liefert nun zusätzlich `file_version` aus demselben
+geöffneten, vor/nach der Hashbildung und am Pfad geprüften Dateihandle. Es
+entsteht keine zusätzliche Datenbankabfrage oder zweite Dateilesung. Bei nicht
+verfügbaren, zu großen oder nicht materialisierten Originaldateien bleibt der
+Wert `null`; ein nativer Dokument-Hash ersetzt ihn niemals. Ein atomarer
+Austausch durch bytegleiche Dateien behält SHA/Revision und ändert die
+physische Version. Der Wert ist Vergleichsdaten, keine Importberechtigung.
+
+Die echte OAuth-Manifestprüfung, die sechs Key-/Session-/Protokollgruppen und
+das installierte SDK auf Python 3.10.22/3.15.2 bestehen. Jede SDK-Prüfung hat
+39 echte Key-Requests und zwei tatsächliche 401-Antworten; die acht SDK-
+Laufzeitdateien bleiben unverändert. Alle vier eigenen PostgreSQL-Fixtures
+sind geschlossen und entfernt; Produkt-/PR-Typprüfung und ESLint bestehen.
+Der tatsächliche Key-Schreibzugang und seine unveränderliche historische
+Zuordnung bleiben der nächste Schritt. Die bestehende V1-Historie verlangt
+eine reale Session-ID; sie darf dafür weder umgedeutet noch durch eine
+erfundene Session ergänzt werden. Aktuelle Import-/Statusrechte und eine
+eigene versionierte Key-Zuordnung müssen vor dem gemeinsamen Writer greifen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API

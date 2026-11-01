@@ -76,6 +76,7 @@ async def main():
         assert paths == ["sdk/bytes.bin", "sdk/native.payload"]
         manifest = (await notebook.get_manifest(workspace, path="sdk", max_entries=1)).require_success()
         assert manifest["entries"][0]["sha256"] == hashlib.sha256(bytes([0, 255, 3, 4])).hexdigest()
+        assert manifest["entries"][0]["file_version"] == config["fileVersions"]["binary"]
         assert manifest["has_more"] and manifest["next_cursor"] and not manifest["coverage"]["atomic_snapshot"]
         complete = await notebook.read_all(workspace, document, format="text", max_bytes=16)
         assert complete.body == config["text"] and len(complete.pages) > 1
@@ -122,6 +123,7 @@ async def main():
         continued = (await notebook.get_manifest(workspace, path="sdk", max_entries=1, cursor=manifest["next_cursor"])).require_success()
         assert [entry["path"] for entry in continued["entries"]] == ["sdk/native.payload"]
         assert continued["entries"][0]["document_id"] == document and continued["next_cursor"] is None
+        assert continued["entries"][0]["file_version"] == config["fileVersions"]["native"]
         emit("ready_reduce")
         receive()
         denied = await notebook.read_page(workspace, document, format="text")

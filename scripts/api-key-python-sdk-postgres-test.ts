@@ -6,6 +6,7 @@ import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
+import { filesystemFileVersion } from '../app/lib/filesystem/file-version';
 
 let stage = 'setup';
 async function main() {
@@ -44,6 +45,8 @@ async function main() {
       await mkdir(path.join(fixture.workspaceRoot, 'sdk'));
       await writeFile(path.join(fixture.workspaceRoot, target.filePath), 'physical SDK fixture');
       await writeFile(path.join(fixture.workspaceRoot, 'sdk/bytes.bin'), Buffer.from([0, 255, 3, 4]));
+      const fileVersions = { binary: filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, 'sdk/bytes.bin'))),
+        native: filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, target.filePath))) };
       const before = await fixture.snapshot(), requests = new Set<Promise<void>>(), errors: unknown[] = [];
       const statuses: number[] = []; let keyHeaders = 0, protocolHeaders = 0;
       server.on('request', (incoming, outgoing) => {
@@ -102,7 +105,7 @@ async function main() {
       const timeout = setTimeout(() => { errors.push(new Error('SDK probe deadline exceeded.')); child.kill('SIGKILL'); }, 60000);
       try {
         send({ endpoint: `${origin}/mcp`, key: issued.key, workspaceId: fixture.workspaceId, documentId: target.documentId, text,
-          blockDocumentId: blocks.documentId,
+          blockDocumentId: blocks.documentId, fileVersions,
           wheelUri: pathToFileURL(wheel).href, wheelSha256, sourceHashes });
         const exit = await closed; await chain; assert.equal(exit.code, 0); assert.equal(exit.signal, null);
         assert.equal(errors.length, 0); assert.equal(remainder, ''); assert(complete && verified); assert(keyHeaders > 10 && protocolHeaders > 0);

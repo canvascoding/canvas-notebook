@@ -43,7 +43,8 @@ export async function readWorkspaceManifest(workspace: WorkspaceContext, selecti
     catch (error) {
       missingPhysical = Boolean(error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ENOENT');
       Object.assign(row, { file_state: missingPhysical ? 'not_materialized' : 'unavailable', size: entry.size ?? null,
-        sha256: null, revision: null, modified_at: null, error: error instanceof ManifestReadError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE' });
+        sha256: null, revision: null, file_version: null, modified_at: null,
+        error: error instanceof ManifestReadError ? error.code : 'MANIFEST_SOURCE_UNAVAILABLE' });
     }
     if (link.document_id && /\.m(?:d|arkdown)$/iu.test(entry.path)) {
       try {

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, symlink, truncate, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, rename, symlink, truncate, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
+import { filesystemFileVersion } from '../app/lib/filesystem/file-version';
 
 let stage = 'setup', cases = 0;
 async function main() {
@@ -86,7 +87,9 @@ async function main() {
           assert(key.body.entries.every((entry: { document_url: string }) => entry.document_url));
           if (purpose === 'manifest') {
             const binary = key.body.entries[0]; assert.equal(binary.sha256, createHash('sha256').update(bytes).digest('hex'));
+            assert.equal(binary.file_version, filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, 'bytes.bin'))));
             const nativeEntry = key.body.entries[1]; assert.equal(nativeEntry.document_id, native.documentId);
+            assert.equal(nativeEntry.file_version, filesystemFileVersion(await lstat(path.join(fixture.workspaceRoot, native.filePath))));
             assert.equal(nativeEntry.document.hash_basis, 'authoritative_markdown_utf8');
             assert.equal(nativeEntry.document.sha256, createHash('sha256').update('Authoritative native text Äpfel 😀').digest('hex'));
             assert.notEqual(nativeEntry.sha256, nativeEntry.document.sha256);
@@ -127,7 +130,19 @@ async function main() {
       const huge = path.join(fixture.workspaceRoot, 'huge.bin'); await writeFile(huge, ''); await truncate(huge, 101 * 1024 * 1024);
       const manifest = (await post(selection('manifest'))).body;
       assert.equal(manifest.entries.find((entry: { path: string }) => entry.path === 'huge.bin').error, 'MANIFEST_FILE_TOO_LARGE');
+      assert.equal(manifest.entries.find((entry: { path: string }) => entry.path === 'huge.bin').file_version, null);
       assert.equal(manifest.coverage.complete, false);
+    });
+    await check('native-only documents never substitute a native hash for a physical file version', async () => {
+      const original = path.join(fixture.workspaceRoot, native.filePath), held = path.join(fixture.workspaceRoot, '.private', 'held-native.md');
+      await rename(original, held);
+      try {
+        const response = await post(selection('manifest')); assert.equal(response.status, 200);
+        const entry = response.body.entries.find((row: { path: string }) => row.path === native.filePath);
+        assert.equal(entry.file_state, 'not_materialized'); assert.equal(entry.file_version, null);
+        assert.equal(entry.sha256, null); assert.equal(entry.revision, null); assert.equal(entry.error, undefined);
+        assert.equal(entry.document.sha256, createHash('sha256').update('Authoritative native text Äpfel 😀').digest('hex'));
+      } finally { await rename(held, original); }
     });
     await check('current action, seat, archive and revocation deny independently of OAuth consent', async () => {
       await fixture.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE workspace_id=$1', [fixture.workspaceId]);

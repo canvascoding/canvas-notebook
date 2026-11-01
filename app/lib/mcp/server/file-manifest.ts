@@ -28,9 +28,10 @@ export async function readManifestFile(workspace: WorkspaceContext, path: string
       hash.update(buffer.subarray(0, bytesRead));
     }
     const after = await file.stat(), pathAfter = await fs.lstat(fullPath);
-    if (size !== before.size || filesystemFileVersion(before) !== filesystemFileVersion(after)
-      || filesystemFileVersion(after) !== filesystemFileVersion(pathAfter)) throw new ManifestReadError('MANIFEST_FILE_CHANGED');
+    const fileVersion = filesystemFileVersion(after);
+    if (size !== before.size || filesystemFileVersion(before) !== fileVersion
+      || fileVersion !== filesystemFileVersion(pathAfter)) throw new ManifestReadError('MANIFEST_FILE_CHANGED');
     const sha256 = hash.digest('hex');
-    return { size, sha256, revision: `sha256:${sha256}`, modified_at: after.mtime.toISOString() };
+    return { size, sha256, revision: `sha256:${sha256}`, file_version: fileVersion, modified_at: after.mtime.toISOString() };
   } finally { await file.close(); }
 }
