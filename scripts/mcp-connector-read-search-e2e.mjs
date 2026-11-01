@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
+import { verifyOperationReliabilityAcceptance } from './mcp-operation-reliability-acceptance.mjs';
 import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
@@ -171,8 +172,13 @@ try {
   });
   await step('binary upload retries, status and original SHA-256', async () => {
     await verifyUploadAcceptance(call, runId, async () => {
-      const { stdout } = await promisify(execFile)('docker', ['inspect', '--format', '{{.Config.Image}}', 'canvas-local-prod-notebook']);
-      assert.match(stdout.trim(), /^canvas-notebook:mcp-connector-fdd3-/u, 'Never restart another chat test image.');
+      const proof = JSON.parse(await fs.readFile(path.resolve('artifacts/mcp-operation-reliability/image-source-verification.json'), 'utf8'));
+      const runtime = JSON.parse(await fs.readFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/mcp-operation-reliability-runtime/fixture.json'), 'utf8'));
+      const { stdout } = await promisify(execFile)('docker', ['inspect', 'canvas-local-prod-notebook']);
+      const [container] = JSON.parse(stdout);
+      assert.equal(container.Image, proof.image, 'Restart only the source-verified test image.');
+      assert.equal(container.Mounts.find(mount => mount.Destination === '/data')?.Source, runtime.dataPath,
+        'Never restart a Notebook that has switched back to another data directory.');
       await promisify(execFile)('docker', ['restart', 'canvas-local-prod-notebook']);
       await expect.poll(async () => {
         try { return (await fetch(`${baseURL}/api/health`, { signal: AbortSignal.timeout(3000) })).ok; }
@@ -200,8 +206,26 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'document.png') });
     await page.close();
   });
+  let reliability;
+  await step('native operation status, typed edits and selected targets through real OAuth HTTP', async () => {
+    reliability = await verifyOperationReliabilityAcceptance(call, runId);
+  });
+  await step('native Create and identity-only Edit links open the actual editor', async () => {
+    const page = await owner.newPage();
+    for (const url of [reliability.createUrl, reliability.editUrl]) {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      const views = page.getByRole('group', { name: 'Document view', exact: true });
+      await expect(views).toBeVisible({ timeout: 90000 });
+      if (!await page.locator('.tiptap-editor-shell .ProseMirror').isVisible()) {
+        await views.getByRole('button', { name: 'Edit', exact: true }).click();
+      }
+      await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toContainText(reliability.expectedText, { timeout: 90000 });
+    }
+    await page.screenshot({ path: path.join(artifacts, 'native-operation-link.png') });
+    await page.close();
+  });
   await fs.writeFile(path.join(artifacts, 'report.json'), JSON.stringify({ passed: true, runId, workspaceId: workspace.id,
-    baseURL, steps, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
+    baseURL, steps, reliability, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
     evidence: 'Rebuilt managed container, real OAuth/HTTP/browser; local Codex connector verified separately.' }, null, 2));
   console.log(`Evidence: ${artifacts}`);
 } catch (error) {

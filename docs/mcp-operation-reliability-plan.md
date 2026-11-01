@@ -55,7 +55,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
   - Create, Import und Edit liefern den tatsächlich adressierten Dokumentlink.
   - Zentralen Linkbuilder und autoritative Dokument-/Lineage-Identität verwenden.
   - Tests: Linkfelder und Öffnen im Browser nach Create/Import/Edit.
-- [ ] 7. Zusammenhängende E2E-Abnahme
+- [x] 7. Zusammenhängende E2E-Abnahme
   - Fokussierte Contract-/PostgreSQL-Tests je Schritt; abgeschlossene Schritte committen.
   - Produktionsbuild vor Containerbuild. Nur ein verwalteter Notebook-Testcontainer;
     aktuellen Stand neu bauen und erstellen. Bestehende Daten nicht zurücksetzen.
@@ -112,7 +112,8 @@ Evidenz (lokal, keine Produktionsdaten):
   `detect_changes` wurde über denselben LocalBackend mit explizitem Worktree
   ausgeführt; ergänzende direkte Diff-/Aufruferprüfung erforderlich, da der Index alt ist.
 - Der ältere direkte `tsx`-Ingest-Unit-Harness scheitert beim Laden relativer
-  Modulsubstitutionen (`./document-read-principal`); nicht als bestanden gewertet.
+  Modulsubstitutionen (`./document-read-principal`); der Harness wurde später in
+  Schritt 7 repariert und die vollständige Ingest-Suite erfolgreich wiederholt.
 
 ### Schritt 2 — implementiert und integrationsgeprüft
 
@@ -179,7 +180,8 @@ allein nicht ausschließen kann. Der PI-Schemavertrag bleibt unverändert.
   unverändertem Legacy-Edit: `/tmp/canvas-mcp-schema-dispatch.log`.
 - Read-Schema-/Decoder-Vertragstests bestanden unverändert:
   `/tmp/canvas-mcp-read-schema.log` (direkter `tsx --test`-Runner).
-- Scoped ESLint bestanden. Client-Projektion wird erst in Schritt 7 abgenommen.
+- Produktions-Typecheck und scoped ESLint bestanden. Client-Projektion wird
+  erst in Schritt 7 abgenommen.
 - GitNexus: Produktions-Schemafunktion LOW; Testfunktion CRITICAL über einen
   veralteten indirekten Graph. Direkte Quellprüfung zeigt ausschließlich den
   lokalen Selbstaufruf der Testdatei; keine Produktionsaufrufer dieser Funktion.
@@ -231,3 +233,103 @@ Ergebnisse werden auf Workspace, Dokument-ID, Lineage und Create-Pfad geprüft.
 Logs: `/tmp/canvas-mcp-links-edit.log`, `/tmp/canvas-mcp-links-create-import.log`.
 Produktions-Typecheck und scoped ESLint bestanden. Das tatsächliche Öffnen
 im neu gebauten Container wird im gemeinsamen E2E geprüft.
+
+### Schritt 7 — abgeschlossene gemeinsame Abnahme
+
+Vor dem Containerlauf wurde eine veraltete lokale `node_modules`-Installation
+festgestellt (unter anderem Next 16.3.8 statt Lockfile 16.4.3). `npm ci` hat sie
+ersetzt, ohne den Lockfile zu ändern. Danach bestehen Lizenzinventar und alle
+gezielten Regressionen erneut mit den tatsächlich festgelegten Abhängigkeiten:
+
+- Status/Commit-Recovery: `/tmp/canvas-mcp-final-status.log`.
+- Busy/Konkurrenz/Abbruch/12 sequenzielle Writes: `/tmp/canvas-mcp-final-busy.log`.
+- Diagnose-SDK-Test und Schema-Verträge: `/tmp/canvas-mcp-final-diagnostics.log`,
+  `/tmp/canvas-mcp-final-schema.log`.
+- Neun Guard-Gruppen und 200 echte gezielte HTTP-Abrufe mit Versions-/ACL-Wechsel:
+  `/tmp/canvas-mcp-final-target-unit.log`, `/tmp/canvas-mcp-final-target-http.log`.
+- 9 Edit-, 15 Create-/Import- und 15 Read-Dispatch-Gruppen:
+  `/tmp/canvas-mcp-final-native-document-edit-tool-dispatch-postgres-test.log`,
+  `/tmp/canvas-mcp-final-direct-mcp-native-markdown-create-postgres-test.log`,
+  `/tmp/canvas-mcp-final-document-read-tool-dispatch-postgres-test.log`.
+- Der ältere Ingest-Tool-Harness wurde auf relative Modulauflösung und die
+  aktuellen Abhängigkeiten aktualisiert: 10/10, `/tmp/canvas-mcp-legacy-ingest-unit.log`.
+- Upload-Schema über denselben Bundle-Runner: 2/2,
+  `/tmp/canvas-mcp-final-upload-schema.log`. Validation-, Download- und
+  Settings-/UI-Vertragstests ebenfalls bestanden.
+
+Der vollständige Sammelbefehl `npm run test:mcp:file-ingest` besteht jetzt
+(`/tmp/canvas-mcp-final-ingest-suite.log`): Upload-Schemas, Inhaltsvalidierung,
+Download, 25 Journal-/Tool-Tests und Settings-/UI-Verträge. Dafür wurden zwei
+bestehende Harness-Probleme korrigiert: der Upload-Test verwendet den vorhandenen
+Bundle-Runner für die ESM-Paketexporte, und die lexikalische Pfaderwartung
+unterscheidet den wörtlichen Namen ` .private/note.md` vom verbotenen
+`.private/note.md`. Produktive Pfadnormalisierung und Berechtigungen bleiben
+unverändert; daraus wird keine erfolgreiche Veröffentlichung in solchen
+Verzeichnissen abgeleitet.
+
+
+#### Produktionsbuild und reale Connector-Abnahme
+
+`npm run build` und der anschließende verwaltete Docker-Build bestanden.
+Das laufende Image ist
+`sha256:c7454a1b812de81b9c0022315b4a782c0372dc30d0bf6fd8a0b1785fd12e7318`.
+Alle 15 geänderten Anwendungsdateien wurden bytegenau gegen das Image geprüft:
+`artifacts/mcp-operation-reliability/image-source-verification.json`.
+Die späteren Änderungen betreffen ausschließlich Test-Harness und Dokumentation.
+
+Die endgültige Browser-/OAuth-/HTTP-Abnahme besteht mit 15 Schritten:
+`artifacts/mcp-connector/0c49c7c4-3ba7-4c08-84fe-b5e4b1be379d/report.json`.
+Der installierte `codex app-server` besteht dieselben zusätzlichen Reliability-
+Prüfungen einschließlich seines tatsächlichen Tool-Katalogs:
+`artifacts/mcp-connector/0c49c7c4-3ba7-4c08-84fe-b5e4b1be379d/codex-client-report.json`.
+Logs: `/tmp/canvas-mcp-reliability-browser.log` und
+`/tmp/canvas-mcp-reliability-codex.log`.
+
+Nachgewiesen sind OAuth-DCR/PKCE, Workspace-Grant, Schema-Discovery, Textformat
+mit exakt 4096 Bytes, Versions-/Hash- und Such-Cursor, vollständige Ersetzung,
+Upload mit echtem Container-Neustart und SHA-256, Manifest, native Create-
+Statusabfrage und idempotenter Retry sowie beide typisierten nativen Patchformen.
+Ein großes Rich-Text-Dokument überschreitet das Vollabruflimit für Edit-Ziele;
+sein ausgewählter Block ist trotzdem mit 64-Byte-Fortsetzungen lesbar.
+Eine spätere Änderung verwirft den alten Cursor. Create-Link und ID-basierter
+Edit-Link öffnen im echten Editor den bestätigten Inhalt `Reliability AFTER`.
+`native-operation-link.png`, `document.png` und `settings.png` wurden zusätzlich
+visuell geprüft. Es wurden keine Modell-Turns gestartet. Testverbindungen wurden
+anschließend widerrufen; der lokale Codex-Testlogin wurde abgemeldet.
+
+Wiederholung im vorbereiteten, source-verifizierten Teststack:
+
+```sh
+node --import tsx scripts/mcp-connector-read-search-e2e.mjs
+node --import tsx scripts/mcp-local-codex-client-e2e.mjs <neuer-report.json>
+```
+
+Der Restart-Test verlangt die Image-Prüfdatei und die private `fixture.json`
+unter `~/.local/state/canvas-local-team-seat/mcp-operation-reliability-runtime`.
+Er prüft Image-ID und eigenes Datenverzeichnis, bevor er den Container neu startet.
+
+#### Testumgebung und verbleibende Grenzen
+
+Es lief genau ein Notebook-Testcontainer im vorhandenen verwalteten Stack.
+Für die Abnahme wurden eine eigene PostgreSQL-Datenbank und ein eigenes
+Datenverzeichnis verwendet. Die alte gemeinsame Testdatenbasis blieb erhalten:
+Ihr historischer Birth-Namespace stimmte nicht mehr mit der aktuellen Mount-
+Identität überein. Es wurden keine Identitätsanker zurückgesetzt oder umgeschrieben.
+Die frische Instanz erhielt über den regulären Control-Plane-Aktivierungsweg eine
+Development-Team-Lizenz und läuft im Team-Modus. Der vollständige allgemeine
+Fixture-Bootstrap scheiterte weiterhin bei der nicht benötigten zweiten
+Mitgliedschaft mit `TEAM_SEAT_RECONCILIATION_REQUIRED`; diese Einschränkung wird
+nicht als bestandener Zwei-Benutzer-/Seat-Test ausgegeben. Die MCP-Abnahme verwendet
+den Bootstrap-Admin mit einem eigenen synthetischen Workspace. Health meldet
+PostgreSQL, MCP und Collaboration bereit.
+
+Ein erster großer Testtext enthielt abschließende Leerzeichen und wurde im
+verlustfreien Quelltextmodus angelegt. Der abschließende Block-Test verwendet
+kanonisches Rich-Markdown und prüft ausdrücklich `tiptap_blocks`.
+
+Die gehostete ChatGPT-Schemaumwandlung und die Produktionsinstanz wurden nicht
+mit diesem neuen Stand geprüft. Der Stand wurde nicht veröffentlicht oder deployed.
+Die genaue Ursache aller historischen 40 Busy-Antworten bleibt ohne damalige
+korrelierte Logs offen; reale Sperrkonkurrenz, Freigabe, Abbruch, Retry und
+sequenzielle Writes wurden geprüft. Knowledge-Sync und Produktionsdokumente
+wurden nicht verändert.
