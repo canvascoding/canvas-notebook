@@ -123,7 +123,7 @@ function active(phase: Phase): void {
 function validateHeader(phase: Phase, row: Row | undefined): void {
   active(phase);
   const realm = phase.capture.binding.realm;
-  if (row && (phase.capture.copy || phase.capture.path) && phase.expectedSearchPath === undefined && row.search_path !== realm.searchPath) {
+  if (row && phase.capture.copy && phase.expectedSearchPath === undefined && row.search_path !== realm.searchPath) {
     // Existing native owners enter B through native-inspection's canonical
     // path. Admit only that exact path; schema/OIDs/catalog/TX remain checked.
     try { assertApiKeyReceiptSearchPath(phase.capture.credential, row.search_path); }
@@ -517,7 +517,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
         WHERE k.id=$1 AND i.id=$2 FOR SHARE OF k,i NOWAIT`, [capture.binding.credentialId, capture.binding.integrationId]);
       if (!locked) throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
       const workspaces = await current(phase);
-      if (capture.purpose === 'create' || capture.purpose === 'import' || capture.copy || capture.path) {
+      if (capture.purpose === 'create' || capture.purpose === 'import' || capture.copy) {
         // The existing immutable receipt trigger installs this exact schema
         // path during INSERT. Prove the raw entry first, then retain only this
         // server-derived path; other principal families keep their raw realm.

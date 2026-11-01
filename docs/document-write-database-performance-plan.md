@@ -1067,15 +1067,62 @@ Lese-, Schreib-, Lösch- und Agent-Rechte. Workspace-Verwaltung und öffentliche
 Freigaben werden nicht gewährt. Die vorhandenen Realm-, Schema-/OID-,
 Transaktions-, Rechte-/Key-Lock- und Lebensdauerprüfungen bleiben gemeinsam.
 Acht unabhängige PostgreSQL-Gruppen prüfen alle Zwecke, Action- und Allowlist-
-Entzug, echte Rechteänderungen, fremde Familien, Proxies/Getter, rohe und
-kanonische Schema-Pfade, Toolschalter, Rotation, Ablauf, Reentranz und eine
+Entzug, echte Rechteänderungen, fremde Familien, Proxies/Getter, unzulässige
+Schema-Wechsel und Auth-Tabellen-Schatten, Toolschalter, Rotation, Ablauf, Reentranz und eine
 tatsächlich wartende Widerrufstransaktion. Dokument-/Yjs-/History-Zeilen samt
 `xmin` und Originalbytes bleiben unverändert. Der dauerhafte Runner liegt unter
 `test:api-keys:paths:native` und ist in das gesamte native Key-Paket aufgenommen.
-Die reguläre Key-Suite und das vollständige native Key-Paket einschließlich der
-vorhandenen Read-/Browse-/Edit-/Create-/Copy-Wege bestehen mit dieser Erweiterung.
+Für die zunächst ergänzte Principal-Grundlage in `1e680a78a` bestanden die
+reguläre Key-Suite und das vollständige native Key-Paket einschließlich der
+vorhandenen Read-/Browse-/Edit-/Create-/Copy-Wege. Der aktuelle Claim-Anschluss
+wird erneut in diesen Paketen geprüft.
 Das ist die Autorisierungsgrundlage; die noch offenen nativen Move-/Delete-Job-
 Owner, öffentlichen Adapter und deren installierte SDK-Abnahme folgen darauf.
+
+Der eigene Originaldatenvertrag für diese Jobs liegt unter
+`workspace-operation-api-key-authorization.ts`. Er enthält den Transport
+`api-key`, Benutzer, Integration, Instanz, ursprünglichen Schlüssel und
+ursprünglichen Einstieg; eine Session ist ausdrücklich null. Die vollständige
+native Plan-/Workspace-Bindung wird gemeinsam mit MCP geprüft. Die stabile
+Batch-ID bindet Benutzer, Integration, Instanz, Workspace, Operationsart und den
+exakten Caller-Key; Rotation und ein erlaubter Wechsel zwischen REST und MCP
+verändern sie nicht. Die historische Schlüssel-/Einstiegszuordnung bleibt dabei
+vollständig erhalten. Sechs echte PostgreSQL-/Key-/native Plan-Gruppen prüfen
+strikte Metadaten, Identitäts-/Scope-/Plan-Konflikte, Rotation und aktuelles
+Abweisen nach Action-/Rechte-/Tool-Entzug beziehungsweise Widerruf. Die acht
+bestehenden reinen MCP-Vertragsgruppen bestehen nach der gemeinsamen
+Planprüfung weiterhin. Diese Datenprüfung erstellt keinen nativen Job und
+ersetzt keinen lebenden Principal oder Claim.
+
+Der Batch-Store erkennt den strikten Modus `api-key` und erstellt seine Claims
+über denselben Lease-/Header-Ablauf wie MCP. Der eigene Zweig benötigt einen
+lebenden Key-Principal mit dem exakten Move-/Delete-Apply- oder Recover-Zweck.
+Normale Move-/Delete-Phasen behalten den Suchpfad ihrer tatsächlichen
+Einstiegsverbindung; der nur für Create/Copy benötigte Receipt-Wechsel wird
+hier nicht übernommen. Neue Verbindungen können dadurch denselben echten
+Claim-/Schema-/OID-Nachweis bestätigen. Der Decoder prüft weiterhin native
+Planversion, Scope, Aktionszahl und leere Review-Zuordnungen. Queue, lose
+Heartbeats und Abschlüsse sowie gewöhnliche Worker dürfen diese Jobs nicht
+übernehmen. Sieben echte PostgreSQL-Gruppen prüfen opake Claims nach bestätigtem
+Commit, falsche Zwecke/Familien, Rotation, unveränderte Originaldaten und Pläne,
+explizite Recovery, eine tatsächlich verlorene Claim-COMMIT-Bestätigung und
+Abweisung nach Rechteentzug/Widerruf. Auch die echte Browser-Session des
+Schlüsselinhabers darf diese Jobs über die gewöhnlichen Batch-GET-/POST-Routen
+weder lesen noch fortsetzen; sie erhält früh `BATCH_API_KEY_AUTHORIZATION_REQUIRED`
+mit HTTP 403. Dokumente, Yjs, History, native Intents, Batch-Zeilen und
+Originalbytes bleiben bei diesen Ablehnungen unverändert.
+Die reguläre Key-Suite und das vollständige native Key-Paket bestanden nach dem
+Claim-Anschluss. Alle 43 bestehenden MCP-/Web-Owner-Fälle bestanden anschließend
+ohne Fallfilter, einschließlich echter Live-Räume, Session-Erneuerung,
+Commit-Bestätigungsverlust, HTML, PDF/PNG und Ordner-Sammeloperationen. Ihr
+Testaufbau wartet bei tatsächlich laufendem Projektor auf dessen Finalisierung,
+bevor fehlende Projektionen oder historische Snapshots arrangiert werden; die
+produktiven Quellnachweise und vollständigen Zustandsvergleiche bleiben streng.
+Die zuletzt ergänzte, ausschließlich den Key-Modus betreffende Web-Abgrenzung
+bestand danach in den sieben Claim-Gruppen mit vier echten Cookie-Requests;
+auch die reguläre Key-Suite, Release-Typprüfung und gezieltes Lint sind grün.
+Der Anschluss an native Key-Owner, reine Statusleser, öffentliche Adapter und
+das installierte SDK bleibt erforderlich.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier

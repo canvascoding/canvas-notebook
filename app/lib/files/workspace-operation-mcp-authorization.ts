@@ -1,8 +1,4 @@
-import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
-import type { WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
-import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import 'server-only';
-import { WorkspaceOperationPhysicalDeleteHtmlPlanError } from './workspace-operation-physical-delete-html-plan-v5';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -11,13 +7,10 @@ import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory
 import type { WorkspaceOperationDirectMcpAuthorization, WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
-import { decodeWorkspaceOperationNativeMoveBatchPlan, WorkspaceOperationNativeMovePlanError,
-  type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import { WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
-import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
+import { decodeWorkspaceOperationProgrammaticPlan, type WorkspaceOperationProgrammaticPlan } from './workspace-operation-programmatic-plan';
 
 type Tool = WorkspaceOperationDirectMcpAuthorization['tool'];
-type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan;
+type NativePlan = WorkspaceOperationProgrammaticPlan;
 export type WorkspaceOperationMcpAuthorizationCurrent = Readonly<{
   userId: string; clientId: string; sessionId: string; workspace: WorkspaceContext; tool: Tool;
 }>;
@@ -80,25 +73,8 @@ function current(input: unknown, keys: readonly string[] = currentKeys): Readonl
     tool: selected.tool, jobScope, planInput: selected.plan };
 }
 function plan(input: unknown, selectedTool: Tool, jobScope: WorkspaceOperationJobScope): NativePlan {
-  const data = capture(input);
-  if (!data || typeof data !== 'object' || Array.isArray(data)) fail();
-  const version = Object.getOwnPropertyDescriptor(data, 'version')?.value;
-  let selected: NativePlan;
-  try {
-    if (version === 3 && selectedTool === 'move_knowledge_source') selected = decodeWorkspaceOperationNativeMoveBatchPlan(data);
-    else if ((version === 2 || version === 5 || version === 6) && selectedTool === 'delete_knowledge_source') selected = decodeWorkspaceOperationDeleteBatchPlan(data);
-    else return fail();
-  } catch (error) {
-    if ((error instanceof WorkspaceOperationNativeMovePlanError || error instanceof WorkspaceOperationNativeDeletePlanError
-      || error instanceof WorkspaceOperationNativeSourceEvidenceError || error instanceof WorkspaceOperationPhysicalDeleteHtmlPlanError) && error.code.endsWith('_TOO_LARGE')) {
-      fail('MCP_JOB_AUTHORIZATION_TOO_LARGE');
-    }
-    return fail();
-  }
-  if (selected.workspaceId !== jobScope.workspaceId || !isDeepStrictEqual(selected.sourceEvidence.workspaceScope, jobScope)
-    || selectedTool === 'move_knowledge_source' && !['move', 'rename'].includes(selected.actions[0].kind)
-    || selectedTool === 'delete_knowledge_source' && selected.actions[0].kind !== 'delete') fail();
-  return selected;
+  return decodeWorkspaceOperationProgrammaticPlan(input, selectedTool === 'move_knowledge_source' ? 'move' : 'delete', jobScope,
+    reason => fail(reason === 'too-large' ? 'MCP_JOB_AUTHORIZATION_TOO_LARGE' : 'MCP_JOB_AUTHORIZATION_INVALID'));
 }
 function requestHash(selected: Pick<WorkspaceOperationMcpAuthorizationCurrent, 'userId' | 'clientId' | 'tool'>,
   jobScope: WorkspaceOperationJobScope, nativePlan: NativePlan): string {

@@ -13,6 +13,10 @@ import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-opera
 import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 import { decodeWorkspaceOperationMcpAuthorization, createWorkspaceOperationMcpAuthorization,
   assertWorkspaceOperationMcpAuthorizationCurrent, workspaceOperationMcpBatchId } from './workspace-operation-mcp-authorization';
+import { decodeWorkspaceOperationApiKeyAuthorization, createWorkspaceOperationApiKeyAuthorization,
+  assertWorkspaceOperationApiKeyAuthorizationCurrent, workspaceOperationApiKeyBatchId } from './workspace-operation-api-key-authorization';
+import { assertApiKeyWorkspacePathPrincipalCaptured, withApiKeyWorkspacePathPrincipalOnConnection,
+  type ApiKeyWorkspacePathPrincipal, type ApiKeyWorkspacePathPrincipalAccess } from '../api-keys/document-read-principal';
 import { assertDirectMcpWorkspaceMovePrincipalCaptured, assertDirectMcpWorkspaceDeletePrincipalCaptured,
   withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipal, type DirectMcpWorkspaceDeletePrincipal,
@@ -326,6 +330,7 @@ function authorization(value: unknown): WorkspaceOperationBatchAuthorization {
   const parsed = JSON.parse(String(value)) as WorkspaceOperationBatchAuthorization;
   if (parsed?.mode === 'review') return { mode: 'review' };
   if (parsed?.mode === 'direct-mcp') return decodeWorkspaceOperationMcpAuthorization(parsed);
+  if (parsed?.mode === 'api-key') return decodeWorkspaceOperationApiKeyAuthorization(parsed);
   if (parsed?.mode !== 'direct' || ![parsed.actorUserId, parsed.actorId, parsed.actorDisplayName]
     .every((field) => typeof field === 'string' && field.trim().length > 0)
     || !['user', 'agent'].includes(parsed.actorType) || typeof parsed.requestHash !== 'string'
@@ -382,7 +387,7 @@ function captureDirectAuthorization(input: unknown): WorkspaceOperationDirectAut
 }
 
 export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperationBatchRecord): string | null {
-  return batch.authorization?.mode === 'direct' || batch.authorization?.mode === 'direct-mcp'
+  return batch.authorization?.mode === 'direct' || batch.authorization?.mode === 'direct-mcp' || batch.authorization?.mode === 'api-key'
     ? batch.authorization.actorUserId : batch.reviewerUserId;
 }
 
@@ -508,8 +513,10 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   if (plan?.version !== 1 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
   if (plan?.version !== 1 && parsedAuthorization.mode !== 'review'
     && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
-  if (parsedAuthorization.mode === 'direct-mcp' && (row.action_mode !== 'apply'
-    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5 && plan.version !== 6)
+  const programmaticKind = parsedAuthorization.mode === 'api-key' ? parsedAuthorization.kind
+    : parsedAuthorization.mode === 'direct-mcp' ? parsedAuthorization.tool === 'move_knowledge_source' ? 'move' : 'delete' : null;
+  if (programmaticKind && (row.action_mode !== 'apply'
+    || (programmaticKind === 'move' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5 && plan.version !== 6)
     || String(row.review_ids_json) !== '[]' || String(row.review_refs_json) !== '[]'
     || row.reviewer_user_id !== null || row.reviewer_display_name !== null
     || workspaceOperationBatchTotalActions(plan) !== Number(row.total_actions))) throw claimError('BATCH_INVALID_PLAN');
@@ -570,11 +577,17 @@ export type WorkspaceOperationMcpClaimResult = Readonly<
 >;
 type McpSelection = Readonly<{ kind: 'move'; principal: DirectMcpWorkspaceMovePrincipal }>
   | Readonly<{ kind: 'delete'; principal: DirectMcpWorkspaceDeletePrincipal }>;
+type ApiKeyClaimPurpose = 'move_apply' | 'move_recover' | 'delete_apply' | 'delete_recover';
+type ProgrammaticSelection = (McpSelection & Readonly<{ transport?: 'direct-mcp' }>)
+  | Readonly<{ transport: 'api-key'; kind: 'move' | 'delete'; principal: ApiKeyWorkspacePathPrincipal; purpose: ApiKeyClaimPurpose }>;
+export type WorkspaceOperationProgrammaticClaimResult = WorkspaceOperationMcpClaimResult;
 type McpCommand = Readonly<{ operationId: string; workspaceId: string }> & (
   Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan }>
   | Readonly<{ mode: 'existing'; planId: string }>
 );
 type McpAccess = DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
+type ProgrammaticAccess = Readonly<{ transport: 'direct-mcp'; access: McpAccess }>
+  | Readonly<{ transport: 'api-key'; access: ApiKeyWorkspacePathPrincipalAccess }>;
 function mcpSelection(input: unknown, names: readonly string[]): Record<string, unknown> {
   if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype
     || Reflect.ownKeys(input).length !== names.length || names.some(name => {
@@ -583,7 +596,7 @@ function mcpSelection(input: unknown, names: readonly string[]): Record<string, 
     })) throw claimError('BATCH_INVALID_REQUEST');
   return input as Record<string, unknown>;
 }
-function captureMcpCreateInput(kind: McpSelection['kind'], input: unknown): McpCommand {
+function captureProgrammaticCreateInput(kind: McpSelection['kind'], input: unknown): McpCommand {
   const selected = mcpSelection(input, ['operationId', 'plan']);
   const plan = kind === 'move' ? decodeWorkspaceOperationNativeMoveBatchPlan(selected.plan)
     : decodeWorkspaceOperationDeleteBatchPlan(selected.plan);
@@ -591,7 +604,7 @@ function captureMcpCreateInput(kind: McpSelection['kind'], input: unknown): McpC
     || plan.readiness !== 'ready') throw claimError('BATCH_INVALID_REQUEST');
   return Object.freeze({ mode: 'create', operationId: selected.operationId, workspaceId: plan.workspaceId, plan });
 }
-function captureMcpExistingInput(input: unknown): McpCommand {
+function captureProgrammaticExistingInput(input: unknown): McpCommand {
   const selected = mcpSelection(input, ['operationId', 'workspaceId', 'planId']);
   if (typeof selected.operationId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(selected.operationId)
     || typeof selected.workspaceId !== 'string' || !selected.workspaceId || selected.workspaceId.length > 256
@@ -600,11 +613,14 @@ function captureMcpExistingInput(input: unknown): McpCommand {
     || typeof selected.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(selected.planId)) throw claimError('BATCH_INVALID_REQUEST');
   return Object.freeze({ mode: 'existing', operationId: selected.operationId, workspaceId: selected.workspaceId, planId: selected.planId });
 }
-function withMcpStorePolicy<T>(database: SqlConnection, selected: McpSelection,
-  operation: (access: McpAccess) => Promise<T>): Promise<T> {
+function withProgrammaticStorePolicy<T>(database: SqlConnection, selected: ProgrammaticSelection,
+  operation: (access: ProgrammaticAccess) => Promise<T>): Promise<T> {
+  if (selected.transport === 'api-key') return withApiKeyWorkspacePathPrincipalOnConnection(database, selected.principal,
+    selected.purpose, access => operation(Object.freeze({ transport: 'api-key', access })));
+  const consume = (access: McpAccess) => operation(Object.freeze({ transport: 'direct-mcp' as const, access }));
   return selected.kind === 'move'
-    ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, selected.principal, operation)
-    : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, selected.principal, operation);
+    ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, selected.principal, consume)
+    : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, selected.principal, consume);
 }
 async function assertMcpClaimSource(database: SqlConnection,
   expected?: WorkspaceOperationBatchClaimBinding['source']): Promise<WorkspaceOperationBatchClaimBinding['source']> {
@@ -642,10 +658,13 @@ async function assertMcpPredecessor(database: SqlConnection, source: WorkspaceOp
     WHERE workspace_id=$1 AND batch_id<>$2 AND (status='applying' OR status='queued') LIMIT 1`, [workspaceId, batchId]);
   if (earlier) throw claimError('BATCH_CLAIM_BUSY');
 }
-/** Fixed MCP lease/header mechanics. No operation callback, auth DTO or proof supplied by callers. */
-async function runMcpClaim(store: WorkspaceOperationBatchStore, selected: McpSelection,
-  command: McpCommand): Promise<WorkspaceOperationMcpClaimResult> {
-  if (selected.kind === 'move') assertDirectMcpWorkspaceMovePrincipalCaptured(selected.principal, { workspaceId: command.workspaceId });
+/** Shared lease/header mechanics; each transport retains its genuine fixed
+ * principal and original attribution. No caller-supplied authority DTO. */
+async function runProgrammaticClaim(store: WorkspaceOperationBatchStore, selected: ProgrammaticSelection,
+  command: McpCommand): Promise<WorkspaceOperationProgrammaticClaimResult> {
+  if (selected.transport === 'api-key') assertApiKeyWorkspacePathPrincipalCaptured(selected.principal,
+    { workspaceId: command.workspaceId, purpose: selected.purpose });
+  else if (selected.kind === 'move') assertDirectMcpWorkspaceMovePrincipalCaptured(selected.principal, { workspaceId: command.workspaceId });
   else assertDirectMcpWorkspaceDeletePrincipalCaptured(selected.principal, { workspaceId: command.workspaceId });
   const runtime = runtimes.get(store);
   if (!runtime) throw claimError('BATCH_CLAIM_REQUIRED');
@@ -655,18 +674,27 @@ async function runMcpClaim(store: WorkspaceOperationBatchStore, selected: McpSel
   const returned: { value?: ReturnedClaim } = {};
   try {
     await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
-    result = await withMcpStorePolicy(database, selected, async access => {
+    result = await withProgrammaticStorePolicy(database, selected, async authority => {
+      const access = authority.access;
       const tool = selected.kind === 'move' ? 'move_knowledge_source' as const : 'delete_knowledge_source' as const;
-      if (access.tool !== tool || access.workspace.workspaceId !== command.workspaceId) throw claimError('BATCH_SCOPE_CHANGED');
-      const facts = { userId: access.userId, clientId: access.clientId, sessionId: access.sessionId, workspace: access.workspace, tool };
-      const batchId = workspaceOperationMcpBatchId({ userId: access.userId, clientId: access.clientId,
-        workspaceId: command.workspaceId, tool, operationId: command.operationId });
+      if (authority.transport === 'direct-mcp' && authority.access.tool !== tool
+        || access.workspace.workspaceId !== command.workspaceId) throw claimError('BATCH_SCOPE_CHANGED');
+      const apiFacts = authority.transport === 'api-key' ? { userId: authority.access.userId, integrationId: authority.access.integrationId,
+        instanceId: authority.access.instanceId, credentialId: authority.access.credentialId, entryPoint: authority.access.entryPoint,
+        workspace: authority.access.workspace, kind: selected.kind } : undefined;
+      const mcpFacts = authority.transport === 'direct-mcp' ? { userId: authority.access.userId, clientId: authority.access.clientId,
+        sessionId: authority.access.sessionId, workspace: authority.access.workspace, tool } : undefined;
+      const batchId = apiFacts ? workspaceOperationApiKeyBatchId({ userId: apiFacts.userId, integrationId: apiFacts.integrationId,
+        instanceId: apiFacts.instanceId, workspaceId: command.workspaceId, kind: selected.kind, operationId: command.operationId })
+        : workspaceOperationMcpBatchId({ userId: mcpFacts!.userId, clientId: mcpFacts!.clientId,
+          workspaceId: command.workspaceId, tool, operationId: command.operationId });
       const source = await assertMcpClaimSource(database), table = `${quote(source.schemaName)}.workspace_file_operation_batches`;
       const validate = (row: Record<string, unknown>) => {
         const batch = record(row);
-        if (batch.authorization.mode !== 'direct-mcp' || batch.workspaceId !== command.workspaceId
+        if (batch.authorization.mode !== (apiFacts ? 'api-key' : 'direct-mcp') || batch.workspaceId !== command.workspaceId
           || batch.planId !== (command.mode === 'create' ? command.plan.planId : command.planId)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
-        assertWorkspaceOperationMcpAuthorizationCurrent(batch.authorization, facts, batch.plan);
+        if (apiFacts) assertWorkspaceOperationApiKeyAuthorizationCurrent(batch.authorization, apiFacts, batch.plan);
+        else assertWorkspaceOperationMcpAuthorizationCurrent(batch.authorization, mcpFacts!, batch.plan);
         if (command.mode === 'create' && !isDeepStrictEqual(batch.plan, command.plan)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
         return batch;
       };
@@ -705,7 +733,8 @@ async function runMcpClaim(store: WorkspaceOperationBatchStore, selected: McpSel
       } else {
         if (command.mode === 'existing') return Object.freeze({ kind: 'absent' as const });
         await assertMcpPredecessor(database, source, command.workspaceId, batchId);
-        const original = createWorkspaceOperationMcpAuthorization({ ...facts, plan: command.plan });
+        const original = apiFacts ? createWorkspaceOperationApiKeyAuthorization({ ...apiFacts, plan: command.plan })
+          : createWorkspaceOperationMcpAuthorization({ ...mcpFacts!, plan: command.plan });
         const inserted = await database.get(`INSERT INTO ${table}
           (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,status,
            action_mode,total_actions,lease_owner,lease_token,lease_expires_at,created_at,updated_at)
@@ -818,22 +847,39 @@ export class WorkspaceOperationBatchStore {
 
   async createMcpMoveAndClaim(principal: DirectMcpWorkspaceMovePrincipal,
     input: { operationId: string; plan: WorkspaceOperationNativeMoveBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
-    return runMcpClaim(this, { kind: 'move', principal }, captureMcpCreateInput('move', input));
+    return runProgrammaticClaim(this, { kind: 'move', principal }, captureProgrammaticCreateInput('move', input));
   }
 
   async createMcpDeleteAndClaim(principal: DirectMcpWorkspaceDeletePrincipal,
     input: { operationId: string; plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan }): Promise<WorkspaceOperationMcpClaimResult> {
-    return runMcpClaim(this, { kind: 'delete', principal }, captureMcpCreateInput('delete', input));
+    return runProgrammaticClaim(this, { kind: 'delete', principal }, captureProgrammaticCreateInput('delete', input));
   }
 
   async claimExistingMcpMove(principal: DirectMcpWorkspaceMovePrincipal,
     input: { operationId: string; workspaceId: string; planId: string }): Promise<WorkspaceOperationMcpClaimResult> {
-    return runMcpClaim(this, { kind: 'move', principal }, captureMcpExistingInput(input));
+    return runProgrammaticClaim(this, { kind: 'move', principal }, captureProgrammaticExistingInput(input));
   }
 
   async claimExistingMcpDelete(principal: DirectMcpWorkspaceDeletePrincipal,
     input: { operationId: string; workspaceId: string; planId: string }): Promise<WorkspaceOperationMcpClaimResult> {
-    return runMcpClaim(this, { kind: 'delete', principal }, captureMcpExistingInput(input));
+    return runProgrammaticClaim(this, { kind: 'delete', principal }, captureProgrammaticExistingInput(input));
+  }
+
+  async createApiKeyMoveAndClaim(principal: ApiKeyWorkspacePathPrincipal,
+    input: { operationId: string; plan: WorkspaceOperationNativeMoveBatchPlan }): Promise<WorkspaceOperationProgrammaticClaimResult> {
+    return runProgrammaticClaim(this, { transport: 'api-key', kind: 'move', purpose: 'move_apply', principal }, captureProgrammaticCreateInput('move', input));
+  }
+
+  async createApiKeyDeleteAndClaim(principal: ApiKeyWorkspacePathPrincipal,
+    input: { operationId: string; plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan }): Promise<WorkspaceOperationProgrammaticClaimResult> {
+    return runProgrammaticClaim(this, { transport: 'api-key', kind: 'delete', purpose: 'delete_apply', principal }, captureProgrammaticCreateInput('delete', input));
+  }
+
+  async claimExistingApiKeyPath(principal: ApiKeyWorkspacePathPrincipal, purpose: ApiKeyClaimPurpose,
+    input: { operationId: string; workspaceId: string; planId: string }): Promise<WorkspaceOperationProgrammaticClaimResult> {
+    if (!['move_apply', 'move_recover', 'delete_apply', 'delete_recover'].includes(purpose)) return Promise.reject(claimError('BATCH_INVALID_REQUEST'));
+    return runProgrammaticClaim(this, { transport: 'api-key', kind: purpose.startsWith('move_') ? 'move' : 'delete', purpose, principal },
+      captureProgrammaticExistingInput(input));
   }
 
   async enqueue(input: { batchId: string; planId: string; userId: string; displayName: string;
@@ -844,7 +890,7 @@ export class WorkspaceOperationBatchStore {
       const row = await db.get('SELECT * FROM workspace_file_operation_batches WHERE batch_id = $1 FOR UPDATE', [input.batchId]);
       if (!row) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
       const batch = record(row as Record<string, unknown>);
-      if (batch.authorization.mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
+      if (batch.authorization.mode === 'direct-mcp' || batch.authorization.mode === 'api-key') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
       if (batch.planId !== input.planId) throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The exact batch plan is required.');
       const direct = batch.authorization.mode === 'direct';
       const authorityUserId = workspaceOperationBatchAuthorityUserId(batch);
@@ -1032,7 +1078,7 @@ export class WorkspaceOperationBatchStore {
 
   async heartbeat(batchId: string, owner: string, progress?: WorkspaceOperationBatchProgress): Promise<boolean> {
     const existing = await this.get(batchId);
-    if (existing?.authorization.mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
+    if (existing?.authorization.mode === 'direct-mcp' || existing?.authorization.mode === 'api-key') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
     const now = this.now();
     const batch = await this.query(`UPDATE workspace_file_operation_batches SET lease_expires_at = $3,
       updated_at = $4, completed_actions = COALESCE($5,completed_actions), phase = COALESCE($6,phase)
@@ -1046,7 +1092,8 @@ export class WorkspaceOperationBatchStore {
     errorCode?: string | null; trashEntryIds?: string[]; completedActions?: number; phase?: string }): Promise<WorkspaceOperationBatchRecord | null> {
     return executeLifecycleTransaction({ openConnection: this.connect, execute: async (db) => {
       const selected = await db.get('SELECT authorization_json FROM workspace_file_operation_batches WHERE batch_id=$1 FOR UPDATE', [batchId]) as Record<string, unknown> | undefined;
-      if (selected && authorization(selected.authorization_json).mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
+      if (selected) { const mode = authorization(selected.authorization_json).mode;
+        if (mode === 'direct-mcp' || mode === 'api-key') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403); }
       const row = await db.get(`UPDATE workspace_file_operation_batches SET status = $3, error_code = $4,
         trash_entry_ids_json = COALESCE($5,trash_entry_ids_json), completed_actions = COALESCE($6,completed_actions),
         phase = COALESCE($7,phase), lease_owner = NULL, lease_expires_at = NULL, updated_at = $8
@@ -1069,7 +1116,8 @@ export class WorkspaceOperationBatchStore {
     }, recoverCommitted: async (value, error) => {
       if (!value) return null;
       const persisted = await this.get(batchId);
-      if (persisted?.authorization.mode !== 'direct-mcp' && persisted?.status === value.status && persisted.leaseOwner === null) return persisted;
+      if (persisted?.authorization.mode !== 'direct-mcp' && persisted?.authorization.mode !== 'api-key'
+        && persisted?.status === value.status && persisted.leaseOwner === null) return persisted;
       throw error;
     } });
   }

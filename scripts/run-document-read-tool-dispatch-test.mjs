@@ -12,6 +12,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/api-key-workspace-path-claim-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
+    'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/files/workspace-operation-batch-store.ts',
+    'app/lib/files/workspace-operation-api-key-authorization.ts', 'app/lib/files/workspace-operation-programmatic-plan.ts',
+    'app/lib/files/workspace-operation-batch-plan.ts', 'app/api/files/operations/batches/[batchId]/route.ts'],
+  'scripts/api-key-workspace-path-authorization-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
+    'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/api-keys/actor.ts',
+    'app/lib/files/workspace-operation-api-key-authorization.ts', 'app/lib/files/workspace-operation-programmatic-plan.ts',
+    'app/lib/files/workspace-operation-mcp-authorization.ts', 'app/lib/files/workspace-operation-batch-plan.ts',
+    'app/lib/files/workspace-operation-native-move-plan.ts', 'app/lib/files/workspace-operation-native-delete-plan.ts'],
   'scripts/api-key-workspace-path-principal-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
     'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/api-keys/mcp-runtime.ts',
@@ -1434,6 +1445,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-batch-store.ts'],
   'scripts/workspace-operation-mcp-authorization-test.ts': [entryPoint,
     'app/lib/files/workspace-operation-mcp-authorization.ts',
+    'app/lib/files/workspace-operation-programmatic-plan.ts',
     'app/lib/files/workspace-operation-native-move-plan.ts',
     'app/lib/files/workspace-operation-native-delete-plan.ts'],
   'scripts/direct-mcp-workspace-path-principal-postgres-test.ts': [entryPoint,

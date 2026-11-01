@@ -83,7 +83,7 @@ async function main() {
             access.assertActive(); await access.assertCurrent(); access.assertActive();
           }));
         });
-        assert.equal(statements.length, 9);
+        assert.equal(statements.length, 8);
       }
     });
     await check('status and recovery require independent grants for the exact operation kind', async () => {
@@ -148,19 +148,17 @@ async function main() {
       await assert.rejects(capture(credential, new Proxy(selected('delete_apply'), { ownKeys() { getters++; return []; } }), async () => assert.fail('Proxy.')), code('API_KEY_PRINCIPAL_REQUIRED'));
       assert.equal(getters, 0);
     });
-    await check('canonical native realm works but shadow relations and altered search paths fail closed', async () => {
-      await capture(credential, selected('move_preview'), principal => transaction(database => phase(database, principal, 'move_preview',
-        async access => { access.assertActive(); await access.assertCurrent(); }), true));
+    await check('normal path phases retain the exact entry realm and reject canonical substitutions and auth-table shadows', async () => {
+      await assert.rejects(capture(credential, selected('move_preview'), principal => transaction(database => phase(database, principal, 'move_preview',
+        async () => assert.fail('A normal path phase cannot switch to the Create/Copy receipt realm.')), true)), code('API_KEY_PRINCIPAL_SCOPE_CHANGED'));
       for (const value of ['pg_catalog', `${h.schema}, pg_catalog, pg_temp, public`]) await assert.rejects(
         capture(credential, selected('move_preview'), principal => transaction(async database => {
           await database.get("SELECT set_config('search_path',$1,true)", [value]);
           return phase(database, principal, 'move_preview', async () => assert.fail('Wrong realm.'));
         })), code('API_KEY_PRINCIPAL_SCOPE_CHANGED'));
-      // The native canonical path explicitly puts pg_temp last: a same-named
-      // temp relation cannot shadow it. The raw entry must still reject one.
-      await capture(credential, selected('delete_preview'), principal => transaction(database => phase(database, principal, 'delete_preview', async access => {
+      await assert.rejects(capture(credential, selected('delete_preview'), principal => transaction(database => phase(database, principal, 'delete_preview', async access => {
         await database.run('CREATE TEMP TABLE canvas_api_keys(id text) ON COMMIT DROP'); await access.assertCurrent(); access.assertActive();
-      })));
+      }))), code('API_KEY_STATE_INVALID'));
       await assert.rejects(capture(credential, selected('delete_preview'), principal => transaction(async database => {
         await database.run('CREATE TEMP TABLE canvas_api_keys(id text) ON COMMIT DROP');
         return phase(database, principal, 'delete_preview', async () => assert.fail('Raw realm shadow.'));
