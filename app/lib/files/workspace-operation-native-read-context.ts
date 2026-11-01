@@ -47,8 +47,10 @@ type SnapshotInput={batchId:string;scope:WorkspaceOperationBatchScope;planVersio
 export type WorkspaceOperationNativePathReadInput=
   |({batchId:string;scope:WorkspaceOperationBatchScope}&WorkspaceOperationProgrammaticJobReadOptions)
   |{workspaceId:string;operationId:string;apiKeyPrincipal:WorkspaceOperationApiKeyJobReadPrincipal;mcpPrincipal?:never};
+type PathLookupInput=WorkspaceOperationNativePathReadInput&{planVersion:'path';expectedPlan?:never};
+export type WorkspaceOperationNativeBatchReadLookup<T>=Readonly<{value:T|null;scope:WorkspaceOperationBatchScope;batchId:string}>;
 type Input=({batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6;expectedPlan?:NativePlan}
-  |(WorkspaceOperationNativePathReadInput&{planVersion:'path';expectedPlan?:never}))&WorkspaceOperationProgrammaticJobReadOptions;
+  |PathLookupInput)&WorkspaceOperationProgrammaticJobReadOptions;
 type McpRealm=Readonly<{schemaName:string;schemaOid:number;databaseOid:number;searchPath:string;tableOid:number}>;
 type McpAuthority=Readonly<{facts:WorkspaceOperationMcpAuthorizationCurrent;realm:McpRealm}>;
 type ApiKeyAuthority=Readonly<{transport:'api-key';facts:WorkspaceOperationApiKeyAuthorizationCurrent;realm:McpRealm}>;
@@ -235,9 +237,23 @@ async function readNativeBatchSnapshot<T>(input:SnapshotInput,
  * actual historical snapshot/close and fresh C2 authorization all complete. */
 export async function withWorkspaceOperationNativeBatchReadContext<T>(input:Input,
   operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<T|null>{
+  return(await readNativeBatchWithScope(input,operation)).value;
+}
+
+/** Factual lookup metadata is available after C2 even when the job is absent.
+ * It creates neither a batch nor write authority. Existing numeric readers
+ * retain their nullable value through the wrapper above. */
+export async function withWorkspaceOperationNativePathReadLookup<T>(input:PathLookupInput,
+  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<WorkspaceOperationNativeBatchReadLookup<T>>{
+  return readNativeBatchWithScope(input,operation);
+}
+
+async function readNativeBatchWithScope<T>(input:Input,
+  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<WorkspaceOperationNativeBatchReadLookup<T>>{
   if(types.isProxy(input))changed();
   const live=captureWorkspaceOperationProgrammaticJobReadOptions(input),version=input.planVersion;
-  if(live===undefined){if(version==='path')changed();return(await readNativeBatchSnapshot(input,operation)).value;}
+  if(live===undefined){if(version==='path')changed();return Object.freeze({value:(await readNativeBatchSnapshot(input,operation)).value,
+    scope:input.scope,batchId:input.batchId});}
   if((version!=='path'&&(live.kind==='move'?version!==3:version!==2&&version!==5&&version!==6))||typeof operation!=='function')changed();
   if(version==='path'&&input.expectedPlan!==undefined)changed();
   const keyLookup='operationId' in input;
@@ -261,7 +277,9 @@ export async function withWorkspaceOperationNativeBatchReadContext<T>(input:Inpu
     integrationId:first.facts.integrationId,instanceId:first.facts.instanceId,workspaceId:currentNamespace.workspaceId,
     kind:first.facts.kind,operationId:input.operationId});}else batchId=input.batchId;
   const snapshot=await readNativeBatchSnapshot({batchId,scope,planVersion:version,expectedPlan:expected},operation,first);
-  if('transport' in live){if(!('transport' in first))changed();await readApiKeyStatusAuthority(live,first,snapshot.original);}
-  else{if('transport' in first)changed();await readMcpStatusAuthority(live,first,snapshot.original);}
-  return snapshot.value;
+  let final:ProgrammaticAuthority;
+  if('transport' in live){if(!('transport' in first))changed();final=await readApiKeyStatusAuthority(live,first,snapshot.original);}
+  else{if('transport' in first)changed();final=await readMcpStatusAuthority(live,first,snapshot.original);}
+  const current=final.facts.workspace;
+  return Object.freeze({value:snapshot.value,batchId,scope:Object.freeze({workspace:current,fileOptions:Object.freeze({workspace:current})})});
 }

@@ -11,6 +11,9 @@ import { isDeepStrictEqual, types } from 'node:util';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { openDb } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
+import type { ApiKeyCredential } from '../api-keys/authentication';
+import { withApiKeyWorkspacePathPrincipal, withApiKeyWorkspacePathPrincipalOnConnection,
+  assertApiKeyWorkspacePathPrincipalCaptured, type ApiKeyWorkspacePathPrincipal, type ApiKeyWorkspacePathPurpose } from '../api-keys/document-read-principal';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { invalidateWorkspaceFileViews } from '../api/route-helpers';
 import { withDirectMcpWorkspaceMovePrincipal, withDirectMcpWorkspaceDeletePrincipal,
@@ -22,19 +25,21 @@ import { encodeDirectMcpWorkspacePathResultV1, WorkspacePathToolError,
   WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES } from '../mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationApiKeyJobPrincipal, captureWorkspaceOperationApiKeyJobReadPrincipal } from '../workspaces/workspace-operation-api-key-job-principal';
+import { workspaceOperationProgrammaticJobOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import type { WorkspaceContext } from '../workspaces/types';
 import { buildWorkspacePathOperationPlan } from './workspace-path-operation-service';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { workspaceOperationMcpBatchId } from './workspace-operation-mcp-authorization';
 import { WorkspaceOperationBatchStore, type WorkspaceOperationBatchRecord,
-  type WorkspaceOperationMcpClaimResult } from './workspace-operation-batch-store';
+  type WorkspaceOperationProgrammaticClaimResult } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchExecutionResult,
   WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 import type { WorkspaceOperationNativeMoveBatchStatus } from './workspace-operation-native-move-status';
 import type { WorkspaceOperationNativeDeleteBatchStatus } from './workspace-operation-native-delete-status';
-import { readWorkspaceOperationNativePathStatus } from './workspace-operation-native-path-status';
+import { readWorkspaceOperationNativePathStatus, lookupWorkspaceOperationNativePathStatus } from './workspace-operation-native-path-status';
 import { executeWorkspaceOperationBatch } from './workspace-operation-batch-executor';
 import { projectWorkspaceOperationNativeMoveExecution, workspaceOperationNativeMoveExecutionResult,
   workspaceOperationNativeMoveEffects } from './workspace-operation-native-move-execution-public';
@@ -58,12 +63,15 @@ import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-opera
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan;
 type SelectedRequest = Exclude<Request, { action: 'status' }>;
+type KeyPathInvocation=Readonly<{transport:'api-key';kind:'move'|'delete';purpose:ApiKeyWorkspacePathPurpose;principal:ApiKeyWorkspacePathPrincipal}>;
+type PathInvocation=WorkspaceOperationMcpJobPrincipal|KeyPathInvocation;
 type Authority = Readonly<{ userId: string; clientId: string; sessionId: string;
   tool: 'move_knowledge_source' | 'delete_knowledge_source'; scope: WorkspaceOperationBatchScope }>;
 type NativeStatus = Readonly<{ kind: 'move'; value: WorkspaceOperationNativeMoveBatchStatus }>
   | Readonly<{kind:'cohort-delete';value:WorkspaceOperationCohortDeleteStatus}>
   | Readonly<{ kind: 'delete'; value: WorkspaceOperationNativeDeleteBatchStatus | WorkspaceOperationPhysicalDeleteBatchStatusV5 }>;
 type ImportHistory = NonNullable<Awaited<ReturnType<typeof readWorkspacePathImportOperationHistory>>>;
+type PathLookup=Readonly<{scope:WorkspaceOperationBatchScope;batchId:string;status:NativeStatus|null;history:ImportHistory|null}>;
 
 /** Fixed current-principal phase only. No caller callback, arbitrary authority
  * DTO, journal claim, physical mutation or status read runs inside this B.
@@ -105,21 +113,41 @@ function selectedPaths(kind: WorkspaceOperationMcpJobPrincipal['kind'], input: S
   throw new WorkspacePathToolError('INVALID_REQUEST', input.action === 'preview' ? undefined : input.operationId);
 }
 
+/** Fixed current Key phase. The scope is factual data; the actual opaque
+ * principal remains the only input to every later claim and native owner. */
+async function captureKeyPathScope(live:KeyPathInvocation,workspaceId:string,operationId?:string,
+  expected?:WorkspaceOperationBatchScope):Promise<WorkspaceOperationBatchScope>{
+  assertApiKeyWorkspacePathPrincipalCaptured(live.principal,{workspaceId,purpose:live.purpose});
+  return executeLifecycleTransaction({openConnection:openDb,execute:async database=>{
+    await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+    return withApiKeyWorkspacePathPrincipalOnConnection(database,live.principal,live.purpose,async access=>{
+      const workspace:WorkspaceContext=Object.freeze({...access.workspace,permissions:Object.freeze({...access.workspace.permissions}),
+        ...(access.workspace.actor?{actor:Object.freeze({...access.workspace.actor})}:{})});
+      if(expected&&!isDeepStrictEqual(captureWorkspaceOperationJobScope(workspace),captureWorkspaceOperationJobScope(expected.workspace)))
+        throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',operationId);
+      await access.assertCurrent();
+      return Object.freeze({workspace,fileOptions:Object.freeze({workspace})});
+    });
+  },recoverCommitted:async(_value,cause)=>{throw Object.assign(new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED',operationId),{cause});}});
+}
+
 /** Requests reuse the existing deterministic action identity and native
  * compiler. Neither unsupported legacy plans nor physical imports execute. */
-async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: SelectedRequest,
-  initial: Authority): Promise<NativePlan> {
-  const plan = await buildWorkspacePathOperationPlan({ scope: initial.scope, kind: live.kind,
+async function buildPathPlan(live: PathInvocation, input: SelectedRequest,
+  scope: WorkspaceOperationBatchScope, initial?: Authority): Promise<NativePlan> {
+  const plan = await buildWorkspacePathOperationPlan({ scope, kind: live.kind,
     selections: selectedPaths(live.kind, input) });
-  await capturePathAuthority(live, input.action === 'preview' ? undefined : input.operationId, initial);
+  const operationId=input.action==='preview'?undefined:input.operationId;
+  if('transport' in live)await captureKeyPathScope(live,input.workspaceId,operationId,scope);
+  else{if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',operationId);await capturePathAuthority(live,operationId,initial);}
   if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5 && plan.version !== 6)) {
     throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
   }
-  if(plan.version===6){const cohort=decodeWorkspaceOperationCohortDeletePlan(plan);if(!isDeepStrictEqual(cohort.sourceEvidence.workspaceScope,captureWorkspaceOperationJobScope(initial.scope.workspace)))throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');return cohort;}
+  if(plan.version===6){const cohort=decodeWorkspaceOperationCohortDeletePlan(plan);if(!isDeepStrictEqual(cohort.sourceEvidence.workspaceScope,captureWorkspaceOperationJobScope(scope.workspace)))throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');return cohort;}
   if (plan.version === 5) {
     const physical = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan);
     if (!physical.linkAssessment.complete || physical.linkAssessment.blockers.length || physical.issues.length
-      || !isDeepStrictEqual(physical.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(initial.scope.workspace))) {
+      || !isDeepStrictEqual(physical.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(scope.workspace))) {
       throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
     }
     return physical;
@@ -131,7 +159,7 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
     throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
   }
   if (plan.version === 1 || !plan.coverage.complete && !html
-    || !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(initial.scope.workspace))) {
+    || !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(scope.workspace))) {
     throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
   }
   return html ?? plan;
@@ -143,7 +171,7 @@ async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
   return observation?.status ?? null;
 }
 
-function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobPrincipal,
+function assertPathRequest(status: NativeStatus, live: Readonly<{kind:'move'|'delete'}>,
   input: Exclude<Request, { action: 'preview' | 'status' }>, history: ImportHistory | null = null): void {
   const { batch, plan } = status.value;
   const originalId = history?.record.previewPlan.planId;
@@ -342,14 +370,16 @@ export function workspaceOperationMcpHtmlDeletePreviewV3(input: unknown): Direct
 }
 
 async function executePathClaim(store: WorkspaceOperationBatchStore, batch: WorkspaceOperationBatchRecord,
-  live: WorkspaceOperationMcpJobPrincipal, scope: WorkspaceOperationBatchScope): Promise<void> {
+  live: PathInvocation, scope: WorkspaceOperationBatchScope, active:()=>void=()=>undefined): Promise<void> {
+  const principal='transport' in live?captureWorkspaceOperationApiKeyJobPrincipal(live):live;
   return store.withClaim(batch, async jobClaim => {
     const original = batch.authorization;
-    if (original.mode !== 'direct-mcp') throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');
+    if (original.mode !== 'direct-mcp'&&original.mode!=='api-key'||('transport' in live)!==(original.mode==='api-key')) throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');
     const renewals = createWorkspaceOperationClaimRenewals(store, batch);
     let finishAttempted = false;
     renewals.start();
     try {
+      active();
       const result = await withWorkspaceOperationJobClaimScheduling(jobClaim, {
         pauseAndDrain: async () => {
           await renewals.pauseAndDrain();
@@ -358,8 +388,9 @@ async function executePathClaim(store: WorkspaceOperationBatchStore, batch: Work
         resume: renewals.resume,
       }, () => executeWorkspaceOperationBatch({ batchId: batch.batchId, plan: batch.plan, scope,
         actorUserId: original.actorUserId, actorDisplayName: original.actorDisplayName,
-        actorId: original.actorId, actorType: original.actorType, actorSessionId: original.actorSessionId,
-        jobClaim, mcpPrincipal: live,
+        actorId: original.actorId, actorType: original.actorType,
+        ...(original.mode==='api-key'?{}:{actorSessionId:original.actorSessionId}),
+        jobClaim, ...workspaceOperationProgrammaticJobOptions(principal),
         onProgress: async progress => {
           if (renewals.hasLeaseLost() || !await store.heartbeatClaim(batch, progress)) throw new Error('BATCH_LEASE_LOST');
         },
@@ -378,7 +409,7 @@ async function executePathClaim(store: WorkspaceOperationBatchStore, batch: Work
       // physical birth/deletion or claiming that an incomplete job succeeded.
       try { invalidateWorkspaceFileViews({ fileOptions: scope.fileOptions, fullTree: true, mutations: [] }); }
       catch (views) {
-        failure = Object.assign(new AggregateError([error, views], 'MCP file action and view refresh failed.'),
+        failure = Object.assign(new AggregateError([error, views], 'Programmatic file action and view refresh failed.'),
           { code: workspaceOperationBatchErrorCode(error), status: 503 });
       }
       if (!finishAttempted && !renewals.hasLeaseLost()) {
@@ -387,7 +418,7 @@ async function executePathClaim(store: WorkspaceOperationBatchStore, batch: Work
           if (!await store.finishClaim(batch, { status: 'needs_recovery', phase: 'recovery',
             errorCode: workspaceOperationBatchErrorCode(failure) })) throw new Error('BATCH_CLAIM_CHANGED');
         } catch (finalization) {
-          throw Object.assign(new AggregateError([failure, finalization], 'MCP file action and journal finalization failed.'),
+          throw Object.assign(new AggregateError([failure, finalization], 'Programmatic file action and journal finalization failed.'),
             { code: 'BATCH_CLAIM_COMMIT_UNCONFIRMED', status: 503 });
         }
       }
@@ -398,98 +429,144 @@ async function executePathClaim(store: WorkspaceOperationBatchStore, batch: Work
 
 /** This shared entry receives only a frozen decoded request and one genuine
  * fixed action handle. It neither reconstructs AuthInfo nor invokes a worker. */
-async function runDirectMcpWorkspacePathService(input: Request,
-  live: WorkspaceOperationMcpJobPrincipal): Promise<DirectMcpWorkspacePathResultV1> {
-  const operationId = input.action === 'preview' ? undefined : input.operationId;
-  if (input.action !== 'status' && !authenticatedNativeTextSessionEnabled()) {
-    throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', operationId);
+/** Capture one actual historical lookup. MCP import mapping remains its own
+ * existing policy; Key operations use only their native operation namespace. */
+async function lookupPathState(live:PathInvocation,input:Exclude<Request,{action:'preview'}>,
+  initial?:Authority,knownHistory?:ImportHistory|null):Promise<PathLookup>{
+  if('transport' in live){
+    if(knownHistory)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',input.operationId);
+    const lookup=await lookupWorkspaceOperationNativePathStatus({workspaceId:input.workspaceId,operationId:input.operationId,
+      apiKeyPrincipal:captureWorkspaceOperationApiKeyJobReadPrincipal(live)});
+    return Object.freeze({...lookup,history:null});
   }
-  const initial = await capturePathAuthority(live, operationId);
-  if (input.action === 'preview') {
-    const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
-    await capturePathAuthority(live, undefined, initial);
-    if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
-      preview: preparation.version === 6 ? workspaceOperationMcpCohortDeletePreview(preparation) : preparation.version === 5 ? workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)
-        : preparation.version === 3 ? workspaceOperationMcpHtmlDeletePreviewV3(preparation)
-        : preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
-    const plan = await buildPathPlan(live, input, initial);
-    return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathPreview(plan) });
+  if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',input.operationId);
+  const batchId=workspaceOperationMcpBatchId({userId:initial.userId,clientId:initial.clientId,
+    workspaceId:input.workspaceId,tool:initial.tool,operationId:input.operationId});
+  const history=knownHistory===undefined?await readWorkspacePathImportOperationHistory({principal:live,operationId:input.operationId,
+    ...(input.action==='status'?{}:{expected:{planId:input.planId,request:{kind:live.kind,selections:selectedPaths(live.kind,input)}}})}):knownHistory;
+  const status=await readPathStatus(live,batchId,initial.scope);
+  return Object.freeze({batchId,scope:initial.scope,status,history});
+}
+
+function assertPathStateHistory(status:NativeStatus,history:ImportHistory|null,live:PathInvocation,
+  initial:Authority|undefined,operationId:string):void{
+  if('transport' in live){if(history)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',operationId);return;}
+  if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',operationId);
+  assertPathPreparationHistory(status,history,live,initial,operationId);
+}
+
+async function claimPathOperation(store:WorkspaceOperationBatchStore,live:PathInvocation,
+  input:Exclude<Request,{action:'preview'|'status'}>,planId:string,plan?:NativePlan):Promise<WorkspaceOperationProgrammaticClaimResult>{
+  const command={operationId:input.operationId,workspaceId:input.workspaceId,planId};
+  if('transport' in live){
+    const writer=captureWorkspaceOperationApiKeyJobPrincipal(live);
+    if(!plan)return store.claimExistingApiKeyPath(writer.principal,writer.purpose,command);
+    if(live.kind==='move'&&plan.version===3)return store.createApiKeyMoveAndClaim(writer.principal,{operationId:input.operationId,plan});
+    if(live.kind==='delete'&&(plan.version===2||plan.version===5||plan.version===6))return store.createApiKeyDeleteAndClaim(writer.principal,{operationId:input.operationId,plan});
+  }else{
+    if(!plan)return live.kind==='move'?store.claimExistingMcpMove(live.principal,command):store.claimExistingMcpDelete(live.principal,command);
+    if(live.kind==='move'&&plan.version===3)return store.createMcpMoveAndClaim(live.principal,{operationId:input.operationId,plan});
+    if(live.kind==='delete'&&(plan.version===2||plan.version===5||plan.version===6))return store.createMcpDeleteAndClaim(live.principal,{operationId:input.operationId,plan});
   }
-  const batchId = workspaceOperationMcpBatchId({ userId: initial.userId, clientId: initial.clientId,
-    workspaceId: input.workspaceId, tool: initial.tool, operationId: input.operationId });
-  if (input.action === 'status') {
-    const history = await readWorkspacePathImportOperationHistory({ principal: live, operationId: input.operationId });
-    const status = await readPathStatus(live, batchId, initial.scope);
-    if (!status) throw new WorkspacePathToolError(history ? 'PATH_OUTCOME_UNCONFIRMED' : 'PATH_STATUS_NOT_FOUND', input.operationId);
-    assertPathPreparationHistory(status, history, live, initial, input.operationId);
-    return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'status',
-      operation: pathOperation(status, input.operationId, history) }, input.operationId);
-  }
-  const selection = await withWorkspaceMutationLock(input.workspaceId, async () => {
-    // Resolve original history before any planning. A moved/deleted source or
-    // later replacement at its old path never becomes a new request on retry.
-    let history = await readWorkspacePathImportOperationHistory({ principal: live, operationId: input.operationId,
-      expected: { planId: input.planId, request: { kind: live.kind, selections: selectedPaths(live.kind, input) } } });
-    const saved = await readPathStatus(live, batchId, initial.scope);
-    if (history && !saved) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
-    if (saved) { assertPathPreparationHistory(saved, history, live, initial, input.operationId); assertPathRequest(saved, live, input, history); }
-    if (!saved && input.action === 'recover') throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND', input.operationId);
-    const store = new WorkspaceOperationBatchStore();
-    let selected: WorkspaceOperationMcpClaimResult;
-    if (saved) {
-      const command = { operationId: input.operationId, workspaceId: input.workspaceId, planId: saved.value.batch.planId };
-      selected = live.kind === 'move' ? await store.claimExistingMcpMove(live.principal, command)
-        : await store.claimExistingMcpDelete(live.principal, command);
-    } else {
-      const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
-      await capturePathAuthority(live, input.operationId, initial);
-      if (preparation.readiness === 'requires-import-rebinding') {
-        if (preparation.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
-        // Confirm bounded public representability before the first write. The
-        // genuine Owner commits imports/header/P0/admission and releases its
-        // exclusive guard before this ordinary claim can be acquired.
-        encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathImportPreparationPreview(preparation) });
-        history = await prepareWorkspacePathImportOperation({ principal: live, operationId: input.operationId, plan: preparation });
-        const prepared = await readPathStatus(live, batchId, initial.scope);
-        if (!prepared) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
-        assertPathPreparationHistory(prepared, history, live, initial, input.operationId); assertPathRequest(prepared, live, input, history);
-        const command = { operationId: input.operationId, workspaceId: input.workspaceId, planId: history.record.nativePlan.planId };
-        selected = live.kind === 'move' ? await store.claimExistingMcpMove(live.principal, command)
-          : await store.claimExistingMcpDelete(live.principal, command);
-      } else {
-        if (preparation.readiness !== 'native-ready') throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.operationId);
-        const plan = await buildPathPlan(live, input, initial);
-        if (plan.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
-        if (live.kind === 'move' && plan.version === 3) {
-          selected = await store.createMcpMoveAndClaim(live.principal, { operationId: input.operationId, plan });
-        } else if (live.kind === 'delete' && (plan.version === 2 || plan.version === 5 || plan.version === 6)) {
-          selected = await store.createMcpDeleteAndClaim(live.principal, { operationId: input.operationId, plan });
-        } else throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.operationId);
-      }
+  throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',input.operationId);
+}
+
+function assertPathSignal(input:Request,signal?:AbortSignal):void{
+  if(signal?.aborted)throw new WorkspacePathToolError(input.action==='apply'||input.action==='recover'
+    ?'PATH_OUTCOME_UNCONFIRMED':'PATH_UNAVAILABLE',input.action==='preview'?undefined:input.operationId);
+}
+
+/** Shared operational orchestration. Every transport keeps its actual opaque
+ * handle; claims, native writers, scheduling and presentation are shared. */
+async function runWorkspaceProgrammaticPathService(input:Request,live:PathInvocation,
+  signal?:AbortSignal):Promise<DirectMcpWorkspacePathResultV1>{
+  const operationId=input.action==='preview'?undefined:input.operationId,active=()=>assertPathSignal(input,signal);
+  active();
+  if(input.action!=='status'&&!authenticatedNativeTextSessionEnabled())throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED',operationId);
+  const initial='transport' in live?undefined:await capturePathAuthority(live,operationId);
+  if(input.action==='preview'){
+    let scope:WorkspaceOperationBatchScope;
+    if('transport' in live)scope=await captureKeyPathScope(live,input.workspaceId);
+    else{
+      if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');
+      scope=initial.scope;
+      const preparation=await readWorkspacePathImportPreparationPlan({principal:live,kind:live.kind,selections:selectedPaths(live.kind,input)});
+      await capturePathAuthority(live,undefined,initial);
+      if(preparation.readiness!=='native-ready')return encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',
+        preview:preparation.version===6?workspaceOperationMcpCohortDeletePreview(preparation):preparation.version===5?workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)
+          :preparation.version===3?workspaceOperationMcpHtmlDeletePreviewV3(preparation):preparation.version===2?workspaceOperationMcpHtmlPreviewV2(preparation):pathImportPreparationPreview(preparation)});
     }
-    if (selected.kind === 'absent') throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND', input.operationId);
-    if (selected.kind === 'historical-header') {
-      const confirmed = await readPathStatus(live, batchId, initial.scope);
-      if (!confirmed || pathExecution(confirmed)?.status !== 'applied' || confirmed.value.batch.status !== 'applied') {
-        throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
+    const plan=await buildPathPlan(live,input,scope,initial);active();
+    return encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:pathPreview(plan)});
+  }
+  if(input.action==='status'){
+    const state=await lookupPathState(live,input,initial);active();
+    if(!state.status)throw new WorkspacePathToolError(state.history?'PATH_OUTCOME_UNCONFIRMED':'PATH_STATUS_NOT_FOUND',input.operationId);
+    assertPathStateHistory(state.status,state.history,live,initial,input.operationId);
+    return encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'status',operation:pathOperation(state.status,input.operationId,state.history)},input.operationId);
+  }
+  const selection=await withWorkspaceMutationLock(input.workspaceId,async()=>{
+    active();
+    const state=await lookupPathState(live,input,initial),saved=state.status;
+    let history=state.history;
+    if(history&&!saved)throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED',input.operationId);
+    if(saved){assertPathStateHistory(saved,history,live,initial,input.operationId);assertPathRequest(saved,live,input,history);}
+    if(!saved&&input.action==='recover')throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND',input.operationId);
+    const store=new WorkspaceOperationBatchStore();
+    let selected:WorkspaceOperationProgrammaticClaimResult;
+    if(saved){active();selected=await claimPathOperation(store,live,input,saved.value.batch.planId);}
+    else if(!('transport' in live)){
+      if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',input.operationId);
+      const preparation=await readWorkspacePathImportPreparationPlan({principal:live,kind:live.kind,selections:selectedPaths(live.kind,input)});
+      await capturePathAuthority(live,input.operationId,initial);
+      if(preparation.readiness==='requires-import-rebinding'){
+        if(preparation.planId!==input.planId)throw new WorkspacePathToolError('PATH_PLAN_CHANGED',input.operationId);
+        encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:pathImportPreparationPreview(preparation)});
+        history=await prepareWorkspacePathImportOperation({principal:live,operationId:input.operationId,plan:preparation});
+        const prepared=await readPathStatus(live,state.batchId,state.scope);
+        if(!prepared)throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED',input.operationId);
+        assertPathPreparationHistory(prepared,history,live,initial,input.operationId);assertPathRequest(prepared,live,input,history);
+        selected=await claimPathOperation(store,live,input,history.record.nativePlan.planId);
+      }else{
+        if(preparation.readiness!=='native-ready')throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED',input.operationId);
+        const plan=await buildPathPlan(live,input,state.scope,initial);
+        if(plan.planId!==input.planId)throw new WorkspacePathToolError('PATH_PLAN_CHANGED',input.operationId);
+        encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:pathPreview(plan)});active();
+        selected=await claimPathOperation(store,live,input,plan.planId,plan);
       }
-      assertPathPreparationHistory(confirmed, history, live, initial, input.operationId); assertPathRequest(confirmed, live, input, history);
-      invalidateWorkspaceFileViews({ fileOptions: initial.scope.fileOptions, fullTree: true, mutations: [] });
-      return { kind: 'historical' as const,
-        result: encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-          operation: pathOperation(confirmed, input.operationId, history), alreadyKnown: true }, input.operationId) };
+    }else{
+      // Original-file import is an explicit, separately granted operation.
+      // A Move/Delete key never enters MCP's implicit import preparation.
+      const plan=await buildPathPlan(live,input,state.scope);
+      if(plan.planId!==input.planId)throw new WorkspacePathToolError('PATH_PLAN_CHANGED',input.operationId);
+      encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:pathPreview(plan)});active();
+      selected=await claimPathOperation(store,live,input,plan.planId,plan);
     }
-    return { kind: 'claimed' as const, store, batch: selected.batch, alreadyKnown: saved !== null, history };
+    if(selected.kind==='absent')throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND',input.operationId);
+    if(selected.batch.batchId!==state.batchId)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED',input.operationId);
+    if(selected.kind==='historical-header'){
+      const current=await lookupPathState(live,input,initial,history),confirmed=current.status;
+      if(!confirmed||pathExecution(confirmed)?.status!=='applied'||confirmed.value.batch.status!=='applied')throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED',input.operationId);
+      assertPathStateHistory(confirmed,history,live,initial,input.operationId);assertPathRequest(confirmed,live,input,history);
+      invalidateWorkspaceFileViews({fileOptions:current.scope.fileOptions,fullTree:true,mutations:[]});
+      return{kind:'historical' as const,result:encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:input.action,
+        operation:pathOperation(confirmed,input.operationId,history),alreadyKnown:true},input.operationId)};
+    }
+    return{kind:'claimed' as const,store,batch:selected.batch,alreadyKnown:saved!==null,history,scope:state.scope};
   });
-  if (selection.kind === 'historical') return selection.result;
-  // The native executor acquires its own fixed Owner kernels. Its admission
-  // drain must run after this selection kernel has been released.
-  await executePathClaim(selection.store, selection.batch, live, initial.scope);
-  const current = await readPathStatus(live, batchId, initial.scope);
-  if (!current) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
-  assertPathPreparationHistory(current, selection.history, live, initial, input.operationId); assertPathRequest(current, live, input, selection.history);
-  return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-    operation: pathOperation(current, input.operationId, selection.history), alreadyKnown: selection.alreadyKnown }, input.operationId);
+  if(selection.kind==='historical')return selection.result;
+  // Admission and each native Owner run after the selection kernel closes.
+  await executePathClaim(selection.store,selection.batch,live,selection.scope,active);
+  const current=await lookupPathState(live,input,initial,selection.history);
+  if(!current.status)throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED',input.operationId);
+  assertPathStateHistory(current.status,selection.history,live,initial,input.operationId);assertPathRequest(current.status,live,input,selection.history);
+  return encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:input.action,
+    operation:pathOperation(current.status,input.operationId,selection.history),alreadyKnown:selection.alreadyKnown},input.operationId);
+}
+
+/** Retain the existing MCP entry and its actual capture contract. */
+async function runDirectMcpWorkspacePathService(input:Request,live:WorkspaceOperationMcpJobPrincipal):Promise<DirectMcpWorkspacePathResultV1>{
+  return runWorkspaceProgrammaticPathService(input,live);
 }
 
 /** Start the genuine token capture synchronously before this entry's first
@@ -503,4 +580,23 @@ export function runDirectMcpWorkspaceDeleteService(input: DecodedDirectMcpWorksp
   authInfo: AuthInfo): Promise<DirectMcpWorkspacePathResultV1> {
   return withDirectMcpWorkspaceDeletePrincipal(authInfo, { workspaceId: input.workspaceId }, () => undefined, principal =>
     runDirectMcpWorkspacePathService(input, captureWorkspaceOperationMcpJobPrincipal({ kind: 'delete', principal })));
+}
+
+async function runApiKeyWorkspacePathService(input:Request,credential:ApiKeyCredential,source:'request'|'mcp',
+  kind:'move'|'delete',signal?:AbortSignal):Promise<DirectMcpWorkspacePathResultV1>{
+  assertPathSignal(input,signal);
+  const purpose:ApiKeyWorkspacePathPurpose=`${kind}_${input.action}`;
+  return withApiKeyWorkspacePathPrincipal(credential,{workspaceId:input.workspaceId,purpose,source},principal=>
+    runWorkspaceProgrammaticPathService(input,Object.freeze({transport:'api-key' as const,kind,purpose,principal}),signal));
+}
+
+/** Exclusive actual Key capture. Each public action retains its fixed purpose
+ * across the shared planner, claim lifecycle and existing native writers. */
+export function runApiKeyWorkspaceMoveService(input:DecodedDirectMcpWorkspaceMoveRequestV1,
+  credential:ApiKeyCredential,source:'request'|'mcp',signal?:AbortSignal):Promise<DirectMcpWorkspacePathResultV1>{
+  return runApiKeyWorkspacePathService(input,credential,source,'move',signal);
+}
+export function runApiKeyWorkspaceDeleteService(input:DecodedDirectMcpWorkspaceDeleteRequestV1,
+  credential:ApiKeyCredential,source:'request'|'mcp',signal?:AbortSignal):Promise<DirectMcpWorkspacePathResultV1>{
+  return runApiKeyWorkspacePathService(input,credential,source,'delete',signal);
 }

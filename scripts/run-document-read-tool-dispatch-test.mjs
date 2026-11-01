@@ -1977,6 +1977,19 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-file-operation-service.ts', 'app/lib/files/workspace-operation-native-copy-owner.ts',
     'app/lib/collaboration/workspace-native-file-read.ts', 'app/lib/db/index.ts'],
 };
+criticalInputsByEntryPoint['scripts/api-key-public-path-service-postgres-test.ts'] = [...new Set([
+  ...criticalInputsByEntryPoint['scripts/api-key-native-path-owner-postgres-test.ts'],
+  'app/lib/files/workspace-operation-mcp-path-service.ts',
+  'app/lib/files/workspace-operation-claim-renewals.ts',
+  'app/lib/files/workspace-operation-batch-worker.ts',
+  'app/lib/files/workspace-operation-job-phase-scheduling.ts',
+  'app/lib/files/workspace-operation-api-key-authorization.ts',
+  'app/lib/mcp/server/workspace-path-tool-contract.ts',
+  'app/lib/mcp/server/bounded-tool-json.ts',
+  'app/lib/collaboration/lifecycle-transaction.ts',
+  'app/lib/files/workspace-operation-native-path-status.ts',
+  'app/lib/files/workspace-path-operation-service.ts',
+])];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];
 const importConditions = entryPoint === 'scripts/workspace-path-operation-attempts-runner-test.ts'

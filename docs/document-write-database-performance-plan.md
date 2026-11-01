@@ -1239,8 +1239,36 @@ offenen Gesamtmessung. Das gesamte native Key-Pfadpaket, elf echte öffentliche
 MCP-Pfadgruppen und zwölf MCP-Berechtigungsfamilien bestehen lokal. Der strenge
 Release-/Test-Typecheck umfasst 3.664 Prüfdateien und 8.954 Quellen ohne Fehler;
 die anschließende CI- und Release-Abnahme dieses Schritts bleibt erforderlich.
-Die gesamte öffentliche Key-Apply-/Status-/Recover-
-Steuerung über REST/MCP und die installierte SDK-Abnahme sind weiterhin offen.
+Die äußeren Key-REST-/MCP-Adapter und die installierte SDK-Abnahme für
+Apply/Status/Recover sind weiterhin offen.
+
+Die gemeinsame native Pfadsteuerung ist inzwischen auch an echte Key-Principals
+angeschlossen. MCP und API-Key verwenden denselben Planner, Claim-Ablauf,
+nativen Executor, Erneuerungs-/Abschlussablauf und dieselbe begrenzte
+Ergebnisdarstellung; ihre tatsächlichen Principal-Handles und Prüfungen bleiben
+getrennt. API-Keys übernehmen weder eine OAuth-/Session-Identität noch den
+impliziten MCP-Originalimport. Dieser benötigt weiterhin einen eigenen
+ausdrücklich berechtigten Importweg. Die vorhandene Workspace-Auswahlsperre
+wird vor dem nativen Admission-/Owner-Ablauf freigegeben.
+Ein fehlender Job liefert seine aktuelle Workspace-Faktensicht und stabile
+Operationskennung nach demselben C1-/Snapshot-/C2-Lookup zurück. Eine zusätzliche
+vorläufige Scope-Ausleihe ist dadurch nicht erforderlich; die bisherigen
+numerischen und öffentlichen nullable Leser behalten ihre Rückgabeform.
+Zehn echte PostgreSQL-Dienstgruppen prüfen Preview/Apply/Status/Recover für
+Move mit/ohne physische Projektion sowie natives, physisches und gemischtes
+Sammel-Delete. Sie bestätigen erhaltene Originalzustände/Dateibytes, Linkpflege,
+unveränderte Historie bei Wiederholung, echte Rotation über die Eingangsgrenze,
+fehlende Jobs und widerrufene Schlüssel, gesperrte MCP-Tools und Abbruch vor dem Start.
+Der neue Diensttest gehört dauerhaft zum gesamten nativen Key-Pfadpaket.
+Dieses vollständige Paket, elf registrierte MCP-Pfadgruppen einschließlich
+verlorener COMMIT-Bestätigungen sowie zwölf MCP-Principal-Familien bestehen am
+gleichen unveränderten Quellstand. Alle isolierten Datenbank-/Dateiressourcen
+sind danach freigegeben. Release-TypeScript und die strenge erweiterte Prüfung
+mit 3.667 Wurzeln/8.958 Quellen sowie ESLint bestehen. Die bisherigen 218
+Runner-Einträge behalten ihre Quellwächter; der neue Eintrag ergänzt 35 echte
+Quellabhängigkeiten. Dies ist eine Dienst-/Fixture-Abnahme; aktuelle
+HTTP-/SDK-Pfadadapter, kompiliertes Image, Gesamtbudgets, CI und Release bleiben
+eigene offene Abnahmen. Review Center und Undo bleiben ausgeschaltet.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier
