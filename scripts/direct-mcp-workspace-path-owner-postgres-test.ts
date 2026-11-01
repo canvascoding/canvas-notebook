@@ -29,6 +29,36 @@ import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './hel
 // Request/Response rename boundaries. No HTTP listener for file routes, OAuth
 // issue, SDK, original browser incident or public tool integration is claimed.
 const sha = (value: string | Uint8Array): string => crypto.createHash('sha256').update(value).digest('hex');
+/** Failure-only structural evidence. Never print compared string/SQL/auth
+ * values, native bytes, accessors or Proxy contents. */
+function assertionDifferences(actual: unknown, expected: unknown): unknown[] {
+  const differences: unknown[] = [], seen = new WeakMap<object, WeakSet<object>>();
+  const visit = (left: unknown, right: unknown, path: string, depth: number): void => {
+    if (Object.is(left, right) || differences.length >= 12) return;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+      differences.push({ path, actualType: typeof left, expectedType: typeof right,
+        actual: typeof left === 'number' || typeof left === 'boolean' || left === null ? left : undefined,
+        expected: typeof right === 'number' || typeof right === 'boolean' || right === null ? right : undefined }); return;
+    }
+    if (types.isProxy(left) || types.isProxy(right)) { differences.push({ path, kind: 'proxy' }); return; }
+    if (Buffer.isBuffer(left) && Buffer.isBuffer(right)) {
+      if (!left.equals(right)) differences.push({ path, kind: 'binary', actualBytes: left.byteLength, expectedBytes: right.byteLength,
+        actualSha256: sha(left), expectedSha256: sha(right) });
+      return;
+    }
+    if (depth >= 7) { differences.push({ path, kind: 'depth_limit' }); return; }
+    const pairs = seen.get(left) ?? new WeakSet<object>(); if (pairs.has(right)) return; pairs.add(right); seen.set(left, pairs);
+    const a = Object.getOwnPropertyDescriptors(left), b = Object.getOwnPropertyDescriptors(right);
+    for (const key of [...new Set([...Reflect.ownKeys(a), ...Reflect.ownKeys(b)])].slice(0, 256)) {
+      if (typeof key !== 'string') { differences.push({ path, kind: 'symbol_key' }); continue; }
+      if (!Object.hasOwn(a, key) || !Object.hasOwn(b, key)) { differences.push({ path: `${path}.${key}`, kind: 'missing_property' }); continue; }
+      if (!Object.hasOwn(a[key], 'value') || !Object.hasOwn(b[key], 'value')) { differences.push({ path: `${path}.${key}`, kind: 'accessor' }); continue; }
+      visit(a[key].value, b[key].value, `${path}.${key}`, depth + 1);
+      if (differences.length >= 12) break;
+    }
+  };
+  visit(actual, expected, '$', 0); return differences;
+}
 type Kind = 'move' | 'delete';
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
 let currentCase = 'fixture setup', groups = 0, completed = false;
@@ -69,6 +99,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
     'physical-web': 'Physical5 actual cookie Web DELETE and ordinary worker prove links, pristine registry and Trash response',
     'physical-b2-revocation': 'Physical5 real rename fault, revoked grant and genuine SID-B recover original pristine PDF once',
     'implicit-live-update': 'implicit Web rename retains a real accepted rich update through its pending final store and original Move',
+    'implicit-pending-rotation': 'actual Web pending preparation survives expired SID-A and genuine SID-B resume without rotating its original selection',
     'live-incoming': 'actual live Incoming rooms drain by retained tickets before native Move and Delete; explicit SID-B recovery keeps Original',
     'after-physical': 'HTML Delete4: after-physical retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
     'grant-after-intent': 'HTML Delete4: grant-after-intent retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
@@ -80,7 +111,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
   } as const;
   const selectedCaseId = process.env.CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE;
   assert(selectedCaseId === undefined || Object.hasOwn(htmlDeleteCaseNames, selectedCaseId),
-    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of cohort, physical-web, physical-b2-revocation, implicit-live-update, live-incoming, after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
+    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of cohort, physical-web, physical-b2-revocation, implicit-live-update, implicit-pending-rotation, live-incoming, after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
   const selectedCaseName = selectedCaseId === undefined ? undefined
     : htmlDeleteCaseNames[selectedCaseId as keyof typeof htmlDeleteCaseNames];
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';
@@ -161,6 +192,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       sourcePath: string; destinationPath: string; incomingPath: string; pdfPath: string | null; destinationPdf: string | null;
       pdf: Buffer | null; targetId: string; incomingId: string; lineageId: string; generation: number; title: string;
       originalBinary: Buffer; originalVector: Buffer; batch?: WorkspaceOperationBatchRecord; original?: WorkspaceOperationDirectMcpAuthorization };
+    let seedProjectionRuntimeActive = false;
     const seed = async (kind: Kind, withPdf = false): Promise<Job> => {
       const prefix = `mcp-${kind}-${crypto.randomUUID()}`, sourcePath = `${prefix}.md`, destinationPath = `${prefix}-moved.md`;
       const incomingPath = `${prefix}-incoming.md`, pdfPath = withPdf ? `${prefix}.pdf` : null;
@@ -170,19 +202,25 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       await h.metadata(h.source, sourcePath, { title, isFavorite: true, pinned: true }, 'member', currentRequestToken);
       const pdf = withPdf ? Buffer.from('%PDF-1.7\nactual owned bytes\n%%EOF\n') : null;
       if (pdfPath && pdf) await fs.writeFile(path.join(h.source.rootPath, pdfPath), pdf, { mode: 0o600, flag: 'wx' });
-      await fs.unlink(path.join(h.source.rootPath, sourcePath)); await absent(path.join(h.source.rootPath, sourcePath));
-      const state = await load(h.connection, target.documentId); assert(state);
-      const row = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0]; assert(row);
-      return run(kind, currentToken, h.source.workspaceId, async live => {
-        const scope = await freshScope(live);
-        const plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(), kind,
-          selections: kind === 'delete' ? [{ sourcePath }] : [{ sourcePath, destinationPath },
-            ...(pdfPath && destinationPdf ? [{ sourcePath: pdfPath, destinationPath: destinationPdf }] : [])] }] });
-        assert(plan.version !== 1); assert(plan.version === (kind === 'move' ? 3 : 2)); assert.equal(plan.readiness, 'ready');
-        return { kind, operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath, incomingPath, pdfPath, destinationPdf,
-          pdf, targetId: target.documentId, incomingId: incoming.documentId, lineageId: row.lineage_id, title,
-          generation: target.lifecycleGeneration, originalBinary: Buffer.from(state.yjsState), originalVector: Buffer.from(state.stateVector) };
-      });
+      // Once the real room runtime starts, uploads can still be materializing.
+      // Finish that work before arranging an absent projection, then retain
+      // the same real workspace locks through snapshot and initial planning.
+      const prepare = async (): Promise<Job> => {
+        await fs.unlink(path.join(h.source.rootPath, sourcePath)); await absent(path.join(h.source.rootPath, sourcePath));
+        const state = await load(h.connection, target.documentId); assert(state);
+        const row = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows[0]; assert(row);
+        return run(kind, currentToken, h.source.workspaceId, async live => {
+          const scope = await freshScope(live);
+          const plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(), kind,
+            selections: kind === 'delete' ? [{ sourcePath }] : [{ sourcePath, destinationPath },
+              ...(pdfPath && destinationPdf ? [{ sourcePath: pdfPath, destinationPath: destinationPdf }] : [])] }] });
+          assert(plan.version !== 1); assert(plan.version === (kind === 'move' ? 3 : 2)); assert.equal(plan.readiness, 'ready');
+          return { kind, operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath, incomingPath, pdfPath, destinationPdf,
+            pdf, targetId: target.documentId, incomingId: incoming.documentId, lineageId: row.lineage_id, title,
+            generation: target.lifecycleGeneration, originalBinary: Buffer.from(state.yjsState), originalVector: Buffer.from(state.stateVector) };
+        });
+      };
+      return seedProjectionRuntimeActive ? withSettledProjectionReadBoundary(prepare) : prepare();
     };
     const create = async (job: Job, live: WorkspaceOperationMcpJobPrincipal): Promise<WorkspaceOperationBatchRecord> => {
       assert.equal(live.kind, job.kind);
@@ -1180,6 +1218,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       }
     });
     const nativeRooms = await startNativePathRoomRuntime();
+    seedProjectionRuntimeActive = true;
     let nativeRoomFailure: unknown;
     try {
       await check('actual live Incoming rooms drain by retained tickets before native Move and Delete; explicit SID-B recovery keeps Original', async () => {
@@ -1714,6 +1753,13 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         const originalBrowserRequest = await h.request(h.source, 'member', true, tokenA);
         const authenticatedA = await auth.api.getSession({ headers: originalBrowserRequest.headers });
         assert.equal(authenticatedA?.session.id, sessionA); assert.equal(authenticatedA?.user.id, 'member');
+        // Finish the genuine per-user workspace bootstrap before installing
+        // the domain read-only probe and actual contention holders. The
+        // general fixture initially provisions only the owner's personal root.
+        const { requireRequestWorkspace } = await import('../app/lib/workspaces/request');
+        const readyWorkspace = await requireRequestWorkspace(originalBrowserRequest,
+          { permissions: ['canRead', 'canWrite', 'canDelete'] });
+        assert.equal(readyWorkspace.response, null); assert.equal(readyWorkspace.workspace?.workspaceId, h.source.workspaceId);
         const operationId = crypto.randomUUID(), identity = getWorkspaceImplicitMoveRequestIdentity({
           workspaceId: h.source.workspaceId, userId: 'member', operationId });
         const requestBody = { oldPath: job.sourcePath, newPath: job.destinationPath, idempotencyKey: operationId };
@@ -1845,10 +1891,22 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
             const descriptors = new Map<PoolClient, PropertyDescriptor | undefined>(), checkouts = new Map<PoolClient, number>();
             const phases = new Map<PoolClient, Phase>(), failures: Busy[] = [], releaseWork: Promise<void>[] = [];
             const successfulAdvances: Phase[] = [], historyFailures: Busy[] = [];
+            const unmatchedBusy: Array<{ user: boolean; session: boolean; share: boolean; nowait: boolean }> = [];
+            const prematureMutations: Array<{ command: string; relation: string; rows: number | null; notify: boolean }> = [];
             let historyNullPhase: Phase | undefined;
             let ordinal = 0, unobservedModes = 0, bootstrapClient: PoolClient | undefined, bootstrapCommits = 0;
             let firstDocumentId: string | undefined, originalSelection: Awaited<ReturnType<typeof immutableSelection>> | undefined;
             let observerFailure: Error | undefined;
+            const isCurrentUserLock = (sql: string | undefined, values: unknown[] | undefined): boolean => {
+              if (!sql?.includes('."user"')) return false;
+              if (values?.[0] === 'member' && sql.startsWith('SELECT id,banned FROM ') && sql.endsWith('FOR SHARE NOWAIT')) return true;
+              const ids: unknown = values?.[0];
+              return Array.isArray(ids) && ids.includes('member') && ids.every(id => typeof id === 'string')
+                && values?.[1] === ids.length + 1
+                && sql.startsWith('SELECT requested.user_id AS requested_user_id,locked.lock_user_found,locked.banned FROM unnest($1::text[]) WITH ORDINALITY requested(user_id,ordinal)')
+                && sql.includes('LEFT JOIN LATERAL (SELECT true AS lock_user_found,banned FROM ')
+                && sql.endsWith('WHERE id=requested.user_id FOR SHARE NOWAIT) locked ON true ORDER BY requested.ordinal LIMIT $2');
+            };
             const onClient = (client: PoolClient) => {
               if (descriptors.has(client)) return;
               descriptors.set(client, Object.getOwnPropertyDescriptor(client, 'query')); const original = client.query;
@@ -1864,13 +1922,18 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   if (parameters && 'value' in parameters && Array.isArray(parameters.value)) values = parameters.value;
                 }
                 const sql = text?.replace(/\s+/gu, ' ').trim();
-                const kind = locks.history.active && values?.[0] === 'member'
-                  && sql?.startsWith('SELECT id,banned FROM ') && sql.includes('."user"') && sql.endsWith('FOR SHARE NOWAIT') ? 'history'
+                const kind = locks.history.active && isCurrentUserLock(sql, values) ? 'history'
                   : values?.[0] !== identity.requestId ? undefined
                   : sql?.startsWith('SELECT request_id,request_digest,status,revision,') && sql.includes('FOR SHARE') ? 'header'
                     : sql?.startsWith('SELECT status,active,') && sql.includes('collaboration_admission_targets')
                       && sql.includes('FOR UPDATE') && values[1] === firstDocumentId ? 'target' : undefined;
                 const result = Reflect.apply(original, client, args);
+                if (!kind && result instanceof Promise) void result.then(() => undefined, error => {
+                  if (error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === '55P03') {
+                    unmatchedBusy.push({ user: sql?.includes('."user"') === true, session: sql?.includes('."session"') === true,
+                      share: /FOR (?:KEY )?SHARE/iu.test(sql ?? ''), nowait: sql?.includes('NOWAIT') === true });
+                  }
+                });
                 if (kind && result instanceof Promise) void result.then(() => undefined, error => {
                   try {
                     // The public/domain code projector excludes numeric-leading
@@ -1916,8 +1979,12 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   afterClosedFailures: failures.filter(value => value.released).length, sessionRead: false, userRead: false });
                 const phase = phases.get(event.client);
                 if (!historyNullPhase) {
-                  assert.equal(/\b(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[\s\S]*?\bSET\b|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)
-                    || /\bpg_notify\s*\(/iu.test(event.text), false, 'No SQL/notify mutation may precede the proven historical miss.');
+                  const mutating = /\b(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[\s\S]*?\bSET\b|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)
+                    || /\bpg_notify\s*\(/iu.test(event.text);
+                  if (mutating) prematureMutations.push({ command: event.result.command, rows: event.result.rowCount,
+                    relation: sql.match(/^(?:INSERT INTO|DELETE FROM|UPDATE|CREATE TABLE(?: IF NOT EXISTS)?|ALTER TABLE|DROP TABLE(?: IF EXISTS)?)\s+(?:(?:"[a-z0-9_]+"|[a-z0-9_]+)\.)?("?[a-z0-9_]+"?)/iu)?.[1] ?? 'unclassified',
+                    notify: /\bpg_notify\s*\(/iu.test(event.text) });
+                  assert.equal(mutating, false, 'No SQL/notify mutation may precede the proven historical miss.');
                 }
                 if (phase && sql.startsWith('SELECT workspace_id,batch_id,operation_id,version,preview_plan_id,native_plan_id,record_digest,b0_xid,created_at,')
                   && sql.includes('.workspace_path_import_preparations WHERE workspace_id=$1 AND batch_id=$2')
@@ -1931,8 +1998,18 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   historyNullPhase = phase;
                 }
                 if (phase && sql.includes('."session"') && sql.includes('FOR SHARE') && event.values[0] === sessionA) phase.sessionRead = true;
-                if (phase && sql.includes('."user"') && sql.includes('SELECT id,banned') && sql.includes('FOR SHARE')
-                  && event.values[0] === 'member') phase.userRead = true;
+                if (phase && isCurrentUserLock(sql, event.values)) {
+                  assert.equal(event.result.command, 'SELECT');
+                  if (Array.isArray(event.values[0])) {
+                    const ids = event.values[0]; assert.equal(event.result.rows.length, ids.length);
+                    for (const [index, userId] of ids.entries()) {
+                      assert.equal(event.result.rows[index].requested_user_id, userId);
+                      assert.equal(event.result.rows[index].lock_user_found, true);
+                    }
+                    assert.equal(event.result.rows.find(value => value.requested_user_id === 'member')?.banned, 0);
+                  } else { assert.equal(event.result.rows[0]?.id, 'member'); assert.equal(event.result.rows[0]?.banned, 0); }
+                  phase.userRead = true;
+                }
                 if (/^INSERT INTO\b/iu.test(sql) && sql.includes('collaboration_admission_requests') && event.values[0] === identity.requestId) {
                   assert.equal(bootstrapClient, undefined); assert.equal(event.result.rowCount, 1); bootstrapClient = event.client;
                 }
@@ -1963,19 +2040,24 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   && sql.includes('FOR UPDATE') && event.values[0] === identity.requestId && event.values[1] === firstDocumentId) successfulAdvances.push(phase);
               }, () => renameWithActualCookie(requestBody));
               await Promise.all(releaseWork); if (observerFailure) throw observerFailure;
+              if (bootstrapCommits !== 1 || !historyNullPhase) console.error(JSON.stringify({ test: 'implicit-advance-contention-diagnostic',
+                status: response.status, success: response.body.success, code: response.body.code,
+                bootstrapCommits, historyFailures: historyFailures.length, advanceFailures: failures.map(value => value.kind), unmatchedBusy, prematureMutations }));
               assert.equal(bootstrapCommits, 1); assert(originalSelection && firstDocumentId);
-              assert(historyNullPhase); assert.equal(historyFailures.length, 1);
+              assert(historyNullPhase, 'Expected an actual history miss after rollback, release and fresh principal.'); assert.equal(historyFailures.length, 1);
               assert(historyFailures[0].rollback && historyFailures[0].released && locks.history.released);
-              assert(historyNullPhase.ordinal < failures[0].phase.ordinal);
-              assert(failures.some(value => value.kind === 'header')); assert(failures.some(value => value.kind === 'target'));
+              assert(historyNullPhase.ordinal < failures[0].phase.ordinal, 'History miss must precede actual advance contention.');
+              assert(failures.some(value => value.kind === 'header'), 'Expected actual header row contention.');
+              assert(failures.some(value => value.kind === 'target'), 'Expected actual target row contention.');
               for (const [index, entry] of failures.entries()) {
-                assert(entry.rollback && entry.released); assert(entry.phase.sessionRead && entry.phase.userRead);
+                assert(entry.rollback && entry.released, 'Each actual busy phase must rollback and release.');
+                assert(entry.phase.sessionRead && entry.phase.userRead, 'Each actual busy advance must read current session and user.');
                 assert(entry.phase.checkout > 0); assert(entry.phase.afterClosedFailures >= index);
                 if (index && failures[index - 1].client === entry.client) assert(entry.phase.checkout > failures[index - 1].phase.checkout);
               }
-              assert(locks.header.released && locks.target.released);
+              assert(locks.header.released && locks.target.released, 'Actual header and target holders must both be released.');
               assert(successfulAdvances.some(phase => phase.sessionRead && phase.userRead && phase.afterClosedFailures === failures.length
-                && phase.ordinal > failures[failures.length - 1].phase.ordinal));
+                && phase.ordinal > failures[failures.length - 1].phase.ordinal), 'Successful advance must use a fresh principal after the released busy phases.');
               assert.deepEqual(await immutableSelection(), originalSelection);
               assert.equal(await store.get(identity.batchId), null);
               for (const table of ['workspace_file_operation_move_preparations','workspace_file_operation_move_intents','workspace_file_operation_move_receipts'])
@@ -2609,6 +2691,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       }
     } catch (error) { nativeRoomFailure = error; throw error; }
     finally {
+      seedProjectionRuntimeActive = false;
       try { await nativeRooms.close(); }
       catch (cleanup) { throw nativeRoomFailure === undefined ? cleanup
         : new AggregateError([nativeRoomFailure, cleanup], 'Live native path assertion and resource closure failed.'); }
@@ -3156,8 +3239,12 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       const mutationRows = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
         FROM collaboration_native_link_mutation_receipts t WHERE operation_id=ANY($1::text[]) ORDER BY operation_id`, [mutationIds])).rows;
       assert.equal(mutationRows.length, 2);
-      const archived = await load(h.connection, job.targetId, true), incomingAfterCommit = await load(h.connection, job.incomingId);
-      const htmlAfterCommit = await load(h.connection, htmlDocument.documentId); assert(archived && incomingAfterCommit && htmlAfterCommit);
+      // Actual completion can precede the room materializer's checkpoint after
+      // its acknowledgement is lost. Observe all fields after real projection
+      // finalization; never filter checkpoint fields out of the later equality.
+      const [archived, incomingAfterCommit, htmlAfterCommit] = await withSettledProjectionReadBoundary(() => Promise.all([
+        load(h.connection, job.targetId, true), load(h.connection, job.incomingId), load(h.connection, htmlDocument.documentId),
+      ])); assert(archived && incomingAfterCommit && htmlAfterCommit);
       assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, job.generation + 1);
       assert.deepEqual((await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1',
         [job.targetId])).rows, [{ id: job.targetId, lineage_id: job.lineageId, status: 'archived' }]);
@@ -3193,7 +3280,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       const replacementBytes = Buffer.from('# Independent D2 at old E6 spelling\n\nDo not delete or adopt this later document.\n');
       const replacement = await h.upload(sourcePath, replacementBytes); assert.notEqual(replacement.documentId, job.targetId);
       await h.metadata(h.source, sourcePath, { title: 'Later E6 D2', isFavorite: true, pinned: true }, 'member', currentRequestToken);
-      const replacementBefore = await load(h.connection, replacement.documentId); assert(replacementBefore);
+      const replacementBefore = await withSettledProjectionReadBoundary(() => load(h.connection, replacement.documentId)); assert(replacementBefore);
       assert.equal(replacementBefore.status, 'active');
       const replacementRegistry = (await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1',
         [replacement.documentId])).rows; assert.equal(replacementRegistry.length, 1);
@@ -3213,7 +3300,8 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         }
         return result;
       };
-      const filesBeforeRecovery = await filesystem(), domainBeforeRecovery = await domainRows();
+      const [filesBeforeRecovery, domainBeforeRecovery] = await withSettledProjectionReadBoundary(async () =>
+        [await filesystem(), await domainRows()] as const);
       const historicalWrites: Array<{ operation: string; table: string }> = [];
       await h.withProbe(async event => {
         const mutation = /^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+((?:"[^"]+"\.)?"?([a-z_]+)"?)/iu.exec(event.text);
@@ -4566,6 +4654,11 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
 directMcpWorkspacePathOwnerPostgresTest().catch(error => {
   const causes = error instanceof AggregateError ? error.errors.slice(0, 4).map(code) : [code(Object.getOwnPropertyDescriptor(error ?? {}, 'cause')?.value)];
   console.error(JSON.stringify({ test: 'direct-mcp-job-owner-integration', failed: true, case: currentCase, groups, code: code(error), causes,
+    assertion: error instanceof assert.AssertionError ? { operator: error.operator,
+      differences: assertionDifferences(error.actual, error.expected),
+      actual: typeof error.actual === 'boolean' || typeof error.actual === 'number' ? error.actual : typeof error.actual,
+      expected: typeof error.expected === 'boolean' || typeof error.expected === 'number' ? error.expected : typeof error.expected,
+      message: /^Expected an actual history miss|^History miss must precede|^Expected actual (header|target) row contention|^Each actual busy|^Actual header and target|^Successful advance must use/u.test(error.message) ? error.message : undefined } : undefined,
     name: error instanceof Error ? error.name : 'Unknown', stack: error instanceof Error ? error.stack?.split('\n').filter(line => /^\s*at\b/u.test(line)).slice(0, 6) : [] }));
   process.exitCode = 1;
 });
