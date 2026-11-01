@@ -32,6 +32,10 @@ export type ApiKeyDocumentEditPurpose = 'edit' | 'edit_status';
 declare const documentCreateBrand: unique symbol;
 export type ApiKeyDocumentCreatePrincipal = Readonly<{ [documentCreateBrand]: never }>;
 export type ApiKeyDocumentCreatePurpose = 'create' | 'import';
+declare const originalMarkdownImportBrand: unique symbol;
+export type ApiKeyOriginalMarkdownImportPrincipal = Readonly<{ [originalMarkdownImportBrand]: never }>;
+const originalMarkdownImportPurposes = ['import_existing', 'import_existing_status'] as const;
+export type ApiKeyOriginalMarkdownImportPurpose = typeof originalMarkdownImportPurposes[number];
 declare const workspaceCopyBrand: unique symbol;
 export type ApiKeyWorkspaceCopyPrincipal = Readonly<{ [workspaceCopyBrand]: never }>;
 const copyPurposes = ['copy_preview', 'copy_apply', 'copy_status', 'copy_recover'] as const;
@@ -52,9 +56,15 @@ export type ApiKeyDocumentReadOrigin = Readonly<{
 export type ApiKeyDocumentCreateOrigin = ApiKeyDocumentReadOrigin & Readonly<{
   purpose: ApiKeyDocumentCreatePurpose; entryPoint: 'request' | 'mcp';
 }>;
+export type ApiKeyOriginalMarkdownImportOrigin = ApiKeyDocumentReadOrigin & Readonly<{
+  purpose: ApiKeyOriginalMarkdownImportPurpose; entryPoint: 'request' | 'mcp';
+}>;
 type Access = Readonly<{ workspace: WorkspaceContext; userId: string; integrationId: string; instanceId: string;
   assertCurrent: () => Promise<void> }>;
 export type ApiKeyDocumentCreatePrincipalAccess = Access & Readonly<{ purpose: ApiKeyDocumentCreatePurpose; assertActive: () => void }>;
+export type ApiKeyOriginalMarkdownImportPrincipalAccess = Access & Readonly<{
+  credentialId: string; purpose: ApiKeyOriginalMarkdownImportPurpose; entryPoint: 'request' | 'mcp'; assertActive: () => void;
+}>;
 export type ApiKeyWorkspaceCopyPrincipalAccess = Readonly<Omit<Access, 'workspace'> & {
   sourceWorkspace: WorkspaceContext; destinationWorkspace: WorkspaceContext; credentialId: string;
   purpose: ApiKeyWorkspaceCopyPurpose; entryPoint: 'request' | 'mcp'; assertActive: () => void;
@@ -65,7 +75,7 @@ export type ApiKeyWorkspacePathPrincipalAccess = Access & Readonly<{
 type ListAccess = Readonly<Omit<Access, 'workspace'> & { workspaces: readonly WorkspaceContext[] }>;
 type Capture = {
   credential: ApiKeyCredential; binding: ApiKeyCredentialBinding; workspaceId: string | null;
-  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose | ApiKeyDocumentCreatePurpose | ApiKeyWorkspaceCopyPurpose | ApiKeyWorkspacePathPurpose;
+  purpose: 'read' | 'search' | 'list' | ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentEditPurpose | ApiKeyDocumentCreatePurpose | ApiKeyOriginalMarkdownImportPurpose | ApiKeyWorkspaceCopyPurpose | ApiKeyWorkspacePathPurpose;
   copy?: CopySelection;
   path?: 'move' | 'delete';
   license: LicenseStatus; observer?: (origin: ApiKeyDocumentReadOrigin) => void; origins?: readonly ApiKeyDocumentReadOrigin[];
@@ -152,6 +162,7 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
     tree: 'list_knowledge_tree', overview: 'get_workspace_overview', manifest: 'get_knowledge_manifest',
     edit: 'edit_knowledge_source', edit_status: 'edit_knowledge_source',
     create: 'create_knowledge_source', import: 'import_knowledge_file',
+    import_existing: 'import_knowledge_file', import_existing_status: 'import_knowledge_file',
     copy_preview: 'copy_knowledge_source', copy_apply: 'copy_knowledge_source',
     copy_status: 'copy_knowledge_source', copy_recover: 'copy_knowledge_source',
     move_preview: 'move_knowledge_source', move_apply: 'move_knowledge_source',
@@ -190,11 +201,13 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
   phase.credentialExpiresAt = identity.expiresAt;
   const editing = capture.purpose === 'edit' || capture.purpose === 'edit_status';
   const creating = capture.purpose === 'create' || capture.purpose === 'import';
+  const importingOriginal = originalMarkdownImportPurposes.includes(capture.purpose as ApiKeyOriginalMarkdownImportPurpose);
   const requiredActions: readonly ApiKeyAction[] = capture.path ? [capture.path,
     ...(capture.purpose === `${capture.path}_status` ? ['status' as const]
       : capture.purpose === `${capture.path}_recover` ? ['recover' as const] : [])] : capture.copy ? capture.purpose === 'copy_status' ? ['copy', 'status']
     : capture.purpose === 'copy_recover' ? ['copy', 'recover'] : ['copy'] : capture.purpose === 'edit_status' ? ['edit', 'status']
-    : editing ? ['edit'] : creating ? [capture.purpose as ApiKeyDocumentCreatePurpose] : ['read'];
+    : editing ? ['edit'] : importingOriginal ? capture.purpose === 'import_existing_status' ? ['import', 'status'] : ['import']
+    : creating ? [capture.purpose as ApiKeyDocumentCreatePurpose] : ['read'];
   if (requiredActions.some(action => !identity.actions.includes(action))
     || capture.workspaceId !== null && !identity.workspaceIds.includes(capture.workspaceId)
     || capture.copy && !identity.workspaceIds.includes(capture.copy.destinationWorkspaceId)) failure('API_KEY_ACCESS_DENIED');
@@ -210,11 +223,11 @@ async function current(phase: Phase): Promise<readonly WorkspaceContext[]> {
       continue;
     }
     const copyDestination = capture.copy?.destinationWorkspaceId === selected.workspaceId;
-    if ((editing || creating || copyDestination || capture.path) && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)
+    if ((editing || creating || importingOriginal || copyDestination || capture.path) && (!selected.permissions.canWrite || !selected.permissions.canRunAgent)
       || capture.path && !selected.permissions.canDelete) failure('API_KEY_ACCESS_DENIED');
     const workspace = Object.freeze({ ...selected, permissions: Object.freeze({ ...selected.permissions,
-      canWrite: editing || creating || copyDestination || !!capture.path, canDelete: !!capture.path, canCreatePublicLinks: false, canManageWorkspace: false,
-      canRunAgent: editing || creating || copyDestination || !!capture.path }) });
+      canWrite: editing || creating || importingOriginal || copyDestination || !!capture.path, canDelete: !!capture.path, canCreatePublicLinks: false, canManageWorkspace: false,
+      canRunAgent: editing || creating || importingOriginal || copyDestination || !!capture.path }) });
     const origin: ApiKeyDocumentReadOrigin = Object.freeze({ kind: 'api_key', userId: identity.userId, integrationId: identity.integrationId,
       credentialId: identity.credentialId, instanceId: identity.instanceId, workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId ?? null, customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null,
@@ -299,6 +312,42 @@ export async function withApiKeyDocumentCreatePrincipal<T>(credential: ApiKeyCre
     || typeof observer !== 'function' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
   return withCapture(credential, { workspaceId, purpose, mcp: source === 'mcp',
     observer: origin => observer(Object.freeze({ ...origin, purpose, entryPoint: source })) }, consume);
+}
+
+/** Explicit existing-original import remains a separate fixed family from a
+ * new upload/create. Status also retains current import and Write authority;
+ * neither a stored receipt nor a generic status grant supplies this proof. */
+export async function withApiKeyOriginalMarkdownImportPrincipal<T>(credential: ApiKeyCredential,
+  options: Readonly<{ workspaceId: string; purpose: ApiKeyOriginalMarkdownImportPurpose; source: 'request' | 'mcp' }>,
+  observer: (origin: ApiKeyOriginalMarkdownImportOrigin) => void,
+  consume: (principal: ApiKeyOriginalMarkdownImportPrincipal) => Promise<T>): Promise<T> {
+  if (!options || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype) failure('API_KEY_PRINCIPAL_REQUIRED');
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const workspaceId: unknown = descriptors.workspaceId?.value, purpose: unknown = descriptors.purpose?.value, source: unknown = descriptors.source?.value;
+  if (Reflect.ownKeys(descriptors).length !== 3 || !['workspaceId', 'purpose', 'source'].every(name => descriptors[name]?.enumerable
+    && Object.hasOwn(descriptors[name], 'value')) || !validId(workspaceId)
+    || !originalMarkdownImportPurposes.includes(purpose as ApiKeyOriginalMarkdownImportPurpose)
+    || source !== 'request' && source !== 'mcp' || typeof observer !== 'function' || typeof consume !== 'function') failure('API_KEY_PRINCIPAL_REQUIRED');
+  const selected = purpose as ApiKeyOriginalMarkdownImportPurpose;
+  return withCapture(credential, { workspaceId, purpose: selected, mcp: source === 'mcp',
+    observer: origin => observer(Object.freeze({ ...origin, purpose: selected, entryPoint: source })) }, consume);
+}
+
+export function withApiKeyOriginalMarkdownImportPrincipalOnConnection<T>(connection: SqlConnection,
+  principal: ApiKeyOriginalMarkdownImportPrincipal, purpose: ApiKeyOriginalMarkdownImportPurpose,
+  consume: (access: ApiKeyOriginalMarkdownImportPrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'original-import', access => {
+    const capture = shared.captures.get(principal)!;
+    return consume(Object.freeze({ workspace: access.workspaces[0], userId: access.userId, integrationId: access.integrationId,
+      instanceId: access.instanceId, credentialId: capture.binding.credentialId, purpose, entryPoint: capture.mcp ? 'mcp' : 'request',
+      assertCurrent: access.assertCurrent,
+      assertActive: () => assertApiKeyOriginalMarkdownImportPrincipalActiveOnConnection(connection, principal, purpose) }));
+  }, purpose);
+}
+
+export function assertApiKeyOriginalMarkdownImportPrincipalActiveOnConnection(connection: SqlConnection,
+  principal: ApiKeyOriginalMarkdownImportPrincipal, purpose: ApiKeyOriginalMarkdownImportPurpose): void {
+  assertFixedWritePrincipalActiveOnConnection(connection, principal, originalMarkdownImportPurposes.includes(purpose) ? [purpose] : []);
 }
 
 /** Fixed Copy pair and action. No actor, root, permission or historical origin
@@ -476,8 +525,8 @@ function assertFixedWritePrincipalActiveOnConnection(connection: SqlConnection, 
   }
 }
 
-function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit' | 'create' | 'copy' | 'path',
-  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentCreatePurpose | ApiKeyWorkspaceCopyPurpose | ApiKeyWorkspacePathPurpose): Promise<T> {
+function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal: object, family: 'document' | 'list' | 'browse' | 'edit' | 'create' | 'original-import' | 'copy' | 'path',
+  consume: (access: ListAccess) => Promise<T>, browsePurpose?: ApiKeyWorkspaceBrowsePurpose | ApiKeyDocumentCreatePurpose | ApiKeyOriginalMarkdownImportPurpose | ApiKeyWorkspaceCopyPurpose | ApiKeyWorkspacePathPurpose): Promise<T> {
   const capture = shared.captures.get(principal);
   const held = shared.phases.get(connection);
   const reject = (error: unknown): Promise<never> => {
@@ -490,6 +539,7 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
     : family === 'list' ? capture.purpose === 'list'
       : family === 'edit' ? capture.purpose === 'edit' || capture.purpose === 'edit_status'
       : family === 'create' ? (browsePurpose === 'create' || browsePurpose === 'import') && capture.purpose === browsePurpose
+      : family === 'original-import' ? originalMarkdownImportPurposes.includes(browsePurpose as ApiKeyOriginalMarkdownImportPurpose) && capture.purpose === browsePurpose
       : family === 'copy' ? !!capture.copy && copyPurposes.includes(browsePurpose as ApiKeyWorkspaceCopyPurpose) && capture.purpose === browsePurpose
       : family === 'path' ? !!capture.path && pathPurposes.includes(browsePurpose as ApiKeyWorkspacePathPurpose) && capture.purpose === browsePurpose
         && capture.purpose.startsWith(`${capture.path}_`)
@@ -517,7 +567,8 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
         WHERE k.id=$1 AND i.id=$2 FOR SHARE OF k,i NOWAIT`, [capture.binding.credentialId, capture.binding.integrationId]);
       if (!locked) throw new ApiKeyAccessError('API_KEY_INVALID', 'The API key is invalid or has expired.', 401);
       const workspaces = await current(phase);
-      if (capture.purpose === 'create' || capture.purpose === 'import' || capture.copy) {
+      if (capture.purpose === 'create' || capture.purpose === 'import'
+        || originalMarkdownImportPurposes.includes(capture.purpose as ApiKeyOriginalMarkdownImportPurpose) || capture.copy) {
         // The existing immutable receipt trigger installs this exact schema
         // path during INSERT. Prove the raw entry first, then retain only this
         // server-derived path; other principal families keep their raw realm.

@@ -1535,6 +1535,29 @@ eine reale Session-ID; sie darf dafür weder umgedeutet noch durch eine
 erfundene Session ergänzt werden. Aktuelle Import-/Statusrechte und eine
 eigene versionierte Key-Zuordnung müssen vor dem gemeinsamen Writer greifen.
 
+**Originaldatei-Import – eigene Key-Berechtigungsphasen, 01.11.2026:** Die
+interne Principal-Familie unterscheidet `import_existing` und
+`import_existing_status`. Beide verlangen den aktuellen `import`-Grant sowie
+Write-/Agent-Rechte; expliziter Status zusätzlich `status`. Ein Read-,
+Create-/Upload-Import-, Edit-, Browse-, Copy- oder Move/Delete-Handle kann sie
+nicht ersetzen. MCP verwendet den bestehenden, tatsächlich eingeschalteten
+`import_knowledge_file`-Schalter; die spätere Originaldatei-Variante wird streng
+von einem neuen Upload unterschieden. HTTP behält seinen eigenen Key-Zugang.
+
+Die Phasen verwenden dieselben tatsächlichen Key-/Seat-/Workspace-Snapshots,
+SQL-Realm-, Transaktions-, Laufzeit- und Sperrprüfungen. Herkunftsdaten enthalten
+Benutzer, Integration, Instanz und Credential, keine Session. Acht echte
+PostgreSQL-Gruppen prüfen Grants/Rollen, Familienisolation, ungültige und nicht
+mehr aktive Handles, MCP-Entzug, eine tatsächlich blockierte Gegenverbindung,
+Realm-Manipulation, erneute Rechteprüfung zwischen Transaktionen und echte
+Rotation/Logout/Widerruf. Ein Phasenlauf mit zwei zusätzlichen aktuellen
+Prüfungen bleibt bei neun SQL-Anweisungen. Diese Berechtigungsbasis ist noch
+kein angeschlossener Originaldatei-Writer oder öffentlicher Import-Endpunkt.
+Die vollständige bestehende native API-Key-Suite besteht nach dieser Änderung:
+29 seriell ausgeführte Kommandos, darunter 26 echte PostgreSQL-Integrations-
+einstiege. Der eigene neue Einstieg ist darin dauerhaft enthalten; alle
+bisherigen 221 Runner-Einträge und ihre Eingabearrays bleiben unverändert.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
