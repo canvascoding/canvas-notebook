@@ -11,6 +11,22 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.1.3] - 2026-11-01
+
+### Fixed
+
+- Avoid false MCP edit failures after confirmed storage by waiting briefly for ordinary collaboration-room release during completion reads, with fresh permission checks.
+- Separate historical Create attempt errors from current processing status and preserve specific error codes, correlation IDs and retry guidance.
+- Explain blocked delete previews with bounded source diagnostics; reject inconsistent source observations before planning and identify retryable projection changes.
+- Return a specific missing-document error for legacy reads and explain selected-block retrieval when edit-target lists exceed size limits.
+
+### Verification
+
+- `npm run verify:release` passed, including the strict third-party license gate, production build and CLI update/rollback checks.
+- Production-container OAuth/HTTP/Playwright acceptance: 17 steps; installed Codex MCP-client acceptance including typed schemas and actual argument transport.
+- Both clients passed twelve complete replacements and one exact edit with same-key replays and hash checks, six delete previews, and unchanged-content checks for invalid source metadata.
+- PostgreSQL and contract regressions cover source races, permissions, ingestion recovery and bounded completion reads.
+
 ## [2026.11.1.2] - 2026-11-01
 
 ### Added
