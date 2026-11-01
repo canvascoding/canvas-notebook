@@ -286,6 +286,20 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      await group('incomplete native source coverage reports blockers without a mutation', async () => {
+        const target = 'coverage-target.md', invalid = 'coverage-invalid-frontmatter.md';
+        await h.upload(target, Buffer.from('# Safe target\n'));
+        await h.upload(invalid, Buffer.from('---\nbroken: [\n---\n\n# Invalid metadata\n'));
+        const blocked = await noMutation(() => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_SOURCE_INCOMPLETE'));
+        assert.deepEqual(blocked.value.issues, [{ code: 'invalid-frontmatter', path: invalid }]);
+        assert.equal(blocked.value.issue_count, 1); assert.equal(blocked.value.issues_truncated, false);
+        assert.match(String(blocked.value.hint), /sources/);
+        await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id='principal-org' AND user_id='member'");
+        try {
+          const denied = await noMutation(() => failure('delete', { ...slots, action: 'preview', path: target }, 'ACCESS_DENIED'));
+          assert.equal(denied.value.issues, undefined);
+        } finally { await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'"); }
+      });
       await group('renewed real session reads original attribution and delete-right revocation denies status', async () => {
         const now = Date.now(), sid = `path-current-${crypto.randomUUID()}`, raw = crypto.randomBytes(32).toString('hex');
         await h.admin.query('INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at) VALUES($1,$2,\'member\',$3,$4,$4)', [sid, raw, now + 3600000, now]);

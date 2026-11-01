@@ -97,3 +97,36 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
   checks.push('missing path domain error and six sequential native creates with delete previews');
   return { checks, deletePreviews, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };
 }
+
+
+/** A separate workspace deliberately contains uninspectable frontmatter. */
+export async function verifySourceCoverageAcceptance(call, key, seedInvalid) {
+  const documents = [
+    { path: `coverage-target-${key}.md`, content: '# Safe target\n' },
+    { path: 'coverage-invalid-frontmatter.md', content: '---\nbroken: [\n---\n\n# Invalid metadata\n' },
+  ];
+  if (seedInvalid) await seedInvalid(documents[1]);
+  const created = await call('create_knowledge_source', { api_version: 1, ...documents[0],
+    idempotency_key: `${key}-${documents[0].path}` });
+  assert.notEqual(created.isError, true, JSON.stringify(created.structuredContent));
+  const response = await call('delete_knowledge_source', {
+    api_version: 1, action: 'preview', path: documents[0].path,
+  });
+  assert.equal(response.isError, true);
+  const failure = response.structuredContent;
+  assert.equal(failure.code, 'PATH_SOURCE_INCOMPLETE');
+  assert.equal(failure.error_code, 'PATH_SOURCE_INCOMPLETE');
+  assert.equal(failure.phase, 'preview');
+  assert.equal(failure.retryable, false);
+  assert(failure.correlation_id);
+  assert(failure.issues.some(issue => issue.code === 'invalid-frontmatter' && issue.path === documents[1].path));
+  assert.equal(failure.preview, undefined);
+  for (const document of documents) {
+    const read = await call('read_knowledge_source', { path: document.path });
+    assert.notEqual(read.isError, true);
+    assert.equal(read.structuredContent.content, document.content);
+    assert.equal(read.structuredContent.sha256, createHash('sha256').update(document.content).digest('hex'));
+  }
+  return { code: failure.code, correlationId: failure.correlation_id, issues: failure.issues,
+    preservedDocuments: documents.map(document => document.path) };
+}

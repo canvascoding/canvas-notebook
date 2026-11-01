@@ -38,6 +38,22 @@ export class WorkspacePathImportPreviewError extends Error {
   }
 }
 
+/** A known non-HTML coverage gap is a blocked preview, not invalid source
+ * evidence. This error carries diagnostics only and never grants a plan. */
+export class WorkspacePathSourceIncompleteError extends Error {
+  readonly code = 'PATH_SOURCE_INCOMPLETE';
+  readonly status = 409;
+  readonly issues: readonly Readonly<{ code: string; path: string }>[];
+  readonly issueCount: number;
+  constructor(issues: readonly Readonly<{ code: string; path: string }>[]) {
+    super('Workspace link analysis is incomplete. Inspect the reported sources before retrying.');
+    this.name = 'WorkspacePathSourceIncompleteError';
+    const unique = [...new Map(issues.map(issue => [JSON.stringify([issue.code, issue.path]), issue])).values()];
+    this.issueCount = unique.length;
+    this.issues = Object.freeze(unique.slice(0, 50).map(({ code, path }) => Object.freeze({ code, path })));
+  }
+}
+
 /** Capture request data before any await; retain only the genuine opaque handle. */
 function captureWorkspacePathImportPreviewInput(supplied: Input): Input {
   const invalid = (): never => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID'); };
@@ -115,6 +131,15 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
           && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
         const cohortDelete = captured.kind==='delete' && isWorkspaceCohortDeleteRequest(observation,captured.selections);
+        // The HTML evidence contract accepts only HTML gaps. Other genuine
+        // native coverage gaps must remain blocked, with their original cause;
+        // do not feed them into evidence capture and lose them as INVALID.
+        const nativeGaps = observation.stage.sources.flatMap(source => source.kind === 'native'
+          ? source.inventory.coverage.gaps.filter(gap => gap.code !== 'uninspected-html') : []);
+        if (!cohortDelete && nativeGaps.length) {
+          await access.assertCurrent();
+          throw new WorkspacePathSourceIncompleteError(nativeGaps);
+        }
         const htmlImport = !cohortDelete && !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
           selections: captured.selections.map(value => ({ ...value })), observation }) : null;
         const plan = cohortDelete ? createWorkspacePathCohortDeletePreparation({workspace,selections:captured.selections,observation})

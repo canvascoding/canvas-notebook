@@ -265,9 +265,21 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
         assert.equal(body.retry_after_ms, expected === 'PATH_BUSY' ? 250 : undefined);
         assert(!JSON.stringify(wire).includes('secret')); assert(!JSON.stringify(wire).includes('private'));
       }
+      const incomplete = Object.assign(new Error('private source bytes'), { code: 'PATH_SOURCE_INCOMPLETE', issueCount: 52,
+        issues: Array.from({ length: 52 }, (_, index) => ({ code: 'invalid-frontmatter', path: `notes/${index}.md`, raw: 'private contents' })) });
+      const diagnostic = formatError(incomplete, undefined, 'preview').structuredContent!;
+      assert.equal(diagnostic.code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(diagnostic.issue_count, 52);
+      assert.equal((diagnostic.issues as unknown[]).length, 50); assert.equal(diagnostic.issues_truncated, true);
+      assert(!JSON.stringify(diagnostic).includes('private'));
+      let traps = 0;
+      const hostile = Object.assign(new Error(), { code: 'PATH_SOURCE_INCOMPLETE' });
+      Object.defineProperty(hostile, 'issues', { get() { traps++; throw new Error('must not execute'); } });
+      formatError(hostile, undefined, 'preview'); assert.equal(traps, 0);
       const auth = new DirectMcpAuthorizationError('invalid_token', 401, 'private auth');
       const wire = formatError(new AggregateError([new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), auth]), undefined, 'preview');
       assert.equal(wire.structuredContent?.code, 'AUTHENTICATION_REQUIRED');
+      const denied = formatError(new AggregateError([incomplete, auth]), undefined, 'preview').structuredContent!;
+      assert.equal(denied.code, 'AUTHENTICATION_REQUIRED'); assert.equal(denied.issues, undefined);
     });
     check('whole escaped MCP envelope has a strict 1MiB cap without trimming paths or receipts', () => {
       const empty = preview(); empty.preview.paths = Array.from({ length: 1000 }, (_, index) => ({ sourcePath: `s${index}`, destinationPath: `d${index}` }));
