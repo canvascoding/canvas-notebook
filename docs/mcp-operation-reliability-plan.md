@@ -45,7 +45,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
   - Strikte Laufzeitvalidierung der jeweiligen Varianten beibehalten.
   - Tests: Discovery, Text/4096 Byte, Cursor, falsche Revision, Patchvarianten,
     ungültige Mischformen; lokalen Codex-Client und gehosteten Adapter unterscheiden.
-- [ ] 5. Große Bearbeitungsziele
+- [x] 5. Große Bearbeitungsziele (Code und Integration; gemeinsame E2E unter 7)
   - Ziele unabhängig vom Inhaltsseitenlimit begrenzt paginieren oder gezielt
     nach Block/Abschnitt abrufen; keine vollständige übergroße Zielliste voraussetzen.
   - Fortsetzungen an Dokumentversion, Auswahl und aktuelle Leserechte binden.
@@ -183,3 +183,33 @@ allein nicht ausschließen kann. Der PI-Schemavertrag bleibt unverändert.
 - GitNexus: Produktions-Schemafunktion LOW; Testfunktion CRITICAL über einen
   veralteten indirekten Graph. Direkte Quellprüfung zeigt ausschließlich den
   lokalen Selbstaufruf der Testdatei; keine Produktionsaufrufer dieser Funktion.
+
+### Schritt 5 — gezielter Blockabruf
+
+`read_knowledge_source` ergänzt `edit_target_block_id`. Zusammen mit
+`include_edit_targets: true` und der `expected_version` eines normalen nativen
+Reads liefert es ausschließlich die Guards dieses sichtbaren Blocks. Die
+Block-ID stammt aus dem nativen Inhalt. Eine unbekannte ID liefert eine leere
+Zielliste. Inhalt und vollständige Zielliste werden dabei nicht ausgegeben.
+
+Der bestehende Byte-Cursor paginiert bei Bedarf die ausgewählte Zielantwort.
+Sein Body-Hash bindet auch die Blockauswahl; Dokumentversion, Metadaten und
+aktuelle Autorisierung bleiben auf jeder Seite geprüft. Ein anderer Block oder
+geänderte Version weist den alten Cursor mit `DOCUMENT_VERSION_CONFLICT` zurück.
+
+Es wird keine vollständige Guardliste erzeugt oder nachträglich abgeschnitten.
+Nur das gewählte Teilbaum-Hash und nötige Tabellen-Guards werden berechnet.
+Die strukturellen und privaten History-Grenzen bleiben erhalten (unter anderem
+2048 Records/Placement-Einträge). Für den gezielten Abruf gelten begrenzte
+Quellbudgets von 8 MiB Zustand und 5 MiB Text; ausdrücklich kleinere interne
+Budgets werden weiterhin nicht angehoben. Ziel-JSON bleibt auf 64 KiB begrenzt.
+Der bisherige Vollabruf und die normalen Leseantworten bleiben unverändert.
+
+Abnahme: neun reine Guard-/Selector-Gruppen inklusive 600-Blöcke-Dokument und
+Tabellenvergleich; echter PostgreSQL-/HTTP-Abruf von 200 eindeutigen Zielen
+über dem Vollabruflimit, Cursorwechsel, entzogener Workspace-Grant und echte
+Änderung des gespeicherten Yjs-Zustands zwischen Seiten. Alle bestanden.
+Evidenz: `/tmp/canvas-mcp-target-unit.log`, `/tmp/canvas-mcp-target-postgres.log`.
+Die 15 bestehenden Read-Dispatch-Gruppen bleiben grün
+(`/tmp/canvas-mcp-target-read-regression.log`), ebenso Read-Vertragstests,
+Produktions-Typecheck und scoped ESLint. Kein produktives Dokument verändert.
