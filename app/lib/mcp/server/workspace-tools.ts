@@ -2282,23 +2282,27 @@ async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): P
 
 async function executeMoveKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
   let selectedOperationId: string | undefined;
+  let phase = 'dispatch';
   try {
     const input = decodeDirectMcpWorkspaceMoveRequestV1(args);
+    phase = input.action;
     selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
     if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
     const { runDirectMcpWorkspaceMoveService } = await import('../../files/workspace-file-operation-service');
     return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceMoveService(input, authInfo), selectedOperationId);
-  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId, phase); }
 }
 async function executeDeleteKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
   let selectedOperationId: string | undefined;
+  let phase = 'dispatch';
   try {
     const input = decodeDirectMcpWorkspaceDeleteRequestV1(args);
+    phase = input.action;
     selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
     if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
     const { runDirectMcpWorkspaceDeleteService } = await import('../../files/workspace-file-operation-service');
     return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceDeleteService(input, authInfo), selectedOperationId);
-  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId, phase); }
 }
 
 export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDefinition[] {

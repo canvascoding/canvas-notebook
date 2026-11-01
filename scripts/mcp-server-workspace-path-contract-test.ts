@@ -140,7 +140,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       }
       assert.throws(() => encode({ ...preview(), preview: { ...preview().preview, kind: { toString: 'not callable' } } }), error('PATH_UNAVAILABLE', 503));
       assert.equal(moveSchema.oneOf.length, 4); assert.equal(deleteSchema.oneOf.length, 4);
-      assert.equal(moveOutput.oneOf.length, 7); assert.equal(deleteOutput.oneOf.length, 6);
+      assert.equal(moveOutput.oneOf.length, 8); assert.equal(deleteOutput.oneOf.length, 8);
     });
     check('original-import previews are explicit and expose only bounded public facts', () => {
       for (const kind of ['move', 'delete'] as const) {
@@ -250,6 +250,25 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert.deepEqual(challenged.structuredContent, { ...expected, code: 'AUTHENTICATION_REQUIRED' });
       assert.deepEqual(challenged._meta, directMcpToolAuthorizationError(auth, 'knowledge:write')._meta);
     });
+    check('preview diagnostics preserve size, busy and authorization without disclosing exception text', () => {
+      for (const [cause, expected] of [
+        [new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), 'PATH_TOO_LARGE'],
+        [new WorkspaceFileLifecycleBusyError(), 'PATH_BUSY'],
+        [new Error('secret SQL and private path'), 'PATH_UNAVAILABLE'],
+      ] as const) {
+        const wire = formatError(new Error('private wrapper', { cause }), undefined, 'preview');
+        const body = wire.structuredContent as Record<string, unknown>;
+        assert.equal(body.code, expected); assert.equal(body.error_code, expected);
+        assert.equal(body.phase, 'preview'); assert.equal(body.storage_status, 'not_applicable');
+        assert.equal(body.retryable, expected === 'PATH_BUSY');
+        assert.match(String(body.correlation_id), /^[a-f0-9-]{36}$/u);
+        assert.equal(body.retry_after_ms, expected === 'PATH_BUSY' ? 250 : undefined);
+        assert(!JSON.stringify(wire).includes('secret')); assert(!JSON.stringify(wire).includes('private'));
+      }
+      const auth = new DirectMcpAuthorizationError('invalid_token', 401, 'private auth');
+      const wire = formatError(new AggregateError([new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), auth]), undefined, 'preview');
+      assert.equal(wire.structuredContent?.code, 'AUTHENTICATION_REQUIRED');
+    });
     check('whole escaped MCP envelope has a strict 1MiB cap without trimming paths or receipts', () => {
       const empty = preview(); empty.preview.paths = Array.from({ length: 1000 }, (_, index) => ({ sourcePath: `s${index}`, destinationPath: `d${index}` }));
       const overhead = bytes({ content: [{ type: 'text', text: JSON.stringify(empty) }], structuredContent: empty });
@@ -264,7 +283,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert(bytes(format(fits)) <= resultCap); assert.throws(() => format(over), error('PATH_OUTPUT_TOO_LARGE', 413));
       const emitted = format(result('recover'), operationId); assert.deepEqual(JSON.parse((emitted.content[0] as { text: string }).text), emitted.structuredContent);
     });
-    assert.equal(groups, 12); completed = true;
+    assert.equal(groups, 13); completed = true;
     console.log(JSON.stringify({ test: 'mcp-server-workspace-path-contract', groups, scope: 'pure strict wire/schema/formatter only; no runtime authority or owner claim' }));
   } finally {
     if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase;

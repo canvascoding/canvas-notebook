@@ -81,7 +81,9 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
     const failure = async (kind: Kind, args: Record<string, unknown>, expected: string, token = currentToken) => {
       const { result, value } = await call(kind, args, token); assert.equal(result.isError, true);
       assert.equal(value.success, false); assert.equal(value.code, expected);
-      assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'code', ...(value.operationId === undefined ? [] : ['operationId']), 'success'].sort());
+      assert.equal(value.error_code, expected); assert.match(String(value.correlation_id), /^[a-f0-9-]{36}$/u);
+      assert.equal(value.retryable, expected === 'PATH_BUSY');
+      assert.equal(value.storage_status, value.phase === 'preview' || value.phase === 'status' ? 'not_applicable' : 'unknown');
       if (args.operation_id) assert.equal(value.operationId, args.operation_id); return { result, value };
     };
     const domain = async () => {
