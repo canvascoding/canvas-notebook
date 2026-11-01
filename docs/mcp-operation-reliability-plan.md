@@ -32,7 +32,7 @@ Die genaue historische Fehlerphase ist ohne korrelierte Serverlogs unbekannt.
   - Bestehende Lifecycle-/Yjs-Schutzgrenzen erhalten.
   - Tests: mehrere sequenzielle Creates, Hintergrundprojektion, echte Konkurrenz,
     Abbruch und anschließender erfolgreicher Retry ohne Dubletten.
-- [ ] 3. Diagnosevertrag
+- [x] 3. Diagnosevertrag (Code und Integration; gemeinsame E2E unter 7)
   - Begrenzte Fehlerdaten: Code, correlation_id, Phase, Speicherstatus,
     Wiederholbarkeit und Vorgangsbezug soweit vorhanden.
   - Interne Details ausschließlich serverseitig; keine Inhalte, Tokens oder
@@ -136,6 +136,30 @@ vor Zulassung, Retry mit derselben ID, zwölf sequenzielle Creates unter kurzen
 gemeinsamen Lesesperren sowie Abbruch und anschließender erfolgreicher Retry.
 Log: `/tmp/canvas-mcp-busy-test.log`, Exit 0. Produktions-Typecheck
 (`/tmp/canvas-mcp-busy-types.log`) und scoped ESLint: Exit 0.
+
+### Schritt 3 — implementiert und integrationsgeprüft
+
+Tool-Antwort und HTTP-Request-Historie verwenden dieselbe Korrelations-ID.
+Bekannte Create-/Statusfehler und beobachtete Commit-Recoveries schreiben nur
+begrenzte Diagnosefelder ins Serverlog: Code, ID, Phase, Speicherstatus,
+Wiederholbarkeit und gegebenenfalls Vorgangs-ID. Fehlermeldungen, SQL, Tokens,
+Pfade und Dokumentinhalte werden nicht übernommen. Vorhandene sichere
+Projektionsphasen werden aus einer begrenzten primären Ursachenkette übernommen.
+
+Der zentrale Tool-Dispatcher liefert bei unerwarteten Ausnahmen und internen
+Protokollfehlern `MCP_TOOL_FAILED`, `storage_status: unknown` und
+`retryable: false`: ein unbekannter Schreibausgang darf keinen blinden Retry
+auslösen. Bekannte Parameter-/Protokollfehler bleiben erhalten.
+
+- Echter SDK-Client/Server mit kontrolliert fehlschlagendem Handler:
+  `node --conditions=react-server --import tsx --test scripts/mcp-tool-failure-test.ts`
+  besteht; interne Fehler werden strukturiert, private Meldungen entfernt,
+  Getter/Proxy-Werte nicht ausgeführt, echte InvalidParams bleiben Fehler.
+- Echter PostgreSQL/MCP-HTTP-Status-/Recovery-Test besteht erneut, einschließlich
+  Gleichheit von `correlation_id` und HTTP-`x-request-id`.
+  Log: `/tmp/canvas-mcp-diagnostics-http.log`, Exit 0.
+- Produktions-Typecheck (`/tmp/canvas-mcp-diagnostics-types.log`) und scoped
+  ESLint: Exit 0. Der SDK-Test ist keine Browser-/Hosted-Connector-Abnahme.
 
 Jede Anforderung oben benötigt passende aktuelle Laufzeitevidenz;
 Quellcodeprüfung allein gilt nicht als Connector- oder Browser-Abnahme.

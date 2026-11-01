@@ -1,5 +1,4 @@
 import 'server-only';
-import { randomUUID } from 'node:crypto';
 
 import { ProtocolError, ProtocolErrorCode, type AuthInfo, type CallToolResult } from '@modelcontextprotocol/server';
 
@@ -19,6 +18,8 @@ import { DirectMcpDocumentReadPrincipalError } from './document-read-principal';
 import { WorkspaceFileLifecycleBusyError } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
 import { readDirectMcpIngestStatus } from './ingest-status';
+import { directMcpCorrelationId } from './diagnostics';
+import { directMcpFailurePhase, logDirectMcpToolFailure } from './tool-failure';
 
 type IngestTool = 'create_knowledge_source' | 'import_knowledge_file';
 const securitySchemes = [{ type: 'oauth2' as const, scopes: ['knowledge:write'] }];
@@ -79,7 +80,7 @@ function string(value: unknown, name: string, max: number): string {
 }
 
 export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, authInfo?: AuthInfo, signal?: AbortSignal): Promise<CallToolResult> {
-  const correlationId = randomUUID();
+  const correlationId = directMcpCorrelationId();
   const args = record(raw);
   const isImport = id === 'import_knowledge_file';
   if (Object.keys(args).some(name => !['action', 'api_version', 'workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].includes(name))) {
@@ -103,7 +104,9 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     } catch (error) {
       if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:write');
       const body = { code: error instanceof DirectMcpFileIngestError ? error.code : 'MCP_INGEST_STATUS_UNCONFIRMED',
-        correlation_id: correlationId, phase: 'status', storage_status: 'unknown', retryable: true };
+        correlation_id: correlationId, phase: 'status', storage_status: 'unknown',
+        retryable: !(error instanceof DirectMcpFileIngestError && error.code === 'MCP_INGEST_IDEMPOTENCY_CONFLICT') };
+      logDirectMcpToolFailure(body);
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
     }
   }
@@ -185,6 +188,7 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
           tool: id, expectedFingerprint: directMcpIngestFingerprint([id, destination, file ? [file.file_id, file.mime_type ?? null] : text]) });
         if (status.storage_status === 'confirmed') {
           const body = { ...status, outcome: 'stored', processing_error_code: code, correlation_id: correlationId };
+          logDirectMcpToolFailure({ ...body, code, phase: directMcpFailurePhase(error, 'create'), retryable: false });
           return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
         }
       } catch (recoveryError) {
@@ -197,9 +201,10 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
       || error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_BUSY';
     const detail = { code,
       message: native ? error.code : known ? error.message : 'The storage outcome is unknown. Query status with the original idempotency_key before retrying.',
-      correlation_id: correlationId, phase: busy ? 'admission' : 'create', storage_status: 'unknown',
+      correlation_id: correlationId, phase: directMcpFailurePhase(error, busy ? 'admission' : 'create'), storage_status: 'unknown',
       ...(operationId ? { operation_id: operationId } : {}), retryable: busy,
       ...(busy ? { retry_after_ms: 250 } : {}) };
+    logDirectMcpToolFailure(detail);
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(detail) }], structuredContent: detail };
   }
 }

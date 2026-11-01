@@ -30,6 +30,7 @@ import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descript
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
 import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
+import { unexpectedDirectMcpToolFailure } from './tool-failure';
 
 type DirectMcpToolHandler = {
   id: DirectMcpToolId;
@@ -115,7 +116,8 @@ export function createDirectMcpServer(
       return result;
     } catch (error) {
       recordDirectMcpToolFailure();
-      throw error;
+      if (error instanceof ProtocolError && error.code !== ProtocolErrorCode.InternalError) throw error;
+      return unexpectedDirectMcpToolFailure(error);
     }
   });
 

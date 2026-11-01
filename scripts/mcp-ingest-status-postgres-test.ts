@@ -24,6 +24,9 @@ await withDocumentReadToolDispatchFixture(async fixture => {
         params: { name: 'create_knowledge_source', arguments: args } }) }));
     assert.equal(response.status, 200);
     const message = await response.json(); assert.equal(message.error, undefined);
+    if (message.result.structuredContent?.correlation_id) {
+      assert.equal(message.result.structuredContent.correlation_id, response.headers.get('x-request-id'));
+    }
     return message.result;
   };
   const content = '# Receipt test\n\nDurable source bytes.\n';
