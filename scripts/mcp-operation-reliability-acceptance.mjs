@@ -35,6 +35,8 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
   const heading = nativeBody.content.document.content.find(node => node.type === 'heading'); assert(heading?.attrs.id);
   const tooLarge = await read({ include_edit_targets: true, max_bytes: 4 });
   assert.equal(tooLarge.isError, true); assert.equal(tooLarge.structuredContent.code, 'DOCUMENT_TOO_LARGE');
+  assert.match(tooLarge.structuredContent.hint, /edit_target_block_id/);
+  assert.equal(tooLarge.structuredContent.error_code, 'DOCUMENT_TOO_LARGE');
   const selection = { include_edit_targets: true, edit_target_block_id: heading.attrs.id, expected_version: native.document.version };
   const first = success(await read({ ...selection, max_bytes: 64 })); assert(first.nextCursor);
   let fragments = first.fragment, cursor = first.nextCursor;
@@ -74,5 +76,24 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
   const finalBody = JSON.parse(success(await read({ format: 'native', max_bytes: 262144 })).fragment);
   assert.equal(finalBody.content.document.content.find(node => node.attrs?.id === heading.attrs.id).attrs.level, 2);
   checks.push('both typed patch variants, confirmed Edit/status URL, old-version rejection and mixed-shape rejection');
-  return { checks, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };
+  const missing = await call('read_knowledge_source', { path: `missing-${key}.md` });
+  assert.equal(missing.isError, true);
+  assert.equal(missing.structuredContent.error_code, 'DOCUMENT_NOT_FOUND');
+  const deletePreviews = [];
+  for (let index = 0; index < 6; index++) {
+    const path = `preview-${key}-${index}.md`;
+    const content = `# Preview ${index}\n\nSynthetic local test.\n`;
+    success(await call('create_knowledge_source', { api_version: 1, path,
+      content, idempotency_key: `${key}-preview-${index}` }));
+    const readBack = success(await call('read_knowledge_source', { path }));
+    assert.equal(readBack.sha256, createHash('sha256').update(content).digest('hex'));
+    assert.equal(readBack.content, content);
+    const preview = success(await call('delete_knowledge_source', { api_version: 1, action: 'preview', path }));
+    assert.equal(preview.action, 'preview');
+    assert.equal(preview.preview.kind, 'delete');
+    assert.equal(preview.preview.readiness, 'ready');
+    deletePreviews.push({ path, sha256: readBack.sha256, planId: preview.preview.planId, readiness: preview.preview.readiness });
+  }
+  checks.push('missing path domain error and six sequential native creates with delete previews');
+  return { checks, deletePreviews, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };
 }

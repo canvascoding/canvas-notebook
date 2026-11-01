@@ -37,7 +37,7 @@ async function step(name, run) {
   console.log(`PASS ${name}`);
 }
 const tools = ['auth_probe', 'get_workspace_overview', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
-  'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
+  'delete_knowledge_source', 'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
 try {
   await step('real login, workspace opt-in, browser consent and PKCE', async () => {
     await requireIngestE2EJson(await owner.request.post('/api/auth/sign-in/email', {
