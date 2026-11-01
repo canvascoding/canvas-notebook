@@ -1174,8 +1174,29 @@ erzeugen keine zweite Mutation. Der Runner prüft damit insgesamt sieben
 Move-/Delete-Owner-Gruppen bei ausgeschaltetem Review Center und Undo.
 Die externe Linkerhaltung wird strukturell anhand des vollständigen `href`
 geprüft; die frühere Teilzeichenfolgenprüfung des Beispiel-URLs ist ersetzt.
-Diese Prüfungen decken die Effektkerne ab. Reine Status-/Recovery-Kontexte,
-öffentliche Key-Adapter und deren installierte SDK-Abnahme sind weiterhin offen.
+Die bestehenden vier Status-Leser für Move, natives Delete, physisches Delete
+und Sammel-Delete verwenden nun auch echte Key-Principals. Ihre sechs festen
+Lesezwecke umfassen Apply, Status und Recover je Operationsart; die getrennte
+Writer-Erfassung bleibt auf ihre vier Apply-/Recover-Zwecke begrenzt. Ein
+Status-Handle kann deshalb keine Writer-Policy oder Admission übernehmen.
+Der vorhandene Ablauf bleibt zentral: frische Autorisierung auf einer echten
+RC/RW-Verbindung, ein RR/RO-Snapshot samt bestätigter Freigabe der Verbindung,
+anschließend eine neue Autorisierung. Der Key-Zweig verwendet aktuelle Key- und
+Integrationsdaten; MCP behält seine eigenen Session-/Client-Prüfungen. Innerhalb
+einer Anfrage müssen Credential, Benutzer, Integration, Instanz, Operationsart,
+Einstieg und Realm stabil bleiben. Die ursprüngliche Credential-/RequestHash-
+Zuordnung bleibt auch nach erlaubter Rotation erhalten.
+Alle sieben Owner-Fälle prüfen zusätzlich genau einen bestätigten Nur-Lese-
+Snapshot ohne DML/Notifications und unveränderte geschützte Domainzeilen samt
+`xmin`. Acht echte PostgreSQL-/Key-Grenzfallgruppen bestehen: eigene Apply-/
+Recover-Lesezwecke, gefälschte/gemischte/Accessor-Handles, fehlende Status-Freigabe
+und fremde Integration, fehlende Jobs in allen vier Profilen, veränderter
+Snapshot-Realm sowie Action-Entzug, Rotation und Widerruf nach dem tatsächlichen
+Snapshot-Commit. Eine verweigerte Schlussprüfung gibt ihr vorbereitetes Ergebnis
+nicht heraus. Nach Rotation kann ein frischer Aufruf mit dem neuen Schlüssel
+dieselbe unveränderte Originalhistorie lesen. Fehlende Jobs erzeugen keinen
+Batch und keine Historie. Die gesamte öffentliche Key-Apply-/Status-/Recover-
+Steuerung über REST/MCP und die installierte SDK-Abnahme sind weiterhin offen.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den
 ausdrücklichen Key-Zugang und als MCP-`list_workspaces` angeschlossen. Vier

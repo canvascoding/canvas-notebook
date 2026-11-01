@@ -1,13 +1,16 @@
 import 'server-only';
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
-import type { WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobReadOptions, workspaceOperationProgrammaticJobReadOptions,
+  type WorkspaceOperationProgrammaticJobReadOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 import { withWorkspaceOperationNativeBatchReadContext } from './workspace-operation-native-read-context';
 import { readCohortDeleteObservationOnConnection } from './workspace-operation-cohort-delete-domain';
 import { failCohortDelete, type WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
-export async function readWorkspaceOperationCohortDeleteStatus(input:Readonly<{batchId:string;scope:WorkspaceOperationBatchScope;expectedPlan?:WorkspaceOperationCohortDeletePlan;
-  mcpPrincipal?:WorkspaceOperationMcpJobPrincipal}>){
-  return withWorkspaceOperationNativeBatchReadContext({...input,planVersion:6},async context=>{
+export async function readWorkspaceOperationCohortDeleteStatus(input:Readonly<{batchId:string;scope:WorkspaceOperationBatchScope;expectedPlan?:WorkspaceOperationCohortDeletePlan}>
+  &WorkspaceOperationProgrammaticJobReadOptions){
+  const principal=captureWorkspaceOperationProgrammaticJobReadOptions(input);
+  return withWorkspaceOperationNativeBatchReadContext({batchId:input.batchId,scope:input.scope,expectedPlan:input.expectedPlan,
+    ...workspaceOperationProgrammaticJobReadOptions(principal),planVersion:6},async context=>{
     if(context.plan.version!==6||context.batch.actionMode!=='apply')return failCohortDelete();
     const observation=await readCohortDeleteObservationOnConnection(context.database,{schema:context.schema,
       binding:{batchId:context.batch.batchId,planId:context.batch.planId,workspaceId:context.batch.workspaceId,authorization:context.batch.authorization,

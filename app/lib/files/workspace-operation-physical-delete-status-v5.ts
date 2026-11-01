@@ -4,7 +4,8 @@ import { types } from 'node:util';
 import type { SqlConnection } from '../db';
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import type { WorkspaceContext } from '../workspaces/types';
-import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobReadOptions, workspaceOperationProgrammaticJobReadOptions,
+  type WorkspaceOperationProgrammaticJobReadOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import type { WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-batch-contract';
 import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError } from './workspace-operation-native-read-context';
@@ -20,8 +21,8 @@ export class WorkspaceOperationPhysicalDeleteStatusErrorV5 extends Error {
   constructor(readonly code: 'BATCH_ACCESS_DENIED' | 'BATCH_SCOPE_CHANGED' | 'BATCH_JOURNAL_UNAVAILABLE', readonly status = 409,
     options?: ErrorOptions) { super(code, options); this.name = 'WorkspaceOperationPhysicalDeleteStatusErrorV5'; }
 }
-type Input = { batchId: string; scope: WorkspaceOperationBatchScope; expectedPlan?: WorkspaceOperationPhysicalDeleteBatchPlanV5;
-  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal };
+type Input = { batchId: string; scope: WorkspaceOperationBatchScope; expectedPlan?: WorkspaceOperationPhysicalDeleteBatchPlanV5 }
+  & WorkspaceOperationProgrammaticJobReadOptions;
 type ReadContext = Readonly<{ database: SqlConnection; schema: string; workspace: WorkspaceContext;
   status: WorkspaceOperationPhysicalDeleteBatchStatusV5 }>;
 
@@ -31,13 +32,11 @@ export async function withWorkspaceOperationPhysicalDeleteReadContextV5<T>(input
   operation: (context: ReadContext) => Promise<T>): Promise<T | null> {
   try {
     if (types.isProxy(input)) throw new WorkspaceOperationPhysicalDeleteStatusErrorV5('BATCH_SCOPE_CHANGED');
-    const field = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
-    if (field && (!field.enumerable || !Object.hasOwn(field, 'value'))) throw new WorkspaceOperationPhysicalDeleteStatusErrorV5('BATCH_SCOPE_CHANGED');
-    const mcpPrincipal = field?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(field.value);
+    const principal = captureWorkspaceOperationProgrammaticJobReadOptions(input);
     return await withWorkspaceOperationNativeBatchReadContext({ batchId: input.batchId, scope: input.scope,
-      expectedPlan: input.expectedPlan, mcpPrincipal, planVersion: 5 }, async context => {
+      expectedPlan: input.expectedPlan, ...workspaceOperationProgrammaticJobReadOptions(principal), planVersion: 5 }, async context => {
       const { database, schema, workspace, batch, plan } = context;
-      if (plan.version !== 5 || batch.authorization.mode !== 'direct' && batch.authorization.mode !== 'direct-mcp') throw new WorkspaceOperationPhysicalDeleteStatusErrorV5('BATCH_SCOPE_CHANGED');
+      if (plan.version !== 5 || batch.authorization.mode !== 'direct' && batch.authorization.mode !== 'direct-mcp' && batch.authorization.mode !== 'api-key') throw new WorkspaceOperationPhysicalDeleteStatusErrorV5('BATCH_SCOPE_CHANGED');
       const observation = await readWorkspaceOperationOriginalDeleteObservationOnConnection(database, { schema,
         context: { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
           authorization: batch.authorization, sourcePath: plan.physicalTarget.path }, workspace, dataRoot: resolveWorkspaceDataRoot() });

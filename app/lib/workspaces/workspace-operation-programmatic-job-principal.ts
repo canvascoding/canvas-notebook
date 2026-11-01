@@ -8,7 +8,8 @@ import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJo
   withWorkspaceOperationMcpJobPolicyOnConnection, type WorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPolicyAccess } from './workspace-operation-mcp-job-principal';
 import { captureWorkspaceOperationApiKeyJobPrincipal, assertWorkspaceOperationApiKeyJobPrincipalCaptured,
-  withWorkspaceOperationApiKeyJobPolicyOnConnection, type WorkspaceOperationApiKeyJobPrincipal,
+  captureWorkspaceOperationApiKeyJobReadPrincipal, withWorkspaceOperationApiKeyJobPolicyOnConnection,
+  type WorkspaceOperationApiKeyJobPrincipal, type WorkspaceOperationApiKeyJobReadPrincipal,
   type WorkspaceOperationApiKeyJobPolicyAccess } from './workspace-operation-api-key-job-principal';
 
 export type WorkspaceOperationProgrammaticJobPrincipal = WorkspaceOperationMcpJobPrincipal | WorkspaceOperationApiKeyJobPrincipal;
@@ -16,6 +17,11 @@ export type WorkspaceOperationProgrammaticJobPolicyAccess = WorkspaceOperationMc
 export type WorkspaceOperationProgrammaticJobOptions = Readonly<{
   mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
   apiKeyPrincipal?: WorkspaceOperationApiKeyJobPrincipal;
+}>;
+export type WorkspaceOperationProgrammaticJobReadPrincipal = WorkspaceOperationMcpJobPrincipal | WorkspaceOperationApiKeyJobReadPrincipal;
+export type WorkspaceOperationProgrammaticJobReadOptions = Readonly<{
+  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
+  apiKeyPrincipal?: WorkspaceOperationApiKeyJobReadPrincipal;
 }>;
 function invalid(): never {
   throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'The genuine programmatic job principal is required.');
@@ -47,6 +53,20 @@ export function captureWorkspaceOperationProgrammaticJobOptions(input: unknown):
   if (mcp !== undefined && key !== undefined) invalid();
   return key !== undefined ? captureWorkspaceOperationApiKeyJobPrincipal(key)
     : mcp !== undefined ? captureWorkspaceOperationMcpJobPrincipal(mcp) : undefined;
+}
+/** Current read purposes have their own holder. No status handle is widened
+ * into the existing four-purpose writer options. */
+export function captureWorkspaceOperationProgrammaticJobReadOptions(input: unknown): WorkspaceOperationProgrammaticJobReadPrincipal | undefined {
+  const value = object(input), mcp = field(value, 'mcpPrincipal'), key = field(value, 'apiKeyPrincipal');
+  if (mcp !== undefined && key !== undefined) invalid();
+  return key !== undefined ? captureWorkspaceOperationApiKeyJobReadPrincipal(key)
+    : mcp !== undefined ? captureWorkspaceOperationMcpJobPrincipal(mcp) : undefined;
+}
+export function workspaceOperationProgrammaticJobReadOptions(input: WorkspaceOperationProgrammaticJobReadPrincipal | undefined): WorkspaceOperationProgrammaticJobReadOptions {
+  if (input === undefined) return Object.freeze({});
+  const value = object(input), principal = field(value, 'transport') === 'api-key'
+    ? captureWorkspaceOperationApiKeyJobReadPrincipal(value) : captureWorkspaceOperationMcpJobPrincipal(value);
+  return Object.freeze('transport' in principal ? { apiKeyPrincipal: principal } : { mcpPrincipal: principal });
 }
 
 /** Route captured data back through its own transport's internal entry field. */

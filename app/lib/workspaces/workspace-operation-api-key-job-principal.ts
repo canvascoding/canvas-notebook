@@ -12,9 +12,13 @@ import type { WorkspaceOperationJobPolicyAccess } from './workspace-operation-jo
 import { withWorkspaceOperationJobPolicyLifetime } from './workspace-operation-job-policy-lifetime';
 
 type Purpose = 'move_apply' | 'move_recover' | 'delete_apply' | 'delete_recover';
+type ReadPurpose = Purpose | 'move_status' | 'delete_status';
 /** Detached holder of an actual live handle, never stored or an authority DTO. */
 export type WorkspaceOperationApiKeyJobPrincipal = Readonly<{
   transport: 'api-key'; kind: 'move' | 'delete'; purpose: Purpose; principal: ApiKeyWorkspacePathPrincipal;
+}>;
+export type WorkspaceOperationApiKeyJobReadPrincipal = Readonly<Omit<WorkspaceOperationApiKeyJobPrincipal, 'purpose'> & {
+  purpose: ReadPurpose;
 }>;
 export type WorkspaceOperationApiKeyJobPolicyAccess = WorkspaceOperationJobPolicyAccess & Readonly<{
   transport: 'api-key'; integrationId: string; currentCredentialId: string;
@@ -38,14 +42,23 @@ function fields(input: unknown, keys: readonly string[]): Record<string, unknown
     })) fail('API_KEY_JOB_PRINCIPAL_INVALID');
   return input as Record<string, unknown>;
 }
-export function captureWorkspaceOperationApiKeyJobPrincipal(input: unknown): WorkspaceOperationApiKeyJobPrincipal {
+function captureJobPrincipalData<P extends ReadPurpose>(input: unknown,
+  purposes: readonly P[]): Readonly<Omit<WorkspaceOperationApiKeyJobPrincipal, 'purpose'> & { purpose: P }> {
   const value = fields(input, ['transport', 'kind', 'purpose', 'principal']);
   if (value.transport !== 'api-key' || value.kind !== 'move' && value.kind !== 'delete'
-    || typeof value.purpose !== 'string' || !['move_apply', 'move_recover', 'delete_apply', 'delete_recover'].includes(value.purpose)
+    || typeof value.purpose !== 'string' || !purposes.includes(value.purpose as P)
     || !value.purpose.startsWith(`${value.kind}_`)) fail('API_KEY_JOB_PRINCIPAL_INVALID');
   if (!value.principal || typeof value.principal !== 'object' || types.isProxy(value.principal)) fail('API_KEY_JOB_PRINCIPAL_REQUIRED');
-  return Object.freeze({ transport: 'api-key', kind: value.kind as 'move' | 'delete', purpose: value.purpose as Purpose,
+  return Object.freeze({ transport: 'api-key', kind: value.kind as 'move' | 'delete', purpose: value.purpose as P,
     principal: value.principal as ApiKeyWorkspacePathPrincipal });
+}
+export function captureWorkspaceOperationApiKeyJobPrincipal(input: unknown): WorkspaceOperationApiKeyJobPrincipal {
+  return captureJobPrincipalData(input, ['move_apply', 'move_recover', 'delete_apply', 'delete_recover'] as const);
+}
+/** Read selection does not mint a claim or writer authority. Status holders
+ * remain rejected by the separate writer capture and its actual policy. */
+export function captureWorkspaceOperationApiKeyJobReadPrincipal(input: unknown): WorkspaceOperationApiKeyJobReadPrincipal {
+  return captureJobPrincipalData(input, ['move_apply', 'move_status', 'move_recover', 'delete_apply', 'delete_status', 'delete_recover'] as const);
 }
 
 /** Synchronous provenance/lifetime preflight, before any pool or filesystem

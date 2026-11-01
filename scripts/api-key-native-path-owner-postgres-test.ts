@@ -7,7 +7,9 @@ import type { ApiKeyWorkspacePathPrincipal, ApiKeyWorkspacePathPurpose } from '.
 import type { NativeFileOperationReceipt } from '../app/lib/markdown/native-file-operation-handoff';
 import type { WorkspaceOperationDeleteBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceOperationCohortDeletePlan } from '../app/lib/files/workspace-operation-cohort-delete-plan';
+import type { WorkspaceOperationNativeMoveBatchPlan } from '../app/lib/files/workspace-operation-native-move-plan';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+type OwnerPlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan;
 
 let stage = 'setup', groups = 0;
 const errorCode = (error: unknown): string | undefined => {
@@ -33,11 +35,11 @@ async function main() {
     assert.equal((await import('../app/lib/files/workspace-file-undo-policy')).WORKSPACE_FILE_UNDO_ENABLED, false);
     await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'");
     await h.admin.query("UPDATE canvas_workspace_members SET can_write=1 WHERE workspace_id=$1 AND user_id='member'", [h.source.workspaceId]);
-    const { createApiIntegration } = await import('../app/lib/api-keys/management');
+    const { createApiIntegration, updateApiIntegration, rotateApiKey, revokeApiKey } = await import('../app/lib/api-keys/management');
     const { authenticateApiKeyRequest } = await import('../app/lib/api-keys/authentication');
     const { withApiKeyWorkspacePathPrincipal: capture, withApiKeyWorkspacePathPrincipalOnConnection: phase } =
       await import('../app/lib/api-keys/document-read-principal');
-    const { captureWorkspaceOperationApiKeyJobPrincipal: holder } = await import('../app/lib/workspaces/workspace-operation-api-key-job-principal');
+    const { captureWorkspaceOperationApiKeyJobPrincipal: holder, captureWorkspaceOperationApiKeyJobReadPrincipal: readHolder } = await import('../app/lib/workspaces/workspace-operation-api-key-job-principal');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
     const { buildWorkspaceOperationBatchPlan } = await import('../app/lib/files/workspace-operation-batch-plan');
     const { advanceWorkspaceOperationNativePathAdmission } = await import('../app/lib/files/workspace-operation-native-path-admission');
@@ -46,6 +48,10 @@ async function main() {
     const { executeWorkspaceOperationCohortDelete } = await import('../app/lib/files/workspace-operation-cohort-delete-runner');
     const { workspaceOperationBatchTotalActions } = await import('../app/lib/files/workspace-operation-native-delete-effects');
     const { readWorkspaceOperationOriginalDeleteIntentOnConnection: readDeleteIntent } = await import('../app/lib/files/workspace-operation-original-delete-repository');
+    const { readWorkspaceOperationNativeMoveBatchStatus: moveStatus } = await import('../app/lib/files/workspace-operation-native-move-status');
+    const { readWorkspaceOperationNativeDeleteBatchStatus: deleteStatus } = await import('../app/lib/files/workspace-operation-native-delete-status');
+    const { readWorkspaceOperationPhysicalDeleteBatchStatusV5: physicalStatus } = await import('../app/lib/files/workspace-operation-physical-delete-status-v5');
+    const { readWorkspaceOperationCohortDeleteStatus: cohortStatus } = await import('../app/lib/files/workspace-operation-cohort-delete-status');
     const { openDb } = await import('../app/lib/db');
     const { loadCollaborationStateOnConnection: load } = await import('../app/lib/collaboration/persistence');
     const { inspectPersistedDocumentLinks: links } = await import('../app/lib/markdown/workspace-native-link-inventory');
@@ -54,9 +60,10 @@ async function main() {
     const workspaceId = h.source.workspaceId;
     const issued = await createApiIntegration(manager, { requestId: randomUUID(), name: 'Actual native path owner', workspaceIds: [workspaceId],
       actions: ['move', 'delete', 'status', 'recover'], expiresAt: Date.now() + 3_600_000 });
+    let activeKey = issued.key, credentialId = issued.credential.id, revision = issued.integration.revision, statusGroups = 0;
     const store = new WorkspaceOperationBatchStore();
-    const run = async <T>(purpose: ApiKeyWorkspacePathPurpose, consume: (principal: ApiKeyWorkspacePathPrincipal) => Promise<T>) => {
-      const credential = await authenticateApiKeyRequest(new Request(`http://localhost/api/documents/${purpose.startsWith('delete_') ? 'delete' : 'move'}`, { headers: { 'X-Canvas-API-Key': issued.key } }));
+    const run = async <T>(purpose: ApiKeyWorkspacePathPurpose, consume: (principal: ApiKeyWorkspacePathPrincipal) => Promise<T>, key = activeKey) => {
+      const credential = await authenticateApiKeyRequest(new Request(`http://localhost/api/documents/${purpose.startsWith('delete_') ? 'delete' : 'move'}`, { headers: { 'X-Canvas-API-Key': key } }));
       return capture(credential, { workspaceId, purpose, source: 'request' }, consume);
     };
     const scope = async (principal: ApiKeyWorkspacePathPrincipal, purpose: ApiKeyWorkspacePathPurpose) => {
@@ -72,6 +79,51 @@ async function main() {
         try { await db.run('ROLLBACK'); } catch (rollback) { failure = new AggregateError([failure, rollback]); }
         throw failure;
       } finally { await db.close(failure); }
+    };
+    const domainSnapshot = async () => {
+      const tables = (await h.admin.query(`SELECT c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=$1 AND c.relkind='r' AND c.relname ~ '^(collaboration_|file_collaboration_|workspace_file_|workspace_link_|workspace_trash_entries$|file_revisions$|file_revision_contents$|file_version_blobs$)' ORDER BY c.relname`, [h.schema])).rows;
+      const result: Record<string, unknown> = {};
+      for (const { relname } of tables) {
+        assert(/^[a-z][a-z0-9_]*$/u.test(relname));
+        result[relname] = (await h.admin.query(`SELECT to_jsonb(t)::text AS data,xmin::text AS row_xmin FROM "${h.schema}"."${relname}" t ORDER BY data,row_xmin`)).rows;
+      }
+      return result;
+    };
+    const samples = new Map<number, { plan: OwnerPlan; batchId: string }>();
+    const readStatus = (plan: OwnerPlan, input: Omit<Parameters<typeof moveStatus>[0], 'expectedPlan'>) => {
+      assert(plan.version !== 1);
+      return plan.version === 3 ? moveStatus({ ...input, expectedPlan: plan })
+        : plan.version === 6 ? cohortStatus({ ...input, expectedPlan: plan })
+        : plan.version === 5 ? physicalStatus({ ...input, expectedPlan: plan }) : deleteStatus({ ...input, expectedPlan: plan });
+    };
+    const verifyStatus = async (plan: OwnerPlan, batchId: string,
+      purposeOverride?: 'move_apply' | 'move_recover' | 'delete_apply' | 'delete_recover') => {
+      assert(plan.version !== 1); const kind = plan.version === 3 ? 'move' : 'delete';
+      const purpose = purposeOverride ?? (kind === 'move' ? 'move_status' : 'delete_status');
+      const expected = await store.get(batchId); assert(expected); const before = await domainSnapshot();
+      const active = new Set<object>(); let snapshots = 0;
+      await h.withProbe(async event => {
+        const sql = event.text.trim();
+        if (/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY$/iu.test(sql)) {
+          assert.equal(active.has(event.client), false); active.add(event.client);
+          const facts = (await event.raw("SELECT current_setting('transaction_read_only') AS readonly,current_setting('transaction_isolation') AS isolation")).rows[0];
+          assert.deepEqual(facts, { readonly: 'on', isolation: 'repeatable read' });
+        }
+        if (active.has(event.client)) {
+          assert.equal(/^\s*(?:INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)\b/iu.test(sql), false);
+          assert.equal(/\b(?:pg_notify|NOTIFY)\b/iu.test(sql), false);
+          if (/^(?:COMMIT|ROLLBACK)$/iu.test(sql)) { assert(/^COMMIT$/iu.test(sql)); active.delete(event.client); snapshots++; }
+        }
+      }, () => run(purpose, async principal => {
+        const selected = await scope(principal, purpose), apiKeyPrincipal = readHolder({ transport: 'api-key', kind, purpose, principal });
+        if (purpose.endsWith('_status')) assert.throws(() => holder(apiKeyPrincipal), error => errorCode(error) === 'API_KEY_JOB_PRINCIPAL_INVALID');
+        const input = { batchId, scope: selected, apiKeyPrincipal };
+        const result = await readStatus(plan, input);
+        assert(result); assert.equal(result.batch.status, 'applied'); assert.deepEqual(result.batch, expected); assert.equal(result.plan.planId, plan.planId);
+      }));
+      assert.equal(snapshots, 1); assert.equal(active.size, 0); assert.deepEqual(await domainSnapshot(), before);
+      if (!samples.has(plan.version)) samples.set(plan.version, { plan, batchId });
     };
     const applyDelete = async (plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan) => {
       const operationId = randomUUID();
@@ -104,6 +156,7 @@ async function main() {
         assert(recovered.kind === 'historical-header'); assert.equal(recovered.batch.batchId, applied.batchId);
         assert.deepEqual(recovered.batch.authorization, applied.original); assert.equal(recovered.batch.status, 'applied');
       });
+      stage += ': pure status'; await verifyStatus(plan, applied.batchId);
       return applied;
     };
     for (const missingProjection of [false, true]) {
@@ -182,6 +235,7 @@ async function main() {
       assert.equal(nativeReceipts.find(receipt => receipt.kind === 'link')?.source.documentId, incoming.documentId);
       assert.equal(Number((await h.admin.query('SELECT count(*)::int AS n FROM agents WHERE agent_id=$1', [applied.actorId])).rows[0].n), 0);
       assert.equal(Number((await h.admin.query('SELECT count(*)::int AS n FROM pi_sessions WHERE agent_id=$1', [applied.actorId])).rows[0].n), 0);
+      stage += ': pure status'; await verifyStatus(plan, applied.batchId);
       groups++; console.log(`API-key native path owner passed: ${stage}; real native Move, one incoming mutation, stable D/L/Yjs and no PI actor with review rollout off`);
     }
     for (const missingProjection of [false, true]) {
@@ -297,15 +351,105 @@ async function main() {
       assert.deepEqual((await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2', [workspaceId, keepPath])).rows, beforePersonal);
       groups++; console.log(`API-key native path owner passed: ${label}; mixed native/physical originals retained, one source mutation and unchanged unrelated document/metadata`);
     }
+    const checkRead = async (label: string, operation: () => Promise<void>) => {
+      stage = label; const before = await domainSnapshot(); await operation(); assert.deepEqual(await domainSnapshot(), before);
+      statusGroups++; console.log(`API-key pure status boundary passed: ${label}`);
+    };
+    const sample = samples.get(3); assert(sample);
+    const selected = await run('move_status', principal => scope(principal, 'move_status'));
+    const denied = (code: string) => (error: unknown) => errorCode(error) === code;
+    await checkRead('actual Apply and Recover purposes retain their own read context for both operation kinds', async () => {
+      const deletion = samples.get(6); assert(deletion);
+      await verifyStatus(sample.plan, sample.batchId, 'move_apply'); await verifyStatus(sample.plan, sample.batchId, 'move_recover');
+      await verifyStatus(deletion.plan, deletion.batchId, 'delete_apply'); await verifyStatus(deletion.plan, deletion.batchId, 'delete_recover');
+    });
+    await checkRead('forged, mixed and accessor handles cannot open a connection or borrow writer/preview authority', async () => {
+      let queries = 0, touched = false;
+      const fake = readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal: {} });
+      const input = { batchId: sample.batchId, scope: selected, expectedPlan: sample.plan, apiKeyPrincipal: fake };
+      await h.withProbe(async () => { queries++; }, async () => {
+        await assert.rejects(readStatus(sample.plan, input), denied('API_KEY_PRINCIPAL_REQUIRED'));
+        await assert.rejects(readStatus(sample.plan, { ...input, mcpPrincipal: { kind: 'move', principal: {} } } as unknown as Parameters<typeof readStatus>[1]), denied('BATCH_CLAIM_CHANGED'));
+        const getter = Object.defineProperty({ batchId: sample.batchId, scope: selected }, 'apiKeyPrincipal', { enumerable: true,
+          get() { touched = true; return fake; } });
+        await assert.rejects(moveStatus(getter), denied('BATCH_CLAIM_CHANGED'));
+        assert.throws(() => readHolder({ ...fake, purpose: 'move_preview' }), denied('API_KEY_JOB_PRINCIPAL_INVALID'));
+        assert.throws(() => holder(fake), denied('API_KEY_JOB_PRINCIPAL_INVALID'));
+      });
+      assert.equal(queries, 0); assert.equal(touched, false);
+    });
+    await checkRead('missing status grant and another genuine integration cannot read this original job', async () => {
+      for (const actions of [['move'], ['move', 'status']] as const) {
+        const other = await createApiIntegration(manager, { requestId: randomUUID(), name: 'Separate status integration', workspaceIds: [workspaceId], actions: [...actions], expiresAt: Date.now() + 3_600_000 });
+        await assert.rejects(run('move_status', principal => readStatus(sample.plan, { batchId: sample.batchId, scope: selected,
+          apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }), other.key),
+        denied(actions.length === 1 ? 'API_KEY_ACCESS_DENIED' : 'API_KEY_JOB_AUTHORIZATION_CHANGED'));
+      }
+    });
+    await checkRead('absent status across all four profiles creates no job or history', async () => {
+      assert.equal(samples.size, 4);
+      for (const { plan } of samples.values()) {
+        const kind = plan.version === 3 ? 'move' : 'delete', purpose = kind === 'move' ? 'move_status' : 'delete_status';
+        await run(purpose, async principal => assert.equal(await readStatus(plan, { batchId: randomUUID(), scope: await scope(principal, purpose),
+          apiKeyPrincipal: readHolder({ transport: 'api-key', kind, purpose, principal }) }), null));
+      }
+    });
+    const readSample = () => run('move_status', async principal => readStatus(sample.plan, { batchId: sample.batchId, scope: await scope(principal, 'move_status'),
+      apiKeyPrincipal: readHolder({ transport: 'api-key', kind: 'move', purpose: 'move_status', principal }) }));
+    const afterSnapshotCommit = async (change: () => Promise<void>) => {
+      let snapshot = false, changed = false, exposed = false;
+      const execute = () => h.withProbe(async event => {
+        if (/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY$/iu.test(event.text.trim())) snapshot = true;
+        if (snapshot && !changed && /^COMMIT$/iu.test(event.text.trim())) { changed = true; await change(); }
+      }, async () => { const result = await readSample(); exposed = true; return result; });
+      return { execute, assertDenied: () => { assert.equal(changed, true); assert.equal(exposed, false); } };
+    };
+    await checkRead('a changed actual read-snapshot realm is rejected without exposing history', async () => {
+      let shifted = false;
+      await assert.rejects(h.withProbe(async event => {
+        if (!shifted && /^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY$/iu.test(event.text.trim())) {
+          shifted = true; await event.raw(`SET LOCAL search_path=pg_catalog,"${h.schema}"`);
+        }
+      }, readSample), denied('BATCH_SCOPE_CHANGED'));
+      assert.equal(shifted, true);
+    });
+    await checkRead('actual action withdrawal after the snapshot denies C2 and restored grants permit a fresh request', async () => {
+      const boundary = await afterSnapshotCommit(async () => {
+        await updateApiIntegration(manager, issued.integration.id, { expectedRevision: revision++, name: issued.integration.name,
+          workspaceIds: [workspaceId], actions: ['move', 'delete', 'recover'] });
+      });
+      try {
+        await assert.rejects(boundary.execute(), denied('API_KEY_ACCESS_DENIED')); boundary.assertDenied();
+        await verifyStatus(sample.plan, sample.batchId, 'move_apply'); await verifyStatus(sample.plan, sample.batchId, 'move_recover');
+      }
+      finally { await updateApiIntegration(manager, issued.integration.id, { expectedRevision: revision++, name: issued.integration.name,
+        workspaceIds: [workspaceId], actions: ['move', 'delete', 'status', 'recover'] }); }
+      await verifyStatus(sample.plan, sample.batchId);
+    });
+    await checkRead('rotation after the snapshot denies the old request; a new key retains immutable Original attribution', async () => {
+      const original = await store.get(sample.batchId); assert(original?.authorization.mode === 'api-key');
+      const boundary = await afterSnapshotCommit(async () => {
+        const rotated = await rotateApiKey(manager, issued.integration.id, { expectedRevision: revision++, requestId: randomUUID(), expiresAt: Date.now() + 3_600_000 });
+        activeKey = rotated.key; credentialId = rotated.credential.id;
+      });
+      await assert.rejects(boundary.execute(), denied('API_KEY_INVALID')); boundary.assertDenied();
+      assert.notEqual(credentialId, issued.credential.id); await verifyStatus(sample.plan, sample.batchId);
+      assert.deepEqual((await store.get(sample.batchId))?.authorization, original.authorization);
+    });
+    await checkRead('real key revocation after the snapshot denies C2 without exposing its prepared result', async () => {
+      const boundary = await afterSnapshotCommit(async () => { await revokeApiKey(manager, issued.integration.id, { expectedRevision: revision, credentialId }); });
+      await assert.rejects(boundary.execute(), denied('API_KEY_INVALID')); boundary.assertDenied();
+    });
+    console.log(`API-key pure status: ${statusGroups} actual grant/realm/absence/lifetime boundary groups passed.`);
   });
-  console.log(`API-key native path owners: ${groups} actual Move/Delete groups passed; public status/recovery/adapters and installed SDK remain separate.`);
+  console.log(`API-key native path owners: ${groups} actual Move/Delete/read-only status groups passed; public adapters and installed SDK remain separate.`);
 }
 function describe(error: unknown, depth = 0): unknown {
   if (!error || typeof error !== 'object' || depth > 3) return undefined;
   const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
   return { name: error instanceof Error ? error.name : 'UnknownError', code: errorCode(error), cause: describe(cause, depth + 1),
     errors: error instanceof AggregateError ? error.errors.slice(0, 3).map(item => describe(item, depth + 1)) : undefined,
-    assertion: error instanceof assert.AssertionError ? { operator: error.operator, actual: typeof error.actual === 'number' || typeof error.actual === 'boolean' ? error.actual : typeof error.actual,
+    assertion: error instanceof assert.AssertionError ? { operator: error.operator, rejection: describe(error.actual, depth + 1), actual: typeof error.actual === 'number' || typeof error.actual === 'boolean' ? error.actual : typeof error.actual,
       expected: typeof error.expected === 'number' || typeof error.expected === 'boolean' ? error.expected : typeof error.expected } : undefined };
 }
 main().catch(error => { console.error(JSON.stringify({ suite: 'api-key-native-path-owner', stage, error: describe(error),
