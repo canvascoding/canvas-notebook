@@ -981,9 +981,32 @@ PI-Test verwendet nun einen über `realpath` aufgelösten temporären Datenpfad:
 Der macOS-Alias `/var` darf nicht als Verzeichnis ohne Symlinks ausgegeben
 werden. Die produktiven FD-/Symlink-Prüfungen bleiben unverändert.
 
-Dies ist die aktuelle Copy-Autorisierungs- und Herkunftsgrundlage. Der native
-Owner-/Writer-Anschluss, öffentliche REST-/MCP-Adapter und die installierte SDK-
-Copy-Abnahme sind weiterhin offen.
+Der vorhandene native Copy-Owner und seine Schreibphasen sind jetzt ebenfalls
+an API-Keys angeschlossen. Vorschau, Apply und Recover setzen ihren Zweck am
+festen Einstieg. Eine Schreibphase übernimmt diesen Zweck nur vom tatsächlichen
+privaten Owner und genau dessen lebendem Key-Handle. V3-Zuordnungen erreichen
+keinen PI-/Session-/OAuth-Ersatzpfad. Bei Wiederholung und Rotation bleibt die
+ursprüngliche Journal-/Receipt-Zuordnung erhalten. Die bestehenden FD-, Stage-,
+Transaktions-, Link-, Scene-/Asset- und Publication-Prüfungen bleiben im selben
+nativen Ablauf. Native History verwendet die tatsächlich sitzungslose
+API-Key-Zuordnung, ohne eine allgemeine Session-Prüfung abzuschalten.
+
+Der zusätzliche API-Key-Statuszugang verwendet ausschließlich die bestehenden
+C1/RR-RO/C2-Beobachtungen und historischen Receipt-Prüfungen. Er öffnet keinen
+Mutation-Owner, veröffentlicht keine Dateien und startet keine Wiederaufnahme.
+Neun weitere echte PostgreSQL-/FD-/Owner-Gruppen bestehen im Copy-Paket. Sie
+prüfen gemischte native Markdown-/Scene-/Asset-/PDF-/Verzeichnis-Kopien,
+aktuelle native Zustände trotz fehlender Projektionen, Link-Rezepte, frische
+Yjs-Identitäten, Copy innerhalb desselben Workspaces, Rotation, unveränderte
+historische Zeilen samt `xmin`, Status ohne DML/DDL/Notify, feste Zwecke und
+echte Pool-Acquisitions bei Abweisung. Eine tatsächlich verlorene B1-COMMIT-
+Bestätigung wird auf einer neuen Verbindung mit unveränderten Original-IDs
+wiederaufgenommen; ein wirklicher ACL-Entzug nach B1 verhindert die spätere
+Scene-/Asset-Veröffentlichung. Unbekannte Status-/Recovery-Vorgänge erzeugen
+keine Operation und keine dauerhafte Stage.
+
+Die öffentlichen REST-/MCP-Copy-Adapter und die installierte SDK-Copy-Abnahme
+sind weiterhin offen.
 
 **Die übrigen Schreib-/Job-Phasen, öffentlichen Datei-/Recovery-Key-Adapter und
 der Key-Import bereits vorhandener Originaldateien sowie die gesamte kompilierte

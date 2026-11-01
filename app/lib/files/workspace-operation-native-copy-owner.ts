@@ -15,10 +15,12 @@ import { reportWorkspaceOperationFailureDiagnostics } from './workspace-operatio
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases,
   type WorkspaceFileLifecycleLease } from '../collaboration/file-lifecycle-admission-context';
-import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection, withWorkspaceCopyMcpOnConnection,
+import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection, withWorkspaceCopyMcpOnConnection, withWorkspaceCopyApiKeyOnConnection,
   type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
 import { assertDirectMcpWorkspaceCopyPrincipalCaptured,
   type DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
+import { assertApiKeyWorkspaceCopyPrincipalCaptured,
+  type ApiKeyWorkspaceCopyPrincipal, type ApiKeyWorkspaceCopyPurpose } from '../api-keys/document-read-principal';
 import { readWorkspaceCopySourceObservationOnConnection } from './workspace-operation-copy-source-observation';
 import { readWorkspaceSceneCatalogue } from '../collaboration/workspace-scene-catalogue';
 import type { WorkspaceOperationNativeCopyPlan, WorkspaceOperationNativeCopySelection } from './workspace-operation-native-copy-plan';
@@ -82,10 +84,10 @@ export class NativeCopyDestinationError extends Error {
   }
 }
 type Invocation = Readonly<{ origin: WorkspaceOperationCopyOrigin; request?: NextRequest;
-  mcpPrincipal?: DirectMcpWorkspaceCopyPrincipal }>;
+  mcpPrincipal?: DirectMcpWorkspaceCopyPrincipal; apiKeyPrincipal?: ApiKeyWorkspaceCopyPrincipal }>;
 type Identity = Readonly<{ backend: string; start: string; database: string; schema: string; searchPath: string }>;
 type Owner = {
-  database: SqlConnection; invocation: Invocation; workspaceIds: readonly string[]; lockKeys: readonly string[];
+  database: SqlConnection; invocation: Invocation; purpose: ApiKeyWorkspaceCopyPurpose; workspaceIds: readonly string[]; lockKeys: readonly string[];
   leases: ReadonlyMap<string, WorkspaceFileLifecycleLease>; identity?: Identity;
   active: boolean; phase: 'idle' | 'write' | 'history'; failure?: Error;
   workspaces?: Readonly<{ source: WorkspaceContext; destination: WorkspaceContext }>;
@@ -96,11 +98,21 @@ const context = new AsyncLocalStorage<Owner>();
 const ownedConnections = new WeakMap<SqlConnection, Owner>();
 const assetRetirement = new AsyncLocalStorage<{ owner: Owner; original: ExcalidrawCopyAssetOriginal; birth: ExcalidrawCopyBirthReceipt; active: boolean }>();
 function problem(code: NativeCopyOwnerError['code'] = 'NATIVE_COPY_OWNER_CHANGED'): never { throw new NativeCopyOwnerError(code); }
-function captureInvocation(input: Invocation): Invocation {
+function captureInvocation(input: Invocation, purpose: ApiKeyWorkspaceCopyPurpose): Invocation {
   if (!input || typeof input !== 'object' || types.isProxy(input)) problem('NATIVE_COPY_INVALID_REQUEST');
   const principal = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
   if (principal && (!principal.enumerable || !Object.hasOwn(principal, 'value'))) problem('NATIVE_COPY_INVALID_REQUEST');
+  const apiKey = Object.getOwnPropertyDescriptor(input, 'apiKeyPrincipal');
+  if (apiKey && (!apiKey.enumerable || !Object.hasOwn(apiKey, 'value'))) problem('NATIVE_COPY_INVALID_REQUEST');
   const origin = decodeWorkspaceOperationCopyOrigin(input.origin);
+  if (origin.version === 3) {
+    if (input.request !== undefined || principal || !apiKey || apiKey.value === undefined) problem('NATIVE_COPY_INVALID_REQUEST');
+    const apiKeyPrincipal: ApiKeyWorkspaceCopyPrincipal = apiKey.value;
+    assertApiKeyWorkspaceCopyPrincipalCaptured(apiKeyPrincipal, { sourceWorkspaceId: origin.sourceScope.workspaceId,
+      destinationWorkspaceId: origin.destinationScope.workspaceId, purpose });
+    return Object.freeze({ origin, apiKeyPrincipal });
+  }
+  if (apiKey) problem('NATIVE_COPY_INVALID_REQUEST');
   if (origin.version === 2) {
     if (input.request !== undefined || !principal || principal.value === undefined) problem('NATIVE_COPY_INVALID_REQUEST');
     // A live private capture is required before borrowing B. This is no SQL
@@ -116,6 +128,10 @@ function captureInvocation(input: Invocation): Invocation {
   if (origin.actor.type === 'user' ? !(input.request instanceof Request) : input.request !== undefined) problem('NATIVE_COPY_INVALID_REQUEST');
   return Object.freeze({ origin, ...(input.request ? { request: new NextRequest(input.request.url,
     { method: input.request.method, headers: new Headers(input.request.headers) }) } : {}) });
+}
+function principalFields(invocation: Invocation): Pick<Invocation, 'mcpPrincipal' | 'apiKeyPrincipal'> {
+  return { ...(invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: invocation.mcpPrincipal }),
+    ...(invocation.apiKeyPrincipal === undefined ? {} : { apiKeyPrincipal: invocation.apiKeyPrincipal }) };
 }
 function current(owner: Owner): void {
   if (owner.failure) throw owner.failure;
@@ -164,6 +180,21 @@ export async function assertNativeCopySessionOnConnection(database: SqlConnectio
   await verify(owner);
 }
 
+/** Fixed phase capture only. A valid key handle alone cannot choose the phase
+ * purpose or replace the handle retained by the actual native Copy owner. */
+export function captureNativeCopyApiKeyPhasePurpose(principal: ApiKeyWorkspaceCopyPrincipal,
+  origin: WorkspaceOperationCopyOrigin): 'copy_apply' | 'copy_recover' {
+  const owner = context.getStore();
+  if (!owner) problem('NATIVE_COPY_OWNER_REQUIRED');
+  current(owner);
+  if (owner.phase !== 'write' || owner.invocation.origin.version !== 3 || owner.invocation.apiKeyPrincipal !== principal
+    || !equal(owner.invocation.origin, decodeWorkspaceOperationCopyOrigin(origin))
+    || owner.purpose !== 'copy_apply' && owner.purpose !== 'copy_recover') problem('NATIVE_COPY_OWNER_REQUIRED');
+  assertApiKeyWorkspaceCopyPrincipalCaptured(principal, { sourceWorkspaceId: origin.sourceScope.workspaceId,
+    destinationWorkspaceId: origin.destinationScope.workspaceId, purpose: owner.purpose });
+  return owner.purpose;
+}
+
 /** Fixed phase-only check of the actual retained FD payloads. This is not a
  * caller-mintable proof: only execute sets stage on the private session frame. */
 export async function assertNativeCopyPhysicalStageOnConnection(database: SqlConnection,
@@ -179,8 +210,8 @@ export async function assertNativeCopyPhysicalStageOnConnection(database: SqlCon
   }
 }
 
-async function withSession<T>(supplied: Invocation, operation: (owner: Owner) => Promise<T>): Promise<T> {
-  const invocation = captureInvocation(supplied);
+async function withSession<T>(supplied: Invocation, purpose: ApiKeyWorkspaceCopyPurpose, operation: (owner: Owner) => Promise<T>): Promise<T> {
+  const invocation = captureInvocation(supplied, purpose);
   if (context.getStore()) problem('NATIVE_COPY_OWNER_REQUIRED');
   const workspaceIds = [...new Set([invocation.origin.sourceScope.workspaceId, invocation.origin.destinationScope.workspaceId])].sort();
   if (workspaceIds.some(id => getWorkspaceFileLifecycleLeases()?.get(id)?.active)) problem('NATIVE_COPY_OWNER_REQUIRED');
@@ -191,7 +222,7 @@ async function withSession<T>(supplied: Invocation, operation: (owner: Owner) =>
   const opened = async (): Promise<T> => {
     const database = await openDb();
     const leases = new Map<string, WorkspaceFileLifecycleLease>();
-    const owner: Owner = { database, invocation, workspaceIds, lockKeys, leases, active: true, phase: 'idle' };
+    const owner: Owner = { database, invocation, purpose, workspaceIds, lockKeys, leases, active: true, phase: 'idle' };
     ownedConnections.set(database, owner);
     let primary: unknown;
     try {
@@ -298,7 +329,9 @@ async function principal<T>(owner: Owner, operation: (current: WorkspaceCopyPrin
     owner.workspaces = Object.freeze({ source: current.sourceWorkspace, destination: current.destinationWorkspace });
     return operation(current);
   };
-  const result = owner.invocation.origin.version === 2
+  const result = owner.invocation.origin.version === 3
+    ? await withWorkspaceCopyApiKeyOnConnection(owner.database, owner.invocation.apiKeyPrincipal!, owner.purpose, owner.invocation.origin, use)
+    : owner.invocation.origin.version === 2
     ? await withWorkspaceCopyMcpOnConnection(owner.database, owner.invocation.mcpPrincipal!, owner.invocation.origin, use)
     : owner.invocation.origin.actor.type === 'user'
       ? await withWorkspaceCopyRequestOnConnection(owner.database, owner.invocation.request!, owner.invocation.origin, use)
@@ -440,9 +473,9 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
 /** Server-side preview through genuine current Web/PI/MCP principals on the same
  * actual dedicated B. Private plan data must be projected before an HTTP reply. */
 export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPreviewInput): Promise<WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7 | WorkspaceOperationManagedCopyPlanV8> {
-  const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
+  const invocation = captureInvocation(supplied, 'copy_preview'), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
   const destinationDirectory = captureDestinationDirectory(supplied);
-  return withSession(invocation, owner => transaction(owner, 'write', async () => (await observe(owner, selections, renameOnCollision, destinationDirectory)).plan));
+  return withSession(invocation, 'copy_preview', owner => transaction(owner, 'write', async () => (await observe(owner, selections, renameOnCollision, destinationDirectory)).plan));
 }
 
 export type NativeCopyExecutionInput = NativeCopyPreviewInput & Readonly<{ operationId: string; expectedPlanId?: string }>;
@@ -494,7 +527,7 @@ function bindOriginal(owner: Owner, original: WorkspaceOperationCopyOrigin): voi
   // Only the original receipt context changes. The genuine current request or
   // MCP capture survives session renewal and every phase authenticates afresh.
   owner.invocation = Object.freeze({ origin: original, ...(owner.invocation.request ? { request: owner.invocation.request } : {}),
-    ...(owner.invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: owner.invocation.mcpPrincipal }) });
+    ...principalFields(owner.invocation) });
 }
 function bindHeader(owner: Owner, header: WorkspaceOperationRecord, selections: readonly WorkspaceOperationNativeCopySelection[],
   renameOnCollision: boolean, expectedPlanId?: string): WorkspaceOperationRequest {
@@ -690,13 +723,13 @@ async function publishPaths(owner: Owner, stage: WorkspaceOperationOwnedCopyStag
       sharedParents: inherited }, async cap => {
       const result = await publishPreparedWorkspacePathCopy(cap, parent => copyPhaseTransaction(owner, stage, detached =>
         recordNativeCopyParentOnConnection(owner.database, { stage: detached, request: owner.invocation.request,
-          ...(owner.invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: owner.invocation.mcpPrincipal }),
+          ...principalFields(owner.invocation),
           selectionIndex: selected.selectionIndex, receipt: parent })));
       await assertPreparedWorkspacePathCopyReceiptCurrent(cap, result); await verify(owner); return result;
     });
     await copyPhaseTransaction(owner, stage, detached => recordNativeCopyPathOnConnection(owner.database,
       { stage: detached, request: owner.invocation.request,
-        ...(owner.invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: owner.invocation.mcpPrincipal }),
+        ...principalFields(owner.invocation),
         selectionIndex: selected.selectionIndex, receipt }));
     receipts.push({ selectionIndex: selected.selectionIndex, receipt });
   }
@@ -729,11 +762,11 @@ function authenticationError(error: unknown): boolean {
   return error instanceof Error && ([401, 403].includes(Number(Reflect.get(error, 'status')))
     || ['PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'AGENT_ACTOR_CONTEXT_DENIED'].includes(String(Reflect.get(error, 'code'))));
 }
-async function recordRecovery(invocation: Invocation, stage: WorkspaceOperationOwnedCopyStage, code: string): Promise<void> {
+async function recordRecovery(invocation: Invocation, purpose: ApiKeyWorkspaceCopyPurpose, stage: WorkspaceOperationOwnedCopyStage, code: string): Promise<void> {
   // This is a new actual checkout after the uncertain owner was discarded.
   // It records recovery status only; it never retries native or FS mutations.
   await withSession({ origin: stage.origin, request: invocation.request,
-    ...(invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: invocation.mcpPrincipal }) }, owner => transaction(owner, 'write', async () => {
+    ...principalFields(invocation) }, purpose, owner => transaction(owner, 'write', async () => {
     const header = await operationHeader(owner, stage.identity.operationId);
     if (header && (header.planId !== stage.plan.planId || header.requestHash !== stage.identity.canonicalRequestHash
       || header.requestJson !== serializeWorkspaceOperationRequest(stage.request).requestJson)) problem('NATIVE_COPY_INVALID_REQUEST');
@@ -766,7 +799,8 @@ export async function recoverWorkspaceNativeCopyOperation(supplied: NativeCopyEx
 
 async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInput,
   mode: 'execute' | 'recover'): Promise<NativeCopyExecutionResult> {
-  const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
+  const purpose = mode === 'execute' ? 'copy_apply' : 'copy_recover';
+  const invocation = captureInvocation(supplied, purpose), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
   const destinationDirectory = captureDestinationDirectory(supplied);
   const operationId = supplied.operationId, expectedPlanId = supplied.expectedPlanId;
   if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)
@@ -784,7 +818,7 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
     ? bindViews(new Error('Native Copy failed after a confirmed view outcome.', { cause: error }))
     : error !== null && (typeof error === 'object' || typeof error === 'function') ? bindViews(error) : error;
   try {
-    return bindViews(await withSession(invocation, async owner => {
+    return bindViews(await withSession(invocation, purpose, async owner => {
       const store = new WorkspaceOperationStaging();
       const header = await transaction(owner, 'write', () => operationHeader(owner, operationId));
       const request = header ? bindHeader(owner, header, selections, renameOnCollision, expectedPlanId) : null;
@@ -830,7 +864,7 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
       const publish = async (assetCap?: PreparedExcalidrawCopyAssets): Promise<NativeCopyExecutionResult> => {
         const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
           { stage: detached, request: owner.invocation.request,
-            ...(owner.invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: owner.invocation.mcpPrincipal }),
+            ...principalFields(owner.invocation),
             ...(assetCap ? { assetOriginal: readPreparedExcalidrawCopyAssets(assetCap) } : {}) }));
         if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
           if (!prepared.managedIntent) problem();
@@ -851,7 +885,7 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
           entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
         const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
           { stage: detached, request: owner.invocation.request,
-            ...(owner.invocation.mcpPrincipal === undefined ? {} : { mcpPrincipal: owner.invocation.mcpPrincipal }),
+            ...principalFields(owner.invocation),
             pathReceipts, ...(assetReceipt ? { assetReceipt } : {}) }), committed => {
           if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
             viewOutcome = committed.publication === 'published' ? publishedViews
@@ -884,7 +918,7 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
     }));
   } catch (error) {
     if (!durable || authenticationError(error)) throw bindViewError(error);
-    try { await recordRecovery(invocation, durable, errorCode(error)); }
+    try { await recordRecovery(invocation, purpose, durable, errorCode(error)); }
     catch (recording) {
       if (authenticationError(recording)) throw bindViewError(recording);
       // Preserve the original immutable Stage and error if the separate status
