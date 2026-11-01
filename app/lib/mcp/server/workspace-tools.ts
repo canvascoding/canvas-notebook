@@ -740,7 +740,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           required: ['workspace_id', 'path', 'content', 'sha256', 'source', 'truncated', 'next_offset', 'size', 'modified_at'],
         },
         DOCUMENT_READ_PAGE_JSON_SCHEMA_V1,
-        DOCUMENT_READ_ERROR_JSON_SCHEMA_V1,
+        { ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, properties: { ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties,
+          error_code: DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties.code,
+          hint: { type: 'string' } } },
       ],
     },
     annotations: {
@@ -1276,7 +1278,10 @@ async function executeReadKnowledgeSource(
     } catch (error) {
       if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:read');
       if (error instanceof DocumentReadError) {
-        const failure = { apiVersion: 1, success: false, code: error.code };
+        const failure = { apiVersion: 1, success: false, code: error.code, error_code: error.code,
+          ...(error.code === 'DOCUMENT_TOO_LARGE' && nativeSelection.includeEditTargets ? {
+            hint: 'Read format=native without include_edit_targets first (follow nextCursor). Then request one block with include_edit_targets=true, edit_target_block_id and expected_version from that read. Keep selection and version unchanged across cursor pages.',
+          } : {}) };
         return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
       }
       return errorResult('Could not read the Canvas native document.');
@@ -1354,7 +1359,11 @@ async function executeReadKnowledgeSource(
       afterSha256: text.sha256,
     });
     return result(structuredContent, `Read ${content.length} characters from ${filePath}.`);
-  } catch {
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      const failure = { apiVersion: 1, success: false, code: 'DOCUMENT_NOT_FOUND', error_code: 'DOCUMENT_NOT_FOUND' };
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+    }
     return errorResult('Could not read the Canvas workspace file.');
   }
 }
