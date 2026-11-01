@@ -121,7 +121,7 @@ async function main() {
           await assert.rejects(compose(database, principal, 'copy_apply', origin, async () => assert.fail('Purpose confusion.')), code('API_KEY_PRINCIPAL_SCOPE_CHANGED'));
           assert.equal(statements, count);
         })), code('API_KEY_PRINCIPAL_SCOPE_CHANGED'));
-      const inactive = await capture(credential, selected('copy_apply'), principal => principal);
+      const inactive = await capture(credential, selected('copy_apply'), async principal => principal);
       await transaction(async database => {
         for (const principal of [inactive, {}, JSON.parse(JSON.stringify(origin))]) await assert.rejects(
           compose(database, principal as ApiKeyWorkspaceCopyPrincipal, 'copy_apply', origin, async () => assert.fail('No live handle.')),

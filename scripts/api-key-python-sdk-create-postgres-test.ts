@@ -84,7 +84,7 @@ async function main() {
       server.removeListener('error', reject); resolve(); }); });
     const address = server.address(); assert(address && typeof address === 'object');
     const origin = `http://127.0.0.1:${address.port}`;
-    const child = spawn(python, ['-I', probe], { env: { PATH: process.env.PATH ?? '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(python, ['-I', probe], { env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
     let remainder = '', stdoutBytes = 0, stderrBytes = 0, complete = false, verified = false, chain = Promise.resolve();
     let originalCreate = '', originalImport = '', originalCreateReceipt: unknown, originalImportReceipt: unknown;
     let beforeLossCount = 0, beforeLossIds: string[] = [], lostReceipt: unknown, lostOperationId = '';

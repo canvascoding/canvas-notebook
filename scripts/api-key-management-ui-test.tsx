@@ -69,9 +69,9 @@ async function main() {
   };
   const App = ({ active = true, locale = 'en' }: { active?: boolean; locale?: 'en' | 'de' }) =>
     <NextIntlClientProvider locale={locale} messages={locale === 'de' ? de : en} timeZone="UTC"><ApiAccessSettingsPanel active={active} /></NextIntlClientProvider>;
-  const ready = async (label = 'Create key') => waitFor(() => assert.equal((screen.getByRole('button', { name: label, exact: true }) as HTMLButtonElement).disabled, false));
+  const ready = async (label = 'Create key') => waitFor(() => assert.equal((screen.getByRole('button', { name: label }) as HTMLButtonElement).disabled, false));
   const fillCreate = async (name: string) => {
-    await ready(); fireEvent.click(screen.getByRole('button', { name: 'Create key', exact: true }));
+    await ready(); fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     fireEvent.change(screen.getByLabelText('Application name'), { target: { value: name } });
     fireEvent.click(screen.getByLabelText('Personal workspace'));
     const form = document.querySelector('form'); assert(form); fireEvent.submit(form);
@@ -88,19 +88,19 @@ async function main() {
     assert.deepEqual(records[0].actions, ['read']);
     assert.deepEqual(records[0].workspaceIds, ['personal']);
     assert.equal(window.localStorage.length, 0); assert(!window.location.href.includes(currentSecret));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy key', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy key' }));
     await waitFor(() => assert(copied === currentSecret));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Close', exact: true })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
     await waitFor(() => assert.equal(document.getElementById('api-access-issued'), null));
-    await ready(); fireEvent.click(screen.getByRole('button', { name: 'Reload', exact: true })); await ready();
+    await ready(); fireEvent.click(screen.getByRole('button', { name: 'Reload' })); await ready();
     assert.equal(document.getElementById('api-access-issued'), null, 'Reload must never redisplay an old secret.');
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate key', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate key' }));
     fireEvent.submit(document.querySelector('form')!);
     await waitFor(() => assert(screen.getByText('Your new API key')));
     assert.equal(records.length, 1); assert.equal(credentials.get(records[0].id)!.length, 2);
     assert(credentials.get(records[0].id)![0].revokedAt != null);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Close', exact: true })[0]); await ready();
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke', exact: true }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]); await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await waitFor(() => assert(credentials.get(records[0].id)!.every(row => row.revokedAt != null)));
     await ready(); failure = 'conflict';
     fireEvent.click(screen.getByRole('button', { name: 'Edit access' }));
@@ -108,14 +108,14 @@ async function main() {
     fireEvent.submit(document.querySelector('form')!);
     await waitFor(() => assert(screen.getByRole('alert').textContent!.includes('This integration has changed')));
     assert.equal(requests.filter(row => row.method === 'PATCH').length, 1, 'A stale edit must not be retried automatically.');
-    failure = 'none'; fireEvent.click(screen.getByRole('button', { name: 'Reload', exact: true }));
+    failure = 'none'; fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
     await ready(); assert(screen.getByRole('heading', { name: 'Changed elsewhere' }));
 
     for (const lostKind of ['lost', 'malformed'] as const) {
       reset(); render(<App />); failure = lostKind;
       await fillCreate('Unknown response');
       await waitFor(() => assert(screen.getByRole('heading', { name: 'Issuance not yet confirmed' })));
-      assert.equal((screen.getByRole('button', { name: 'Create key', exact: true }) as HTMLButtonElement).disabled, true);
+      assert.equal((screen.getByRole('button', { name: 'Create key' }) as HTMLButtonElement).disabled, true);
       assert.equal(requests.filter(row => row.method === 'POST').length, 1, 'The UI must not retry an ambiguous issuance.');
       assert.equal(document.getElementById('api-access-issued'), null);
       failure = 'none'; fireEvent.click(screen.getByRole('button', { name: 'Inspect metadata' }));

@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 import sys
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 
 import canvas_notebook
@@ -80,6 +80,15 @@ async def main():
         assert repeated["operationId"] == applied["operationId"] and repeated["effect"] == applied["effect"]
         observed = (await notebook.edit_status(workspace, applied["operationId"])).require_success()
         assert observed["operationId"] == applied["operationId"] and observed["state"] == "confirmed"
+        for actual in [applied, repeated, observed]:
+            link = urlsplit(actual["document_url"])
+            notebook_url = urlsplit(config["notebookOrigin"])
+            assert (link.scheme, link.netloc) == (notebook_url.scheme, notebook_url.netloc)
+            assert link.path == "/notebook" and not link.fragment
+            assert parse_qs(link.query, keep_blank_values=True) == {
+                "workspaceId": [workspace], "path": [""], "documentId": [document],
+                "lineageId": [actual["document"]["lineageId"]],
+            }
         denied(await notebook.edit_document(workspace, document, **{**arguments, "idempotency_key": "sdk-key-stale-1"}), "DOCUMENT_VERSION_CONFLICT")
         assert (await notebook.read_all(workspace, document, format="text")).body == config["text"].replace("Before", "After")
         emit("ready_rotate", operationId=applied["operationId"])

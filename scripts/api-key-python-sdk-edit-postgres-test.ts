@@ -90,7 +90,7 @@ async function main() {
         })().catch(error => { errors.push(error); if (!outgoing.headersSent) outgoing.writeHead(500); outgoing.end(); });
         requests.add(operation); void operation.finally(() => requests.delete(operation));
       });
-      const child = spawn(python, ['-I', probe], { env: { PATH: process.env.PATH ?? '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(python, ['-I', probe], { env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
       let remainder = '', stdoutBytes = 0, stderrBytes = 0, complete = false, verified = false, chain = Promise.resolve();
       let initialId = '', originalReceipt: unknown, reducedCount = 0, preLossCount = 0;
       let preLossIds: string[] = [];
@@ -150,6 +150,7 @@ async function main() {
       const timeout = setTimeout(() => { errors.push(new Error('SDK edit probe deadline exceeded.')); child.kill('SIGKILL'); }, 90000);
       try {
         send({ endpoint: `${origin}/mcp`, key: issued.key, workspaceId: h.source.workspaceId, documentId: target.documentId, text,
+          notebookOrigin: new URL(process.env.BETTER_AUTH_BASE_URL!).origin,
           wheelUri: pathToFileURL(wheel).href, wheelSha256, sourceHashes });
         const exit = await closed; await chain; assert.equal(exit.code, 0); assert.equal(exit.signal, null); assert.equal(errors.length, 0);
         assert.equal(remainder, ''); assert(complete && verified); assert(keyHeaders > 20 && protocolHeaders > 0);

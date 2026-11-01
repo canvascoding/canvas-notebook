@@ -104,7 +104,9 @@ async function main() {
       const metadata = await capture(credential, { workspaceId: fixture.workspaceId, purpose: 'create', source: 'request' }, () => undefined,
         principal => transaction(database => phase(database, principal, 'create', async () => {
           const snapshot = await database.get(apiKeyCredentialSnapshotSql(), [issued.credential.id]); assert(snapshot);
-          const actual = (await database.get("SELECT current_setting('search_path') AS path"))!.path as string;
+          const realm = await database.get("SELECT current_setting('search_path') AS path");
+          assert(realm && typeof realm === 'object' && 'path' in realm && typeof realm.path === 'string');
+          const actual = realm.path;
           assert.throws(() => currentApiKeyIdentityFromSnapshot(credential, snapshot), code('API_KEY_INVALID'));
           const decoded = currentApiKeyReceiptIdentityFromSnapshot(credential, snapshot, actual);
           assert.equal(decoded.realm.searchPath, actual);

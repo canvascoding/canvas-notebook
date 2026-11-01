@@ -1480,6 +1480,39 @@ Codes. Ausgabe, Speicherung, Rotation, Widerruf und Audit-Metadaten sind mit
 echten Requests und Datenbankbeobachtungen geprüft. Ein DB-Fehler verweigert den
 Zugriff; erfolgreiche Berechtigungen werden nicht über Phasengrenzen gecacht.
 
+**SDK-Vertragsabgleich, 01.11.2026:** Die öffentlichen Python-Lesemethoden nehmen
+auch `edit_target_block_id` an. Eine einzelne Blockauswahl verlangt native
+Edit-Targets und die vollständige beobachtete Version. Bei `read_all` bleiben
+Auswahl und Version auf jeder Cursorseite gleich; eine leere Zielliste bleibt
+ein tatsächliches Serverergebnis. Der installierte HTTP-Test prüft zusätzlich
+einen absichtlich mit anderer Blockauswahl verwendeten Cursor. Der öffentliche
+Edit-Ergebnistyp enthält nun `document_url`; der echte Edit-/Status-Test prüft
+die konfigurierte Notebook-Adresse sowie Workspace-, Dokument- und Lineage-ID
+statt eines behaupteten aktuellen Pfads. Angaben zur vollständigen Abnahme
+bleiben von diesen einzelnen Vertragsprüfungen getrennt.
+
+Die lokale Paketmatrix besteht unter Python 3.10.22 und 3.15.2: Wheel und
+Quelldistribution jeweils als Core-, MCP- und Keyring-Installation, zwölf
+Kombinationen. Jede Installation gleicht die acht Laufzeitdateien mit dem
+Arbeitsstand ab. Core bleibt ohne optionale Abhängigkeiten importierbar; jedes
+Adapterprofil besteht 83 mechanische Tests. Auf beiden Versionen bestehen
+zusätzlich die fünf echten HTTP-/PostgreSQL-SDK-Pakete mit jeweils 46 Gruppen
+und 255 Key-Requests. Diese Gesamtläufe sind an ihr aufgezeichnetes erstes
+Wheel gebunden. Nach dem abschließenden Abgleich der ECMAScript-Leerzeichen
+im lokalen Block-ID-Guard wurden Wheel/Quelldistribution neu gebaut, alle zwölf
+Installationen und die betroffenen echten Read-/Cursorfälle auf beiden
+Versionen erneut geprüft. Im Wheel ändern sich dabei ausschließlich
+`documents.py`, Metadaten und deren Dateiliste; die übrigen sieben
+Laufzeitdateien bleiben bytegleich. Kein automatisches Mutation-Replay.
+
+Die erweiterte Typprüfung enthält alle geänderten PR-TypeScript-Dateien und
+Produktquellen: 3.718 Wurzeln, 9.048 Quellen, null Fehler. Veraltete Testtypen
+wurden ohne neue Skips oder schwächere Assertions korrigiert. Die fünf
+betroffenen nativen PostgreSQL-Pakete bestehen mit 37 Gruppen; die
+Verwaltungs-UI-Prüfung besteht ebenfalls. Das ersetzt weder die abschließende
+kompilierte Browser-/OAuth-/Keyring-Abnahme noch `test:all`, die Gesamtfluss-
+Leistungsbudgets oder die spätere Veröffentlichung.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API

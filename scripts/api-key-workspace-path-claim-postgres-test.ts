@@ -52,6 +52,7 @@ async function main() {
       assert.equal(bound.actionMode, 'apply'); assert.equal(bound.source.schemaName, h.schema);
       stage = 'finish_registered_key_claim';
       const ordinary = await h.connection.get("SELECT pg_catalog.current_setting('search_path') AS path");
+      assert(ordinary && typeof ordinary === 'object' && 'path' in ordinary && typeof ordinary.path === 'string');
       if (ordinary.path !== bound.source.searchPath) console.log(JSON.stringify({ test: 'key-claim-realm-diagnostic',
         ordinaryPath: ordinary.path, boundPath: bound.source.searchPath }));
       const finished = await store.finishClaim(batch, { status: 'needs_recovery', errorCode: 'FIXTURE_CLAIM_ONLY' }); assert(finished);

@@ -80,6 +80,33 @@ async def main():
         complete = await notebook.read_all(workspace, document, format="text", max_bytes=16)
         assert complete.body == config["text"] and len(complete.pages) > 1
         assert complete.document["documentId"] == document
+        block_document = config["blockDocumentId"]
+        ordinary = await notebook.read_all(workspace, block_document)
+        body = json.loads(ordinary.body)
+        blocks = body["content"]["document"]["content"]
+        assert len(blocks) == 2
+        block_id, other_id = blocks[0]["attrs"]["id"], blocks[1]["attrs"]["id"]
+        selected = {"expected_version": ordinary.document["version"], "include_edit_targets": True,
+                    "edit_target_block_id": block_id, "max_bytes": 64}
+        target = await notebook.read_all(workspace, block_document, **selected)
+        target_body = json.loads(target.body)
+        assert len(target.pages) > 1 and "content" not in target_body
+        assert target_body["editTargetBlockId"] == block_id
+        assert [entry["id"] for entry in target_body["editTargets"]] == [block_id]
+        assert target_body["editTargets"][0]["subtreeHash"]
+        first_target = (await notebook.read_page(workspace, block_document, **selected)).require_success()
+        assert first_target["nextCursor"]
+        changed = await notebook.read_page(workspace, block_document,
+            **{**selected, "edit_target_block_id": other_id, "cursor": first_target["nextCursor"]})
+        try:
+            changed.require_success()
+        except CanvasToolError as error:
+            assert error.code == "DOCUMENT_VERSION_CONFLICT"
+        else:
+            raise AssertionError("A cursor unexpectedly accepted a different block selection.")
+        missing = await notebook.read_all(workspace, block_document,
+            **{**selected, "edit_target_block_id": "missing-visible-block"})
+        assert json.loads(missing.body)["editTargets"] == []
         found = (await notebook.search_documents(workspace, "SDKKeyneedle", path="sdk")).require_success()
         assert [hit["document"]["documentId"] for hit in found["hits"]] == [document]
         first = (await notebook.read_page(workspace, document, format="text", max_bytes=16)).require_success()

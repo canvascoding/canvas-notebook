@@ -39,6 +39,8 @@ async function main() {
       let currentCredentialId = issued.credential.id;
       const text = 'SDKKeyneedle Äpfel 😀 日本語 – vollständiger nativer SDK-Inhalt.';
       const target = await fixture.seed({ representation: 'plain_text', text, filePath: 'sdk/native.payload' });
+      const blocks = await fixture.seed({ representation: 'tiptap_blocks',
+        text: '# Selected SDK block\n\nKeep the other paragraph unchanged.\n', filePath: 'blocks.payload' });
       await mkdir(path.join(fixture.workspaceRoot, 'sdk'));
       await writeFile(path.join(fixture.workspaceRoot, target.filePath), 'physical SDK fixture');
       await writeFile(path.join(fixture.workspaceRoot, 'sdk/bytes.bin'), Buffer.from([0, 255, 3, 4]));
@@ -63,7 +65,7 @@ async function main() {
         requests.add(operation); void operation.finally(() => requests.delete(operation));
       });
       const child = spawn(python, ['-I', probe], {
-        env: { PATH: process.env.PATH ?? '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+        env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'] });
       let remainder = '', stdoutBytes = 0, stderrBytes = 0, complete = false, verified = false, chain = Promise.resolve();
       const milestones: string[] = [];
       const send = (value: unknown) => { assert(!child.stdin.destroyed); child.stdin.write(JSON.stringify(value) + '\n'); };
@@ -100,6 +102,7 @@ async function main() {
       const timeout = setTimeout(() => { errors.push(new Error('SDK probe deadline exceeded.')); child.kill('SIGKILL'); }, 60000);
       try {
         send({ endpoint: `${origin}/mcp`, key: issued.key, workspaceId: fixture.workspaceId, documentId: target.documentId, text,
+          blockDocumentId: blocks.documentId,
           wheelUri: pathToFileURL(wheel).href, wheelSha256, sourceHashes });
         const exit = await closed; await chain; assert.equal(exit.code, 0); assert.equal(exit.signal, null);
         assert.equal(errors.length, 0); assert.equal(remainder, ''); assert(complete && verified); assert(keyHeaders > 10 && protocolHeaders > 0);

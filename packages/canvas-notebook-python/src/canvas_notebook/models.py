@@ -158,6 +158,7 @@ class DocumentEditResult(TypedDict):
     operationId: str
     state: Literal["pending", "confirmed", "conflict", "failed"]
     document: DocumentIdentity
+    document_url: str
     effect: EditEffect | None
     persistence: EditPersistence
     projection: EditProjection

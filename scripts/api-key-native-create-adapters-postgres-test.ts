@@ -40,7 +40,8 @@ async function main() {
       ({ apiVersion: 1, workspaceId: h.source.workspaceId, path: filePath, idempotencyKey, content });
     const post = async (action: 'create' | 'import', value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array) => {
       const response = await (action === 'create' ? createHttp : importHttp)(new NextRequest(`http://localhost/api/documents/${action}`, {
-        method: 'POST', headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras }, body: raw ?? JSON.stringify(value) }));
+        method: 'POST', headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras },
+        body: raw instanceof Uint8Array ? new Uint8Array(raw) : raw ?? JSON.stringify(value) }));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(response.headers.get('www-authenticate'), null);
       const body = await response.json(); assert(!JSON.stringify(body).includes(key));

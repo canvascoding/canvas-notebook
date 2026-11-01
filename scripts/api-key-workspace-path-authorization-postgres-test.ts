@@ -141,7 +141,8 @@ async function main() {
         for (const invalid of ['', 'x'.repeat(15), 'x'.repeat(129), operationId + '.', ' ' + operationId, operationId + '\n']) {
           assert.throws(() => batchId({ ...value, operationId: invalid }), code('API_KEY_JOB_AUTHORIZATION_INVALID'));
         }
-        assert.throws(() => batchId({ ...value, credentialId: issued.credential.id }), code('API_KEY_JOB_AUTHORIZATION_INVALID'));
+        const extraCredential = { ...value, credentialId: issued.credential.id };
+        assert.throws(() => batchId(extraCredential), code('API_KEY_JOB_AUTHORIZATION_INVALID'));
       });
     });
     await check('actual rotation and another allowed entry point retain original credential and entry attribution', async () => {

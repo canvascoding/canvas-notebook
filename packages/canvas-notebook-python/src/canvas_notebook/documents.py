@@ -435,6 +435,7 @@ class CanvasNotebook:
         max_bytes: int = 65536,
         cursor: str | None = None,
         include_edit_targets: bool = False,
+        edit_target_block_id: str | None = None,
     ) -> CanvasToolResult[DocumentReadPage]:
         """One UTF-8 page by stable ID. Native JSON may be split across pages."""
         if format not in _MEDIA:
@@ -449,6 +450,16 @@ class CanvasNotebook:
         }
         if format == "native":
             arguments["include_edit_targets"] = include_edit_targets
+        if edit_target_block_id is not None:
+            selected = _string(edit_target_block_id, "edit_target_block_id", 512)
+            if (
+                not include_edit_targets or format != "native" or expected_version is None
+                or selected[0] in _COPY_TRIM or selected[-1] in _COPY_TRIM
+                or re.search(r"[\x00-\x1f\x7f]", selected)
+                or len(selected.encode("utf-16-le")) > 1024
+            ):
+                raise ValueError("A block target requires native edit targets, an expected version and a valid block ID.")
+            arguments["edit_target_block_id"] = selected
         if expected_version is not None:
             arguments["expected_version"] = _version(expected_version)
         if cursor is not None:
@@ -464,6 +475,7 @@ class CanvasNotebook:
         expected_version: str | None = None,
         max_bytes: int = 65536,
         include_edit_targets: bool = False,
+        edit_target_block_id: str | None = None,
         max_total_bytes: int = 16 * 1024 * 1024,
         max_pages: int = 4096,
     ) -> CompleteDocument:
@@ -492,6 +504,7 @@ class CanvasNotebook:
                 max_bytes=max_bytes,
                 cursor=cursor,
                 include_edit_targets=include_edit_targets,
+                edit_target_block_id=edit_target_block_id,
             )
             page = result.require_success()
             document = page.get("document")
@@ -718,7 +731,11 @@ class CanvasNotebook:
     async def delete_preview(
         self, workspace_id: str, path: str,
     ) -> CanvasToolResult[WorkspaceDeletePreviewResult]:
-        """Preview central deletion of exactly one initialized native file."""
+        """Preview central deletion of one file or folder and its bounded cohort.
+
+        The server resolves native documents and physical originals, including
+        PDF and image files, under the same current Delete authority.
+        """
         arguments = _path_operation_request("delete", "preview", workspace_id, path=path)
         return await self._call("delete_knowledge_source", arguments)
 
