@@ -12,6 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/mcp-upload-schema-test.ts': [entryPoint, 'app/lib/mcp/server/workspace-tools.ts'],
   'scripts/mcp-edit-target-selection-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/documents/contracts.ts',
     'app/lib/documents/service.ts', 'app/lib/documents/read-body.ts',

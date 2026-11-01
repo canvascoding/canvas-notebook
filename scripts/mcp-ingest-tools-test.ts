@@ -16,7 +16,6 @@ import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import type { DirectMcpToolDescriptor } from '../app/lib/mcp/server/tool-descriptor';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
-const requireDependency = createRequire(import.meta.url);
 type ModuleExports = Record<string, unknown>;
 
 /** Evaluate complete production modules while substituting their IO boundary. */
@@ -28,6 +27,7 @@ function loadModule(fileName: string, dependencies: Record<string, unknown>): Mo
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const evaluatedModule = { exports: {} as ModuleExports };
+  const requireDependency = createRequire(filename);
   const load = (name: string) => Object.hasOwn(dependencies, name) ? dependencies[name] : requireDependency(name);
   new Function('require', 'module', 'exports', javascript)(load, evaluatedModule, evaluatedModule.exports);
   return evaluatedModule.exports;
@@ -123,6 +123,7 @@ function fixture() {
       normalizeWorkspaceRelativePath: (value: string) => path.posix.normalize(value.replaceAll('\\', '/')),
     },
     '@/app/lib/runtime-data-paths': {}, './config': {},
+    '@/app/lib/mcp/server/file-links': {}, '@/app/lib/files/markdown-create-birth': {},
   });
   const fingerprint = fileIngest.directMcpIngestFingerprint as (input: unknown) => string;
   const ingestion = {
@@ -174,6 +175,14 @@ function fixture() {
     'server-only': {}, '@modelcontextprotocol/server': sdk, './access-token-verifier': verifier,
     './ingest-authority': authority, './file-ingest': ingestion, './ingest-validation': validation,
     './document-edit-contract': documentContract, './tool-auth': toolAuth,
+    // This suite isolates the retained legacy ingestion boundary. Native birth,
+    // commit recovery and current authority are covered by the real PG suites.
+    '@/app/lib/collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => false },
+    '@/app/lib/collaboration/markdown-file-import-persistence': {},
+    './ingest-status': { readDirectMcpIngestStatus: async () => ({ storage_status: 'unknown' }) },
+    './diagnostics': { directMcpCorrelationId: () => 'unit-correlation' },
+    './tool-failure': { directMcpFailurePhase: (_error: unknown, fallback: string) => fallback, logDirectMcpToolFailure: () => {} },
+
     './ingest-download': { DirectMcpIngestDownloadError,
       downloadDirectMcpFile: async (file: DirectMcpFileReference, signal?: AbortSignal) => {
         state.downloadCalls.push(file);
@@ -215,9 +224,9 @@ test('descriptors expose all top-level fields, OAuth scopes and host file metada
     assert.equal(descriptor.inputSchema.additionalProperties, false);
     const isImport = id === 'import_knowledge_file';
     assert.deepEqual(Object.keys(descriptor.inputSchema.properties ?? {}).sort(),
-      ['workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].sort());
+      ['action', 'api_version', 'workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content'].sort());
     assert.equal(descriptor.inputSchema.oneOf, undefined);
-    assert.deepEqual(descriptor.inputSchema.required, ['workspace_id', 'path', 'idempotency_key', isImport ? 'file' : 'content']);
+    assert.deepEqual(descriptor.inputSchema.required, ['workspace_id', 'path', 'idempotency_key']);
     assert.equal(descriptor.annotations?.readOnlyHint, false);
     assert.equal(descriptor.annotations?.destructiveHint, false);
     assert.equal(descriptor.annotations?.idempotentHint, true);
