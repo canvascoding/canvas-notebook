@@ -12,6 +12,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/api-key-original-markdown-import-owner-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/document-read-principal.ts',
+    'app/lib/api-keys/authentication.ts', 'app/lib/api-keys/management.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/collaboration/markdown-file-import.ts', 'app/lib/collaboration/markdown-original-import-contract.ts',
+    'app/lib/collaboration/api-key-original-markdown-import-contract.ts', 'app/lib/collaboration/api-key-original-markdown-import-history.ts',
+    'app/lib/db/api-key-original-markdown-import-migration.ts', 'app/lib/db/postgres.ts', 'app/lib/db/index.ts',
+    'app/lib/collaboration/lifecycle-transaction.ts', 'app/lib/files/workspace-original-file-source.ts', 'app/lib/filesystem/file-version.ts'],
   'scripts/workspace-operation-batch-executor-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/db/index.ts'],
   'scripts/api-key-native-path-owner-postgres-test.ts': [entryPoint,

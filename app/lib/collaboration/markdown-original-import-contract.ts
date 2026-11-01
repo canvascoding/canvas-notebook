@@ -134,6 +134,12 @@ function captureReceipt(input: unknown): MarkdownFileImportReceipt {
   return value as MarkdownFileImportReceipt;
 }
 
+/** Shared pure receipt decoder. A validated receipt is historical data and
+ * cannot provide any current Session, key principal or mutation authority. */
+export function decodeMarkdownOriginalImportReceiptV1(input: unknown): MarkdownFileImportReceipt {
+  return freeze(captureReceipt(capture(input)));
+}
+
 /** Decodes private historical data; the result is never authorization. */
 export function decodeMarkdownOriginalImportRecordV1(input: unknown): MarkdownOriginalImportRecordV1 {
   const originalText = typeof input === 'string' ? input : undefined;

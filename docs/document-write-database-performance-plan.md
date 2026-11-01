@@ -1556,7 +1556,50 @@ kein angeschlossener Originaldatei-Writer oder öffentlicher Import-Endpunkt.
 Die vollständige bestehende native API-Key-Suite besteht nach dieser Änderung:
 29 seriell ausgeführte Kommandos, darunter 26 echte PostgreSQL-Integrations-
 einstiege. Der eigene neue Einstieg ist darin dauerhaft enthalten; alle
-bisherigen 221 Runner-Einträge und ihre Eingabearrays bleiben unverändert.
+bisherigen Runner-Einträge und ihre Eingabearrays bleiben unverändert.
+
+**Originaldatei-Import – gemeinsamer Writer mit echter Key-Zuordnung,
+01.11.2026:** Der interne Key-Zugang ist jetzt an denselben Originaldatei-
+Bootstrap angeschlossen. Datei-/FD-Erwartung, bestehende pristine Dokument-ID,
+Lineage, Historien-/Quarantäne-/Raumprüfungen, Kernel-/Admission-Sperren und
+nativer Yjs-Writer bleiben gemeinsam. Auch die getrennten Owner-/Mutations-
+Verbindungen und die Transaktionssteuerung verwenden einen gemeinsamen Kern.
+Die tatsächliche Key-Phase weist zuerst ihren unveränderten SQL-Realm nach
+und setzt anschließend den vorhandenen festen Receipt-Suchpfad. Eine Key-
+Identität wird weder als Session-Request noch als Upload-Import ausgegeben.
+
+Eine additive unveränderliche V2-Tabelle bindet die tatsächliche Key-Herkunft
+an den bestehenden nativen Import-Receipt. V1-Session-Belege und ihre Guards
+bleiben erhalten; die native Receipt-Tabelle bleibt das alleinige Importjournal.
+Der interne Operationsschlüssel bindet Benutzer, Integration, Instanz,
+Workspace und die vom Aufrufer gewählte Operation. Rotation und ein anderer
+Einstieg ändern ihn nicht; das ursprünglich verwendete Credential wird nicht
+umgeschrieben. Status und Wiederholung lesen den ursprünglichen Beleg vor
+jedem aktuellen Dateizugriff. Ein nativer Receipt ohne seine atomare Key-
+Zuordnung ist ein Fehler und löst keinen erneuten Import aus. Historische
+HTTP-Pfade aus ausgeblendeten Verzeichnissen werden über MCP nicht offengelegt.
+Eine verlorene COMMIT-Antwort wird ausschließlich unter erneuter tatsächlicher
+Key-Berechtigung historisch bestätigt; ein Widerruf blockiert diese Bestätigung.
+
+Dreizehn echte PostgreSQL-/Key-/Datei-Gruppen bestehen: unveränderte BOM-/CRLF-
+Originalbytes und physische Version, Session-freie Herkunft, Rotation,
+unveränderliche Wiederholung/Status, Konflikte und fremde Integration,
+pristine Identität und beide Rich-Formate, spätere fehlerhafte physische
+Ersetzung, Import ohne Read/Create, MCP-Pfadgrenze, bytegleicher Dateiaustausch,
+PG-Guards, atomarer Rollback, ein tatsächlich Session-eigener nativer Beleg ohne
+Key-Zuordnung und zwei tatsächliche verlorene COMMIT-Antworten.
+Die bisherigen Session-Importe bestehen mit sieben Gruppen, ihre HTTP-
+Handler mit sieben weiteren und der originale Bootstrap mit 29 tatsächlichen
+Auth-/Team-/PG-/Dateisystem-Familien. Die reguläre Key-Suite einschließlich
+Verwaltungs-UI besteht; die strenge Typprüfung umfasst 3.727 Wurzeln und
+9.057 Quellen ohne Fehler. Die neuen öffentlichen REST-/MCP-Adapter und die
+installierte SDK-Originaldatei-Abnahme sind weiterhin offen. Die vollständige
+native Key-Suite besteht mit 30 seriellen Kommandos, darunter 27 echte
+PostgreSQL-ESM-Suiten; alle 27 eigenen Bundles und Schema-/Client-/Daten-Fixtures
+sind entfernt. Sämtliche 219 bisherigen Runner-Einträge und ihre Eingabearrays
+bleiben unverändert; ein neuer Einstieg und ein natives Kommando kommen hinzu.
+Diese interne
+Integration ist noch kein veröffentlichtes Release oder Gesamtfluss-Budget.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
