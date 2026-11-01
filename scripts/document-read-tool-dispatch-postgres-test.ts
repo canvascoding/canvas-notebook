@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     };
     const mcpFailure = (outcome: ObjectValue, code: string) => {
       assert.equal(outcome.isError, true);
-      assert.deepEqual(outcome.structuredContent, { apiVersion: 1, success: false, code });
+      assert.deepEqual(outcome.structuredContent, { apiVersion: 1, success: false, code, error_code: code });
       assert.deepEqual(JSON.parse(text(outcome as { content: unknown })), outcome.structuredContent);
       noPage(outcome.structuredContent);
       assert(validateAdvertised); assert.equal(validateAdvertised(outcome.structuredContent).valid, true);
@@ -186,7 +186,9 @@ async function main(): Promise<void> {
       assert.equal(record(properties.max_bytes).minimum, 4); assert.equal(record(properties.max_bytes).maximum, 262144);
       const output = record(read.outputSchema); assert(Array.isArray(output.oneOf)); assert.equal(output.oneOf.length, 3);
       assert.deepEqual(output.oneOf[1], DOCUMENT_READ_PAGE_JSON_SCHEMA_V1);
-      assert.deepEqual(output.oneOf[2], DOCUMENT_READ_ERROR_JSON_SCHEMA_V1);
+      assert.deepEqual(output.oneOf[2], { ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, properties: {
+        ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties, error_code: DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties.code,
+        hint: { type: 'string' } } });
       validateAdvertised = validator.getValidator(output);
     });
     const plain = await fixture.seed({ filePath: 'native-only.bin' });

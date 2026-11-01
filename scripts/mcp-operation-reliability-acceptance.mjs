@@ -35,6 +35,8 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
   const heading = nativeBody.content.document.content.find(node => node.type === 'heading'); assert(heading?.attrs.id);
   const tooLarge = await read({ include_edit_targets: true, max_bytes: 4 });
   assert.equal(tooLarge.isError, true); assert.equal(tooLarge.structuredContent.code, 'DOCUMENT_TOO_LARGE');
+  assert.match(tooLarge.structuredContent.hint, /edit_target_block_id/);
+  assert.equal(tooLarge.structuredContent.error_code, 'DOCUMENT_TOO_LARGE');
   const selection = { include_edit_targets: true, edit_target_block_id: heading.attrs.id, expected_version: native.document.version };
   const first = success(await read({ ...selection, max_bytes: 64 })); assert(first.nextCursor);
   let fragments = first.fragment, cursor = first.nextCursor;
@@ -74,5 +76,115 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
   const finalBody = JSON.parse(success(await read({ format: 'native', max_bytes: 262144 })).fragment);
   assert.equal(finalBody.content.document.content.find(node => node.attrs?.id === heading.attrs.id).attrs.level, 2);
   checks.push('both typed patch variants, confirmed Edit/status URL, old-version rejection and mixed-shape rejection');
-  return { checks, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };
+  const missing = await call('read_knowledge_source', { path: `missing-${key}.md` });
+  assert.equal(missing.isError, true);
+  assert.equal(missing.structuredContent.error_code, 'DOCUMENT_NOT_FOUND');
+  const deletePreviews = [];
+  for (let index = 0; index < 6; index++) {
+    const path = `preview-${key}-${index}.md`;
+    const content = `# Preview ${index}\n\nSynthetic local test.\n`;
+    success(await call('create_knowledge_source', { api_version: 1, path,
+      content, idempotency_key: `${key}-preview-${index}` }));
+    const readBack = success(await call('read_knowledge_source', { path }));
+    assert.equal(readBack.sha256, createHash('sha256').update(content).digest('hex'));
+    assert.equal(readBack.content, content);
+    const previewRequest = { api_version: 1, action: 'preview', path };
+    let response = await call('delete_knowledge_source', previewRequest);
+    const retries = [];
+    while (response.isError && response.structuredContent?.retryable === true
+      && ['PATH_SOURCE_INCOMPLETE', 'PATH_BUSY'].includes(response.structuredContent.code) && retries.length < 10) {
+      const failure = response.structuredContent;
+      assert(failure.correlation_id); assert.equal(failure.phase, 'preview');
+      retries.push({ code: failure.code, correlationId: failure.correlation_id, issues: failure.issues });
+      await new Promise(resolve => setTimeout(resolve, Math.min(2000, failure.retry_after_ms || 250)));
+      response = await call('delete_knowledge_source', previewRequest);
+    }
+    const preview = success(response);
+    assert.equal(preview.action, 'preview');
+    assert.equal(preview.preview.kind, 'delete');
+    assert.equal(preview.preview.readiness, 'ready');
+    deletePreviews.push({ path, sha256: readBack.sha256, planId: preview.preview.planId, readiness: preview.preview.readiness, retries });
+  }
+  checks.push('missing path domain error and six sequential native creates with delete previews');
+  return { checks, deletePreviews, documentId: identity.documentId, createUrl: created.document_url, editUrl: edited.document_url, expectedText: 'Reliability AFTER' };
+}
+
+
+/** A separate workspace deliberately contains uninspectable frontmatter. */
+export async function verifySourceCoverageAcceptance(call, key, seedInvalid) {
+  const documents = [
+    { path: `coverage-target-${key}.md`, content: '# Safe target\n' },
+    { path: 'coverage-invalid-frontmatter.md', content: '---\nbroken: [\n---\n\n# Invalid metadata\n' },
+  ];
+  if (seedInvalid) await seedInvalid(documents[1]);
+  const created = await call('create_knowledge_source', { api_version: 1, ...documents[0],
+    idempotency_key: `${key}-${documents[0].path}` });
+  assert.notEqual(created.isError, true, JSON.stringify(created.structuredContent));
+  const response = await call('delete_knowledge_source', {
+    api_version: 1, action: 'preview', path: documents[0].path,
+  });
+  assert.equal(response.isError, true);
+  const failure = response.structuredContent;
+  assert.equal(failure.code, 'PATH_SOURCE_INCOMPLETE');
+  assert.equal(failure.error_code, 'PATH_SOURCE_INCOMPLETE');
+  assert.equal(failure.phase, 'preview');
+  assert.equal(failure.retryable, false);
+  assert(failure.correlation_id);
+  assert(failure.issues.some(issue => issue.code === 'invalid-frontmatter' && issue.path === documents[1].path));
+  assert.equal(failure.preview, undefined);
+  for (const document of documents) {
+    const read = await call('read_knowledge_source', { path: document.path });
+    assert.notEqual(read.isError, true);
+    assert.equal(read.structuredContent.content, document.content);
+    assert.equal(read.structuredContent.sha256, createHash('sha256').update(document.content).digest('hex'));
+  }
+  return { code: failure.code, correlationId: failure.correlation_id, issues: failure.issues,
+    preservedDocuments: documents.map(document => document.path) };
+}
+
+/** Regression for read-back racing the room's normal post-write release. */
+export async function verifyReplacementCompletionAcceptance(call, key) {
+  const verified = [];
+  for (let index = 0; index < 12; index++) {
+    const path = `completion-${key}-${index}.md`, content = `# Replacement ${index}\n\nOriginal local text.\n`;
+    const create = { api_version: 1, path, content, idempotency_key: `${key}-completion-create-${index}` };
+    let created = await call('create_knowledge_source', create), createRetries = 0;
+    while (created.isError && created.structuredContent?.retryable && createRetries < 10) {
+      createRetries++;
+      await new Promise(resolve => setTimeout(resolve, Math.min(2000, created.structuredContent.retry_after_ms || 250)));
+      created = await call('create_knowledge_source', create);
+    }
+    assert.notEqual(created.isError, true, JSON.stringify(created.structuredContent));
+    const original = await call('read_knowledge_source', { path }); assert.notEqual(original.isError, true);
+    const replacement = content.replace('Original', 'Changed');
+    const request = { path, content: replacement, expected_sha256: original.structuredContent.sha256,
+      idempotency_key: `${key}-completion-replace-${index}` };
+    const applied = await call('replace_knowledge_source', request);
+    assert.notEqual(applied.isError, true, JSON.stringify(applied));
+    assert.equal(applied.structuredContent.status, 'applied');
+    const expected = createHash('sha256').update(replacement).digest('hex');
+    assert.equal(applied.structuredContent.after_sha256, expected);
+    const repeated = await call('replace_knowledge_source', request);
+    assert.notEqual(repeated.isError, true, JSON.stringify(repeated));
+    assert.equal(repeated.structuredContent.operation_id, applied.structuredContent.operation_id);
+    const read = await call('read_knowledge_source', { path }); assert.notEqual(read.isError, true);
+    assert.equal(read.structuredContent.sha256, expected); assert.equal(read.structuredContent.content, replacement);
+    let legacyExact;
+    if (index === 0) {
+      const request = { path, old_text: 'Changed local text.', new_text: 'Verified exact text.',
+        expected_sha256: expected, idempotency_key: `${key}-completion-exact` };
+      const edited = await call('edit_knowledge_source', request);
+      assert.notEqual(edited.isError, true, JSON.stringify(edited));
+      assert.equal(edited.structuredContent.status, 'applied');
+      const retry = await call('edit_knowledge_source', request);
+      assert.notEqual(retry.isError, true, JSON.stringify(retry));
+      assert.equal(retry.structuredContent.operation_id, edited.structuredContent.operation_id);
+      const final = await call('read_knowledge_source', { path }); assert.notEqual(final.isError, true);
+      const finalHash = createHash('sha256').update(replacement.replace('Changed local text.', 'Verified exact text.')).digest('hex');
+      assert.equal(final.structuredContent.sha256, finalHash);
+      legacyExact = { operationId: edited.structuredContent.operation_id, sha256: finalHash };
+    }
+    verified.push({ path, operationId: applied.structuredContent.operation_id, sha256: expected, createRetries, legacyExact });
+  }
+  return verified;
 }

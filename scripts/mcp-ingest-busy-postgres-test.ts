@@ -35,6 +35,7 @@ await withDocumentReadToolDispatchFixture(async fixture => {
     const busy = await call(args);
     assert.equal(busy.isError, true);
     assert.equal(busy.structuredContent.code, 'COLLABORATION_FILE_LIFECYCLE_BUSY');
+    assert.equal(busy.structuredContent.error_code, busy.structuredContent.code);
     assert.equal(busy.structuredContent.retryable, true);
     assert.equal(busy.structuredContent.retry_after_ms, 250);
     assert.equal(busy.structuredContent.phase, 'admission');
@@ -48,6 +49,17 @@ await withDocumentReadToolDispatchFixture(async fixture => {
   assert.equal(created.structuredContent.operation_id, expectedId);
   const repeated = await call(args);
   assert.equal(repeated.structuredContent.document_id, created.structuredContent.document_id);
+  // A new attempt can be busy even though the original operation completed.
+  await admin.query('SELECT pg_advisory_lock($1::bigint)', [lock]);
+  try {
+    const recovered = await call(args);
+    assert.notEqual(recovered.isError, true, JSON.stringify(recovered.structuredContent));
+    assert.equal(recovered.structuredContent.storage_status, 'confirmed');
+    assert.equal(recovered.structuredContent.processing_status, 'completed');
+    assert.equal(recovered.structuredContent.processing_error_code, undefined);
+    assert.equal(recovered.structuredContent.attempt_error_code, 'COLLABORATION_FILE_LIFECYCLE_BUSY');
+    assert.equal(recovered.structuredContent.document_id, created.structuredContent.document_id);
+  } finally { await admin.query('SELECT pg_advisory_unlock($1::bigint)', [lock]); }
   for (let index = 0; index < 12; index++) {
     // Short real read fences overlap each Create. The writer must wait and
     // release its own session lease before the next sequential operation.

@@ -113,6 +113,8 @@ import { editDocumentForDirectMcp, readDocumentEditStatusForDirectMcp } from '@/
 import { decodeDirectMcpNativeDocumentEditSelection, directMcpDocumentEditInputSchema, directMcpDocumentEditOutputSchema,
   formatDirectMcpNativeDocumentEditResult, formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
 import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
+import { readDirectMcpEditCompletion, DirectMcpEditCompletionBusyError } from './edit-completion';
+import { directMcpCorrelationId } from './diagnostics';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
   isDirectMcpReadableWorkspace,
@@ -740,7 +742,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           required: ['workspace_id', 'path', 'content', 'sha256', 'source', 'truncated', 'next_offset', 'size', 'modified_at'],
         },
         DOCUMENT_READ_PAGE_JSON_SCHEMA_V1,
-        DOCUMENT_READ_ERROR_JSON_SCHEMA_V1,
+        { ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, properties: { ...DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties,
+          error_code: DOCUMENT_READ_ERROR_JSON_SCHEMA_V1.properties.code,
+          hint: { type: 'string' } } },
       ],
     },
     annotations: {
@@ -1276,7 +1280,10 @@ async function executeReadKnowledgeSource(
     } catch (error) {
       if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:read');
       if (error instanceof DocumentReadError) {
-        const failure = { apiVersion: 1, success: false, code: error.code };
+        const failure = { apiVersion: 1, success: false, code: error.code, error_code: error.code,
+          ...(error.code === 'DOCUMENT_TOO_LARGE' && nativeSelection.includeEditTargets ? {
+            hint: 'Read format=native without include_edit_targets first (follow nextCursor). Then request one block with include_edit_targets=true, edit_target_block_id and expected_version from that read. Keep selection and version unchanged across cursor pages.',
+          } : {}) };
         return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
       }
       return errorResult('Could not read the Canvas native document.');
@@ -1354,7 +1361,11 @@ async function executeReadKnowledgeSource(
       afterSha256: text.sha256,
     });
     return result(structuredContent, `Read ${content.length} characters from ${filePath}.`);
-  } catch {
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      const failure = { apiVersion: 1, success: false, code: 'DOCUMENT_NOT_FOUND', error_code: 'DOCUMENT_NOT_FOUND' };
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+    }
     return errorResult('Could not read the Canvas workspace file.');
   }
 }
@@ -1658,6 +1669,19 @@ async function executeUploadKnowledgeAsset(
 }
 
 function editErrorResult(error: unknown): CallToolResult {
+  if (error instanceof DirectMcpEditCompletionBusyError) {
+    const body = { code: error.code, error_code: error.code, message: error.message,
+      correlation_id: directMcpCorrelationId(), phase: 'completion', storage_status: 'confirmed',
+      operation_id: error.operationId, idempotency_key: error.idempotencyKey, retryable: true, retry_after_ms: 250 };
+    return { isError: true, structuredContent: body, content: [{ type: 'text', text: `${body.code}: ${body.message}` }] };
+  }
+  if (error instanceof Error && 'code' in error && error.code === 'ROOM_OWNER_BUSY') {
+    const body = { code: 'ROOM_OWNER_BUSY', error_code: 'ROOM_OWNER_BUSY',
+      message: 'The collaboration room is busy. Retry only with the original idempotency_key.',
+      correlation_id: directMcpCorrelationId(), phase: 'edit', storage_status: 'unknown', retryable: true, retry_after_ms: 250 };
+    return { isError: true, structuredContent: body, content: [{ type: 'text', text: `${body.code}: ${body.message}` }] };
+  }
+
   if (error instanceof DirectMcpEditAuthorityError
     || (error instanceof Error && 'code' in error && error.code === 'MCP_DIRECT_EDIT_AUTHORITY_CHANGED')) {
     return errorResult(`MCP_DIRECT_EDIT_AUTHORITY_CHANGED: ${error.message}`);
@@ -2102,10 +2126,16 @@ async function executeEditKnowledgeSource(
         }
         throw error;
       }
-      const after = await readCurrentCollaborationTextSnapshot({
-        documentId: prepared.documentId,
-        workspace,
+      const persisted = operation.durability === 'persisted_yjs'
+        || operation.durability === 'checkpointed_file';
+      const readAfter = () => readCurrentCollaborationTextSnapshot({
+        documentId: prepared.documentId, workspace, path: prepared.path,
+        lifecycleGeneration: prepared.lifecycleGeneration,
       });
+      const after = persisted ? await readDirectMcpEditCompletion({
+        operationId: operation.operationId, idempotencyKey: editIdentity.publicIdempotencyKey,
+        assertCurrent: () => mcpAuthority.verifyCurrent(), read: readAfter,
+      }) : await readAfter();
       const reviewRequired = operation.operationStatus === 'needs_review'
         || operation.operationStatus === 'partially_applied'
         || operation.operationStatus === 'semantic_conflict';
@@ -2115,8 +2145,6 @@ async function executeEditKnowledgeSource(
           operation.operationId,
         );
       }
-      const persisted = operation.durability === 'persisted_yjs'
-        || operation.durability === 'checkpointed_file';
       if (!persisted && !reviewRequired) {
         return errorResult(`The live edit outcome ${operation.operationId} could not be confirmed. Inspect it before retrying.`);
       }
@@ -2282,23 +2310,27 @@ async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): P
 
 async function executeMoveKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
   let selectedOperationId: string | undefined;
+  let phase = 'dispatch';
   try {
     const input = decodeDirectMcpWorkspaceMoveRequestV1(args);
+    phase = input.action;
     selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
     if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
     const { runDirectMcpWorkspaceMoveService } = await import('../../files/workspace-file-operation-service');
     return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceMoveService(input, authInfo), selectedOperationId);
-  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId, phase); }
 }
 async function executeDeleteKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
   let selectedOperationId: string | undefined;
+  let phase = 'dispatch';
   try {
     const input = decodeDirectMcpWorkspaceDeleteRequestV1(args);
+    phase = input.action;
     selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
     if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
     const { runDirectMcpWorkspaceDeleteService } = await import('../../files/workspace-file-operation-service');
     return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceDeleteService(input, authInfo), selectedOperationId);
-  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId, phase); }
 }
 
 export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDefinition[] {
