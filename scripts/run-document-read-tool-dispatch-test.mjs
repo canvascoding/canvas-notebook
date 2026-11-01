@@ -12,11 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-operation-batch-executor-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/db/index.ts'],
   'scripts/api-key-native-path-owner-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/api-keys/authentication.ts',
     'app/lib/api-keys/management.ts', 'app/lib/api-keys/document-read-principal.ts',
     'app/lib/workspaces/workspace-operation-api-key-job-principal.ts', 'app/lib/workspaces/workspace-operation-programmatic-job-principal.ts',
-    'app/lib/files/workspace-operation-batch-store.ts', 'app/lib/files/workspace-operation-original-move-runner.ts',
+    'app/lib/files/workspace-operation-batch-store.ts', 'app/lib/files/workspace-operation-batch-executor.ts',
+    'app/lib/files/workspace-operation-original-move-runner.ts',
     'app/lib/files/workspace-operation-original-delete.ts', 'app/lib/files/workspace-operation-original-delete-evidence.ts',
     'app/lib/files/workspace-operation-original-delete-admission.ts', 'app/lib/files/workspace-operation-original-delete-observation.ts',
     'app/lib/files/workspace-operation-cohort-delete-runner.ts', 'app/lib/files/workspace-operation-cohort-delete-evidence.ts',

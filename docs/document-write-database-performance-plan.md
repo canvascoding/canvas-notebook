@@ -1195,7 +1195,27 @@ Snapshot-Realm sowie Action-Entzug, Rotation und Widerruf nach dem tatsächliche
 Snapshot-Commit. Eine verweigerte Schlussprüfung gibt ihr vorbereitetes Ergebnis
 nicht heraus. Nach Rotation kann ein frischer Aufruf mit dem neuen Schlüssel
 dieselbe unveränderte Originalhistorie lesen. Fehlende Jobs erzeugen keinen
-Batch und keine Historie. Die gesamte öffentliche Key-Apply-/Status-/Recover-
+Batch und keine Historie.
+Der gemeinsame Batch-Ausführer reicht den echten Key-Principal über seinen
+eigenen Eingang an dieselben bestehenden Move-, Einzel-/physischen Delete- und
+Sammel-Delete-Owner sowie ihre Nur-Lese-Beobachtung weiter. Er prüft weiterhin
+den tatsächlichen Claim, den vollständigen Originalplan, Workspace und Akteur.
+Der Key-Aufruf trägt keine Session; sein gespeichertes Original behält explizit
+`actorSessionId: null`. Key- und MCP-Aufträge erhalten keinen Legacy-FS-Fallback
+und keinen Undo-Zugang. Alle sieben Key-Owner-Fälle beginnen nun beim gemeinsamen
+Ausführer und prüfen weiterhin seine Original-Belege, native Inhalte und
+Dateibytes. Zehn zusätzliche Eingangsprüfungen weisen gefälschte, fehlende,
+gemischte und Accessor-Principals, Status-/Preview-Handles, falsche Akteure,
+Legacy-Pläne und fehlende Claims vor jedem SQL-Zugriff zurück.
+Der bestehende Dateisystem-Unit-Test läuft zusätzlich mit unveränderten
+Assertions und echtem Lifecycle-Schutz unter einer eigenen PostgreSQL-Fixture.
+Sein bisheriger direkter Aufruf scheitert ohne Datenbankkonfiguration auch am
+unveränderten Ausgangscommit. `test:files:batch-executor:postgres` stellt den
+isolierten Kontext bereit, prüft feste Quellhashes vor/nach dem Kindprozess und
+bestätigt dessen Ende sowie die vollständige Fixture-Freigabe. Dieser Aufruf
+gehört jetzt ebenfalls zum gesamten nativen Key-Path-Paket. Review Center und
+Undo bleiben ausgeschaltet.
+Die gesamte öffentliche Key-Apply-/Status-/Recover-
 Steuerung über REST/MCP und die installierte SDK-Abnahme sind weiterhin offen.
 
 Die Workspace-Liste ist inzwischen unter `GET /api/workspaces` für den

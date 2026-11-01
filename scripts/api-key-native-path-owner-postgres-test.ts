@@ -5,8 +5,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ApiKeyWorkspacePathPrincipal, ApiKeyWorkspacePathPurpose } from '../app/lib/api-keys/document-read-principal';
 import type { NativeFileOperationReceipt } from '../app/lib/markdown/native-file-operation-handoff';
-import type { WorkspaceOperationDeleteBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationDeleteBatchPlan, WorkspaceOperationBatchProgress } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceOperationCohortDeletePlan } from '../app/lib/files/workspace-operation-cohort-delete-plan';
+import type { CohortDeleteResult } from '../app/lib/files/workspace-operation-cohort-delete-evidence';
 import type { WorkspaceOperationNativeMoveBatchPlan } from '../app/lib/files/workspace-operation-native-move-plan';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 type OwnerPlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan;
@@ -41,6 +42,7 @@ async function main() {
       await import('../app/lib/api-keys/document-read-principal');
     const { captureWorkspaceOperationApiKeyJobPrincipal: holder, captureWorkspaceOperationApiKeyJobReadPrincipal: readHolder } = await import('../app/lib/workspaces/workspace-operation-api-key-job-principal');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
+    const { executeWorkspaceOperationBatch } = await import('../app/lib/files/workspace-operation-batch-executor');
     const { buildWorkspaceOperationBatchPlan } = await import('../app/lib/files/workspace-operation-batch-plan');
     const { advanceWorkspaceOperationNativePathAdmission } = await import('../app/lib/files/workspace-operation-native-path-admission');
     const { executeWorkspaceOperationOriginalMove } = await import('../app/lib/files/workspace-operation-original-move-runner');
@@ -91,15 +93,15 @@ async function main() {
       return result;
     };
     const samples = new Map<number, { plan: OwnerPlan; batchId: string }>();
-    const readStatus = (plan: OwnerPlan, input: Omit<Parameters<typeof moveStatus>[0], 'expectedPlan'>) => {
-      assert(plan.version !== 1);
+    const readStatus = async (plan: OwnerPlan, input: Omit<Parameters<typeof moveStatus>[0], 'expectedPlan'>) => {
+      assert([2, 3, 5, 6].includes(plan.version));
       return plan.version === 3 ? moveStatus({ ...input, expectedPlan: plan })
         : plan.version === 6 ? cohortStatus({ ...input, expectedPlan: plan })
         : plan.version === 5 ? physicalStatus({ ...input, expectedPlan: plan }) : deleteStatus({ ...input, expectedPlan: plan });
     };
     const verifyStatus = async (plan: OwnerPlan, batchId: string,
       purposeOverride?: 'move_apply' | 'move_recover' | 'delete_apply' | 'delete_recover') => {
-      assert(plan.version !== 1); const kind = plan.version === 3 ? 'move' : 'delete';
+      assert([2, 3, 5, 6].includes(plan.version)); const kind = plan.version === 3 ? 'move' : 'delete';
       const purpose = purposeOverride ?? (kind === 'move' ? 'move_status' : 'delete_status');
       const expected = await store.get(batchId); assert(expected); const before = await domainSnapshot();
       const active = new Set<object>(); let snapshots = 0;
@@ -137,10 +139,16 @@ async function main() {
           const invoke = () => plan.version === 6
             ? executeWorkspaceOperationCohortDelete({ claim, workspace: selected.workspace, apiKeyPrincipal })
             : executeWorkspaceOperationOriginalDelete(claim, undefined, apiKeyPrincipal);
+          const outcome = await executeWorkspaceOperationBatch({ batchId: batch.batchId, plan, scope: selected, jobClaim: claim,
+            actorUserId: original.actorUserId, actorDisplayName: original.actorDisplayName,
+            actorId: original.actorId, actorType: original.actorType, apiKeyPrincipal,
+            onProgress: async progress => { assert(await store.heartbeatClaim(batch, progress)); } });
+          assert.equal(outcome.status, 'applied'); assert.equal(outcome.completedActions, workspaceOperationBatchTotalActions(plan));
           const completion = await invoke();
           stage += ': completed history'; assert.deepEqual(await invoke(), completion);
           const trashEntryIds = 'kind' in completion ? completion.physical.map(item => item.receipt.original.trashEntryId) : [completion.trashEntryId];
-          const finished = await store.finishClaim(batch, { status: 'applied', completedActions: workspaceOperationBatchTotalActions(plan), trashEntryIds, phase: 'complete' });
+          assert.deepEqual(outcome.trashEntryIds, trashEntryIds);
+          const finished = await store.finishClaim(batch, { status: 'applied', completedActions: outcome.completedActions, trashEntryIds: outcome.trashEntryIds, phase: 'complete' });
           assert(finished); assert.equal(finished.status, 'applied'); assert.deepEqual(finished.authorization, original);
           const intent = await readDeleteIntent(h.connection, { schema: h.schema, batchId: batch.batchId }); assert(intent);
           assert.equal(intent.requestHash, original.requestHash); assert.equal(intent.intentText.includes(issued.key), false);
@@ -184,13 +192,46 @@ async function main() {
         const original = batch.authorization; assert.equal(original.actorSessionId, null); assert.equal(original.credentialId, issued.credential.id);
         return store.withClaim(batch, async claim => {
           const apiKeyPrincipal = holder({ transport: 'api-key', kind: 'move', purpose: 'move_apply', principal });
+          const executorInput = { batchId: batch.batchId, plan, scope: selected, jobClaim: claim,
+            actorUserId: original.actorUserId, actorDisplayName: original.actorDisplayName,
+            actorId: original.actorId, actorType: original.actorType, apiKeyPrincipal,
+            onProgress: async (progress: WorkspaceOperationBatchProgress) => {
+              assert(await store.heartbeatClaim(batch, progress));
+              if (progress.phase === 'paths') pathCommits++;
+            } };
+          if (!missingProjection) {
+            let queries = 0, touched = false;
+            const execute = (input: unknown) => executeWorkspaceOperationBatch(input as Parameters<typeof executeWorkspaceOperationBatch>[0]);
+            const before = await domainSnapshot();
+            await h.withProbe(async () => { queries++; }, async () => {
+              await assert.rejects(execute({ ...executorInput, apiKeyPrincipal: holder({ transport: 'api-key', kind: 'move', purpose: 'move_apply', principal: {} }) }),
+                error => errorCode(error) === 'API_KEY_PRINCIPAL_REQUIRED');
+              await assert.rejects(execute({ ...executorInput, apiKeyPrincipal: undefined }), /BATCH_API_KEY_AUTHORIZATION_REQUIRED/u);
+              await assert.rejects(execute({ ...executorInput, mcpPrincipal: { kind: 'move', principal: {} } }),
+                error => errorCode(error) === 'BATCH_CLAIM_CHANGED');
+              const accessor = Object.defineProperty({ ...executorInput }, 'apiKeyPrincipal', { enumerable: true,
+                get() { touched = true; return {}; } });
+              await assert.rejects(execute(accessor), error => errorCode(error) === 'BATCH_CLAIM_CHANGED');
+              for (const purpose of ['move_status', 'move_preview']) {
+                await assert.rejects(execute({ ...executorInput, apiKeyPrincipal: { transport: 'api-key', kind: 'move', purpose, principal: {} } }),
+                  error => errorCode(error) === 'API_KEY_JOB_PRINCIPAL_INVALID');
+              }
+              await assert.rejects(execute({ ...executorInput, actorSessionId: 'not-a-key-session' }), /BATCH_SCOPE_CHANGED/u);
+              await assert.rejects(execute({ ...executorInput, actorId: 'different-actor' }), /BATCH_SCOPE_CHANGED/u);
+              await assert.rejects(execute({ ...executorInput, plan: { ...plan, version: 1 } }), /BATCH_API_KEY_NATIVE_PLAN_REQUIRED/u);
+              await assert.rejects(execute({ ...executorInput, jobClaim: undefined }), /BATCH_CLAIM_REQUIRED/u);
+            });
+            assert.equal(queries, 0); assert.equal(touched, false); assert.deepEqual(await domainSnapshot(), before);
+            console.log('API-key batch executor preflight: 10 forged/missing/mixed/accessor/purpose/actor/legacy/claim inputs rejected before SQL or domain changes.');
+          }
           assert.equal((await advanceWorkspaceOperationNativePathAdmission(claim, { apiKeyPrincipal })).status, 'ready');
-          const completion = await executeWorkspaceOperationOriginalMove({ claim, workspace: selected.workspace, apiKeyPrincipal,
-            onPathCommitted: async () => { pathCommits++; } });
+          const outcome = await executeWorkspaceOperationBatch(executorInput);
+          assert.equal(outcome.status, 'applied'); assert.equal(outcome.completedActions, workspaceOperationBatchTotalActions(plan));
+          const completion = await executeWorkspaceOperationOriginalMove({ claim, workspace: selected.workspace, apiKeyPrincipal });
           stage = `${label}: completion receipts`;
           assert.equal(completion.batchId, batch.batchId); assert.equal(completion.planId, plan.planId);
           assert(completion.native); assert.equal(completion.pathReceipts.length, 1);
-          const finished = await store.finishClaim(batch, { status: 'applied', completedActions: 1, phase: 'complete' });
+          const finished = await store.finishClaim(batch, { status: 'applied', completedActions: outcome.completedActions, phase: 'complete' });
           assert(finished); assert.equal(finished.status, 'applied'); assert.deepEqual(finished.authorization, original);
           return { batchId: batch.batchId, actorId: original.actorId, native: completion.native };
         });
@@ -321,7 +362,8 @@ async function main() {
       const plan = await run('delete_preview', async principal => buildWorkspaceOperationBatchPlan({ scope: await scope(principal, 'delete_preview'),
         actions: [{ reviewId: randomUUID(), kind: 'delete', selections: roots.map(sourcePath => ({ sourcePath })) }] }));
       assert(plan.version === 6); assert.equal(plan.readiness, 'ready');
-      stage = `${label}: execute`; const applied = await applyDelete(plan), completion = applied.completion; assert('kind' in completion);
+      stage = `${label}: execute`; const applied = await applyDelete(plan); assert('kind' in applied.completion);
+      const completion: CohortDeleteResult = applied.completion;
       stage = `${label}: archive and Trash invariants`;
       assert.equal(completion.physical.length, 2); assert.equal(completion.targets.length, 4); assert.equal(completion.nativeLinks.length, 1);
       for (const root of roots) await absent(path.join(h.source.rootPath, root));
@@ -330,14 +372,14 @@ async function main() {
         const raw = (await h.admin.query('SELECT status,lifecycle_generation,yjs_state,state_vector FROM collaboration_yjs_states WHERE document_id=$1', [natives[index].documentId])).rows[0];
         assert(raw); assert.equal(raw.status, 'archived'); assert.equal(Number(raw.lifecycle_generation), before.lifecycleGeneration + 1);
         assert.deepEqual(raw.yjs_state, Buffer.from(before.yjsState)); assert.deepEqual(raw.state_vector, Buffer.from(before.stateVector));
-        const archived = completion.targets.find(target => target.path === nativePaths[index]); assert(archived?.native);
+        const archived: CohortDeleteResult['targets'][number] | undefined = completion.targets.find(target => target.path === nativePaths[index]); assert(archived?.native);
         assert.equal(archived.native.after.identity.documentId, natives[index].documentId);
-        const physical = completion.physical.find(item => item.receipt.original.canonicalPath === roots[index]); assert(physical);
+        const physical: CohortDeleteResult['physical'][number] | undefined = completion.physical.find(item => item.receipt.original.canonicalPath === roots[index]); assert(physical);
         const payload = path.join(h.dataRoot, physical.receipt.original.trashRelativePath);
         if (index === 0) assert.deepEqual(await fs.readFile(path.join(payload, path.basename(nativePaths[index]))), nativeBytes[index]);
         else await absent(path.join(payload, path.basename(nativePaths[index])));
         assert.deepEqual(await fs.readFile(path.join(payload, path.basename(physicalPaths[index]))), physicalBytes[index]);
-        const trash = (await h.admin.query('SELECT status,original_path,deleted_by_user_id FROM workspace_trash_entries WHERE id=$1', [physical.receipt.original.trashEntryId])).rows[0];
+        const trash: Record<string, unknown> | undefined = (await h.admin.query('SELECT status,original_path,deleted_by_user_id FROM workspace_trash_entries WHERE id=$1', [physical.receipt.original.trashEntryId])).rows[0];
         assert.deepEqual(trash, { status: 'trashed', original_path: roots[index], deleted_by_user_id: 'member' });
       }
       stage = `${label}: one incoming mutation and unrelated preservation`;
