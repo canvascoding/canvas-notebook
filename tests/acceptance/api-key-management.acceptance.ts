@@ -54,6 +54,19 @@ async function closeSecret(page: Page) {
   return key;
 }
 
+async function findIntegration(page: Page, name: string) {
+  const panel = page.getByTestId('api-access-settings');
+  const card = panel.getByRole('region', { name, exact: true });
+  for (let count = 0; count < 40 && !await card.isVisible(); count++) {
+    const more = panel.getByRole('button', { name: 'Load more', exact: true });
+    await expect(more).toBeVisible();
+    await more.click();
+    await expect(panel.getByRole('button', { name: 'Create key', exact: true })).toBeEnabled();
+  }
+  await expect(card).toBeVisible();
+  return card;
+}
+
 async function cleanup(context: BrowserContext, requestIds: Set<string>) {
   for (const requestId of requestIds) {
     const response = await context.request.get(`${base}?creationRequestId=${requestId}`);
@@ -103,7 +116,7 @@ for (const width of [1280, 390]) test(`compiled API access lifecycle at ${width}
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('api-access-settings').getByRole('button', { name: 'Create key', exact: true })).toBeEnabled();
     await expect(page.locator('#api-access-issued')).toHaveCount(0);
-    const current = page.getByTestId('api-access-settings').getByRole('region', { name });
+    const current = await findIntegration(page, name);
     await current.getByRole('button', { name: 'Edit access' }).click();
     const edit = page.getByRole('dialog'); await edit.getByLabel('Edit', { exact: true }).check();
     const updated = page.waitForResponse(response => new URL(response.url()).pathname === `${base}/${data.integration.id}` && response.request().method() === 'PATCH');

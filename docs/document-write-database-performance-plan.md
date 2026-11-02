@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Zusätzliche Anschlusskorrekturen erhalten tatsächliche SQL-Timeouts im eigenständigen Quellenleser und ergänzen den SDK-Fehlercode. Die gemeinsamen nativen Regressionen bestehen. Beide Varianten der dauerhaften kompilierten REST-/SDK-Operationsprüfung stehen am neuen gemeinsamen Build noch aus; danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Der gemeinsame Stand `65e069683` besteht beide Builds, Start und beide kompilierten REST-/SDK-Operationsprofile einschließlich Linkpflege. Die UI-Abnahme findet zusätzlich eine Paginierungslücke nach erfolgreicher Schlüsselausgabe; deren Korrektur benötigt noch die eigene kompilierte Browserprüfung. Danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2016,14 +2016,34 @@ automatischen SDK-Folgeaufruf aus. Da sich eine SDK-Laufzeitdatei geändert hat,
 ist für die neue kompilierte Abnahme ein frisch gebautes und installiertes
 Artefakt erforderlich. Das bisherige Wheel wird dafür nicht wiederverwendet.
 
-Der Host-Build von `85669b15b` besteht, ebenso dessen vollständige native CI.
-Sein anschließender Linux-Build wurde nach dem Benutzerauftrag zur Main-
-Integration geordnet beendet; der ursprüngliche Notebook-Testcontainer ist
-nachweislich wieder gesund, Datenbanken und Volumes sind gesichert. Diese
-Ergebnisse gelten nicht als Build-/Containerabnahme der neuen Zusammenführung.
-Nächste Schritte sind deren eigener sauberer Commit, CI, Host-/Linux-Build,
-frisches SDK und die vollständige noch offene kompilierte Matrix. Review Center
-und Undo bleiben außen vor; Paket 4b und das Release bleiben offen.
+Der gemeinsame Stand `65e069683` besteht den Host- und Linux-Produktionsbuild,
+den Start des einzigen verwalteten Notebook-Testcontainers sowie Bootstrap-
+Anmeldung und Abmeldung. Alle 38 gebundenen Produktquellen stimmen mit dem Image
+überein. Die Originalbelege, vier geschützten Datenbankzeilen einschließlich
+`xmin`, Quelldateien und drei Anker bleiben unverändert. Beide dauerhaften
+kompilierten Operationsprofile bestehen: jeweils sechs REST-/SDK-Operationen,
+sechs SDK-Status-/Recovery-Prüfungen nach tatsächlicher Schlüsselrotation und
+sechs unabhängige REST-Statusprüfungen. Das zweite Profil bestätigt vier Gruppen
+eingehender Links. Eigene Schlüssel, Sitzungen und MCP-Einstellungen werden
+bereinigt beziehungsweise wiederhergestellt. Das frisch installierte Wheel
+besteht alle 92 SDK-Tests ohne Überspringungen. Alle 13 PR-Prüfungen sind für
+diesen Stand erfolgreich; dies ersetzt die noch offene Gesamtabnahme nicht.
+
+Die anschließende kompilierte Browserprüfung besteht mobil und für beide
+unterbrochenen Ausgaben, scheitert jedoch im Desktop-Lebenszyklus: Der neue
+Schlüssel funktioniert über HTTP, seine Karte steht tatsächlich auf Position 33
+von 47, während die Liste zunächst nur 25 Metadaten lädt. Die UI zeigt nun die
+bestätigte neue beziehungsweise geänderte Karte unmittelbar an, auch wenn sie
+außerhalb der ersten Seite liegt. Nachladen führt anhand der Integrations-ID
+zusammen, ohne doppelte Karten oder erneute Ausgabe. Nach einer vollständigen
+Seitenaktualisierung verwendet der Browserfall die vorhandene sichtbare
+Paginierung. Ein neuer deterministischer UI-Regressionsfall reproduziert den
+Fehler zunächst und besteht anschließend mit 26 Einträgen, Nachladen,
+Duplikatprüfung und erneutem Lesen. Die bestehenden Ausgabefehler- und
+Geheimnisprüfungen sowie die API-Key-Vertragssuite bleiben grün. Die tatsächliche
+kompilierte Wiederholung dieses UI-Fixes und die echte OAuth-/Keychain-/
+Ablaufprüfung stehen am neuen Fixstand noch aus. Review Center und Undo bleiben
+außen vor; Paket 4b und das Release bleiben offen.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 

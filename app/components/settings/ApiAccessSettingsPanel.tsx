@@ -80,11 +80,13 @@ export function ApiAccessSettingsPanel({ active = true }: { active?: boolean }) 
     return t('unavailable');
   }, [t]);
 
-  const reload = useCallback(() => {
+  const reload = useCallback((updatedIntegration?: ApiIntegrationMetadata) => {
     const epoch = ++readEpoch.current;
     return readAccessSnapshot().then(({ page, workspaces: available }) => {
       if (mounted.current && epoch === readEpoch.current) {
-        setIntegrations(page.integrations); setNextCursor(page.nextCursor);
+        setIntegrations(updatedIntegration && !page.integrations.some(row => row.id === updatedIntegration.id)
+          ? [updatedIntegration, ...page.integrations] : page.integrations);
+        setNextCursor(page.nextCursor);
         setObservedAt(Date.now());
         setWorkspaces(available.filter(workspace => workspace.permissions.canRead && workspace.status === 'active'));
       }
@@ -112,12 +114,13 @@ export function ApiAccessSettingsPanel({ active = true }: { active?: boolean }) 
       if (!mounted.current) return;
       if (issue || resolvesIssue) setUnconfirmed(null);
       setEditor(null); setHistory(null); setNotice(t('saved'));
+      setIntegrations(current => [result.integration, ...current.filter(row => row.id !== result.integration.id)]);
       if (result.key) {
         if (activeRef.current) { setShowKey(false); setIssued(result as IssuedKey); }
         else if (issue) setUnconfirmed({ ...issue, integrationId: result.integration.id,
           integration: result.integration, credential: result.credential, checked: true });
       }
-      await reload();
+      await reload(result.integration);
     } catch (reason) {
       if (!mounted.current) return;
       if (issue && reason instanceof AccessRequestError && [400, 401, 403, 404, 409, 429].includes(reason.status)
@@ -156,7 +159,7 @@ export function ApiAccessSettingsPanel({ active = true }: { active?: boolean }) 
       const credential = found?.credentials[0];
       if (credential && (credential.revokedAt != null || credential.expiresAt <= Date.now())) { setUnconfirmed(null); setNotice(t('resolved')); }
       else setUnconfirmed({ ...unconfirmed, integrationId, checked: true, integration: found?.integration, credential });
-      await reload();
+      await reload(found?.integration);
     } catch (reason) { if (mounted.current) setError(errorText(reason)); }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -166,7 +169,10 @@ export function ApiAccessSettingsPanel({ active = true }: { active?: boolean }) 
     setBusy(true);
     try {
       const page = await apiRequest<IntegrationPage>(`${basePath}?afterId=${encodeURIComponent(nextCursor)}`);
-      if (mounted.current) { setIntegrations(current => [...current, ...page.integrations]); setNextCursor(page.nextCursor); }
+      if (mounted.current) {
+        setIntegrations(current => [...new Map([...current, ...page.integrations].map(row => [row.id, row])).values()]);
+        setNextCursor(page.nextCursor);
+      }
     } catch (reason) { if (mounted.current) setError(errorText(reason)); }
     finally { if (mounted.current) setBusy(false); }
   };

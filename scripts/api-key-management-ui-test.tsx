@@ -23,6 +23,7 @@ async function main() {
   const records: ApiIntegrationMetadata[] = [], credentials = new Map<string, ApiKeyMetadata[]>();
   const requests: { method: string; path: string; body: Record<string, unknown> | null }[] = [];
   let failure: 'none' | 'lost' | 'notSent' | 'malformed' | 'conflict' = 'none', currentSecret = '', copied = '';
+  let nextIntegrationId: string | undefined;
   let responseGate: Promise<void> | undefined, releaseResponse: (() => void) | undefined;
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied = value; } } });
   const ok = (data: unknown) => Response.json({ success: true, data });
@@ -33,8 +34,12 @@ async function main() {
     if (url.pathname === '/api/workspaces') return Response.json({ success: true, workspaces: [{ id: 'personal', name: 'Personal workspace',
       type: 'personal', status: 'active', permissions: { canRead: true, canWrite: true, canDelete: true } }] });
     const id = url.pathname.split('/')[4], integration = records.find(row => row.id === id);
-    if (method === 'GET' && url.pathname === '/api/api-access/integrations') return ok({ integrations: records.filter(row =>
-      !url.searchParams.has('creationRequestId') || row.creationRequestId === url.searchParams.get('creationRequestId')), nextCursor: null });
+    if (method === 'GET' && url.pathname === '/api/api-access/integrations') {
+      const matching = records.filter(row => (!url.searchParams.has('creationRequestId') || row.creationRequestId === url.searchParams.get('creationRequestId'))
+        && (!url.searchParams.has('afterId') || row.id > url.searchParams.get('afterId')!)).sort((a, b) => a.id.localeCompare(b.id));
+      const selected = matching.slice(0, 25);
+      return ok({ integrations: selected, nextCursor: matching.length > 25 ? selected.at(-1)!.id : null });
+    }
     if (method === 'GET' && integration && url.pathname.endsWith('/credentials')) return ok({ integration,
       credentials: (credentials.get(id) ?? []).filter(row => !url.searchParams.has('issuanceRequestId') || row.issuanceRequestId === url.searchParams.get('issuanceRequestId')), nextCursor: null });
     if (method === 'POST') {
@@ -45,7 +50,7 @@ async function main() {
       currentSecret = `${credential.prefix}.${randomBytes(32).toString('base64url')}`;
       let target = integration;
       if (!target) {
-        target = { id: randomUUID(), name: String(body!.name), workspaceIds: body!.workspaceIds as string[], actions: body!.actions as ApiIntegrationMetadata['actions'],
+        target = { id: nextIntegrationId ?? randomUUID(), name: String(body!.name), workspaceIds: body!.workspaceIds as string[], actions: body!.actions as ApiIntegrationMetadata['actions'],
           creationRequestId: String(body!.requestId), revision: 1, createdAt: now, updatedAt: now, latestCredential: credential };
         records.push(target); credentials.set(target.id, []);
       } else { for (const old of credentials.get(id) ?? []) if (old.revokedAt == null) old.revokedAt = now; target.revision += 1; target.latestCredential = credential; }
@@ -77,7 +82,7 @@ async function main() {
     const form = document.querySelector('form'); assert(form); fireEvent.submit(form);
   };
   const reset = () => { cleanup(); releaseResponse?.(); releaseResponse = undefined; responseGate = undefined;
-    records.length = 0; credentials.clear(); requests.length = 0; failure = 'none'; currentSecret = ''; copied = ''; };
+    records.length = 0; credentials.clear(); requests.length = 0; failure = 'none'; currentSecret = ''; copied = ''; nextIntegrationId = undefined; };
   try {
     render(<App />); await ready();
     assert(screen.getByText('No programmatic access yet'));
@@ -145,6 +150,26 @@ async function main() {
     assert.equal(attempts.length, 2); assert.deepEqual(attempts[0].body, attempts[1].body);
     assert.equal(records.length, 1);
 
+    reset();
+    for (let index = 0; index < 25; index++) records.push({ id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: `Existing client ${index}`, workspaceIds: ['personal'], actions: ['read'], creationRequestId: randomUUID(),
+      revision: 1, createdAt: Date.now(), updatedAt: Date.now(), latestCredential: null });
+    nextIntegrationId = 'ffffffff-ffff-4fff-bfff-ffffffffffff';
+    render(<App />); await ready();
+    await fillCreate('New client after first page');
+    await waitFor(() => assert(screen.getByText('Your new API key')));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]); await ready();
+    assert(screen.getByRole('region', { name: 'New client after first page' }), 'Successful issuance must show the new card even outside the first page.');
+    assert.equal(screen.getAllByRole('region').length, 26);
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' })); await ready();
+    assert.equal(screen.getAllByRole('region').length, 26, 'A pinned card encountered by pagination must not be duplicated.');
+    assert.equal(screen.queryByRole('button', { name: 'Load more' }), null);
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' })); await ready();
+    assert.equal(screen.queryByRole('region', { name: 'New client after first page' }), null);
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' })); await ready();
+    assert(screen.getByRole('region', { name: 'New client after first page' }));
+    assert.equal(requests.filter(row => row.method === 'POST').length, 1, 'Paging must never retry issuance.');
+
     reset(); const app = render(<App />); await ready();
     responseGate = new Promise<void>(resolve => { releaseResponse = resolve; });
     await fillCreate('Hidden panel');
@@ -158,7 +183,7 @@ async function main() {
 
     reset(); render(<App locale="de" />); await ready('Schlüssel erstellen');
     assert(screen.getByText('Noch kein programmatischer Zugriff'));
-    console.log('API-key management UI passed: explicit read-only grants, one-time masked key/copy, rotation/revocation, lost and malformed acknowledgements, targeted metadata recovery, hidden-panel race and German copy.');
+    console.log('API-key management UI passed: explicit read-only grants, one-time masked key/copy, rotation/revocation, lost and malformed acknowledgements, targeted metadata recovery, paginated issuance/deduplication, hidden-panel race and German copy.');
   } finally { cleanup(); releaseResponse?.(); globalThis.fetch = oldFetch; dom.window.close(); }
 }
 
