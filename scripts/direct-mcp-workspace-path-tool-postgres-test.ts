@@ -286,6 +286,31 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
+        const target = 'sql-timeout-preview.md';
+        await h.upload(target, Buffer.from('# Timeout preview\n'));
+        const before = await domain(), files = await filesystem();
+        let injected = false;
+        const blocked = await h.withProbe(async event => {
+          if (!injected && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId) {
+            injected = true;
+            await event.raw("SET LOCAL statement_timeout='25ms'");
+            await event.raw('SELECT pg_sleep(0.1)');
+          }
+        }, () => call('delete', { ...slots, action: 'preview', path: target }));
+        assert(injected, 'The real source transaction must reach the injected SQL timeout.');
+        assert.equal(blocked.result.isError, true);
+        assert.equal(blocked.value.code, 'PATH_TIMEOUT');
+        assert.equal(blocked.value.error_code, 'PATH_TIMEOUT');
+        assert.equal(blocked.value.phase, 'preview');
+        assert.equal(blocked.value.storage_status, 'not_applicable');
+        assert.equal(blocked.value.retryable, true);
+        assert.equal(blocked.value.retry_after_ms, 1000);
+        assert.match(String(blocked.value.correlation_id), /^[a-f0-9-]{36}$/u);
+        assert.deepEqual(await domain(), before);
+        assert.deepEqual(await filesystem(), files);
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
       await group('a changed physical projection rejects preview with source diagnostics', async () => {
         const target = 'projection-race.md', full = path.join(h.source.rootPath, target);
         await h.upload(target, Buffer.from('# Projection race\n'));
