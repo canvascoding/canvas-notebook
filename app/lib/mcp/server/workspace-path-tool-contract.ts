@@ -537,7 +537,11 @@ export function formatDirectMcpWorkspacePathError(error: unknown, selectedOperat
     ...(reason && !authorization(values) ? { reason_code: reason } : {}),
     ...(code === 'PATH_SOURCE_INCOMPLETE' && !authorization(values) ? sourceCoverageDiagnostic(values) : {}),
     storage_status: phase === 'preview' || phase === 'status' ? 'not_applicable' : 'unknown' };
-  console.warn('[direct-mcp]', JSON.stringify({ event: 'path_tool_failure', ...body }));
+  const evidencePhase = values.map(value => Object.getOwnPropertyDescriptor(value, 'evidencePhase')?.value)
+    .find(value => ['observation-shape', 'inventory', 'catalogue', 'proof', 'native-states', 'catalogue-v2', 'proof-v2'].includes(value));
+  console.warn('[direct-mcp]', JSON.stringify({ event: 'path_tool_failure', ...body,
+    ...(reason === 'NATIVE_SOURCE_EVIDENCE_INVALID' && !authorization(values) && evidencePhase
+      ? { evidence_phase: evidencePhase } : {}) }));
   return envelope(body, authorization(values));
 }
 

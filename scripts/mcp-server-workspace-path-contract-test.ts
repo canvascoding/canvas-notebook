@@ -270,6 +270,19 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
         assert.equal(changed.retry_after_ms, phase === 'preview' ? 250 : undefined);
         assert(!JSON.stringify(changed).includes('private'));
       }
+      for (const evidencePhase of ['native-states', 'private-diagnostic-marker']) {
+        const logged: string[] = [], warn = console.warn;
+        let wire;
+        try {
+          console.warn = (_label: unknown, body: string) => { logged.push(body); };
+          wire = formatError(Object.assign(new Error('private-diagnostic-marker'),
+            { code: 'NATIVE_SOURCE_EVIDENCE_INVALID', evidencePhase }), undefined, 'preview');
+        } finally { console.warn = warn; }
+        assert.equal(JSON.parse(logged[0]).evidence_phase, evidencePhase === 'native-states' ? evidencePhase : undefined);
+        assert(!JSON.stringify(wire).includes('evidence_phase'));
+        assert(!JSON.stringify(wire).includes('native-states'));
+        assert(!logged.join('').includes('private-diagnostic-marker'));
+      }
       assert.equal(formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
         undefined, 'preview').structuredContent!.code, 'AUTHENTICATION_REQUIRED');
       for (const [cause, expected] of [
