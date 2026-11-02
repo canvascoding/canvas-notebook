@@ -268,8 +268,8 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
-| 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen jetzt am gebauten Stand `9ba00fd2b`. Die übrigen Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen; der sporadische Vorschaufehler muss vor der Gesamtabnahme behoben werden. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | Aktueller Blocker: Move-/Delete-Vorschauen können die interne Quellenprüfung nicht bestehen; ein realer SDK-Move liefert `INVALID_REQUEST`, intern `NATIVE_SOURCE_EVIDENCE_INVALID`. Den genauen fehlschlagenden Nachweis eingrenzen und korrigieren, dann übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
+| 4b | in Umsetzung | Ein Projektions-Race und eine zusätzliche ungeschützte OAuth-MCP-Vorschau sind reproduziert und korrigiert; die nativen Regressionstests bestehen. Die dauerhafte kompilierte REST-/SDK-Prüfung für Copy/Move/Delete, Links, Status/Recover und Rotation ist implementiert und ihre lokalen Schutzprüfungen bestehen; der echte Lauf steht noch aus. Anschließend die bisherigen sporadischen Fehler am frisch gebauten Container erneut prüfen und übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele sowie reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -1907,6 +1907,19 @@ ist bestätigt. `test:mcp:path-tools:native` führt diese Prüfung dauerhaft aus
 und ist im CI-Workflow ergänzt. Die gemeinsam verwendete Prozess-Testmechanik
 behält die vier ursprünglichen Sperrfälle und alle 40 Quellen-/Dateifälle grün.
 Die erneute kompilierte Browser-/OAuth-/SDK-Abnahme am neuen Stand bleibt offen.
+
+Aktualisierter Prüfstand `974e4a162`: Alle 13 PR-Prüfungen sind abgeschlossen
+und erfolgreich, einschließlich der nativen API-/Agent-Fälle und der frisch
+installierten SDK-Prüfungen auf Python 3.10 und 3.15. Der Host-Produktionsbuild
+besteht ebenfalls. Die dauerhafte Operationsprüfung ist nun als
+`test:api-keys:sdk:operations:compiled` implementiert: zwei eigene Workspaces,
+sechs REST-/SDK-Dateioperationen, vier eingehende Linkquellen, Rotation und eine
+zusätzliche unabhängige REST-Statuskontrolle. Ihre acht Node-Schutzprüfungen und
+zwei atomaren Python-Dateischreibfälle sowie das reguläre API-Key-Vertragspaket
+bestehen. Der Runner selbst ist noch nicht am neuen gebauten Server ausgeführt;
+die Schutzprüfungen führen keine API-/SDK-Dateioperation an diesem Server aus.
+Der erneute Container-Nachweis, die vollständige Matrix, die reguläre
+Gesamtsuite und das Release sind damit weiterhin nicht abgenommen.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 

@@ -1067,7 +1067,8 @@
     "test:server:standalone-imports": "node scripts/collaboration-standalone-import-test.mjs",
     "test:api-keys:compiled": "node scripts/run-api-key-management-compiled-browser.mjs",
     "test:api-keys:sdk:oauth:compiled": "node scripts/run-api-sdk-issued-oauth-compiled.mjs",
-    "test:api-keys:compiled:harness": "node --test scripts/compiled-api-sdk-acceptance-helper-test.mjs"
+    "test:api-keys:sdk:operations:compiled": "node scripts/run-api-sdk-operations-compiled.mjs",
+    "test:api-keys:compiled:harness": "node --test scripts/compiled-api-sdk-acceptance-helper-test.mjs scripts/compiled-api-sdk-operations-helper-test.mjs && python3 -B scripts/compiled-api-sdk-operations-journal-test.py"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.14",

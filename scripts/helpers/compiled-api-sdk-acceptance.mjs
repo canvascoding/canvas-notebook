@@ -12,6 +12,8 @@ const containerName = 'canvas-local-prod-notebook';
 const requiredSources = ['app/api/workspaces/route.ts', 'app/lib/api-keys/authentication.ts',
   'app/lib/api-keys/management.ts', 'app/lib/documents/create-http.ts',
   'app/lib/documents/copy-http.ts', 'app/lib/documents/path-http.ts',
+  'app/lib/markdown/workspace-source-authority-stage.ts',
+  'app/lib/files/workspace-operation-mcp-path-service.ts',
   'app/components/settings/ApiAccessSettingsPanel.tsx'];
 const anchorNames = ['canvas-upload-live-anchor.json', 'canvas-markdown-upload-attempts-anchor.json',
   'canvas-markdown-create-births-anchor.json'];
