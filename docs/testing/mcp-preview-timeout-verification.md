@@ -12,17 +12,19 @@ Native revalidation reuses analysis only for identical fresh bytes and metadata.
 
 - Production host build and fresh managed container build passed. Container image: `sha256:1261d37419a72c67c9657130683e1bbcc10798f5769456cfe77ca99fdd2f29b6`. Eleven changed application files matched their source SHA-256.
 - Collector: 64 tests, including 300 native plus 50 physical sources, equal-length changes, malformed changed bytes and unchanged-byte analysis reuse.
-- MCP path HTTP/PostgreSQL: 18 groups, including actual SQL timeout and changes to rights, source state and session between read transactions. No executable preview or unrelated durable changes escape rejected reads.
+- MCP path HTTP/PostgreSQL: 19 groups, including actual SQL timeout and changes to rights, source state and session between read transactions. No executable preview or unrelated durable changes escape rejected reads.
 - Path wire contract: 13 groups. Native Copy owner: 10 groups. Ingest status: real lock contention, same-key recovery with exactly one document, durable COMMIT recovery, status reads and revoked authority passed.
 - Browser/OAuth/HTTP: all 17 steps passed on the final image. Includes PKCE, published schemas, pagination, upload restart/hash, selected edit targets, revision protection, document links, six delete previews, twelve replacements and incomplete-source diagnostics.
 - Large workspace: 300 synthetic native documents and 1,800 links; six previews ready, approximately 16 seconds each, with unchanged target SHA-256 before/after.
 - Complexity boundary: separate 300-document/6,000-link fixture; six requests returned `PATH_TOO_LARGE`, approximately 23 seconds each, without an executable plan or changed target hashes. The existing 400,000-node plan guard remains in force.
 
-## Open acceptance finding
+## Final-scan regression
 
-The first installed Codex client run returned `PATH_UNAVAILABLE` with `reason_code: NATIVE_SOURCE_EVIDENCE_INVALID` during a small delete preview. Correlation: `75dd6d3e-31a2-4c10-922b-3de53c834e99`. Both source scans completed with 24 sources and no coverage gaps. This is not a proven client schema or transport failure. The exact rejected invariant is not yet identified. A subsequent diagnostic installed-client run passed the complete suite, including both large fixtures (12 previews with target hashes). Exception instrumentation was attached for part of this diagnostic run and captured no recurrence; this does not close the original finding.
+The installed client exposed a valid native update during the independent final source scan, after both preparation scans had succeeded. The collector deliberately rejected that observation and removed its private catalogue witness. The batch planner ignored its stale-read marker and routed incomplete coverage into the native HTML delete-plan decoder, which rejected the missing catalogue as `NATIVE_SOURCE_EVIDENCE_INVALID`.
 
-The PR remains draft until this finding and installed-client acceptance are resolved. Production acceptance must use the newly deployed version and compare raw and structured results for the six existing marked test files. A legitimate incomplete-source response is diagnostic success, not deletion readiness.
+A real HTTP/PostgreSQL regression updates the native sequence after the final read-only scan's binary SELECT. Before the fix it reproduces `PATH_UNAVAILABLE` with exactly that evidence error. The planner now checks the collector's stale-read marker before choosing a plan and returns a retryable `PATH_PLAN_CHANGED` preview conflict. After restoring the fixture, a fresh preview succeeds. All 19 HTTP/PostgreSQL groups pass; malformed source rejection remains covered by the native plan suite.
+
+Fresh-image installed-client acceptance of this final guard is pending. The PR remains draft until that acceptance completes. Production acceptance must use the newly deployed version and compare raw and structured results for the six existing marked test files. A legitimate incomplete-source response is diagnostic success, not deletion readiness.
 
 ## Reproduction
 

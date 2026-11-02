@@ -340,7 +340,8 @@ test('default dispatch keeps proven pristine physical Markdown in V1 and denies 
     identity, markdownContent: 'Original' }] };
   let stageReads = 0, legacyReads = 0;
   loader._load = function(name, parent, main) {
-    if (name.endsWith('/workspace-source-authority-stage')) return { stageWorkspaceLinkSourceAuthorityObservation: async () => { stageReads++; return observed; } };
+    if (name.endsWith('/workspace-source-authority-stage')) return { stageWorkspaceLinkSourceAuthorityObservation: async () => { stageReads++; return observed; },
+      requiresWorkspaceLinkSourceAuthorityRevalidation: () => false };
     if (name.endsWith('/workspace-authoritative-planner-snapshot')) return { buildWorkspaceAuthoritativePlannerSnapshot: async () => { legacyReads++; return legacySnapshot; } };
     return load.call(this, name, parent, main);
   };

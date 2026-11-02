@@ -353,6 +353,29 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
         }
         await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
       });
+      await group('native change in final standalone scan must not become invalid HTML evidence', async () => {
+        const target = 'final-standalone-race.md';
+        const document = await h.upload(target, Buffer.from('# Final standalone race\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const readonly = new Set<MetadataSqlEvent['client']>();
+        let injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (/^BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY/iu.test(event.text.trim())) readonly.add(event.client);
+            if (!injected && readonly.has(event.client) && event.text.includes('WITH expected AS MATERIALIZED')
+              && Array.isArray(event.values[0]) && event.values[0].includes(document.documentId)) {
+              injected = true;
+              await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+            }
+          }, () => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_PLAN_CHANGED'));
+          assert(injected, 'The independently repeated standalone scan must observe a real concurrent native change.');
+          assert.equal(rejected.value.retryable, true);
+          assert.equal(rejected.value.preview, undefined);
+        } finally {
+          await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
       await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
         const target = 'sql-timeout-preview.md';
         await h.upload(target, Buffer.from('# Timeout preview\n'));
