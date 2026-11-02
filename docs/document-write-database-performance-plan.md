@@ -1797,6 +1797,34 @@ der SDK-Aggregator hängt ausschließlich den neuen Originalimport-Runner an.
 Die kompilierte UI, echte OAuth-/OS-Store-Gesamtabnahme, portable CI-Gates und
 Release-/Produktionsabnahme bleiben die folgenden verpflichtenden Schritte.
 
+#### Abnahme der tatsächlichen Next.js-Routengrenze
+
+Die CI am Stand `b3af2d889` besteht einschließlich der nativen PostgreSQL-Tests,
+zwölf frischen SDK-Installationsprofilen und je 53 echten SDK-/HTTP-Testgruppen
+unter Python 3.10.22 und 3.15.1. Auch der vollständige Host- und Linux-Build,
+der frisch erstellte Container mit erfolgreicher Bootstrap-Anmeldung und die
+vier Desktop-/Mobilfälle der Schlüsselverwaltung bestehen. Die geschützten
+Originalzeilen einschließlich `xmin`, Quelldatei und Anker bleiben unverändert.
+
+Die zusätzliche Prüfung am kompilierten Server findet jedoch einen eigenen
+HTTP-Einstiegsfehler: Ein regulär ausgestellter Schlüssel funktioniert über
+`/mcp`, wird aber bei Workspace-Liste und Dokumentanlage als `API_KEY_INVALID`
+abgewiesen. Next.js reicht bei automatischer dynamischer Auswertung einen
+Proxy-Request weiter; die strenge interne Credential-Grenze akzeptiert diesen
+absichtlich nicht. Die früheren direkten Route-Tests erzeugten unverpackte
+`NextRequest`-Objekte und erfassten diesen Unterschied nicht.
+
+Workspace-Liste, Anlage/Import, Copy und Move/Delete übernehmen deshalb wie die
+vorhandenen Read-/Edit-Adapter URL, Methode, Header und Abbruchsignal in einen
+normalen Request. Der ursprüngliche Body bleibt beim begrenzten Stream-Leser.
+Die Credential-Prüfung und sämtliche aktuellen Rechteprüfungen bleiben strikt.
+Die vier betroffenen PostgreSQL-Adaptersuiten verwenden nun explizit umhüllte
+Requests; ihre bestehenden positiven und negativen Gruppen bleiben erhalten.
+Die erneute Abnahme des korrigierten kompilierten Servers einschließlich echter
+OAuth-Ausstellung, macOS-Schlüsselbund, tatsächlichem Tokenablauf und erneuter
+Verbindung aus einem separaten Prozess bleibt erforderlich. Die grüne CI allein
+ist ausdrücklich keine vollständige API-/SDK- oder Release-Abnahme.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal geprüft, GitHub-Abnahme offen:** Die drei

@@ -16,7 +16,8 @@ async function handleApiKeyWorkspacePathHttp(request: NextRequest, kind: 'move' 
   }
   let value: unknown;
   try {
-    const credential = await authenticateApiKeyRequest(request);
+    const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers), signal: request.signal });
+    const credential = await authenticateApiKeyRequest(original);
     value = await readNativeDocumentRequestJson(request, { maxBytes: WORKSPACE_PATH_REQUEST_MAX_BYTES,
       invalidRequest: () => new WorkspacePathToolError('INVALID_REQUEST'), tooLarge: () => new WorkspacePathToolError('PATH_TOO_LARGE') });
     const result = await (kind === 'move' ? moveWorkspaceForApiKey : deleteWorkspaceForApiKey)(credential, value, 'request', request.signal);

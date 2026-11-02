@@ -1,5 +1,6 @@
 import 'next/dist/server/node-environment-baseline';
 import assert from 'node:assert/strict';
+import { frameworkTrackedRequest } from './helpers/framework-tracked-request';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -53,7 +54,7 @@ async function main() {
     const post = async (kind: Kind, value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array<ArrayBuffer>) => {
       const request = new NextRequest(`http://localhost/api/documents/${kind}`, { method: 'POST', headers: {
         'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras }, body: raw ?? JSON.stringify(value) });
-      const response = await (kind === 'move' ? movePost : deletePost)(request);
+      const response = await (kind === 'move' ? movePost : deletePost)(frameworkTrackedRequest(request));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(response.headers.get('www-authenticate'), null); const body = await response.json(); safe(body);
       return { status: response.status, body };

@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { DirectMcpWorkspaceCopyResultV1 } from '../app/lib/mcp/server/workspace-copy-tool-contract';
 import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './helpers/native-copy-metadata-owner-fixture';
 import { seedNativeCopyMixedSource } from './helpers/native-copy-mixed-source-fixture';
+import { frameworkTrackedRequest } from './helpers/framework-tracked-request';
 
 let stage = 'setup', groups = 0;
 async function main() {
@@ -46,8 +47,8 @@ async function main() {
       assert(!text.includes('apiKeyPrincipal')); assert(!text.includes(issued.credential.id));
     };
     const post = async (value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array<ArrayBuffer>) => {
-      const response = await POST(new NextRequest('http://localhost/api/documents/copy', { method: 'POST',
-        headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras }, body: raw ?? JSON.stringify(value) }));
+      const response = await POST(frameworkTrackedRequest(new NextRequest('http://localhost/api/documents/copy', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras }, body: raw ?? JSON.stringify(value) })));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(response.headers.get('www-authenticate'), null); const body = await response.json(); safe(body);
       return { status: response.status, body };

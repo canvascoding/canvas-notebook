@@ -38,7 +38,8 @@ export async function handleDocumentCreateHttp(request: NextRequest, action: Doc
       { status: 429, headers: { ...responseHeaders, 'Retry-After': retryAfter } });
   }
   try {
-    const credential = await authenticateApiKeyRequest(request);
+    const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers), signal: request.signal });
+    const credential = await authenticateApiKeyRequest(original);
     const value = await readCreateBody(request, action);
     const result = await createDocumentForApiKey(credential, value, action, 'request', request.signal);
     return NextResponse.json(result, { headers: responseHeaders });

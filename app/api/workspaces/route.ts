@@ -57,7 +57,8 @@ export async function GET(request: Request) {
   if (hasApiKeyCredential(request)) {
     const headers = { 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' };
     try {
-      const credential = await authenticateApiKeyRequest(request);
+      const original = new Request(request.url, { method: request.method, headers: new Headers(request.headers), signal: request.signal });
+      const credential = await authenticateApiKeyRequest(original);
       return NextResponse.json({ apiVersion: 1, success: true, workspaces: await listWorkspacesForApiKey(credential, 'request') }, { headers });
     } catch (error) {
       const keyFailure = apiKeyDocumentErrorResponse(error, headers);

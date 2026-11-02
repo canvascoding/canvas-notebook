@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
+import { frameworkTrackedRequest } from './helpers/framework-tracked-request';
 
 let stage = 'setup', groups = 0;
 async function main() {
@@ -39,9 +40,9 @@ async function main() {
     const selection = (filePath: string, idempotencyKey: string, content = 'Native adapters Äpfel 😀.\n') =>
       ({ apiVersion: 1, workspaceId: h.source.workspaceId, path: filePath, idempotencyKey, content });
     const post = async (action: 'create' | 'import', value: unknown, extras: Record<string, string> = {}, raw?: string | Uint8Array) => {
-      const response = await (action === 'create' ? createHttp : importHttp)(new NextRequest(`http://localhost/api/documents/${action}`, {
+      const response = await (action === 'create' ? createHttp : importHttp)(frameworkTrackedRequest(new NextRequest(`http://localhost/api/documents/${action}`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'X-Canvas-API-Key': key, ...extras },
-        body: raw instanceof Uint8Array ? new Uint8Array(raw) : raw ?? JSON.stringify(value) }));
+        body: raw instanceof Uint8Array ? new Uint8Array(raw) : raw ?? JSON.stringify(value) })));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(response.headers.get('www-authenticate'), null);
       const body = await response.json(); assert(!JSON.stringify(body).includes(key));

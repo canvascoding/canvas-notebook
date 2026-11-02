@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
+import { frameworkTrackedRequest } from './helpers/framework-tracked-request';
 
 let stage = 'setup', cases = 0;
 async function main() {
@@ -26,7 +27,7 @@ async function main() {
       const request = new NextRequest('http://localhost/api/workspaces', { headers: { host: 'localhost', 'X-Canvas-API-Key': key, ...extra } });
       const admission = await middleware(request);
       assert.equal(admission.headers.get('x-middleware-next'), '1', 'Proxy must delegate this candidate to real route authentication.');
-      const response = await GET(request);
+      const response = await GET(frameworkTrackedRequest(request));
       assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
       return { status: response.status, body: await response.json() };
     };

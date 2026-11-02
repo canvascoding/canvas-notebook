@@ -24,7 +24,8 @@ export async function handleApiKeyWorkspaceCopyHttp(request: NextRequest): Promi
   }
   let value: unknown;
   try {
-    const credential = await authenticateApiKeyRequest(request);
+    const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers), signal: request.signal });
+    const credential = await authenticateApiKeyRequest(original);
     value = await readBody(request);
     const result = await copyWorkspaceForApiKey(credential, value, 'request', request.signal);
     return NextResponse.json(result, { headers });
