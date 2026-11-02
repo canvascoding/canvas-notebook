@@ -286,6 +286,44 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      for (const changed of ['rights', 'source', 'session'] as const) await group(`preview rejects ${changed} changed between its read transactions`, async () => {
+        const target = `between-phases-${changed}.md`;
+        const document = await h.upload(target, Buffer.from('# Between read phases\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const originalExpiry = (await h.admin.query("SELECT expires_at FROM session WHERE id='session-member'")).rows[0].expires_at;
+        const before = await domain(), files = await filesystem();
+        let sourceConnection: MetadataSqlEvent['client'] | undefined, injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (!sourceConnection && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId) sourceConnection = event.client;
+            if (!injected && sourceConnection === event.client && /^COMMIT\s*;?$/iu.test(event.text.trim())) {
+              injected = true;
+              // The probe runs AFTER the real COMMIT: neither the admission
+              // fence nor a transaction remains held during this change.
+              if (changed === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id='principal-org' AND user_id='member'");
+              else if (changed === 'source') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+              else await h.admin.query("UPDATE session SET expires_at=1 WHERE id='session-member'");
+            }
+          }, () => call('delete', { ...slots, action: 'preview', path: target }));
+          assert(injected, 'The first full source read must commit before the second authorization/read phase.');
+          assert.equal(rejected.result.isError, true);
+          assert.equal(rejected.value.code, changed === 'rights' ? 'ACCESS_DENIED' : changed === 'source' ? 'PATH_PLAN_CHANGED' : 'AUTHENTICATION_REQUIRED');
+          assert.equal(rejected.value.phase, 'preview');
+          assert.equal(rejected.value.storage_status, 'not_applicable');
+          assert.equal(rejected.value.preview, undefined);
+          const alteredTable = changed === 'rights' ? 'organization_user_permissions' : changed === 'source' ? 'collaboration_yjs_states' : 'session';
+          const after = await domain();
+          assert.deepEqual(after.tables, before.tables);
+          const unchanged = (rows: typeof before.rows) => Object.fromEntries(Object.entries(rows).filter(([name]) => name !== alteredTable));
+          assert.deepEqual(unchanged(after.rows), unchanged(before.rows));
+          assert.deepEqual(await filesystem(), files);
+        } finally {
+          if (changed === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'");
+          else if (changed === 'source') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+          else await h.admin.query("UPDATE session SET expires_at=$1 WHERE id='session-member'", [originalExpiry]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
       await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
         const target = 'sql-timeout-preview.md';
         await h.upload(target, Buffer.from('# Timeout preview\n'));

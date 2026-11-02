@@ -2,7 +2,7 @@ import { createWorkspacePathPhysicalDeletePreparationPlanV5, type WorkspacePathP
 import 'server-only';
 import { isWorkspaceCohortDeleteRequest, createWorkspacePathCohortDeletePreparation, type WorkspacePathCohortDeletePreparation } from './workspace-path-cohort-delete-preparation';
 
-import { types } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { openDb } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
@@ -92,14 +92,15 @@ function captureWorkspacePathImportPreviewInput(supplied: Input): Input {
     kind: fields.kind, selections: Object.freeze(selections) });
 }
 
-/** Fixed read-only preview facts under a current genuine principal and the same
- * ordinary shared admission fence used by source staging. Live editors remain
- * readable. This never acquires an import/claim capability or migrates a file;
- * the actual B0 owner must reobserve and compare the complete plan before use. */
+/** Read-only preview facts from two fresh principal/admission-fenced scans.
+ * Pure planning runs between transactions. The second scan must match every
+ * source before returning; the B0 owner still reobserves before actual use. */
 export async function readWorkspacePathImportPreparationPlan(supplied: Input): Promise<WorkspacePathImportPreparationPreviewPlan> {
   const captured = captureWorkspacePathImportPreviewInput(supplied);
   if (!authenticatedNativeTextSessionEnabled()) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID');
-  return executeLifecycleTransaction({
+  type Sources = { workspace: Access['workspace']; scope: ReturnType<typeof captureWorkspaceOperationJobScope>;
+    observation: Awaited<ReturnType<typeof readWorkspaceLinkSourceAuthorityOnConnection>> };
+  const readSources = (expected?: Sources): Promise<Sources> => executeLifecycleTransaction({
     openConnection: async () => {
       const actual = await openDb().catch(cause => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); });
       return { get: (sql, values) => actual.get(sql, values), all: (sql, values) => actual.all(sql, values),
@@ -112,7 +113,7 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
       // The genuine OnConnection principal requires RC/RW. This fixed entry
       // executes SELECTs only and grants no writable connection to its caller.
       await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-      const read = async (access: Access): Promise<WorkspacePathImportPreparationPreviewPlan> => {
+      const read = async (access: Access): Promise<Sources> => {
         await access.assertCurrent(); const workspace = access.workspace;
         if (workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
           || !workspace.permissions.canWrite || !workspace.permissions.canDelete) {
@@ -133,36 +134,12 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           throw new WorkspacePathSourceIncompleteError(observation.stage.coverage.gaps);
         }
         const scope = captureWorkspaceOperationJobScope(workspace);
-        const physicalPath = captured.selections.length === 1 ? captured.selections[0].sourcePath : null;
-        const physicalNode = physicalPath ? observation.stage.namespace.find(entry => entry.path === physicalPath) : null;
-        const physicalDelete = captured.kind === 'delete' && physicalNode?.kind === 'file' && physicalNode.documentId === null
-          && physicalNode.filesystemIdentity && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(physicalNode.path)
-          && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
-          && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
-        const cohortDelete = captured.kind==='delete' && isWorkspaceCohortDeleteRequest(observation,captured.selections);
-        // The HTML evidence contract accepts only HTML gaps. Other genuine
-        // native coverage gaps must remain blocked, with their original cause;
-        // do not feed them into evidence capture and lose them as INVALID.
-        const nativeGaps = observation.stage.sources.flatMap(source => source.kind === 'native'
-          ? source.inventory.coverage.gaps.filter(gap => gap.code !== 'uninspected-html') : []);
-        if (!cohortDelete && nativeGaps.length) {
+        if (expected && (!isDeepStrictEqual(scope, expected.scope)
+          || !isDeepStrictEqual(observation, expected.observation))) {
           await access.assertCurrent();
-          throw new WorkspacePathSourceIncompleteError(nativeGaps);
+          throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
         }
-        const htmlImport = !cohortDelete && !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
-          selections: captured.selections.map(value => ({ ...value })), observation }) : null;
-        const plan = cohortDelete ? createWorkspacePathCohortDeletePreparation({workspace,selections:captured.selections,observation})
-          : htmlImport && (htmlImport.importRequirements.length > 0
-          || htmlImport.issues.some(issue => issue.code === 'raw-markdown-html-import-unsupported')) ? htmlImport
-          : physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
-          selections: captured.selections.map(({sourcePath}) => ({sourcePath})), observation }) : !observation.stage.coverage.complete
-          ? captured.kind === 'delete' ? createWorkspacePathHtmlNativeDeletePreparationPlanV3({ scope, kind: 'delete',
-            selections: captured.selections.map(({ sourcePath }) => ({ sourcePath })), observation })
-          : createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,
-            selections: captured.selections.map(value => ({ sourcePath: value.sourcePath, destinationPath: value.destinationPath! })), observation })
-          : createWorkspacePathImportPreparationPlanV1({ scope, kind: captured.kind,
-            selections: captured.selections.map(value => ({ ...value })), observation });
-        await access.assertCurrent(); return plan;
+        await access.assertCurrent(); return { workspace, scope, observation };
       };
       return captured.principal.kind === 'request'
         ? withWorkspaceRequestPrincipalOnConnection(database, captured.principal.principal, read)
@@ -172,4 +149,48 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
     },
     recoverCommitted: async (_value, cause) => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); },
   });
+  // The plan is pure historical data, not authority. Do not hold a database
+  // transaction/admission fence during its CPU-intensive proof construction.
+  const first = await readSources();
+  const { workspace, scope, observation } = first;
+  const calculate = (): WorkspacePathImportPreparationPreviewPlan => {
+    const physicalPath = captured.selections.length === 1 ? captured.selections[0].sourcePath : null;
+    const physicalNode = physicalPath ? observation.stage.namespace.find(entry => entry.path === physicalPath) : null;
+    const physicalDelete = captured.kind === 'delete' && physicalNode?.kind === 'file' && physicalNode.documentId === null
+      && physicalNode.filesystemIdentity && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(physicalNode.path)
+      && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
+      && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
+    const cohortDelete = captured.kind==='delete' && isWorkspaceCohortDeleteRequest(observation,captured.selections);
+    // The HTML evidence contract accepts only HTML gaps. Other genuine
+    // native coverage gaps must remain blocked, with their original cause;
+    // do not feed them into evidence capture and lose them as INVALID.
+    const nativeGaps = observation.stage.sources.flatMap(source => source.kind === 'native'
+      ? source.inventory.coverage.gaps.filter(gap => gap.code !== 'uninspected-html') : []);
+    if (!cohortDelete && nativeGaps.length) {
+      throw new WorkspacePathSourceIncompleteError(nativeGaps);
+    }
+    const htmlImport = !cohortDelete && !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
+      selections: captured.selections.map(value => ({ ...value })), observation }) : null;
+    const plan = cohortDelete ? createWorkspacePathCohortDeletePreparation({workspace,selections:captured.selections,observation})
+      : htmlImport && (htmlImport.importRequirements.length > 0
+      || htmlImport.issues.some(issue => issue.code === 'raw-markdown-html-import-unsupported')) ? htmlImport
+      : physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
+      selections: captured.selections.map(({sourcePath}) => ({sourcePath})), observation }) : !observation.stage.coverage.complete
+      ? captured.kind === 'delete' ? createWorkspacePathHtmlNativeDeletePreparationPlanV3({ scope, kind: 'delete',
+        selections: captured.selections.map(({ sourcePath }) => ({ sourcePath })), observation })
+      : createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,
+        selections: captured.selections.map(value => ({ sourcePath: value.sourcePath, destinationPath: value.destinationPath! })), observation })
+      : createWorkspacePathImportPreparationPlanV1({ scope, kind: captured.kind,
+        selections: captured.selections.map(value => ({ ...value })), observation });
+    return plan;
+  };
+  let plan: WorkspacePathImportPreparationPreviewPlan | undefined;
+  let failed = false, failure: unknown;
+  try { plan = calculate(); } catch (error) { failed = true; failure = error; }
+  // Fresh rights, scope, catalogue, native bytes/metadata and physical evidence
+  // must still match under a NEW bounded transaction before any result escapes.
+  // Recheck even failed calculations so an error cannot bypass current rights.
+  await readSources(first);
+  if (failed) throw failure;
+  return plan!;
 }
