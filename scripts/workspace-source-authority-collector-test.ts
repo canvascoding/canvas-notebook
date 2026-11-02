@@ -95,6 +95,27 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 3);
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id') || entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
     });
+    await fixture('large mixed workspace retains every source and bounded native SQL passes', async () => {
+      for (let index = 0; index < 300; index++) await seed(`native-${index}.md`,
+        index % 2 ? 'tiptap_blocks' : 'plain_text', { text: `# Document ${index}\n\n[Target](target.md)\n`.repeat(20) });
+      for (let index = 0; index < 50; index++) await fs.writeFile(path.join(root, `physical-${index}.md`),
+        `# Physical ${index}\n\n[Target](target.md)\n`);
+      let sqlMs = 0;
+      const measured: SqlConnection = { ...connection,
+        get: async (statement, values) => { const start = performance.now();
+          try { return await connection.get(statement, values); } finally { sqlMs += performance.now() - start; } },
+        all: async (statement, values) => { const start = performance.now();
+          try { return await connection.all(statement, values); } finally { sqlMs += performance.now() - start; } } };
+      const start = performance.now();
+      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(measured, workspace, { physicalParserVersion: 3 });
+      t.diagnostic(JSON.stringify({ fixture: '300-native-50-physical', totalMs: Math.round(performance.now() - start),
+        sqlMs: Math.round(sqlMs), queries: trace.length }));
+      assert.equal(observed.stage.coverage.complete, true, JSON.stringify(observed.stage.coverage.gaps));
+      assert.equal(observed.nativeBindings.length, 300);
+      assert.equal(observed.stage.sources.length, 350);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+    });
     await fixture('coherent incomplete HTML keeps the private catalogue without certifying coverage', async () => {
       const native = await seed('native-html.md', 'plain_text', { text: '<img src="unrelated.png">\n' });
       await fs.writeFile(path.join(root, 'physical.html'), '<a href="other.md">Other</a>\n');
