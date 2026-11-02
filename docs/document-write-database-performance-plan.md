@@ -1090,7 +1090,37 @@ den echten lokalen Kollaborationsserver und eine vollständige native Version.
 Reine Reads erhalten alle Fachzeilen samt `xmin`; der letzte Fall bestätigt eine
 beabsichtigte tatsächliche Bearbeitung. Alle eigenen Server, Clients, Schemas,
 Daten und Bundles werden geschlossen beziehungsweise entfernt. Die abschließende
-kompilierte Gesamtabnahme und die Prompt-Baum-Integration bleiben offen.
+kompilierte Prozess-/Browser-Gesamtabnahme bleibt offen.
+
+**Prompt-Dateibaum – gemeinsamer nativer Namespace, 02.11.2026:** Die drei
+Live-Runtime-, zwei Delegations- und zwei Automationsstellen lesen jetzt über
+denselben nativen Katalog wie die Dateiwerkzeuge. Der neue dünne Reader hält
+einen Katalog-/Admission-Scope für die gesamte begrenzte Baumlesung offen;
+Datei-Metadaten-Anreicherungen bleiben dabei ausgeschaltet. Der Formatter behält
+Tiefe 3, 40 Einträge je Verzeichnis, 200 Detail-Einträge, 8.192 Prompt-Bytes,
+Sortierung, Namens-Escaping und Unvollständigkeitsmarker. Die bisherigen
+Formatierungstests verwenden ausdrücklich einen Datenleser und behaupten keine
+Autorisierung. Der erzeugte persönliche Workspace mit `canRead: true` entfällt.
+
+Normale PI-Aufrufe prüfen die wirkliche gespeicherte Sitzung, delegierte Prompts
+ihre wirkliche Elternsitzung. Aktueller Konto-, Workspace- und Agentzugriff werden
+vor und nach der nativen Lesung geprüft. Der bisherige Session-Leser setzt eine
+vorgelagerte Kontoprüfung voraus; der Prompt-Einstieg prüft deshalb auch eine
+aktuelle Sperre selbst. Automationen behalten ihre bestehende verantwortlicher
+Benutzer/Eigentümer-/Workspace-Policy und ergänzen dieselbe Kontoprüfung. Deren
+Checkout wird vor der bestehenden Policy freigegeben. Es gibt keinen erfundenen
+Tool-Aufruf und keinen Rückfall auf einen physischen Baum bei nativen Fehlern.
+
+`test:pi:workspace-tree:prompt:native` prüft sieben echte PostgreSQL-Gruppen:
+native und gemischte Namen ohne Projektion, Begrenzungen und Escaping, genau
+einen Katalog-Scope mit zwei Katalog-SELECTs und null Datei-Metadaten-SELECTs,
+fremde Selektoren, Namenskonflikte und tatsächliche Sperre/Archivierung nach
+erfolgreicher Verzeichnislesung. Der Fehlertest bestätigt die gespeicherte
+Änderung per `RETURNING`, bevor er die Ausgabeablehnung zählt. Ein tatsächlich
+gespeicherter, über den normalen Store geladener Automationsauftrag prüft seine
+aktuelle Eigentümer-/Workspace-Policy und Rechteentzug. Alle Fachzeilen samt
+`xmin` bleiben unverändert; eigene Schemas, Clients, Daten und Bundles schließen.
+Echte Modell-/Automationsläufe und die kompilierte UI sind damit nicht abgenommen.
 
 Ein Manifest unterscheidet physische Originaldatei-Hashes von aktuellen nativen
 Markdown-Hashes. Fehlt die physische Projektion, bleiben deren Hash und Revision

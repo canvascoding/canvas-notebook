@@ -174,6 +174,15 @@ export async function readWorkspaceDocumentTreePage(workspace: WorkspaceContext,
 }
 
 type NamespaceReader = Readonly<{ version: string; read: (directory: string, depth: number) => Promise<FileNode[]> }>;
+
+/** One native namespace capture for a bounded consumer such as the prompt BFS.
+ * The reader is valid only while the awaited callback is running. */
+export async function withWorkspaceDocumentTreeReader<T>(workspace: WorkspaceContext,
+  operation: (reader: NamespaceReader) => Promise<T>, options: WorkspaceDocumentTreeOptions = {},
+  dependencies: WorkspaceDocumentTreeDependencies = {}): Promise<T> {
+  return withWorkspaceDocumentNamespace(structuredClone(workspace), '.', options, dependencies, operation);
+}
+
 async function withWorkspaceDocumentNamespace<T>(workspace: WorkspaceContext, directory: string, options: WorkspaceDocumentTreeOptions,
   dependencies: WorkspaceDocumentTreeDependencies, operation: (reader: NamespaceReader) => Promise<T>): Promise<T> {
   return withNativeWorkspaceFilesRead({ workspace, paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES }, async (scope, connection) => {

@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { FileNode } from '@/app/lib/files/types';
-import { listVisibleWorkspaceTreeDirectory } from '@/app/lib/files/workspace-tree';
+import { withWorkspaceDocumentTreeReader } from '@/app/lib/files/workspace-document-tree';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export const WORKSPACE_FILE_TREE_MAX_DIRECTORY_DEPTH = 3;
@@ -49,23 +49,6 @@ export type WorkspaceFileTreePromptResult = {
 
 function createNode(kind: PromptTreeNode['kind'], label: string): PromptTreeNode {
   return { kind, label, children: [] };
-}
-
-function workspaceForTree(scope: WorkspaceFileTreeScope): WorkspaceContext {
-  return {
-    workspaceId: scope.workspaceId,
-    workspaceType: 'personal',
-    rootPath: scope.rootPath,
-    permissions: {
-      canRead: true,
-      canWrite: false,
-      canDelete: false,
-      canCreatePublicLinks: false,
-      canManageWorkspace: false,
-      canRunAgent: true,
-    },
-    legacy: false,
-  };
 }
 
 function isPromptVisibleEntry(entry: FileNode): boolean {
@@ -328,28 +311,68 @@ function fitPromptToByteBudget(params: {
 }
 
 async function readTreeDirectory(
-  scope: WorkspaceFileTreeScope,
+  readDirectory: (directory: string) => Promise<FileNode[]>,
   dirPath: string,
 ): Promise<ReturnType<typeof splitAndSortEntries>> {
-  const entries = await listVisibleWorkspaceTreeDirectory(workspaceForTree(scope), dirPath);
+  const entries = await readDirectory(dirPath);
   return splitAndSortEntries(entries);
 }
 
+function emptyDiagnostics(): WorkspaceFileTreeDiagnostics {
+  return { displayedEntries: 0, displayedRootDirectories: 0, omittedDirectories: 0, omittedFiles: 0,
+    truncatedByEntryLimit: false, truncatedByByteLimit: false, unavailableDirectories: 0 };
+}
+
+function unavailablePrompt(workspaceId: string, error: unknown,
+  diagnostics: WorkspaceFileTreeDiagnostics): WorkspaceFileTreePromptResult {
+  console.warn('[workspace-file-tree] Failed to build workspace tree prompt:', {
+    workspaceId, error: error instanceof Error ? error.message : 'unknown error',
+  });
+  return { promptBlock: [WORKSPACE_FILE_TREE_START_MARKER, '## Current Workspace File Tree', '',
+    'The dynamic workspace file tree is unavailable for this model turn. Continue without it and inspect the workspace with file tools when needed.',
+    WORKSPACE_FILE_TREE_END_MARKER].join('\n'),
+    diagnostics: { ...diagnostics, unavailableDirectories: diagnostics.unavailableDirectories + 1 } };
+}
+
+function scopeIdentity(workspace: WorkspaceContext): string {
+  return JSON.stringify([workspace.workspaceId, workspace.workspaceType, workspace.rootPath,
+    workspace.rootRelativePath ?? null, workspace.organizationId ?? null, workspace.customerId ?? null,
+    workspace.projectId ?? null, workspace.legacy]);
+}
+
+/** The server-owned producer supplies its existing current-policy reader:
+ * stored PI session, delegating parent or reserved automation job. */
 export async function buildWorkspaceFileTreePrompt(
   scope: WorkspaceFileTreeScope,
+  readCurrentWorkspace: () => Promise<WorkspaceContext>,
 ): Promise<WorkspaceFileTreePromptResult> {
-  const diagnostics: WorkspaceFileTreeDiagnostics = {
-    displayedEntries: 0,
-    displayedRootDirectories: 0,
-    omittedDirectories: 0,
-    omittedFiles: 0,
-    truncatedByEntryLimit: false,
-    truncatedByByteLimit: false,
-    unavailableDirectories: 0,
-  };
+  try {
+    const current = async () => {
+      const workspace = structuredClone(await readCurrentWorkspace());
+      if (workspace.workspaceId !== scope.workspaceId || workspace.rootPath !== scope.rootPath
+        || !workspace.permissions.canRead || !workspace.permissions.canRunAgent
+        || workspace.status !== undefined && workspace.status !== 'active') throw new Error('Current prompt workspace access is unavailable.');
+      return workspace;
+    };
+    const before = await current(), identity = scopeIdentity(before);
+    const result = await withWorkspaceDocumentTreeReader(before, reader =>
+      formatWorkspaceFileTreePrompt({ workspaceId: scope.workspaceId }, directory => reader.read(directory, 0)),
+    { includeMetadata: false });
+    if (identity !== scopeIdentity(await current())) throw new Error('The prompt workspace changed while reading.');
+    return result;
+  } catch (error) { return unavailablePrompt(scope.workspaceId, error, emptyDiagnostics()); }
+}
+
+/** Pure bounded formatting; the supplied directory data does not authorize
+ * access. Real producers use buildWorkspaceFileTreePrompt above. */
+export async function formatWorkspaceFileTreePrompt(
+  scope: Pick<WorkspaceFileTreeScope, 'workspaceId'>,
+  readDirectory: (directory: string) => Promise<FileNode[]>,
+): Promise<WorkspaceFileTreePromptResult> {
+  const diagnostics = emptyDiagnostics();
 
   try {
-    const rootEntries = await readTreeDirectory(scope, '.');
+    const rootEntries = await readTreeDirectory(readDirectory, '.');
     const rootDirectoryNodes = rootEntries.directories.map(entryNode);
     const rootFileLimit = Math.min(
       WORKSPACE_FILE_TREE_MAX_ENTRIES_PER_DIRECTORY,
@@ -378,7 +401,7 @@ export async function buildWorkspaceFileTreePrompt(
         }
         let entries: ReturnType<typeof splitAndSortEntries>;
         try {
-          entries = await readTreeDirectory(scope, pending.path);
+          entries = await readTreeDirectory(readDirectory, pending.path);
         } catch (error) {
           console.warn('[workspace-file-tree] Failed to read workspace directory:', {
             workspaceId: scope.workspaceId,
@@ -472,23 +495,7 @@ export async function buildWorkspaceFileTreePrompt(
 
     return { promptBlock, diagnostics };
   } catch (error) {
-    console.warn('[workspace-file-tree] Failed to build workspace tree prompt:', {
-      workspaceId: scope.workspaceId,
-      error: error instanceof Error ? error.message : 'unknown error',
-    });
-    return {
-      promptBlock: [
-        WORKSPACE_FILE_TREE_START_MARKER,
-        '## Current Workspace File Tree',
-        '',
-        'The dynamic workspace file tree is unavailable for this model turn. Continue without it and inspect the workspace with file tools when needed.',
-        WORKSPACE_FILE_TREE_END_MARKER,
-      ].join('\n'),
-      diagnostics: {
-        ...diagnostics,
-        unavailableDirectories: diagnostics.unavailableDirectories + 1,
-      },
-    };
+    return unavailablePrompt(scope.workspaceId, error, diagnostics);
   }
 }
 

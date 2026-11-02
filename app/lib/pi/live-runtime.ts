@@ -115,6 +115,7 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID, normalizeStoredChannelId, WEB_CHANNEL_ID } from '@/app/lib/channels/constants';
 import { buildWorkspaceFileTreePrompt } from '@/app/lib/agents/workspace-file-tree-context';
+import { readAgentWorkspaceForPrompt } from '@/app/lib/agents/workspace-file-tree-authorization';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import {
@@ -1720,7 +1721,7 @@ export class LivePiRuntime {
     const result = await buildWorkspaceFileTreePrompt({
       workspaceId: this.executionContext.workspaceId,
       rootPath: this.executionContext.workspaceRoot,
-    });
+    }, () => readAgentWorkspaceForPrompt(this.executionContext));
     this.workspaceFileTreePromptBlock = result.promptBlock;
     this.invalidateContextBudget();
     if (!this.isRunning && !this.agent.state.isStreaming) {
@@ -3520,7 +3521,7 @@ async function createRuntime(sessionId: string, userId: string, options: PiRunti
     ? await buildWorkspaceFileTreePrompt({
         workspaceId: executionContext.workspaceId,
         rootPath: executionContext.workspaceRoot,
-      })
+      }, () => readAgentWorkspaceForPrompt(executionContext))
     : { promptBlock: '' };
   timing.mark('workspaceFileTree');
   const memoryPromptBlock = await buildMemoryPromptProjection({
@@ -4065,7 +4066,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     ? await buildWorkspaceFileTreePrompt({
       workspaceId: executionContext.workspaceId,
       rootPath: executionContext.workspaceRoot,
-    }) : { promptBlock: '' };
+    }, () => readAgentWorkspaceForPrompt(executionContext)) : { promptBlock: '' };
   const memoryBlock = await buildMemoryPromptProjection({
     userId,
     agentId: sessionRecord.agentId,
