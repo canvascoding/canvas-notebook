@@ -8,6 +8,7 @@ import type * as YTypes from 'yjs';
 
 import { DocumentEditError, decodeDocumentEditRequestV1, documentEditRequestFingerprintV1, type DecodedDocumentEditRequestV1 } from '@/app/lib/documents/edit-contracts';
 import { documentVersionV1 } from '@/app/lib/documents/read-version';
+import { knownCode as nativeDocumentEditPublicErrorCode } from '@/app/lib/documents/edit-error-code';
 import { assertNativeDocumentEditWriteAuthorityActive, isNativeDocumentEditWriteAuthority,
   withNativeDocumentEditWriteAuthorityOnConnection, type NativeDocumentEditWriteAuthority,
   type NativeDocumentEditWriteAuthorityAccess } from '@/app/lib/documents/edit-principal';
@@ -2191,23 +2192,16 @@ function publicResult(row: AgentOperationRow, result: AgentApplyResult, durabili
 
 /** Preserve fixed error codes across the Next/standalone module boundary. */
 function nativeEditFailure(error: unknown, operationId:string): NativeDocumentEditOperationError {
-  const code = ownCode(error);
-  switch (code) {
-    case 'INVALID_REQUEST': case 'AUTHENTICATION_REQUIRED': case 'ACCESS_DENIED': case 'DOCUMENT_NOT_FOUND':
-    case 'DOCUMENT_VERSION_CONFLICT': case 'DOCUMENT_SCOPE_CHANGED': case 'DOCUMENT_STATE_MISSING':
-    case 'DOCUMENT_STATE_INVALID': case 'DOCUMENT_BUSY': case 'DOCUMENT_IDEMPOTENCY_CONFLICT':
-    case 'DOCUMENT_EDIT_CONFLICT': case 'DOCUMENT_EDIT_UNSUPPORTED': case 'DOCUMENT_TOO_LARGE':
-    case 'EDIT_OUTCOME_UNCONFIRMED': case 'DOCUMENT_EDIT_UNAVAILABLE': return new NativeDocumentEditOperationError(code,operationId);
-    default: {
-      try {
-        const cause = captureCollaborationDiagnosticCause(error);
-        logCollaborationDiagnostic('warn', { event: 'native_edit_failed', operationId,
-          code: 'DOCUMENT_EDIT_UNAVAILABLE', causeCode: cause.code,
-          phase: cause.fingerprint ? `native_edit_error_boundary:${cause.fingerprint}` : 'native_edit_error_boundary' });
-      } catch { /* Diagnostics cannot change the original public failure. */ }
-      return new NativeDocumentEditOperationError('DOCUMENT_EDIT_UNAVAILABLE',operationId);
-    }
+  const code = ownCode(error), publicCode = nativeDocumentEditPublicErrorCode(code);
+  if (publicCode === 'DOCUMENT_EDIT_UNAVAILABLE' && code !== 'DOCUMENT_EDIT_UNAVAILABLE') {
+    try {
+      const cause = captureCollaborationDiagnosticCause(error);
+      logCollaborationDiagnostic('warn', { event: 'native_edit_failed', operationId,
+        code: 'DOCUMENT_EDIT_UNAVAILABLE', causeCode: cause.code,
+        phase: cause.fingerprint ? `native_edit_error_boundary:${cause.fingerprint}` : 'native_edit_error_boundary' });
+    } catch { /* Diagnostics cannot change the original public failure. */ }
   }
+  return new NativeDocumentEditOperationError(publicCode,operationId);
 }
 type NativeEditAppliedCapture = Readonly<{
   after: NativeDocumentEditAfterV1; snapshot: Uint8Array; historyBytes: Uint8Array | null;

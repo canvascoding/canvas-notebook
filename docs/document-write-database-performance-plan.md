@@ -2172,6 +2172,21 @@ OID-/Marker-geprüfte Nonce-Datenbank werden entfernt. Der übernommene Test
 besteht anschließend lokal und mit allen neun Fällen auf einer weiteren
 frischen CI-Datenbank; die neue GitHub-Ausführung steht noch aus.
 
+Die innere und äußere Fehlerübersetzung verwenden nun dieselbe feste Tabelle.
+Ihr bisheriger öffentlicher Funktionskörper bleibt unverändert; unbekannte
+Fehler behalten ihre begrenzte interne Diagnose und den terminalen öffentlichen
+Code. Ein echter zusätzlicher Leser wird im Regressionstest erst nach dem
+tatsächlichen SQL-Übergang nach `applying` gestartet. Vor der Korrektur folgt
+HTTP 503 `DOCUMENT_EDIT_UNAVAILABLE`, danach HTTP 409 `DOCUMENT_BUSY` mit
+derselben Operationsreferenz. Der fehlgeschlagene Beleg besitzt weder Apply-
+noch Persistenzzeit/-sequenz; native Bytes und Version bleiben unverändert.
+Alle 13 nativen API-Key-Owner-/REST-/MCP-Gruppen, fünf echte Principal-Gruppen,
+sechs installierte SDK-HTTP-/PG-Gruppen und neun registrierte MCP-/Agent-Gruppen
+bestehen. Beim verlorenen SDK-Schreib-ACK erfolgt weiterhin keine automatische
+Schreibwiederholung. Verträge, ESLint und strenges TypeScript mit 20 Wurzeln/
+5255 Quellen bestehen. Neue Produktionsbuilds und die kompilierte Gesamt-
+abnahme dieses zweiten Fixes bleiben offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei

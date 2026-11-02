@@ -95,6 +95,42 @@ async function main() {
       const selected = { apiVersion: 1 as const, workspaceId: h.source.workspaceId, documentId: target.documentId,
         expectedVersion: before.document.version, idempotencyKey: 'api-key-native-owner-1',
         patch: { kind: 'native_text_replace' as const, edits: [{ oldText: 'Before', newText: 'After' }] } };
+      await check('a real concurrent reader returns native DOCUMENT_BUSY without an applied write', async () => {
+        const { collaborationAdmissionLockKey } = await import('../app/lib/collaboration/room-admission-contract');
+        const nativeBytes = async () => (await h.admin.query(`SELECT yjs_state,state_vector,document_sequence,
+          lifecycle_generation,representation FROM collaboration_yjs_states WHERE document_id=$1`, [target.documentId])).rows[0];
+        const original = await nativeBytes();
+        let response: Awaited<ReturnType<typeof post>>;
+        let readerHeld = false, observedOperationId: string | undefined;
+        try {
+          response = await h.withProbe(async event => {
+            if (readerHeld || !/^\s*UPDATE collaboration_agent_operations\b/u.test(event.text)) return;
+            const status = /\bstatus\s*=\s*\$(\d+)/u.exec(event.text);
+            const operation = /\boperation_id\s*=\s*\$(\d+)/u.exec(event.text);
+            if (!status || !operation || event.values[Number(status[1]) - 1] !== 'applying' || event.result.rowCount !== 1) return;
+            const id = event.values[Number(operation[1]) - 1]; assert.equal(typeof id, 'string');
+            const actual = (await event.raw('SELECT document_id,status FROM collaboration_agent_operations WHERE operation_id=$1', [id])).rows;
+            assert.deepEqual(actual, [{ document_id: target.documentId, status: 'applying' }]);
+            // Only schedule a real independent reader after the genuine
+            // operation transition. Preserve every SQL reply and authority.
+            await h.admin.query('BEGIN'); readerHeld = true;
+            const locked = await h.admin.query('SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked',
+              [collaborationAdmissionLockKey(h.source.workspaceId)]);
+            assert.equal(locked.rows[0].locked, true); observedOperationId = id as string;
+          }, () => post('edit', { ...selected, idempotencyKey: 'api-key-native-reader-contention-1' }));
+        } finally { if (readerHeld) await h.admin.query('ROLLBACK'); }
+        assert(observedOperationId, 'The actual applying transition must precede this reader.');
+        if (response.body.code !== 'DOCUMENT_BUSY') console.error(JSON.stringify({ diagnostic: 'native-reader-admission-result',
+          status: response.status, code: response.body.code, hasOperationId: typeof response.body.operationId === 'string' }));
+        assert.equal(response.status, 409); assert.equal(response.body.code, 'DOCUMENT_BUSY');
+        assert.equal(response.body.operationId, observedOperationId);
+        const rows = (await h.admin.query(`SELECT status,error_code,applied_document_sequence,applied_at,persisted_at
+          FROM collaboration_agent_operations WHERE operation_id=$1`, [response.body.operationId])).rows;
+        assert.deepEqual(rows, [{ status: 'failed', error_code: 'DOCUMENT_BUSY', applied_document_sequence: null,
+          applied_at: null, persisted_at: null }]);
+        assert.deepEqual(await nativeBytes(), original);
+        const current = await read(); assert.equal(current.fragment, before.fragment); assert.equal(current.document.version, before.document.version);
+      });
       const actual = await run('edit', authority => applyNativeDocumentEdit(authority, selected));
       const operationId = actual.operation.operationId;
       const status = () => run('edit_status', authority => readNativeDocumentEditOperationStatus(authority,
