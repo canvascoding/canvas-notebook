@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Der gemeinsame Stand `65e069683` besteht beide Builds, Start und beide kompilierten REST-/SDK-Operationsprofile einschließlich Linkpflege. `d6a686fc7` besteht zusätzlich beide Builds, Start und alle vier API-Key-Browserfälle einschließlich Paginierungsfix. Ein echter OAuth-Diagnoselauf besteht Tokenablauf, Erneuerung und Keychain; ein vorheriger Editorabgleich bleibt als nicht reproduzierter Befund erhalten. Die dauerhafte Abnahme wird um sechs Editorzyklen und echte OAuth-Pfadoperationen erweitert. Danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `65e069683` besteht beide Builds, Start und beide REST-/SDK-Operationsprofile einschließlich Linkpflege; `d6a686fc7` zusätzlich alle vier API-Key-Browserfälle. Der erweiterte OAuth-Lauf auf `721e59a9f` reproduziert einen veralteten, schreibgeschützten zweiten Editor nach dem ersten Edit. Weitere Diagnosefälle scheitern vor Apply mit `DOCUMENT_EDIT_UNAVAILABLE`. Daten und Operationsbelege sind gesichert geprüft; die genaue interne Ursache wird vor dem nächsten Fix erfasst. Danach vollständige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2081,6 +2081,44 @@ Python-Journalschutzfälle, Syntax und ESLint bestehen. Diese Prüfungen erzeuge
 keine Anwendungsberechtigung und ersetzen den echten OAuth-Lauf nicht. Alle
 13 PR-Prüfungen des bisherigen kompilierten Stands `d6a686fc7` sind erfolgreich,
 einschließlich der tatsächlichen installierten SDKs unter Python 3.10 und 3.15.
+
+**Erweiterte Abnahme auf `721e59a9f`:** Host-/Linux-Build, Containerstart,
+Bootstrap-Anmeldung/-Abmeldung und Erhalt der geschützten Originaldaten bestehen.
+Die dauerhafte OAuth-Abnahme scheitert im ersten Zyklus nach dem bestätigten
+Edit: Der erste Editor zeigt den neuen Inhalt und besteht Reload, der zweite
+zeigt weiter die alte Fassung und ist auch nach der 45-Sekunden-Grenze
+schreibgeschützt. Der gespeicherte Phasenbeleg benennt exakt Zyklus 0, Editor 2,
+Live-Ansicht, Assertion `editable`. Die drei Pfadoperationen und die erneute
+Ablaufprüfung werden in diesem fehlgeschlagenen Lauf nicht erreicht.
+
+Zwei getrennte private Diagnosekopien beobachten zusätzlich echte WebSocket-
+Metadaten und HTTP-Status, ohne Antworten, Autorisierung oder Dokumente zu
+ersetzen. Sie stoppen mit `DOCUMENT_EDIT_UNAVAILABLE` beim ersten Edit, während
+der zweite Peer seine Verbindung aufbaut. Eine unabhängige REST-/SQL-Beobachtung
+aller drei Belege weist den dauerhaften Zustand nach: Der erfolgreiche Edit
+steht mit Sequenz 1 und exakt dem bestätigten Inhalt/Version in Yjs und Beleg;
+die beiden fehlgeschlagenen Edits besitzen jeweils einen fehlgeschlagenen
+Operationsbeleg ohne Apply-/Persistenzsequenz. Inhalt, Version und Sequenz 0
+bleiben dort unverändert. Die geschützten Originaldaten bleiben erhalten;
+eigene Zugänge, Workspace-Opt-ins und Sitzungen werden bereinigt.
+
+Vor einer Änderung der Fehlerbehandlung wird jetzt die interne Ursache an den
+beiden tatsächlichen Grenzen protokolliert: vor `nativeEditFailure` den
+unbekannten Grund vereinheitlicht sowie vor einer endgültigen Peer-Ablehnung.
+Die Beobachtung enthält einen begrenzten eigenen Fehlercode und einen
+Fingerabdruck einer nativen Fehlermeldung. Dokumenttext, rohe Fehlermeldung,
+Stack, Pfad und Tokens werden nicht ausgegeben; Accessors und Proxies werden
+nicht aufgerufen. Die zwölf lokalen Datenschutz-/Datenfälle bestehen. Die
+Produktkorrektur und die vollständige kompilierte Wiederholung bleiben offen.
+Die API-Key-Vertragssuite und die echte native Edit-Suite einschließlich zwölf
+Owner-/PostgreSQL-/Route-/MCP-Gruppen bestehen mit den Diagnoseänderungen. Ein
+zusätzlich herangezogener synthetischer Starttest scheitert bereits mit exakt
+dem unveränderten Serverstand `721e59a9f` an einem leeren Alias-Dummy für den
+Metrikbeobachter. Seine weiteren nativen Aufnahme-Abhängigkeiten sind ebenfalls
+nicht aufgebaut. Der Versuch einer punktuellen Fixture-Anpassung wird wieder
+entfernt; diese Suite gilt ausdrücklich nicht als erfolgreicher Startnachweis.
+Die tatsächlichen kompilierten Starts sind separat belegt. Der reproduzierte
+Livefehler und seine kompilierte Ursachenanalyse bleiben der nächste Schritt.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 

@@ -1,4 +1,5 @@
 import 'server-only';
+import { captureCollaborationDiagnosticCause } from './diagnostic-cause';
 
 import crypto, { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -2197,7 +2198,15 @@ function nativeEditFailure(error: unknown, operationId:string): NativeDocumentEd
     case 'DOCUMENT_STATE_INVALID': case 'DOCUMENT_BUSY': case 'DOCUMENT_IDEMPOTENCY_CONFLICT':
     case 'DOCUMENT_EDIT_CONFLICT': case 'DOCUMENT_EDIT_UNSUPPORTED': case 'DOCUMENT_TOO_LARGE':
     case 'EDIT_OUTCOME_UNCONFIRMED': case 'DOCUMENT_EDIT_UNAVAILABLE': return new NativeDocumentEditOperationError(code,operationId);
-    default: return new NativeDocumentEditOperationError('DOCUMENT_EDIT_UNAVAILABLE',operationId);
+    default: {
+      try {
+        const cause = captureCollaborationDiagnosticCause(error);
+        logCollaborationDiagnostic('warn', { event: 'native_edit_failed', operationId,
+          code: 'DOCUMENT_EDIT_UNAVAILABLE', causeCode: cause.code,
+          phase: cause.fingerprint ? `native_edit_error_boundary:${cause.fingerprint}` : 'native_edit_error_boundary' });
+      } catch { /* Diagnostics cannot change the original public failure. */ }
+      return new NativeDocumentEditOperationError('DOCUMENT_EDIT_UNAVAILABLE',operationId);
+    }
   }
 }
 type NativeEditAppliedCapture = Readonly<{

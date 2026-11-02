@@ -28,6 +28,7 @@ import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/ch
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
+import { captureCollaborationDiagnosticCause } from '@/app/lib/collaboration/diagnostic-cause';
 import { reportCollaborationStartupFailure, type CollaborationStartupPhase } from '../app/lib/collaboration/startup-diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
@@ -758,6 +759,12 @@ export function createCollaborationServer(server: http.Server, options: {
             connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
             return;
           }
+          if (!isAuthenticatedNativeSessionTransportBusy(error)) try {
+            const cause = captureCollaborationDiagnosticCause(error);
+            logCollaborationDiagnostic('warn', { event: 'native_peer_access_failed', documentId: connection.context.claims.documentId,
+              workspaceId: connection.context.claims.workspaceId, causeCode: cause.code,
+              phase: cause.fingerprint ? `native_peer_check:${cause.fingerprint}` : 'native_peer_check' });
+          } catch { /* Diagnostics cannot change whether the original check succeeds. */ }
           throw error;
         }
       }
