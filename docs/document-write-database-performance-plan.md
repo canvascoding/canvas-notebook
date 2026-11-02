@@ -1,6 +1,6 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 01.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 02.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
@@ -268,8 +268,8 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
-| 4a | in Umsetzung | Die am gebauten Stand `a3ff44120` bestandene Schlüsselverwaltung, reale Key-Zugriffe und OAuth-/Keychain-/Erneuerungsfälle in den dauerhaften Runnern erneut abnehmen; danach die restlichen Rechte-/Unterbrechungs-/Dateimatrixfälle schließen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | Dauerhafte kompilierte Runner abschließen; dann übrige Auth-/Operationsvarianten, Konkurrenz, Neustart/Restore, öffentliche Beispiele und reguläre `test:all`-/Recovery-Abnahme am endgültigen Stand durchführen. |
+| 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen jetzt am gebauten Stand `9ba00fd2b`. Die übrigen Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen; der sporadische Vorschaufehler muss vor der Gesamtabnahme behoben werden. Alle geforderten Adapter sind implementiert, siehe 5a. |
+| 4b | in Umsetzung | Aktueller Blocker: Move-/Delete-Vorschauen können die interne Quellenprüfung nicht bestehen; ein realer SDK-Move liefert `INVALID_REQUEST`, intern `NATIVE_SOURCE_EVIDENCE_INVALID`. Den genauen fehlschlagenden Nachweis eingrenzen und korrigieren, dann übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -1820,14 +1820,14 @@ normalen Request. Der ursprüngliche Body bleibt beim begrenzten Stream-Leser.
 Die Credential-Prüfung und sämtliche aktuellen Rechteprüfungen bleiben strikt.
 Die vier betroffenen PostgreSQL-Adaptersuiten verwenden nun explizit umhüllte
 Requests; ihre bestehenden positiven und negativen Gruppen bleiben erhalten.
-Die erneute Abnahme des korrigierten kompilierten Servers einschließlich echter
-OAuth-Ausstellung, macOS-Schlüsselbund, tatsächlichem Tokenablauf und erneuter
-Verbindung aus einem separaten Prozess bleibt erforderlich. Die grüne CI allein
-ist ausdrücklich keine vollständige API-/SDK- oder Release-Abnahme.
+Die unten dokumentierte erneute Abnahme des korrigierten kompilierten Servers
+einschließlich echter OAuth-Ausstellung, macOS-Schlüsselbund, tatsächlichem
+Tokenablauf und Zugriff aus einem separaten Prozess besteht inzwischen. Die
+grüne CI allein ist ausdrücklich keine vollständige API-/SDK- oder Release-Abnahme.
 
 #### Verifizierter Fixstand und dauerhafte Runner, 02.11.2026
 
-Der veröffentlichte Fixstand `a3ff44120` besteht alle 13 PR-Prüfungen, einschließlich
+Der im PR enthaltene Fixstand `a3ff44120` besteht alle 13 PR-Prüfungen, einschließlich
 der vollständigen nativen API-/Agent-Prüfung und je sechs installierten SDK-/HTTP-
 Familien mit 53 Gruppen auf Python 3.10.22 und 3.15.1. Alle zwölf frischen
 Installationsprofile bestehen ohne Skips. Der korrigierte Host-/Linux-Build und
@@ -1848,22 +1848,43 @@ OS-Einträge entfernt und die vorherigen MCP-Einstellungen wiederhergestellt.
 Originalzeilen/`xmin`, Inhalte und Anker bleiben unverändert. Das ist die Abnahme
 dieser konkreten Fälle, nicht der vollständigen Matrix oder des Releases.
 
-Die Fälle werden jetzt als
-`test:api-keys:compiled` und `test:api-keys:sdk:oauth:compiled` dauerhaft integriert.
+Die Fälle sind seit `9ba00fd2b` als
+`test:api-keys:compiled` und `test:api-keys:sdk:oauth:compiled` dauerhaft integriert
+und auf genau diesem gebauten Quellstand erneut bestanden.
 Gemeinsame Testmechanik prüft Image-/Quellstand, private Eingaben und geschützte
 Originale ausschließlich über reale Docker-/Read-only-PG-Beobachtungen.
 OAuth-Zustimmung, Schlüsselverwaltung und sämtliche Änderungen bleiben echte
-HTTP-Aufrufe. Zusätzlich angelegte Bearer-/Ablauf- und Bereinigungsprüfungen
-müssen in der neuen Fassung noch vollständig laufen. Fünf Harness-Schutzfälle,
-das reguläre Key-Vertragspaket, der tatsächliche Originaldatenvergleich und die
-Prüfung der installierten Wheel-Dateien bestehen bereits. Ein früherer
-temporärer Probe-Erfolg wird nicht als Ausführung des neuen Runners gezählt.
+HTTP-Aufrufe. Alle vier Desktop-/Mobilfälle bestehen ohne Skips und Retries.
+Auch expliziter Zugriff mit dem tatsächlich ausgestellten Bearer, dessen echte
+Ablehnung nach Ablauf, automatische Erneuerung und unabhängiges Lesen des
+erneuerten Schlüsselbund-Zugangs bestehen. Eigene Schlüssel, Grants und
+OS-Einträge sind bereinigt und die vorherigen MCP-Einstellungen wiederhergestellt.
+Fünf Harness-Schutzfälle, das reguläre Key-Vertragspaket und striktes TypeScript
+bestehen. Host-/Linux-Build, frischer Start sowie Originalzeilen/`xmin`, Inhalte
+und Anker sind geprüft. Das Wheel stimmt in allen acht Laufzeitdateien mit dem
+Quellstand überein. Der konkrete erneute Runner-Lauf zählt als Nachweis;
+ein früherer temporärer Probe-Erfolg wird nicht als dessen Ausführung gezählt.
 [Aufruf und genaue Prüfgrenzen](testing/compiled-api-sdk-acceptance.md) sind
 dokumentiert. Paket 4c, Gesamtabnahme und Release bleiben offen.
 
+**Verbleibender operativer Blocker:** Ein zusätzlicher realer REST-/SDK-Lauf für
+Copy, Move, Delete, Status und explizites Recover besteht einmal vollständig,
+einschließlich sechs historischer Zugriffe nach Schlüsselrotation. Weitere Läufe
+zeigen jedoch sporadische Vorschaufehler: zunächst Delete mit `PATH_UNAVAILABLE`,
+später SDK-Move mit `INVALID_REQUEST`. Eine nicht pausierende Diagnose am echten
+kompilierten Server belegt für den Move-Fehler `NATIVE_MOVE_PLAN_INVALID` beim
+Erstellen des Quellnachweises; die innere Diagnose lautet
+`NATIVE_SOURCE_EVIDENCE_INVALID`. Die genaue verletzte Bedingung ist noch nicht
+identifiziert. Nachträglich lesend gesicherte Registry-/Yjs-Zustände sind
+konsistent; wiederholte frische und gecachte Inspektionen derselben nativen Bytes
+liefern identische, vollständige Linkinventare. Das erklärt den Laufzeitfehler
+noch nicht. Der erfolgreiche Einzellauf schließt diese Regression nicht.
+Fehlgeschlagene Vorschauen lösen kein Apply aus; Originaldaten bleiben erhalten.
+Die temporären zusätzlichen Operationsläufe sind noch kein dauerhafter Runner.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
-**Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub auf `a3ff44120` geprüft:** Die drei
+**Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
 gemeinsamen nativen Fixtures verwenden eine zentrale, ausschließlich für Tests
 bestimmte Datenbankauswahl. CI verlangt eine eigene Nonce-Datenbank und prüft
 PostgreSQL 18, Datenbankname, tatsächlichen Eigentümer und Lauf-Marker vor DDL.
@@ -1890,8 +1911,17 @@ Verzeichnisoperationen muss auch auf Linux vor den Tests gebaut und geprüft
 werden. Die Workflow-Vorbereitung holt das jetzt ausdrücklich nach; die reale
 Copy-Prüfung und alle Abbruchbedingungen bleiben erhalten. Die Bereinigung des
 fehlgeschlagenen Laufs bestätigte null verbliebene Ressourcen.
-Das ist noch kein erfolgreicher GitHub-Lauf,
-keine kompilierte Browser-/OAuth-/OS-Keyring-Abnahme und kein Release-Nachweis.
+Der nachfolgende GitHub-Lauf
+[`41392006457`](https://github.com/canvascoding/canvas-notebook/actions/runs/41392006457)
+auf `9ba00fd2b` besteht, ebenso alle 13 PR-Prüfungen dieses Standes. Die tatsächlichen
+Artefakte belegen zwölf frische Installationsprofile auf Python 3.10.22 und
+3.15.1, je sechs installierte SDK-/HTTP-Familien mit 53 Gruppen und null verbliebene
+Schemas, öffentliche Relationen, Backends oder Kinddatenbanken vor dem Entfernen
+der eigenen Testdatenbank. ZIP-SHA-256:
+`1d21f8fab2365476d4e4c4abc1bde7e1603048c6dc9dd4f9987ca17e489bcfb6`.
+Die oben separat dokumentierten kompilierten Browser-/OAuth-/OS-Keyring-Läufe
+bestehen ebenfalls. Der sporadische Vorschaufehler, die übrige vollständige
+Matrix und der Release-Nachweis bleiben offen.
 [Betrieb und Prüfgrenzen](testing/native-api-sdk-ci.md) beschreiben die Schichten;
 die bisherigen einzelnen CodeQL-Dispositions- und Prüfnotizen bleiben
 [unverändert archiviert](testing/api-key-access-pr-198-history.md).
