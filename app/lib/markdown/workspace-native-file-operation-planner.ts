@@ -398,13 +398,35 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
       return [{ ...link, literal: parsed?.target ?? old, targetPathText: parsed?.path ?? decodeURIComponent(hash < 0 ? old : old.slice(0, hash)) }];
     }),
   })) as typeof snapshot.documents;
+  // All virtual namespace and link mutations are complete. Reuse these pure
+  // graphs only within this invocation; rebuilding the whole graph per edge
+  // makes validation quadratic in the number of links (including hashing).
+  const virtualGraphs = new Map<string, ReturnType<typeof mixedReadGraph>>();
+  const virtualEdges = new Map<string, Map<string, ReturnType<typeof mixedReadGraph>['edges'][number]>>();
+  const edgeKey = (id: string, sourcePath: string) => JSON.stringify([id, sourcePath]);
+  const virtualGraph = (workspaceId: string) => {
+    let graph = virtualGraphs.get(workspaceId);
+    if (!graph) {
+      graph = mixedReadGraph(virtual.get(workspaceId)!, version);
+      virtualGraphs.set(workspaceId, graph);
+      const edges = new Map<string, typeof graph.edges[number]>();
+      for (const edge of graph.edges) {
+        const key = edgeKey(edge.id, edge.source.path);
+        // Preserve Array.find's first-match behavior even for invalid input.
+        if (!edges.has(key)) edges.set(key, edge);
+      }
+      virtualEdges.set(workspaceId, edges);
+    }
+    return graph;
+  };
   for (const snapshot of snapshots.values()) {
     const before = mixedReadGraph(snapshot, version);
     for (const edge of before.edges) {
       if (request.kind !== 'copy' && snapshot.workspaceId === request.sourceWorkspaceId && request.kind === 'delete' && mapped.has(edge.source.path)) continue;
       const moved = request.kind !== 'copy' && snapshot.workspaceId === request.sourceWorkspaceId ? mapped.get(edge.source.path) : undefined;
       const afterWorkspace = moved ? request.destinationWorkspaceId : snapshot.workspaceId;
-      const after = mixedReadGraph(virtual.get(afterWorkspace)!, version).edges.find((entry) => entry.id === edge.id && entry.source.path === (moved?.destinationPath ?? edge.source.path));
+      virtualGraph(afterWorkspace);
+      const after = virtualEdges.get(afterWorkspace)!.get(edgeKey(edge.id, moved?.destinationPath ?? edge.source.path));
       if (mutations.some((entry) => entry.linkId === edge.id && entry.action === 'unlink' && entry.cloneSelection === null)) continue;
       const identitySet = (link: NativeResolvedLink | MixedReadResolvedLinkV3) => link.resolution.candidates.map((entry) => entry.identity).sort();
       if (!after || edge.resolution.status !== after.resolution.status || nativeLinkJsonProof(identitySet(edge)) !== nativeLinkJsonProof(identitySet(after))) {
@@ -421,7 +443,7 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
   if (request.kind === 'copy') for (const mapping of mapped.values()) {
     const inventory = source?.documents.find((entry) => entry.document.path === mapping.source.path);
     if (!inventory) continue;
-    const after = mixedReadGraph(virtual.get(request.destinationWorkspaceId)!, version).edges.filter((edge) => edge.source.path === mapping.destinationPath);
+    const after = virtualGraph(request.destinationWorkspaceId).edges.filter((edge) => edge.source.path === mapping.destinationPath);
     for (const edge of sourceGraph?.edges.filter((entry) => entry.source.path === mapping.source.path) ?? []) {
       const targetMap = edge.resolution.target && mapped.get(edge.resolution.target.path);
       const expected = targetMap ? `clone:${targetMap.source.identity}:${targetMap.destinationPath}` : edge.resolution.target?.identity;
