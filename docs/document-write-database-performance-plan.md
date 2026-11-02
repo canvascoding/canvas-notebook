@@ -2187,6 +2187,26 @@ Schreibwiederholung. Verträge, ESLint und strenges TypeScript mit 20 Wurzeln/
 5255 Quellen bestehen. Neue Produktionsbuilds und die kompilierte Gesamt-
 abnahme dieses zweiten Fixes bleiben offen.
 
+**Kompilierte Abnahme auf `4482c9940`:** Beide Produktionsbuilds, Start,
+Bootstrap-Anmeldung/-Abmeldung und alle 44 gebundenen Produktquellen stimmen.
+Die kurze Diagnose besteht sechs Edits und 24 Live-/Reload-Prüfungen. Auch der
+unveränderte dauerhafte OAuth-Runner besteht danach alle sechs Edits und 24
+Editorprüfungen; die anschließende erste Copy-Apply-Anfrage scheitert jedoch
+mit `COPY_UNAVAILABLE`. Move/Delete und der wirkliche Tokenablauf werden nicht
+erreicht. Der vor Versand gespeicherte Copy-Aufruf bleibt im eigenen Journal.
+Eine unabhängige REST-/lesende SQL-Beobachtung bestätigt exakt den sechsten
+SDK-Inhalt samt Version, sechs dauerhafte Edit-Belege und Yjs-/Checkpoint-
+Sequenz 6. Zum geprüften Plan-/Operationsbezug sind weder Batch noch Ziel-
+Dokument oder Copy-Beleg sichtbar. Es erfolgt kein erneuter Schreibaufruf.
+Eigene Zugänge und Sitzungen sind bereinigt, Originaldaten unverändert.
+
+Die unbekannte Copy-Ursache wird vor ihrer bisherigen Vereinheitlichung nun
+mit derselben begrenzten Diagnose beobachtbar gemacht: Operationsreferenz,
+eigener sicherer Code und nativer Meldungsfingerabdruck, ohne Argumente,
+rohe Fehlermeldung, Stack oder Zugangsdaten. Das bestehende Fehlerformat,
+OAuth-Challenge und alle Berechtigungs-/Schreibentscheidungen bleiben gleich.
+Die neue kompilierte Ursachenbeobachtung und die Copy-Korrektur sind offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei

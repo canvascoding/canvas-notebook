@@ -115,6 +115,8 @@ import { decodeDirectMcpNativeDocumentEditSelection, directMcpDocumentEditInputS
 import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
 import { readDirectMcpEditCompletion, DirectMcpEditCompletionBusyError } from './edit-completion';
 import { directMcpCorrelationId } from './diagnostics';
+import { captureCollaborationDiagnosticCause } from '../../collaboration/diagnostic-cause';
+import { logger } from '../../logging';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
   isDirectMcpReadableWorkspace,
@@ -2250,6 +2252,11 @@ async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): P
   } catch (error) {
     // A hard formatting failure here propagates. In particular, never catch
     // an oversized genuine OAuth challenge to return a challenge-free result.
+    try {
+      const cause = captureCollaborationDiagnosticCause(error);
+      logger.module('WorkspaceCopy').warn({ event: 'copy_failed', operationId: selectedOperationId,
+        causeCode: cause.code, phase: cause.fingerprint ? `copy_error_boundary:${cause.fingerprint}` : 'copy_error_boundary' });
+    } catch { /* Diagnostics cannot replace the original failure or challenge. */ }
     return formatDirectMcpWorkspaceCopyError(error, selectedOperationId);
   }
 }
