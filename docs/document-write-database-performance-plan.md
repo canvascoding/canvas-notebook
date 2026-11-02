@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Am gebauten Stand `871a0ef43` bestehen alle vier Schlüsselverwaltungs-Browserfälle und der vollständige echte OAuth-/Keychain-Lauf einschließlich natürlichem Tokenablauf, Refresh und historischer Status-/Recovery-Zugriffe. Alle 13 CI-Prüfungen sind grün. Die übrige Rechte-/Unterbrechungs-/Dateimatrix und die portable Restore-Abnahme bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `871a0ef43` besteht beide Builds, Start, den vollständigen OAuth-/Editor-/Pfadablauf und beide REST-/SDK-Operationsprofile mit Linkpflege und Schlüsselrotation. Der echte Kalt-Restore einer separaten lokalen Kopie besteht Anmeldung und Originalvergleiche; nach Rückkehr sind auch die ursprünglichen `xmin` unverändert. Die reguläre Gesamtsuite besteht bis einschließlich API-Integration und findet danach eine fehlende Testumgebung am React-UI-Testaufruf. Diesen Aufruf korrigieren und die gesamte Suite wiederholen; anschließend übrige Matrix, Konkurrenz, portablen Restore und Beispiele abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `871a0ef43` besteht beide Builds, Start, den vollständigen OAuth-/Editor-/Pfadablauf und beide REST-/SDK-Operationsprofile mit Linkpflege und Schlüsselrotation. `f6bfdc29e` besteht beide Builds, Start und alle 13 CI-Prüfungen; die reguläre Gesamtsuite endet mit 330 bestandenen, einem fehlgeschlagenen und 269 bedingt übersprungenen Browserfällen. Der einzige Fehler betrifft die Studio-Retry-Testsimulation; die korrigierte Variante besteht drei unabhängige Wiederholungen. Die Gesamtsuite am abschließenden Commit erneut ausführen. Der rohe Kalt-Klon besteht Start und Lesen, verweigert Schreiben wegen veränderter inodegebundener Autoritätsmarker; eine funktionsfähige Wiederherstellung ist damit nicht abgenommen. Originale samt `xmin` bleiben unverändert. Übrige Matrix, Konkurrenz, unterstützten Restore und Beispiele anschließend abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2312,9 +2312,15 @@ eigene Nonce-Datenbank und eigene Volumes zurückgespielt. Der einzige verwaltet
 Notebook-Container startet damit am unveränderten Image; tatsächliche Anmeldung,
 geschützte Zeilenwerte, Dateibytes und Sicherungsmarker stimmen. Nach dem Test
 wird der ursprüngliche Stand wieder gestartet und zusätzlich auf unveränderte
-ursprüngliche `xmin` geprüft. Dieser Nachweis betrifft die Wiederherstellung
-derselben Instanz; die portable Übernahme in eine andere Instanz mit getrennten
-Credentials bleibt eine eigene Abnahme.
+ursprüngliche `xmin` geprüft. Eine spätere Schreibprüfung verweigert Uploads mit
+`UPLOAD_STATE_UNCONFIRMED`: Die inodegebundenen Autoritätsmarker des ursprünglichen
+DATA-Verzeichnisses passen nicht zu den neu erzeugten Volumes. Die Marker bleiben
+unverändert; keine Prüfung wird umgangen. **Start und lesende Originalvergleiche
+sind nachgewiesen, eine funktionsfähige Wiederherstellung ist damit nicht
+abgenommen.** Der unterstützte Restore derselben Instanz und die portable
+Übernahme in eine andere Instanz mit getrennten Credentials bleiben offen.
+Die reguläre Suite läuft anschließend mit frischer Sicherung und neu erstelltem
+Container auf den gültigen ursprünglichen QA-Volumes.
 
 Der erste Suiteversuch scheitert vor jeder Assertion an einem zu langen privaten
 Unix-Socket-Pfad auf macOS; der Supervisor verwendet danach einen kurzen eigenen
@@ -2327,8 +2333,20 @@ API-Key-Suite verwendet denselben Aufruf. Der Server bleibt im Produktionsmodus,
 alle bestehenden Assertions bleiben erhalten. Die vollständige API-Key-Teilsuite
 besteht danach auch mit geerbtem `NODE_ENV=production`, einschließlich des UI-
 Tests, zwölf Diagnosefällen und der zehn Node-/zwei Python-Harnessfälle.
-Die gesamte Suite muss nach dieser
-Korrektur erneut erfolgreich laufen; sie ist noch nicht grün.
+Der vollständige Lauf am kompilierten `f6bfdc29e` mit beiden tatsächlich
+angemeldeten Testbenutzern besteht anschließend die API-/UI-/Agent-Prüfungen und
+330 Browserfälle; ein Browserfall schlägt fehl, 269 bleiben bedingt übersprungen.
+Der einzelne Fehler liegt in der Studio-Retry-Simulation: Sie wechselt bereits
+vor dem tatsächlich ausgeführten Klick auf Erfolg, sodass ein paralleler
+Konfigurationsabruf den Retry-Button vorzeitig entfernt. Die Simulation liefert
+jetzt bis zum echten Browserklick weiterhin einen Fehler und erwartet danach
+die erfolgreiche Antwort. Die Anmeldung verwendet den vorhandenen Helfer mit
+tatsächlicher Identitätsprüfung und Sitzungscache; rohe wiederholte Logins hatten
+im gezielten Test HTTP 429 ausgelöst. Die korrigierte Retry-Variante besteht drei
+unabhängige Browserdurchläufe ohne Retry oder Skip. Produktdateien und ihre 45
+Quellenbindungen bleiben dabei unverändert; geschützte Originalzeilen samt `xmin`,
+Dateibytes und Autoritätsmarker bleiben erhalten. Eine erneute vollständige
+`test:all`-Abnahme am abschließenden Commit bleibt erforderlich.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
