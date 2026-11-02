@@ -3,6 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { chromium, request, expect } from '@playwright/test';
@@ -84,10 +85,57 @@ async function next(expected, timeout = 100000) {
   throw new Error('SDK protocol exceeded its bounded phase deadline.');
 }
 const send = value => new Promise((resolve, reject) => child.stdin.write(JSON.stringify(value) + '\n', error => error ? reject(new Error('Private SDK input failed.')) : resolve()));
+const require = createRequire(import.meta.url);
+const { MessageType } = require('@hocuspocus/server');
+const { AuthMessageType } = require('@hocuspocus/common');
+const { messageYjsSyncStep2 } = require('y-protocols/sync');
+const decoding = require('lib0/decoding');
+const editorSynchronization = new WeakMap();
+function observeOwnedEditorSynchronization(page, documentId) {
+  assert.equal(editorSynchronization.has(page), false);
+  const state = { epoch: 0, socket: null, authenticated: false, synced: false, malformedFrames: 0 };
+  editorSynchronization.set(page, state);
+  page.on('framenavigated', frame => {
+    if (frame !== page.mainFrame()) return;
+    state.epoch++; state.socket = null; state.authenticated = false; state.synced = false;
+  });
+  page.on('websocket', socket => {
+    const address = new URL(socket.url());
+    if (address.host !== new URL(origin).host || address.pathname !== "/ws/collaboration") return;
+    const epoch = state.epoch;
+    state.socket = socket; state.authenticated = false; state.synced = false;
+    const current = () => state.epoch === epoch && state.socket === socket;
+    socket.on('framereceived', frame => {
+      if (!current() || !Buffer.isBuffer(frame.payload) || frame.payload.byteLength > 128 * 1024) return;
+      try {
+        const decoder = decoding.createDecoder(new Uint8Array(frame.payload));
+        if (decoding.readVarString(decoder) !== documentId) return;
+        const type = decoding.readVarUint(decoder);
+        if (type === MessageType.Auth) {
+          const auth = decoding.readVarUint(decoder);
+          if (auth === AuthMessageType.Authenticated) state.authenticated = true;
+          else if (auth === AuthMessageType.PermissionDenied) { state.authenticated = false; state.synced = false; }
+        } else if (type === MessageType.Sync && decoding.readVarUint(decoder) === messageYjsSyncStep2) state.synced = true;
+      } catch { state.malformedFrames++; }
+    });
+    socket.on('close', () => { if (current()) { state.authenticated = false; state.synced = false; } });
+    socket.on('socketerror', () => { if (current()) { state.authenticated = false; state.synced = false; } });
+  });
+}
+async function requireOwnedEditorSynchronized(page, phase) {
+  const state = editorSynchronization.get(page); assert(state);
+  await expect.poll(() => state.socket !== null && state.authenticated && state.synced,
+    { timeout: 45000, intervals: [100, 250, 500, 1000] }).toBe(true);
+  assert.equal(state.malformedFrames, 0);
+  proof.editorSynchronizationChecks ??= [];
+  proof.editorSynchronizationChecks.push({ page: pages.indexOf(page), phase, epoch: state.epoch,
+    authenticated: state.authenticated, ownDocumentSyncStep2: state.synced }); save();
+}
 async function connections() { return (await ok(await context.request.get('/api/integrations/mcp-server/connections'), 'Connections')).data.connections; }
 async function verifyEditor(page, cycle, phase, expected, previous) {
   const editor = page.locator('.tiptap-editor-shell .ProseMirror');
   const checking = assertion => { proof.editorCheck = { cycle, page: pages.indexOf(page), phase, assertion }; save(); };
+  checking('socket-synchronized'); await requireOwnedEditorSynchronized(page, `${cycle}:${phase}`);
   checking('editable'); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 });
   checking('current-text'); await expect(editor).toContainText(expected);
   checking('previous-text-absent'); await expect(editor).not.toContainText(previous);
@@ -186,9 +234,11 @@ async function verifyEditor(page, cycle, phase, expected, previous) {
   await send({ event: 'authorized' }); await next('authenticated'); await next('searched_and_read'); const created = await next('created');
   for (let i = 0; i < 2; i++) {
     const page = await context.newPage(); pages.push(page);
+    observeOwnedEditorSynchronization(page, created.result.document.documentId);
     await page.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: workspace.id, host: origin });
     await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspace.id)}&path=${encodeURIComponent(created.result.document.path)}`, { waitUntil: 'domcontentloaded' });
     const editor = page.locator('.tiptap-editor-shell .ProseMirror'); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 }); await expect(editor).toContainText(oldText);
+    await requireOwnedEditorSynchronized(page, 'initial');
   }
   proof.editOperationIds = []; let lastEdited;
   for (let cycle = 0; cycle < proof.editorCycles; cycle++) {

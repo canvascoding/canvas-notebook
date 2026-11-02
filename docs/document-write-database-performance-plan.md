@@ -2261,6 +2261,27 @@ werden außerdem durch korrekt gemeldetes `DOCUMENT_BUSY` während gleichzeitige
 Editorzugriffe beendet; diese Ergebnisse werden erhalten und nicht als grüne
 Vollabnahme gezählt. Die neue vollständige kompilierte Abnahme bleibt offen.
 
+**Editor-Vorbedingung:** Auch auf `0ac1e889d` bestehen beide Builds, Start,
+die 45 Produktquellbindungen und alle vier API-Key-Browserfälle ohne Retry,
+Skip oder Flake. Der dauerhafte OAuth-Lauf endet nach einem bestätigten Edit/
+vier Ansichten erneut mit dem vorgesehenen `DOCUMENT_BUSY`. Der Runner wartet
+bisher nur auf sichtbaren Inhalt und `contenteditable`; ein neu geladener
+Editor kann diese bereits aus seinem lokalen Zustand erfüllen.
+
+Eine getrennte echte Diagnose ergänzt daher vor den vorhandenen Assertions
+die positive Authenticated-/SyncStep2-Beobachtung für genau das eigene Dokument
+auf dem aktuellen `/ws/collaboration`-Socket und Seitenstand. Sie besteht sechs
+Edits, alle 24 Live-/Reload-Assertions und 26 positive Verbindungsprüfungen über
+14 Seitenstände. Der Python-Prozess bleibt vor Pfadoperationen am letzten
+Editor-Handshake angehalten und wird danach geordnet bereinigt; diese Diagnose
+behauptet weder Pfadabnahme noch echten Tokenablauf. Originaldaten bleiben
+unverändert, die eigenen Zugänge sind vollständig bereinigt. Die dauerhafte
+Abnahme übernimmt diese zusätzliche Vorbedingung mit der bisherigen Zeitgrenze.
+Navigation, Socketwechsel/-schluss und Auth-Ablehnung setzen die Bereitschaft
+zurück; `/ws/live-events` und fremde Dokumentframes zählen nicht. Weder SDK-
+Schreibwiederholung noch feste Verzögerung oder geänderte Serverrechte werden
+eingeführt. Die neue kompilierte Gesamtwiederholung bleibt offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
