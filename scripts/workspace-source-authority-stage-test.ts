@@ -465,8 +465,12 @@ test('a native peer edit during staged physical reads invalidates the native pro
   for (const mode of ['sql', 'corrupt', 'unrelated-gap', 'catalogue-missing'] as const) {
     const result = await runPreview(mode);
     assert.equal(result.received instanceof Stale, false); assert.equal(changed(result.observation), false);
-    assert.equal((result.received as { code?: string }).code, 'NATIVE_SOURCE_EVIDENCE_INVALID');
-    assert.equal(result.currentChecks, 1); assert.equal(result.htmlCalls, 1); assert(result.traced.trace.includes('ROLLBACK'));
+    const failure = result.received as { code?: string; status?: number; issues?: readonly { code: string; path: string }[] };
+    assert.equal(failure.code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(failure.status, 409);
+    assert(failure.issues?.length);
+    assert(failure.issues.every(issue => result.observation.stage.coverage.gaps.some(gap =>
+      gap.code === issue.code && gap.path === issue.path)));
+    assert.equal(result.currentChecks, 2); assert.equal(result.htmlCalls, 0); assert(result.traced.trace.includes('ROLLBACK'));
   }
   for (const mode of ['auth', 'current-sql', 'close', 'rollback'] as const) {
     const result = await runPreview(mode);

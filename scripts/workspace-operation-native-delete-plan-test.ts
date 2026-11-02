@@ -351,8 +351,9 @@ test('default dispatch keeps proven pristine physical Markdown in V1 and denies 
     assert.equal(plan.version, 1); assert.equal(stageReads, 1); assert.equal(legacyReads, 1);
     assert.deepEqual(plan, createWorkspaceOperationBatchPlan({ snapshot: legacySnapshot, actions }));
     observed.stage.coverage = { complete: false, gaps: [{ code: 'missing-native-state', path: filePath }] };
-    await assert.rejects(planner.buildWorkspaceOperationBatchPlan({ scope, actions }), error => error instanceof Error
-      && error.message === 'NATIVE_DELETE_PLAN_UNSUPPORTED');
+    await assert.rejects(planner.buildWorkspaceOperationBatchPlan({ scope, actions }), error =>
+      error instanceof WorkspaceOperationNativeSourceEvidenceError && error.code === 'NATIVE_SOURCE_EVIDENCE_INVALID'
+      && error.status === 409);
     assert.equal(stageReads, 2); assert.equal(legacyReads, 1, 'unknown/missing native authority cannot fall through to legacy disk planning');
   } finally {
     loader._load = load;

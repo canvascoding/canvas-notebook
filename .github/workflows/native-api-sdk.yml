@@ -67,6 +67,10 @@ jobs:
         run: npm run test:api-keys:ci-config
       - name: Allocate owned PostgreSQL 18 fixture database
         run: npm run test:api-keys:ci-database -- create
+      - name: Source observation and projection process coordination
+        run: |
+          set -euo pipefail
+          node --import tsx --conditions react-server --test scripts/workspace-source-authority-projection-lock-test.ts 2>&1 | tee "$RUNNER_TEMP/source-projection-lock.log"
       - name: API contracts and UI component tests
         run: |
           set -euo pipefail
@@ -119,6 +123,7 @@ jobs:
           name: native-api-sdk-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
+            ${{ runner.temp }}/source-projection-lock.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/native-api.log
             ${{ runner.temp }}/native-agent-*.log

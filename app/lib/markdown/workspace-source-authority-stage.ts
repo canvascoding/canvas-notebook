@@ -14,6 +14,7 @@ import type { NativeFileArchiveExpected } from '../collaboration/native-file-arc
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
+import { withWorkspaceMutationLock } from '../files/workspace-mutation-lock';
 import { readOriginalMoveCollectorOverlay } from '../files/workspace-operation-original-move-sources';
 import { assertWorkspaceOriginalPathsCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
   type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
@@ -526,22 +527,29 @@ export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: Wo
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   const limits = { ...DEFAULT_LIMITS, ...dependencies.limits };
   if (Object.entries(limits).some(([key, value]) => !Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key as keyof Limits])) throw new Error('Invalid physical source staging limit.');
-  try {
-    connection = await (dependencies.openConnection ?? openDb)();
-    await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'); transaction = true;
-    await connection.run("SET LOCAL statement_timeout='5s'"); await connection.run("SET LOCAL lock_timeout='4s'");
-    await connection.get('SELECT pg_advisory_xact_lock_shared($1::bigint)', [collaborationAdmissionLockKey(workspace.workspaceId)]);
-    observation = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, dependencies);
-    stage = observation.stage;
-    // An incomplete observation grants nothing. Roll back every failed readonly
-    // stage instead of publishing a successful transaction for partial coverage.
-    await connection.run(stage.coverage.complete ? 'COMMIT' : 'ROLLBACK'); transaction = false;
-  } catch { unavailable(); }
-  finally {
-    if (transaction) try { await connection?.run('ROLLBACK'); } catch { discard = new Error('Discarding unresolved source authority stage.'); }
-    try { await connection?.close(discard); } catch { unavailable(); }
-  }
-  return observation!;
+  // Projection publication holds this same cross-process kernel fence. Its PG
+  // shared admission lock alone does not exclude this reader's shared lock:
+  // a newly written projection can otherwise change the observed directory or
+  // inode halfway through a valid native-source observation. Keep the existing
+  // kernel-before-PG order through final rechecks and connection cleanup.
+  return withWorkspaceMutationLock(workspace.workspaceId, async () => {
+    try {
+      connection = await (dependencies.openConnection ?? openDb)();
+      await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'); transaction = true;
+      await connection.run("SET LOCAL statement_timeout='5s'"); await connection.run("SET LOCAL lock_timeout='4s'");
+      await connection.get('SELECT pg_advisory_xact_lock_shared($1::bigint)', [collaborationAdmissionLockKey(workspace.workspaceId)]);
+      observation = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, dependencies);
+      stage = observation.stage;
+      // An incomplete observation grants nothing. Roll back every failed readonly
+      // stage instead of publishing a successful transaction for partial coverage.
+      await connection.run(stage.coverage.complete ? 'COMMIT' : 'ROLLBACK'); transaction = false;
+    } catch { unavailable(); }
+    finally {
+      if (transaction) try { await connection?.run('ROLLBACK'); } catch { discard = new Error('Discarding unresolved source authority stage.'); }
+      try { await connection?.close(discard); } catch { unavailable(); }
+    }
+    return observation!;
+  });
 }
 
 /** Legacy preview callers receive only the original Stage DTO. */

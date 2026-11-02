@@ -1882,6 +1882,19 @@ noch nicht. Der erfolgreiche Einzellauf schließt diese Regression nicht.
 Fehlgeschlagene Vorschauen lösen kein Apply aus; Originaldaten bleiben erhalten.
 Die temporären zusätzlichen Operationsläufe sind noch kein dauerhafter Runner.
 
+Ein [reproduzierter Projektions-Race](architecture/document-source-projection-fence-2026-11-02.md)
+ist anschließend lokal korrigiert: Die eigenständige Quellenbeobachtung hält
+dieselbe vorhandene Workspace-Sperre wie der Projektionsschreiber, vor dem
+SQL-Checkout bis nach Verbindungsschließung. Zwei echte Prozessfälle scheitern
+vorher und bestehen nachher; die vier neuen Sperrfälle und insgesamt 40
+Quellen-/Dateifälle bestehen. Zwei weitere Versuche mit echten lesenden
+QA-PostgreSQL-Verbindungen liefern vollständige native Nachweise und erhalten
+Originalzeilen/`xmin` sowie Bytes. Die 53 Collector-Fälle, ESLint und striktes
+TypeScript bestehen ebenfalls. Der Collector auf einer vom Aufrufer gehaltenen
+Verbindung bleibt unverändert. Die kompilierte Abnahme einschließlich echter
+Projektion und die genaue Zuordnung aller bisherigen Laufzeitfehler bleiben
+offen; der operative Blocker ist damit noch nicht geschlossen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
