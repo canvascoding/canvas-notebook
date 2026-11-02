@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
+import { beginWorkspaceSourceScan } from '../observability/workspace-source-scan';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { mapValidatedNativeStateRow, NativeSessionStateReaderError, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
@@ -285,12 +286,15 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const nativeBindings: WorkspaceNativeSourceBinding[] = [], privateNativeStates: PersistedCollaborationState[] = [];
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
+  const measurement = beginWorkspaceSourceScan();
+  let measuring: 'catalogue' | 'filesystem' | 'native' | 'physical' | 'revalidation' = 'catalogue';
   try {
     const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
     const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
     privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
+    measurement.checkpoint(measuring); measuring = 'filesystem';
     const registered = new Map(catalogue.map((entry) => [entry.path, entry]));
     const verifyPhysicalAuthority = async (filePath: string) => {
       const current = await readWorkspaceDocumentCatalogue(connection!, workspace, { paths: [filePath] });
@@ -387,6 +391,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       }
     }
     // Extension/capability never authorize projection bytes for this branch.
+    measurement.checkpoint(measuring); measuring = 'native';
     const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
       limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
     totalBytes += nativeRead.reservedBytes;
@@ -423,6 +428,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         parentPath = path.posix.dirname(parentPath);
       }
     }
+    measurement.checkpoint(measuring); measuring = 'physical';
     for (const item of observed) {
       if (!item.stat.isFile()) continue;
       const document = registered.get(originalMove?.logicalPath(item.relativePath) ?? item.relativePath);
@@ -453,6 +459,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
+    measurement.checkpoint(measuring); measuring = 'revalidation';
     const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
@@ -501,6 +508,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     // coverage contract; retaining this witness grants no execution authority.
     ...(privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
+  measurement.checkpoint(measuring);
+  measurement.finish(!gaps.length, sources.length, gaps.length);
   if (confirmedSourceReadChange) confirmedSourceReadChanges.add(observation);
   return observation;
 }

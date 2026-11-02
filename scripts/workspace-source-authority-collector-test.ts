@@ -19,6 +19,7 @@ import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-i
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../app/lib/markdown/workspace-source-authority-stage';
 import { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } from '../app/lib/markdown/document-link-read-projection';
+import { withWorkspaceSourceScanObserver, type WorkspaceSourceScanMeasurement } from '../app/lib/observability/workspace-source-scan';
 
 // Actual embedded PostgreSQL queries and real FS/Yjs. Minimal owned tables model
 // the read contract only: no production DDL/ACL/backend/lock/concurrency proof.
@@ -107,12 +108,19 @@ test('strict source authority collector with caller-owned embedded SQL and genui
         all: async (statement, values) => { const start = performance.now();
           try { return await connection.all(statement, values); } finally { sqlMs += performance.now() - start; } } };
       const start = performance.now();
-      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(measured, workspace, { physicalParserVersion: 3 });
+      const measurements: WorkspaceSourceScanMeasurement[] = [];
+      const observed = await withWorkspaceSourceScanObserver(value => measurements.push(value), () =>
+        readWorkspaceLinkSourceAuthorityOnConnection(measured, workspace, { physicalParserVersion: 3 }));
       t.diagnostic(JSON.stringify({ fixture: '300-native-50-physical', totalMs: Math.round(performance.now() - start),
         sqlMs: Math.round(sqlMs), queries: trace.length }));
       assert.equal(observed.stage.coverage.complete, true, JSON.stringify(observed.stage.coverage.gaps));
       assert.equal(observed.nativeBindings.length, 300);
       assert.equal(observed.stage.sources.length, 350);
+      assert.equal(measurements.length, 1);
+      assert.equal(measurements[0].sources, 350);
+      assert.deepEqual(Object.keys(measurements[0].phases), ['catalogue', 'filesystem', 'native', 'physical', 'revalidation']);
+      assert(Object.values(measurements[0].phases).every(value => Number.isFinite(value) && value >= 0));
+      t.diagnostic(JSON.stringify(measurements[0]));
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
       assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
     });
