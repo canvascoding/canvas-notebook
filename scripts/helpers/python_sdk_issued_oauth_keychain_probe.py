@@ -34,7 +34,7 @@ PROBE_STAGES = frozenset((
     "startup", "configuration", "wheel", "connection", "workspace_result",
     "workspace_shape", "storage", "redirect_binding", "token_claims", "document_tools",
     "search_read", "create", "editor_open", "edit", "editor_verified", "path_operations", "refreshed_operations",
-    "copy_preview", "copy_apply", "copy_status", "copy_recover", "copy_content",
+    "copy_preview", "copy_apply", "copy_busy", "source_released", "copy_status", "copy_recover", "copy_content",
     "move_seed", "move_preview", "move_apply", "move_status", "move_recover", "move_content",
     "delete_seed", "delete_preview", "delete_apply", "delete_status", "delete_recover", "delete_content",
     "transport_closed", "issued_keychain", "real_expiry", "refresh", "independent_readback", "keychain_cleanup", "issued_bearer", "expired_bearer",
@@ -290,7 +290,20 @@ async def main() -> None:
                 "destinationWorkspaceId": destination, "selections": [{"sourcePath": config["createPath"], "destinationPath": "sdk-copied.md"}],
                 "operationId": operation, "planId": preview["planId"]})
             probe_stage = "copy_apply"
-            assert success(await notebook.copy_apply(**request))["execution"]["status"] == "complete"
+            blocked = await notebook.copy_apply(**request)
+            expected_busy = {"apiVersion": 1, "success": False, "code": "COPY_BUSY", "operationId": operation}
+            assert blocked.is_error and blocked.structured_content == expected_busy
+            assert len(blocked.content) == 1 and blocked.content[0].type == "text"
+            assert json.loads(blocked.content[0].text) == expected_busy
+            probe_stage = "copy_busy"
+            emit("copy_busy", result=expected_busy)
+            probe_stage = "source_released"
+            await receive("source_released", timeout=75)
+            # Only explicit recovery of the retained original request; no new
+            # operation, plan, selections or automatic Apply replay.
+            probe_stage = "copy_recover"
+            resumed = success(await notebook.copy_recover(**request))
+            assert resumed["execution"]["status"] == "complete" and resumed["alreadyKnown"] is True
             probe_stage = "copy_status"
             assert success(await notebook.copy_status(workspace, destination, operation))["operation"]["completion"]["status"] == "confirmed"
             probe_stage = "copy_recover"

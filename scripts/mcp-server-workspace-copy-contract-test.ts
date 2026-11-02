@@ -66,6 +66,7 @@ export async function mcpServerWorkspaceCopyContractTest(): Promise<void> {
     const { NativeCopyStatusNotFoundError } = await import('../app/lib/files/workspace-operation-native-copy-status');
     const { NativeCopyOperationNotFoundError } = await import('../app/lib/files/workspace-operation-native-copy-owner');
     const { NativeCopyRequestTooLargeError } = await import('../app/lib/files/workspace-operation-native-copy-request-budget');
+    const { WorkspaceFileLifecycleBusyError } = await import('../app/lib/files/workspace-file-lifecycle-guard');
     const { WorkspaceOperationManagedCopyPlanV4Error } = await import('../app/lib/files/workspace-operation-managed-copy-plan-v4');
     const error = (code: string, status?: number, selected?: string) => (value: unknown) => {
       assert(value instanceof WorkspaceCopyToolError); assert.equal(value.code, code);
@@ -206,6 +207,18 @@ export async function mcpServerWorkspaceCopyContractTest(): Promise<void> {
       assert.equal(blocked.status, 409);
       assert.deepEqual(blocked.body, { apiVersion: 1, success: false, code: 'COPY_NATIVE_REQUIRED', operationId });
       assert.deepEqual(formatError(importRequired, operationId).structuredContent, blocked.body);
+      const busy = failure(new WorkspaceFileLifecycleBusyError(), operationId);
+      assert.equal(busy.status, 409);
+      assert.deepEqual(busy.body, { apiVersion: 1, success: false, code: 'COPY_BUSY', operationId });
+      assert.deepEqual(formatError(new WorkspaceFileLifecycleBusyError(), operationId).structuredContent, busy.body);
+      const busyExecution = executionDto(); busyExecution.execution.errorCode = 'COLLABORATION_FILE_LIFECYCLE_BUSY';
+      const publicExecution = encode(busyExecution); assert(publicExecution.action === 'apply');
+      assert.equal(publicExecution.execution.errorCode, 'COPY_BUSY');
+      const busyStatus = statusDto(false); busyStatus.operation.journal.errorCode = 'COLLABORATION_FILE_LIFECYCLE_BUSY';
+      const publicStatus = encode(busyStatus); assert(publicStatus.action === 'status');
+      assert.equal(publicStatus.operation.journal.errorCode, 'COPY_BUSY');
+      for (const code of ['collaboration_file_lifecycle_busy', 'COLLABORATION_FILE_LIFECYCLE_BUSY private',
+        'COLLABORATION_FILE_LIFECYCLE_BUSY_UNKNOWN']) assert.equal(normalize(code), 'COPY_UNAVAILABLE');
     });
 
     check('actual authorization errors retain the original OAuth challenge while only bounded public error data is emitted', () => {

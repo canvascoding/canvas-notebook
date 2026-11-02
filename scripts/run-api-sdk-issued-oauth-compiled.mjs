@@ -11,6 +11,7 @@ import {
   inspectAcceptanceContainer as inspect, loadCompiledAcceptance,
   observeOwnedCompiledOAuthConnection, otherAcceptanceContainers as others,
   readPrivateJson, repository as repo, snapshotProtectedCompiledFixture,
+  withCompiledFixtureReadOnly,
 } from './helpers/compiled-api-sdk-acceptance.mjs';
 import { validateCompiledOperationJournal } from './helpers/compiled-operation-journal.mjs';
 
@@ -50,7 +51,7 @@ const interrupt = () => { interrupted = true; streamFailure = true; child?.kill(
 process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
 const pages = [], errors = []; let ownerUserId, expectedClientId, seedRequestAttempted = false;
 const permittedEvents = new Set(['wheel_verified', 'authorize', 'authenticated', 'searched_and_read', 'created', 'edited',
-  'operation_checked', 'refreshed_operation_checked', 'refreshed_edit_status', 'tool_failure',
+  'copy_busy', 'operation_checked', 'refreshed_operation_checked', 'refreshed_edit_status', 'tool_failure',
   'issued_bearer', 'expired_bearer', 'issued_keychain', 'expiry_wait', 'refreshed', 'independent_readback', 'keychain_cleaned', 'complete', 'failed']);
 async function ok(response, label) {
   if (interrupted && !cleaning) throw new Error('Owned SDK acceptance interrupted.');
@@ -189,9 +190,10 @@ async function verifyEditor(page, cycle, phase, expected, previous) {
     await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspace.id)}&path=${encodeURIComponent(created.result.document.path)}`, { waitUntil: 'domcontentloaded' });
     const editor = page.locator('.tiptap-editor-shell .ProseMirror'); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 }); await expect(editor).toContainText(oldText);
   }
-  proof.editOperationIds = [];
+  proof.editOperationIds = []; let lastEdited;
   for (let cycle = 0; cycle < proof.editorCycles; cycle++) {
     await send({ event: 'editor_open' }); const edited = await next('edited'); assert.equal(edited.index, cycle);
+    lastEdited = edited;
     proof.operationId = edited.result.operationId; proof.editOperationIds.push(edited.result.operationId);
     for (const page of pages.filter(page => !page.isClosed())) {
       const expected = `${newText} [${cycle + 1}]`, previous = cycle === 0 ? oldText : `${newText} [${cycle}]`;
@@ -204,6 +206,51 @@ async function verifyEditor(page, cycle, phase, expected, previous) {
   }
   assert.equal(new Set(proof.editOperationIds).size, proof.editorCycles);
   assert.equal(proof.editorChecks.length, proof.editorCycles * 4); proof.actualTwoOpenEditorsAndReload = true;
+  stage('copy-with-open-source-must-report-busy-and-retain-original');
+  const blocked = await next('copy_busy');
+  const copyOperationId = `compiled-copy-sdk-${nonce}`;
+  assert.deepEqual(blocked.result, { apiVersion: 1, success: false, code: 'COPY_BUSY', operationId: copyOperationId });
+  const pendingJournal = validateCompiledOperationJournal(readPrivateJson(proof.requestsFile, root),
+    { workspaces: [workspace.id, destinationWorkspace.id], nonce });
+  assert.equal(pendingJournal.length, 1); assert.equal(pendingJournal[0].kind, 'copy'); assert.equal(pendingJournal[0].mode, 'sdk');
+  const documentId = created.result.document.documentId;
+  const keyHex = crypto.createHash('sha256').update(`canvas.collaboration.room-owner.v1\0${documentId}`).digest('hex').slice(0, 16);
+  const lockParts = [Number.parseInt(keyHex.slice(0, 8), 16), Number.parseInt(keyHex.slice(8), 16)];
+  const observeSource = () => withCompiledFixtureReadOnly(acceptance, async database => {
+    const rows = (await database.query(`SELECT yjs_state,document_sequence,room_owner_token,room_owner_backend_pid,room_owner_backend_start
+      FROM public.collaboration_yjs_states WHERE document_id=$1 AND workspace_id=$2 AND path=$3 AND status='active'`,
+    [documentId, workspace.id, created.result.document.path])).rows;
+    assert.equal(rows.length, 1); const row = rows[0]; assert(Buffer.isBuffer(row.yjs_state));
+    const held = (await database.query(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype='advisory'
+      AND granted AND mode='ExclusiveLock' AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+      AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1) AS held`, lockParts)).rows[0].held;
+    return { nativeSha256: digest(row.yjs_state), sequence: Number(row.document_sequence),
+      ownerReleased: row.room_owner_token === null && row.room_owner_backend_pid === null && row.room_owner_backend_start === null && held === false };
+  });
+  const activeSource = await observeSource(); assert.equal(activeSource.sequence, proof.editorCycles); assert.equal(activeSource.ownerReleased, false);
+  const pending = await withCompiledFixtureReadOnly(acceptance, async database => {
+    const operations = (await database.query(`SELECT status,plan_id,error_code FROM public.workspace_file_operations
+      WHERE operation_id=$1 AND source_workspace_id=$2 AND destination_workspace_id=$3`,
+    [copyOperationId, workspace.id, destinationWorkspace.id])).rows;
+    const steps = (await database.query('SELECT step_key FROM public.workspace_file_operation_steps WHERE operation_id=$1', [copyOperationId])).rows;
+    const native = (await database.query('SELECT operation_id FROM public.collaboration_native_copy_receipts WHERE operation_id=$1', [copyOperationId])).rows;
+    const scenes = (await database.query('SELECT operation_id FROM public.collaboration_excalidraw_copy_receipts WHERE operation_id=$1', [copyOperationId])).rows;
+    const target = (await database.query('SELECT id FROM public.collaboration_documents WHERE workspace_id=$1 AND path=$2',
+    [destinationWorkspace.id, 'sdk-copied.md'])).rows;
+    assert.deepEqual(operations, [{ status: 'prepared', plan_id: pendingJournal[0].sdk.plan_id, error_code: null }]);
+    assert.deepEqual(steps, []); assert.deepEqual(native, []); assert.deepEqual(scenes, []); assert.deepEqual(target, []);
+    return { originalPreparedHeader: true, recordedSteps: 0, nativeBirths: 0, sceneBirths: 0, destinationDocuments: 0 };
+  });
+  proof.openSourceCopyBusy = { ...pending, operationId: copyOperationId, source: activeSource }; save();
+  for (const page of pages.filter(page => !page.isClosed())) await page.close();
+  await expect.poll(observeSource, { timeout: 45000, intervals: [100, 250, 500, 1000] })
+    .toEqual({ ...activeSource, ownerReleased: true });
+  const reread = await ok(await context.request.post('/api/documents/read', { data: {
+    apiVersion: 1, workspaceId: workspace.id, documentId, format: 'native', maxBytes: 16384,
+  } }), 'Released source readback');
+  assert.equal(reread.complete, true); assert.equal(reread.fragment, lastEdited.body); assert.equal(reread.document.version, lastEdited.document.version);
+  proof.ownSourceOwnerReleaseVerified = true; proof.copyUsesExplicitOriginalRecovery = true; save();
+  await send({ event: 'source_released' });
   for (const kind of ['copy', 'move', 'delete']) {
     const checked = await next('operation_checked'); assert.equal(checked.kind, kind); assert.equal(checked.operationId, `compiled-${kind}-sdk-${nonce}`); assert.equal(checked.completed, true);
   }

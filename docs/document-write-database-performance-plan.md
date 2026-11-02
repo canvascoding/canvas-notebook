@@ -2205,7 +2205,37 @@ mit derselben begrenzten Diagnose beobachtbar gemacht: Operationsreferenz,
 eigener sicherer Code und nativer Meldungsfingerabdruck, ohne Argumente,
 rohe Fehlermeldung, Stack oder Zugangsdaten. Das bestehende Fehlerformat,
 OAuth-Challenge und alle Berechtigungs-/Schreibentscheidungen bleiben gleich.
-Die neue kompilierte Ursachenbeobachtung und die Copy-Korrektur sind offen.
+Die kompilierte Ursachenbeobachtung auf `752b911c4` besteht erneut sechs Edits
+und alle 24 Editorprüfungen. Sie belegt als Copy-Ursache exakt
+`COLLABORATION_FILE_LIFECYCLE_BUSY`: Die beiden Quell-Editoren sind noch offen.
+Diese Schutzsperre ist ausdrücklich bereits durch die bestehenden Lifecycle-
+UI-Tests vorgegeben und bleibt erhalten. Die gemeinsame MCP-/REST-
+Fehlerübersetzung ergänzt den fehlenden festen Eintrag zu `COPY_BUSY` (409).
+Der neue Vertragstest scheitert vor dem Eintrag und besteht anschließend mit
+Fehler-, Ausführungs- und Statusformat sowie unbekannten Codevarianten.
+
+Die dauerhafte OAuth-Abnahme erwartet nun nach unveränderten sechs Edits und
+24 Editorprüfungen die sichere Busy-Ablehnung. Sie prüft den ursprünglichen
+vorbereiteten Auftrag, fehlende native/Scene-Geburten und unveränderten
+Quellinhalt, schließt die eigenen Editoren und wartet auf die nachgewiesene
+Freigabe von Owner-Feldern und tatsächlicher PostgreSQL-Sperre. Erst dann
+fordert sie explizites Recover mit derselben Operations-/Plan-ID und denselben
+Auswahlen an. Es gibt weder eine neue Copy-Operation noch automatische
+Schreibwiederholung. Ein echter zusätzlicher MCP-/PostgreSQL-Fall prüft dabei
+auch erhaltene private Staging-Dateien und den zugehörigen Asset-Originalbeleg;
+die bestehenden Dokument-/Assetdateien und Quellzeilen bleiben geschützt.
+Die kompilierte Ausführung dieses ergänzten Ablaufs bleibt offen.
+
+Die sieben echten MCP-/PostgreSQL-/FD-/Service-Ereignisgruppen bestehen,
+einschließlich dieser expliziten Recovery und der bestehenden verlorenen
+Commit-/Transportbestätigungen und Rechteentzüge. Acht echte API-Key-REST-/
+MCP-Adaptergruppen sowie acht installierte SDK-Copy-Gruppen bestehen ebenfalls;
+der SDK-Lauf verwendet 40 echte Key-Header-Anfragen und bestätigt null
+automatische Schreibwiederholungen. Die Quellen bleiben unverändert, eigene
+Schemas/Clients/Testdateien sind bereinigt. Die zehn Node-Helferfälle, zwei
+Python-Journalfälle, Syntax, ESLint und strenges TypeScript mit sechs Wurzeln/
+5191 Quellen bestehen. Für diesen lokalen Korrekturstand stehen die neuen
+Builds, kompilierte Abnahme und GitHub-Prüfungen noch aus.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
