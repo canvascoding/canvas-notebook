@@ -504,7 +504,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   } catch (error) {
     try { rethrowSourceInfrastructureError(error); }
     catch (infrastructureError) {
-      measurement.checkpoint(measuring); measurement.finish(false, sources.length, gaps.length);
+      measurement.checkpoint(measuring); measurement.finish(false, sources.length, gaps.length, gaps.map(gap => gap.code));
       throw infrastructureError;
     }
     confirmedSourceReadChange = error instanceof ConfirmedSourceReadChange
@@ -527,7 +527,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     ...(privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
   measurement.checkpoint(measuring);
-  measurement.finish(!gaps.length, sources.length, gaps.length);
+  measurement.finish(!gaps.length, sources.length, gaps.length, gaps.map(gap => gap.code));
   if (confirmedSourceReadChange) confirmedSourceReadChanges.add(observation);
   return observation;
 }
