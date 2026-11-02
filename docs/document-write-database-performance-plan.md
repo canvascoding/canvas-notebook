@@ -258,7 +258,7 @@ abgenommen. Bereits laufende API-/SDK-Arbeit wird durch die Ergänzung nicht
 verworfen. Erforderliche Prüfungen folgen den tatsächlich geänderten Abläufen;
 Review Center und Undo werden weiterhin nicht ausgebaut.
 
-Arbeitsstand am 01.11.2026; die jeweils geprüften Produktstände und Teilbelege
+Arbeitsstand am 02.11.2026; die jeweils geprüften Produktstände und Teilbelege
 stehen in den zugehörigen Abschnitten:
 
 | Paket | Status | Nächster konkreter Nachweis |
@@ -267,9 +267,9 @@ stehen in den zugehörigen Abschnitten:
 | 1 | in Umsetzung | Die vollständigen neuen REST-/SDK- und Browser-Aufrufer in die vergleichbare 10-/200-Quellen-Messung aufnehmen. |
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
-| 4 | in Umsetzung | Die noch fehlenden API-Key-Schreib-/Job-Ursprünge an die vorhandenen Speicher- und Operationskerne anbinden. |
-| 4a | in Umsetzung | Datei-/Recovery-Adapter und Key-Import bestehender Originaldateien ergänzen; vollständige kompilierte Abnahme durchführen. Verwaltung, Leseadapter sowie native HTTP-/MCP-Create-/Import-/Edit-Wege einschließlich installiertem SDK sind lokal teilweise abgenommen, siehe 5a. |
-| 4b | in Umsetzung | Die noch fehlenden Schreib-/Recovery-Matrixfälle aus 5b vorbereiten und danach am kompilierten Produkt prüfen. |
+| 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
+| 4a | in Umsetzung | Die am gebauten Stand `a3ff44120` bestandene Schlüsselverwaltung, reale Key-Zugriffe und OAuth-/Keychain-/Erneuerungsfälle in den dauerhaften Runnern erneut abnehmen; danach die restlichen Rechte-/Unterbrechungs-/Dateimatrixfälle schließen. Alle geforderten Adapter sind implementiert, siehe 5a. |
+| 4b | in Umsetzung | Dauerhafte kompilierte Runner abschließen; dann übrige Auth-/Operationsvarianten, Konkurrenz, Neustart/Restore, öffentliche Beispiele und reguläre `test:all`-/Recovery-Abnahme am endgültigen Stand durchführen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -1825,9 +1825,45 @@ OAuth-Ausstellung, macOS-Schlüsselbund, tatsächlichem Tokenablauf und erneuter
 Verbindung aus einem separaten Prozess bleibt erforderlich. Die grüne CI allein
 ist ausdrücklich keine vollständige API-/SDK- oder Release-Abnahme.
 
+#### Verifizierter Fixstand und dauerhafte Runner, 02.11.2026
+
+Der veröffentlichte Fixstand `a3ff44120` besteht alle 13 PR-Prüfungen, einschließlich
+der vollständigen nativen API-/Agent-Prüfung und je sechs installierten SDK-/HTTP-
+Familien mit 53 Gruppen auf Python 3.10.22 und 3.15.1. Alle zwölf frischen
+Installationsprofile bestehen ohne Skips. Der korrigierte Host-/Linux-Build und
+die frische einzelne Notebook-Runtime bestehen einschließlich tatsächlicher
+Anmeldung und Originaldatenkontrolle. Die vorher mit `API_KEY_INVALID`
+abgewiesene Workspace-Liste und Dokumentanlage funktionieren mit demselben
+regulär ausgestellten Schlüssel nun auch am kompilierten Server.
+
+Die vier Desktop-/Mobilfälle der Schlüsselverwaltung bestehen auf diesem Stand.
+Das tatsächlich installierte Wheel führt echte Browserfreigabe/PKCE, Suche,
+mehrseitiges Lesen sowie Create/Edit/Status aus; zwei offene Editoren und deren
+Neuladen zeigen die Änderung. Nach dem tatsächlichen Ablauf des 15-Minuten-Tokens
+erneuert der offizielle SDK-Provider den Token automatisch ohne zweite
+Browserfreigabe. Ein unabhängiger Python-Prozess liest den erneuerten Zugang aus
+dem wirklichen macOS-Schlüsselbund und führt einen geschützten HTTP-Aufruf aus.
+Die eigene Verbindung und der eigene Seed-Key werden widerrufen, eigene
+OS-Einträge entfernt und die vorherigen MCP-Einstellungen wiederhergestellt.
+Originalzeilen/`xmin`, Inhalte und Anker bleiben unverändert. Das ist die Abnahme
+dieser konkreten Fälle, nicht der vollständigen Matrix oder des Releases.
+
+Die Fälle werden jetzt als
+`test:api-keys:compiled` und `test:api-keys:sdk:oauth:compiled` dauerhaft integriert.
+Gemeinsame Testmechanik prüft Image-/Quellstand, private Eingaben und geschützte
+Originale ausschließlich über reale Docker-/Read-only-PG-Beobachtungen.
+OAuth-Zustimmung, Schlüsselverwaltung und sämtliche Änderungen bleiben echte
+HTTP-Aufrufe. Zusätzlich angelegte Bearer-/Ablauf- und Bereinigungsprüfungen
+müssen in der neuen Fassung noch vollständig laufen. Fünf Harness-Schutzfälle,
+das reguläre Key-Vertragspaket, der tatsächliche Originaldatenvergleich und die
+Prüfung der installierten Wheel-Dateien bestehen bereits. Ein früherer
+temporärer Probe-Erfolg wird nicht als Ausführung des neuen Runners gezählt.
+[Aufruf und genaue Prüfgrenzen](testing/compiled-api-sdk-acceptance.md) sind
+dokumentiert. Paket 4c, Gesamtabnahme und Release bleiben offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
-**Portabler CI-Pfad, 02.11.2026 – lokal geprüft, GitHub-Abnahme offen:** Die drei
+**Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub auf `a3ff44120` geprüft:** Die drei
 gemeinsamen nativen Fixtures verwenden eine zentrale, ausschließlich für Tests
 bestimmte Datenbankauswahl. CI verlangt eine eigene Nonce-Datenbank und prüft
 PostgreSQL 18, Datenbankname, tatsächlichen Eigentümer und Lauf-Marker vor DDL.

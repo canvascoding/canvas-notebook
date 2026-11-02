@@ -146,7 +146,7 @@
     "test:pi:usage": "tsx --conditions react-server scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx --conditions react-server scripts/pi-tool-registry-test.ts && npm run test:pi:search-process",
     "test:documents:read:tools": "NODE_ENV=test node scripts/run-document-read-tool-dispatch-test.mjs",
-    "test:api-keys": "NODE_ENV=test tsx --conditions react-server scripts/native-document-request-json-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-management-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-authentication-test.ts && tsx scripts/api-key-management-ui-test.tsx && NODE_ENV=test tsx --conditions react-server scripts/api-key-workspace-proxy-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-error-result-test.ts",
+    "test:api-keys": "NODE_ENV=test tsx --conditions react-server scripts/native-document-request-json-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-management-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-authentication-test.ts && tsx scripts/api-key-management-ui-test.tsx && NODE_ENV=test tsx --conditions react-server scripts/api-key-workspace-proxy-test.ts && NODE_ENV=test tsx --conditions react-server scripts/api-key-error-result-test.ts && npm run test:api-keys:compiled:harness",
     "test:api-keys:authentication": "NODE_ENV=test tsx --conditions react-server scripts/api-key-authentication-test.ts",
     "test:api-keys:ci-config": "NODE_ENV=test tsx scripts/native-test-database-config-test.ts",
     "test:api-keys:ci-database": "NODE_ENV=test tsx --conditions react-server scripts/native-api-sdk-ci-database.ts",
@@ -1063,7 +1063,10 @@
     "test:plugins:icon-reliability:native": "NODE_ENV=test CANVAS_SHARED_CONNECTION_POSTGRES_TEST=1 tsx --conditions react-server scripts/capability-package-icon-targeted-test.ts --native",
     "test:studio:prompt-linebreaks": "tsx --conditions react-server scripts/studio-prompt-text-test.ts && npm run test:studio:openai-service && npm run test:studio:veo && npm run test:studio:seedance && node --experimental-test-module-mocks --import tsx --conditions react-server scripts/studio-sound-prompt-test.ts",
     "test:agent-runtime:startup": "node scripts/agent-runtime-startup-test.mjs && npm run test:secrets:bootstrap",
-    "test:server:standalone-imports": "node scripts/collaboration-standalone-import-test.mjs"
+    "test:server:standalone-imports": "node scripts/collaboration-standalone-import-test.mjs",
+    "test:api-keys:compiled": "node scripts/run-api-key-management-compiled-browser.mjs",
+    "test:api-keys:sdk:oauth:compiled": "node scripts/run-api-sdk-issued-oauth-compiled.mjs",
+    "test:api-keys:compiled:harness": "node --test scripts/compiled-api-sdk-acceptance-helper-test.mjs"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.14",
