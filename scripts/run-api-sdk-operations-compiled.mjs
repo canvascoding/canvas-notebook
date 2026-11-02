@@ -12,13 +12,15 @@ import {
   repository, snapshotProtectedCompiledFixture,
 } from './helpers/compiled-api-sdk-acceptance.mjs';
 import {
-  compiledOperationCases, compiledOperationStatusRequests, validateCompiledOperationJournal,
+  compiledOperationCases, compiledOperationProfile, compiledOperationStatusRequests, validateCompiledOperationJournal,
 } from './helpers/compiled-operation-journal.mjs';
 
-let acceptance, python, wheel;
+let acceptance, python, wheel, profile;
 try {
-  assert(process.argv.slice(2).length === 4 && process.argv.slice(2).every(Boolean),
+  const args = process.argv.slice(2);
+  assert([4, 5].includes(args.length) && args.slice(0, 4).every(Boolean),
     'Supply runtime proof, preservation fixture, installed-wheel interpreter and wheel.');
+  profile = compiledOperationProfile(args[4]);
   acceptance = loadCompiledAcceptance(process.argv[2], process.argv[3]);
   python = path.resolve(process.argv[4]); wheel = path.resolve(process.argv[5]);
   assert(fs.statSync(python).isFile()); fs.accessSync(python, fs.constants.X_OK);
@@ -45,7 +47,8 @@ const runtimeSourceHashes = Object.fromEntries(fs.readdirSync(sdkSource)
 assert(Object.keys(runtimeSourceHashes).length > 0 && Object.keys(runtimeSourceHashes).length <= 64);
 const proof = { suite: 'compiled-rest-installed-sdk-operations', sourceSha: acceptance.sourceSha,
   runtimeProof: acceptance.runtimePath, preservationFixture: acceptance.fixturePath,
-  nonce, result: prefix + '-result.json', requestsFile: prefix + '-requests.json',
+  nonce, profile: profile.name, expectedIncomingLinkGroups: profile.incomingLinkGroups,
+  result: prefix + '-result.json', requestsFile: prefix + '-requests.json',
   helperHashes, wheelSha256: digest(fs.readFileSync(wheel)), runtimeSourceHashes,
   startedAt: new Date().toISOString(), workspaces: [], issuanceAttempts: [], events: [], phase: 'preflight', passed: false };
 const sensitive = [...acceptance.sensitive], contexts = [], failures = [];
@@ -126,7 +129,7 @@ function checkCases(name) {
     assert.equal(event.operationId, `compiled-${event.kind}-${event.mode}-${nonce}`);
     if (name === 'operation_checked') {
       assert.equal(event.completed, true);
-      if (event.kind !== 'copy') assert.equal(event.incomingLinksUpdated, true);
+      if (event.kind !== 'copy') assert.equal(event.incomingLinksUpdated, profile.incomingLinks);
       else assert.notEqual(event.sourceDocumentId, event.destinationDocumentId);
     } else assert.equal(event.historicalStatusPreserved, true);
   }
@@ -193,7 +196,7 @@ try {
   const fresh = await signIn(); assert.notEqual(fresh.session.id, issuingSession.session.id);
   proof.newManagementSessionVerified = true;
   fs.writeFileSync(proof.requestsFile, '[]\n', { flag: 'wx', mode: 0o600 });
-  stage('actual-rest-and-installed-sdk-copy-move-delete-and-links');
+  stage('actual-rest-and-installed-sdk-copy-move-delete-' + profile.name);
   const env = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ']
     .flatMap(name => process.env[name] ? [[name, process.env[name]]] : []));
   child = spawn(python, ['-I', '-B', helper], { cwd: acceptance.root, env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -220,10 +223,11 @@ try {
   deadline = setTimeout(() => { proof.deadlineExceeded = true; rejectProtocol(); }, 20 * 60_000);
   const send = value => new Promise((resolve, reject) => child.stdin.write(JSON.stringify(value) + '\n',
     error => error ? reject(new Error('Private operation input failed.')) : resolve()));
-  await send({ event: 'configure', origin, nonce, workspaces: proof.workspaces, apiKey: issued.key, readKey: readonly.key,
+  await send({ event: 'configure', origin, nonce, profile: profile.name, workspaces: proof.workspaces, apiKey: issued.key, readKey: readonly.key,
     requestsFile: proof.requestsFile, runtimeSourceHashes, verificationHelper,
     wheelUri: pathToFileURL(wheel).href, wheelSha256: proof.wheelSha256 }); issued.key = ''; readonly.key = '';
-  assert.equal((await next('ready_rotate')).operationCount, 6); checkCases('operation_checked');
+  const ready = await next('ready_rotate');
+  assert.equal(ready.operationCount, 6); assert.equal(ready.profile, profile.name); checkCases('operation_checked');
   const verifiedWheel = proof.events.filter(value => value.event === 'wheel_verified');
   assert.equal(verifiedWheel.length, 1); assert.equal(verifiedWheel[0].sha256, proof.wheelSha256);
   assert.equal(verifiedWheel[0].runtimeFiles, Object.keys(runtimeSourceHashes).length);
@@ -242,7 +246,8 @@ try {
   await send({ event: 'rotated', apiKey: latestKey }); rotated.key = '';
   const complete = await next('complete');
   assert.equal(complete.groups, 6); assert.equal(complete.rotatedOwnershipGroups, 6);
-  assert.equal(complete.incomingLinkGroups, 4); assert.equal(complete.compiledNext, true); assert.equal(complete.oauthIssuance, false);
+  assert.equal(complete.profile, profile.name); assert.equal(complete.incomingLinkGroups, profile.incomingLinkGroups);
+  assert.equal(complete.compiledNext, true); assert.equal(complete.oauthIssuance, false);
   checkCases('rotated_operation_checked');
   assert.deepEqual(proof.events.filter(value => value.event === 'old_key_denied').map(value => value.actualStatus), [401]);
   child.stdin.end();
@@ -320,7 +325,7 @@ try {
   proof.processExit = { closed, code: exitCode, signal: exitSignal, stderrBytes, stdoutBytes };
   proof.passed = proof.actualCompiledOperationsPassed === true && failures.length === 0;
   proof.finishedAt = new Date().toISOString(); proof.phase = proof.passed ? 'complete' : 'failed-evidence-retained'; save();
-  console.log(JSON.stringify({ passed: proof.passed, result: proof.result, phase: proof.phase,
+  console.log(JSON.stringify({ passed: proof.passed, profile: proof.profile, result: proof.result, phase: proof.phase,
     failures, processExit: proof.processExit }));
   process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', interrupt);
   if (!proof.passed) process.exitCode = 1;

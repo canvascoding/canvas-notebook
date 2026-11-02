@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { compiledOperationCases, compiledOperationStatusRequests, validateCompiledOperationJournal }
+import { compiledOperationCases, compiledOperationProfile, compiledOperationStatusRequests, validateCompiledOperationJournal }
   from './helpers/compiled-operation-journal.mjs';
+
+test('link checks remain the default; minimal preview coverage is an additional explicit profile', () => {
+  assert.deepEqual(compiledOperationProfile(), { name: 'incoming-links', incomingLinks: true, incomingLinkGroups: 4 });
+  assert.deepEqual(compiledOperationProfile('--minimal'), { name: 'minimal', incomingLinks: false, incomingLinkGroups: 0 });
+});
+
+test('unknown flags cannot silently reduce the requested operation profile', () => {
+  for (const value of ['', '--skip-links', '--minimal=true', null, true, {}]) {
+    assert.throws(() => compiledOperationProfile(value));
+  }
+});
 
 function fixture() {
   const context = { nonce: randomUUID(), workspaces: ['ws_' + randomUUID(), 'ws_' + randomUUID()] };

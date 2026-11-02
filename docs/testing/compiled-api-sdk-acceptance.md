@@ -5,7 +5,7 @@ They do not start another app, rebuild an image, prepare a database, manufacture
 a principal or enable Review Center/Undo. Prepare the current production build
 and freshly recreate the Notebook through the managed local-stack workflow first.
 
-The ordinary `test:api-keys` package also runs eight local Node harness checks
+The ordinary `test:api-keys` package also runs ten local Node harness checks
 for private-file ownership, permissions, links, bounds, report redaction and
 operation-journal scope, plus two Python standard-library tests against actual
 private files for atomic journal replacement. They require `python3`, use no
@@ -121,6 +121,13 @@ Use a fresh virtual environment with the wheel's MCP extra installed. Unlike
 the OAuth/Keychain runner, this profile does not require an OS credential store:
 
 ```bash
+# First retain the original immediate Create -> Preview sequence.
+npm run test:api-keys:sdk:operations:compiled -- \
+  /absolute/runtime-result.json /absolute/fixture.json \
+  /absolute/venv/bin/python /absolute/canvas_notebook_python-VERSION-py3-none-any.whl \
+  --minimal
+
+# Then verify incoming-link behavior in a separate, nonce-owned run.
 npm run test:api-keys:sdk:operations:compiled -- \
   /absolute/runtime-result.json /absolute/fixture.json \
   /absolute/venv/bin/python /absolute/canvas_notebook_python-VERSION-py3-none-any.whl
@@ -135,9 +142,14 @@ provenance and all runtime bytes are verified by the existing wheel verifier.
 
 Both actual REST and SDK/MCP paths execute Copy, Move and Delete with Preview,
 Apply, read-only Status and explicit Recover. Copy crosses the two workspaces;
-Move and Delete operate in the second. The test checks fresh versus stable
+Move and Delete operate in the second. Both profiles are required. `--minimal`
+reaches each Move/Delete Preview immediately after the target Create, without
+creating another document, reading that source or adding a wait. The default
+profile also creates and verifies incoming links. A passing link profile cannot
+replace the minimal profile: its extra setup changes the timing of the original
+intermittent preview regression. The test checks fresh versus stable
 document identities, canonical body equality, Unicode paths, all manifest pages
-and the rewriting of four incoming-link sources. Delete must retain the visible
+and, in the default profile, the rewriting of four incoming-link sources. Delete must retain the visible
 link text. A rejected read-only Create must leave no target, and keys must not
 reach credential management or the Secrets API.
 
@@ -154,6 +166,8 @@ issuance by its original request ID, revokes only the nonce-owned credentials,
 disables only the two new workspace opt-ins, verifies the prior MCP tool settings
 and signs out its own management session. Test workspaces and documents remain
 available for inspection. Cleanup and preservation failures fail acceptance.
+Each result identifies `minimal` or `incoming-links`; neither result claims that
+the other profile passed. Unknown profile flags fail preflight.
 
 ## Evidence boundaries
 
@@ -169,6 +183,6 @@ regular `test:all`, Recovery/link UI, 10/200-source whole-flow measurements,
 document-tab-cache acceptance or final release/deployment verification. All
 remaining requirements stay in `docs/document-write-database-performance-plan.md`.
 
-The new durable file-operation runner has not yet been executed against the
+Neither profile of the durable file-operation runner has yet been executed against the
 freshly compiled container containing both projection-fence fixes. Its passing
 journal/harness checks are not a successful server-acceptance run.

@@ -84,6 +84,9 @@ async def main() -> None:
 
     logging.disable(logging.CRITICAL)
     config = receive("configure")
+    assert config["profile"] in ("minimal", "incoming-links")
+    incoming_links = config["profile"] == "incoming-links"
+    checked_links = 0
     origin, a, b = config["origin"], *config["workspaces"]
     assert origin == "http://127.0.0.1:3100" and a != b
     verifier = importlib.util.spec_from_file_location("canvas_actual_wheel_verifier", config["verificationHelper"])
@@ -199,11 +202,15 @@ async def main() -> None:
                     created = success(await notebook.create_markdown(b, target, source_read.body,
                         idempotency_key=kind + "-seed-" + mode + "-" + config["nonce"]))
                     document_id = created["document"]["documentId"]
-                    incoming_path = mode + "-" + kind + "-incoming.md"
-                    incoming = success(await notebook.create_markdown(b, incoming_path, "# Incoming\n\n[Target](" + target + ")\n",
-                        idempotency_key=kind + "-incoming-" + mode + "-" + config["nonce"]))
-                    incoming_id = incoming["document"]["documentId"]
-                    assert "(" + target + ")" in (await notebook.read_all(b, incoming_id, format="markdown")).body
+                    incoming_id = None
+                    if incoming_links:
+                        incoming_path = mode + "-" + kind + "-incoming.md"
+                        incoming = success(await notebook.create_markdown(b, incoming_path, "# Incoming\n\n[Target](" + target + ")\n",
+                            idempotency_key=kind + "-incoming-" + mode + "-" + config["nonce"]))
+                        incoming_id = incoming["document"]["documentId"]
+                        assert "(" + target + ")" in (await notebook.read_all(b, incoming_id, format="markdown")).body
+                    # Minimal mode reaches Preview immediately after Create,
+                    # without another document, source read or artificial wait.
                     operation = "compiled-" + kind + "-" + mode + "-" + config["nonce"]
                     selections = [{"source_path": target, "destination_path": moved}]
                     wire_selections = [{"sourcePath": target, "destinationPath": moved}]
@@ -233,20 +240,23 @@ async def main() -> None:
                     stage = mode + "_" + kind + "_recover"
                     recovered = success(await getattr(notebook, kind + "_recover")(**request)) if mode == "sdk" else await post(route, dict(wire, action="recover"))
                     assert recovered["operation"]["completion"]["status"] == "confirmed"
-                    linked = (await notebook.read_all(b, incoming_id, format="markdown")).body
-                    assert "Target" in linked and "(" + target + ")" not in linked
+                    if incoming_links:
+                        linked = (await notebook.read_all(b, incoming_id, format="markdown")).body
+                        assert "Target" in linked and "(" + target + ")" not in linked
+                        if kind == "move":
+                            assert "(" + moved + ")" in linked
+                        checked_links += 1
                     if kind == "move":
-                        assert "(" + moved + ")" in linked
                         assert (await entry(b, moved))["document_id"] == document_id
                         read = await notebook.read_all(b, document_id, format="markdown")
                         assert read.body == source_read.body and read.document["path"] == moved
                     else:
                         assert all(row["path"] != target for row in await entries(b))
                     emit("operation_checked", mode=mode, kind=kind, operationId=operation, documentId=document_id,
-                         stableIdentity=kind == "move", incomingLinksUpdated=True, completed=True)
+                         stableIdentity=kind == "move", incomingLinksUpdated=incoming_links, completed=True)
 
             assert (await notebook.read_all(a, source_id, format="markdown")).body == source_read.body
-        emit("ready_rotate", operationCount=len(retained))
+        emit("ready_rotate", operationCount=len(retained), profile=config["profile"])
         rotated = await asyncio.to_thread(receive, "rotated")
         assert (await rest.get("/api/workspaces")).status_code == 401
         emit("old_key_denied", actualStatus=401)
@@ -263,7 +273,8 @@ async def main() -> None:
             assert (recovered["execution"]["status"] == "complete" if kind == "copy"
                     else recovered["operation"]["completion"]["status"] == "confirmed")
             emit("rotated_operation_checked", kind=kind, mode=held["mode"], operationId=request["operation_id"], historicalStatusPreserved=True)
-    emit("complete", groups=6, rotatedOwnershipGroups=6, incomingLinkGroups=4, compiledNext=True, oauthIssuance=False)
+    emit("complete", groups=6, rotatedOwnershipGroups=6, incomingLinkGroups=checked_links,
+         profile=config["profile"], compiledNext=True, oauthIssuance=False)
 
 
 def error_facts(error: BaseException, depth: int = 0) -> dict:

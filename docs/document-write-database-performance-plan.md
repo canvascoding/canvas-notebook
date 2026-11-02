@@ -1939,6 +1939,18 @@ keinen HTTP-Authentifizierungsersatz. `test:api-keys:migration:native` ist Teil
 der nativen API-Suite. Diese Speicherprüfung ersetzt den noch offenen
 kompilierten Neustart-/Backup-/Restore-/Credential-Nachweis nicht.
 
+Die dauerhafte kompilierte Operationsprüfung erhält zusätzlich `--minimal`.
+Diese Variante führt nach der tatsächlichen Zielanlage unmittelbar die
+Move-/Delete-Vorschau aus, ohne dazwischen eine Linkquelle anzulegen, die Quelle
+erneut zu lesen oder zu warten. Die ursprüngliche sporadische Regression darf
+nicht allein durch die später ergänzten Linkfälle als geschlossen gelten,
+weil deren zusätzliche Vorbereitung den Ablauf zeitlich verändert. Die
+Standardvariante behält alle vier eingehenden Linkprüfungen. Beide Varianten
+verlangen jeweils sechs REST-/SDK-Operationen, Rotation und sechs historische
+Status-/Recovery-Zugriffe mit unabhängiger REST-Nachkontrolle und getrennter
+privater Evidenz. Zehn Node-Schutzfälle und zwei Python-Dateifälle bestehen;
+beide tatsächlichen Läufe am neuen kompilierten Container stehen noch aus.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei

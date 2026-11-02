@@ -2,6 +2,14 @@ import { isDeepStrictEqual } from 'node:util';
 
 export const compiledOperationCases = Object.freeze(['rest', 'sdk'].flatMap(mode =>
   ['copy', 'move', 'delete'].map(kind => Object.freeze({ mode, kind }))));
+
+/** Both profiles are required for acceptance; neither is a fallback for the other. */
+export function compiledOperationProfile(flag) {
+  if (flag === undefined) return Object.freeze({ name: 'incoming-links', incomingLinks: true, incomingLinkGroups: 4 });
+  if (flag === '--minimal') return Object.freeze({ name: 'minimal', incomingLinks: false, incomingLinkGroups: 0 });
+  throw new Error('Unknown compiled operation profile.');
+}
+
 const fail = () => { throw new Error('Compiled operation journal is outside its owned fixture.'); };
 const record = value => value && typeof value === 'object' && !Array.isArray(value)
   && Object.getPrototypeOf(value) === Object.prototype;
