@@ -96,24 +96,44 @@ The installed distribution, module path, wheel provenance, exact runtime file
 set and every runtime file's bytes must match the supplied wheel and checkout.
 The actual official MCP provider owns discovery, dynamic registration, PKCE,
 the bound callback listener and token exchange. A real browser completes consent
-and the normal settings API grants only the nonce-owned workspace.
+and the normal settings API grants only the two nonce-owned workspaces.
 
-The test performs real search, paged reads, Create/Edit/Status, two open editors
-and reload. It also uses the actual issued token through the SDK's explicit
+The test performs real search, paged reads and Create, followed by six
+version-bound SDK edits. Each edit must reach both open editors and remain after
+both reloads: 24 live/reload checks, with the original assertion deadlines and
+no retries. A failure records its exact cycle, editor, phase and assertion plus
+bounded visibility flags; document text, OAuth URLs and credentials are not
+included in those diagnostics. Confirmed operation identity, effect and durable
+sequence stay fixed; asynchronous checkpoint/history acknowledgements may advance.
+
+The same genuine OAuth connection performs cross-workspace Copy and separate
+Move/Delete cases with Preview, Apply, Status and explicit Recover. Each
+Move/Delete Preview immediately follows target Create, without a source read,
+extra document or artificial wait. Copy preserves source content and creates a
+new identity, Move retains identity/content, and Delete removes the selected
+entry. Each Apply request is written to a private, atomic fsynced journal first;
+the existing shared journal validator binds it to these nonce-owned paths,
+workspaces and operation IDs. A failed preview is never applied. A retained
+failure journal is recovery evidence, not permission to replay an operation.
+
+It also uses the actual issued token through the SDK's explicit
 `access_token` mode. It then waits for the **real server-issued token expiry**;
 there is no altered clock, manufactured token or shortened production TTL.
 The expired original token must receive HTTP 401. The existing SDK connection
 must automatically refresh without another browser consent, storing the new
-token in the actual OS store. A separate isolated Python process reads those
+token in the actual OS store. All six Edit statuses and all three path-operation
+statuses and explicit recovery calls must retain their original ownership after
+refresh. A separate isolated Python process reads those
 stored credentials and performs a successful protected HTTP call.
 
 OAuth URLs travel only in bounded private pipes. Raw tokens are neither report
 events nor child arguments. Cleanup uses the observed registered client and its
 actual consent identity, retaining the server's original signed connection
-reference. It revokes only that grant and its nonce-issued seed key, removes only
+reference. It revokes only that grant and its nonce-issued seed key, disables and
+verifies only the two owned workspace opt-ins, removes only
 its OS-store profile, restores the prior MCP settings and signs out its own
 bootstrap session. An uncertain seed issuance is reconciled by its original
-request ID. The new test workspace is retained for inspection.
+request ID. Both new test workspaces and the request journal are retained for inspection.
 
 ## REST and installed-SDK file operations
 

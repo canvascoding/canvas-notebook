@@ -11,6 +11,7 @@ import asyncio
 import base64
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import logging
 import pathlib
@@ -32,7 +33,10 @@ reader: asyncio.StreamReader
 PROBE_STAGES = frozenset((
     "startup", "configuration", "wheel", "connection", "workspace_result",
     "workspace_shape", "storage", "redirect_binding", "token_claims", "document_tools",
-    "search_read", "create", "editor_open", "edit", "editor_verified",
+    "search_read", "create", "editor_open", "edit", "editor_verified", "path_operations", "refreshed_operations",
+    "copy_preview", "copy_apply", "copy_status", "copy_recover", "copy_content",
+    "move_seed", "move_preview", "move_apply", "move_status", "move_recover", "move_content",
+    "delete_seed", "delete_preview", "delete_apply", "delete_status", "delete_recover", "delete_content",
     "transport_closed", "issued_keychain", "real_expiry", "refresh", "independent_readback", "keychain_cleanup", "issued_bearer", "expired_bearer",
 ))
 probe_stage = "startup"
@@ -54,10 +58,27 @@ async def receive(event: str, timeout: float = 45) -> dict:
 
 
 def success(result):
+    if result.is_error:
+        code = result.structured_content.get("code") if isinstance(result.structured_content, dict) else None
+        emit("tool_failure", stage=probe_stage if probe_stage in PROBE_STAGES else "unknown",
+             code=code if isinstance(code, str) and re.fullmatch(r"[A-Z_]{1,100}", code) else None)
     assert not result.is_error and isinstance(result.structured_content, dict)
     assert len(result.content) == 1 and result.content[0].type == "text"
     assert json.loads(result.content[0].text) == result.structured_content
     return result.require_success()
+
+
+def assert_edit_status(actual: dict, original: dict) -> None:
+    # Effect/identity/durability stay fixed; an asynchronous checkpoint or history
+    # acknowledgement may legitimately advance after the original response.
+    for field in ("operationId", "state", "document", "effect", "persistence"):
+        assert actual[field] == original[field]
+    assert actual["state"] == "confirmed" and actual["persistence"]["status"] == "confirmed"
+    assert actual["projection"]["status"] in ("checkpointed", "unconfirmed")
+    assert actual["history"]["status"] in ("captured", "unconfirmed", "over_limit")
+    for field in ("projection", "history"):
+        if original[field]["status"] != "unconfirmed":
+            assert actual[field] == original[field]
 
 
 def jwt_claims(token: str) -> dict:
@@ -114,7 +135,23 @@ async def main() -> None:
         distribution, wheel_sha = verify_installed_wheel(config)
         emit("wheel_verified", sha256=wheel_sha, version=distribution.version, mcpVersion="2.3.0")
 
+        journal_helper = pathlib.Path(__file__).with_name("python_sdk_compiled_operations_probe.py").resolve()
+        assert journal_helper == pathlib.Path(config["operationJournalHelper"]).resolve()
+        assert hashlib.sha256(journal_helper.read_bytes()).hexdigest() == config["operationJournalHelperSha256"]
+        spec = importlib.util.spec_from_file_location("canvas_oauth_operation_journal", journal_helper)
+        assert spec and spec.loader
+        journal_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(journal_module)
+        retained: list[dict] = []
+
+        def retain(kind: str, request: dict, wire: dict) -> None:
+            held = {"kind": kind, "mode": "sdk", "sdk": request, "rest": wire}
+            journal_module.write_request_journal(pathlib.Path(config["requestsFile"]), [*retained, held])
+            retained.append(held)
+
         endpoint, workspace = config["endpoint"], config["workspaceId"]
+        destination = config["destinationWorkspaceId"]
+        assert workspace != destination and config["editorCycles"] == 6
         redirect_uri, authorization_endpoint = config["redirectUri"], config["authorizationEndpoint"]
         requested = ("openid", "offline_access", "workspace:list", "knowledge:search", "knowledge:read", "knowledge:write")
         storage = KeyringTokenStorage(endpoint, profile=config["profile"])
@@ -157,7 +194,7 @@ async def main() -> None:
             probe_stage = "workspace_result"
             workspaces = (await notebook.list_workspaces()).require_success()["workspaces"]
             probe_stage = "workspace_shape"
-            assert any(value["id"] == workspace for value in workspaces)
+            assert {workspace, destination} == {value["id"] for value in workspaces}
             probe_stage = "storage"
             info, tokens = await storage.get_client_info(), await storage.get_tokens()
             assert info is not None and tokens is not None and info.client_id == registered_client
@@ -178,7 +215,8 @@ async def main() -> None:
             tokens, claims = None, {}
             probe_stage = "document_tools"
             names = {tool.name for tool in await transport.list_tools()}
-            assert {"list_workspaces", "search_knowledge", "read_knowledge_source", "create_knowledge_source", "edit_knowledge_source"} <= names
+            assert {"list_workspaces", "get_knowledge_manifest", "search_knowledge", "read_knowledge_source", "create_knowledge_source",
+                    "edit_knowledge_source", "copy_knowledge_source", "move_knowledge_source", "delete_knowledge_source"} <= names
             probe_stage = "search_read"
             search = success(await notebook.search_documents(workspace, config["query"], max_results=25))
             assert search["coverage"]["globalCurrentContent"] == "not_certified"
@@ -200,22 +238,104 @@ async def main() -> None:
                 expected_version=created["document"]["version"], max_bytes=256, max_pages=64, max_total_bytes=16384)
             assert before.document == created["document"] and config["oldText"] in before.body
             emit("created", result=created, body=before.body, pageCount=len(before.pages))
-            probe_stage = "editor_open"
-            await receive("editor_open")
-            probe_stage = "edit"
-            edited = success(await notebook.edit_document(workspace, created["document"]["documentId"],
-                expected_version=before.document["version"], idempotency_key=config["editKey"],
-                patch={"kind": "native_text_replace", "edits": [{"oldText": config["oldText"], "newText": config["newText"], "expectedOccurrences": 1}]}))
-            assert edited["state"] == "confirmed" and edited["persistence"]["status"] == "confirmed"
-            assert edited["effect"]["outcome"] == "applied" and edited["effect"]["beforeVersion"] == before.document["version"]
-            assert edited["effect"]["afterVersion"] != before.document["version"]
-            after = await notebook.read_all(workspace, created["document"]["documentId"],
-                expected_version=edited["effect"]["afterVersion"], max_bytes=256, max_pages=64, max_total_bytes=16384)
-            assert config["newText"] in after.body and config["oldText"] not in after.body
-            assert success(await notebook.edit_status(workspace, edited["operationId"])) == edited
-            emit("edited", result=edited, document=after.document, body=after.body, pageCount=len(after.pages))
-            probe_stage = "editor_verified"
-            await receive("editor_verified")
+            prior_text, edit_results = config["oldText"], []
+            for index in range(config["editorCycles"]):
+                probe_stage = "editor_open"
+                await receive("editor_open")
+                probe_stage = "edit"
+                new_text = f'{config["newText"]} [{index + 1}]'
+                edited = success(await notebook.edit_document(workspace, created["document"]["documentId"],
+                    expected_version=before.document["version"], idempotency_key=config["editKey"] + f"-cycle-{index + 1}",
+                    patch={"kind": "native_text_replace", "edits": [{"oldText": prior_text, "newText": new_text, "expectedOccurrences": 1}]}))
+                assert edited["state"] == "confirmed" and edited["persistence"]["status"] == "confirmed"
+                assert edited["effect"]["outcome"] == "applied" and edited["effect"]["beforeVersion"] == before.document["version"]
+                assert edited["effect"]["afterVersion"] != before.document["version"]
+                after = await notebook.read_all(workspace, created["document"]["documentId"],
+                    expected_version=edited["effect"]["afterVersion"], max_bytes=256, max_pages=64, max_total_bytes=16384)
+                assert new_text in after.body and prior_text not in after.body
+                assert_edit_status(success(await notebook.edit_status(workspace, edited["operationId"])), edited)
+                edit_results.append(edited)
+                emit("edited", index=index, result=edited, document=after.document, body=after.body, pageCount=len(after.pages))
+                probe_stage = "editor_verified"
+                await receive("editor_verified")
+                before, prior_text = after, new_text
+
+            probe_stage = "path_operations"
+
+            async def entries() -> list[dict]:
+                cursor, seen, found = None, set(), []
+                for _ in range(100):
+                    page = success(await notebook.get_manifest(destination, max_depth=3, max_entries=20, cursor=cursor))
+                    assert page["coverage"]["source"] == "visible_workspace_namespace"
+                    found.extend(page["entries"])
+                    if not page["has_more"]:
+                        assert page.get("next_cursor") is None and len({row["path"] for row in found}) == len(found)
+                        return found
+                    cursor = page["next_cursor"]
+                    assert isinstance(cursor, str) and cursor and cursor not in seen
+                    seen.add(cursor)
+                raise AssertionError("Bounded owned OAuth manifest exceeded.")
+
+            markdown = await notebook.read_all(workspace, created["document"]["documentId"], expected_version=after.document["version"], format="markdown")
+            selections = [{"source_path": config["createPath"], "destination_path": "sdk-copied.md"}]
+            probe_stage = "copy_preview"
+            preview = success(await notebook.copy_preview(workspace, destination, selections))["preview"]
+            mappings = [row for row in preview["pathMappings"] if row["sourceWorkspaceId"] == workspace
+                        and row["sourcePath"] == config["createPath"] and row["destinationWorkspaceId"] == destination]
+            assert len(mappings) == 1 and mappings[0]["destinationPath"] == "sdk-copied.md"
+            operation = "compiled-copy-sdk-" + config["nonce"]
+            request = {"source_workspace_id": workspace, "destination_workspace_id": destination, "selections": selections,
+                       "operation_id": operation, "plan_id": preview["planId"]}
+            retain("copy", request, {"apiVersion": 1, "action": "apply", "sourceWorkspaceId": workspace,
+                "destinationWorkspaceId": destination, "selections": [{"sourcePath": config["createPath"], "destinationPath": "sdk-copied.md"}],
+                "operationId": operation, "planId": preview["planId"]})
+            probe_stage = "copy_apply"
+            assert success(await notebook.copy_apply(**request))["execution"]["status"] == "complete"
+            probe_stage = "copy_status"
+            assert success(await notebook.copy_status(workspace, destination, operation))["operation"]["completion"]["status"] == "confirmed"
+            probe_stage = "copy_recover"
+            assert success(await notebook.copy_recover(**request))["execution"]["status"] == "complete"
+            probe_stage = "copy_content"
+            copied = [row for row in await entries() if row["path"] == "sdk-copied.md"]
+            assert len(copied) == 1 and copied[0]["document_id"] != created["document"]["documentId"]
+            assert (await notebook.read_all(destination, copied[0]["document_id"], format="markdown")).body == markdown.body
+            emit("operation_checked", kind="copy", operationId=operation, completed=True)
+
+            for kind in ("move", "delete"):
+                probe_stage = f"{kind}_seed"
+                target = f"sdk-{kind}-source.md"
+                seeded = success(await notebook.create_markdown(destination, target, markdown.body,
+                    idempotency_key=f"oauth-{kind}-seed-" + config["nonce"]))
+                operation = f"compiled-{kind}-sdk-" + config["nonce"]
+                # Preserve Create -> immediate Preview: no intervening read, document or wait.
+                probe_stage = f"{kind}_preview"
+                if kind == "move":
+                    selections = [{"source_path": target, "destination_path": "sdk-moved.md"}]
+                    preview = success(await notebook.move_preview(destination, selections))["preview"]
+                    request = {"workspace_id": destination, "selections": selections, "operation_id": operation, "plan_id": preview["planId"]}
+                    wire = {"workspaceId": destination, "selections": [{"sourcePath": target, "destinationPath": "sdk-moved.md"}]}
+                else:
+                    preview = success(await notebook.delete_preview(destination, target))["preview"]
+                    request = {"workspace_id": destination, "path": target, "operation_id": operation, "plan_id": preview["planId"]}
+                    wire = {"workspaceId": destination, "path": target}
+                assert preview["readiness"] == "ready"
+                retain(kind, request, {"apiVersion": 1, "action": "apply", "operationId": operation, "planId": preview["planId"], **wire})
+                probe_stage = f"{kind}_apply"
+                assert success(await getattr(notebook, kind + "_apply")(**request))["operation"]["completion"]["status"] == "confirmed"
+                probe_stage = f"{kind}_status"
+                assert success(await getattr(notebook, kind + "_status")(destination, operation))["operation"]["completion"]["status"] == "confirmed"
+                probe_stage = f"{kind}_recover"
+                assert success(await getattr(notebook, kind + "_recover")(**request))["operation"]["completion"]["status"] == "confirmed"
+                probe_stage = f"{kind}_content"
+                current = await entries()
+                assert all(row["path"] != target for row in current)
+                if kind == "move":
+                    moved = [row for row in current if row["path"] == "sdk-moved.md"]
+                    assert len(moved) == 1 and moved[0]["document_id"] == seeded["document"]["documentId"]
+                    observed = await notebook.read_all(destination, seeded["document"]["documentId"], format="markdown")
+                    assert observed.body == markdown.body and observed.document["path"] == "sdk-moved.md"
+                emit("operation_checked", kind=kind, operationId=operation, completed=True)
+            assert (await notebook.read_all(workspace, created["document"]["documentId"], expected_version=after.document["version"])).body == after.body
             probe_stage = "issued_keychain"
             stored = await storage.get_tokens()
             assert stored is not None and stored.access_token == original_access and stored.refresh_token
@@ -247,7 +367,7 @@ async def main() -> None:
             probe_stage = "refresh"
             assert authorizations == 1
             result = (await notebook.list_workspaces()).require_success()["workspaces"]
-            assert any(value["id"] == workspace for value in result)
+            assert {workspace, destination} == {value["id"] for value in result}
             renewed = await storage.get_tokens()
             assert renewed is not None and renewed.access_token != original_access and renewed.refresh_token
             fresh_claims = jwt_claims(renewed.access_token)
@@ -258,6 +378,20 @@ async def main() -> None:
             emit("refreshed", realTokenExpiryObserved=True, officialAutomaticRefresh=True,
                  actualProtectedHttpSucceeded=True, renewedTokenStoredInMacOS=True, repeatedConsent=False)
             renewed, fresh_claims, original_access = None, {}, ""
+            probe_stage = "refreshed_operations"
+            for original in edit_results:
+                status = success(await notebook.edit_status(workspace, original["operationId"]))
+                assert_edit_status(status, original)
+            emit("refreshed_edit_status", groups=len(edit_results), historicalOwnershipPreserved=True)
+            for held in retained:
+                kind, request = held["kind"], held["sdk"]
+                status = success(await notebook.copy_status(workspace, destination, request["operation_id"])) if kind == "copy" else success(
+                    await getattr(notebook, kind + "_status")(destination, request["operation_id"]))
+                assert status["operation"]["completion"]["status"] == "confirmed"
+                recovered = success(await getattr(notebook, kind + "_recover")(**request))
+                assert (recovered["execution"]["status"] == "complete" if kind == "copy"
+                        else recovered["operation"]["completion"]["status"] == "confirmed")
+                emit("refreshed_operation_checked", kind=kind, operationId=request["operation_id"], historicalOwnershipPreserved=True)
         probe_stage = "independent_readback"
         readback = await asyncio.to_thread(subprocess.run,
             [sys.executable, "-I", "-B", str(pathlib.Path(__file__).resolve()), "--readback"],
@@ -281,7 +415,8 @@ async def main() -> None:
         emit("keychain_cleaned", onlyOwnRecordsRemoved=True)
         probe_stage = "transport_closed"
         emit("complete", installedWheel=True, officialMcpVersion="2.3.0", actualOAuth=True, authorizations=authorizations,
-            actualSearchReadCreateEditStatus=True, transportClosed=True)
+            actualSearchReadCreateEditStatus=True, editCycles=len(edit_results), pathOperations=len(retained),
+            historicalEditStatusesAfterRefresh=len(edit_results), historicalPathStatusesAndRecoveryAfterRefresh=len(retained), transportClosed=True)
     finally:
         if "storage" in locals():
             for kind in ("tokens", "client_info"):

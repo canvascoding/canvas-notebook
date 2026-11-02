@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Der gemeinsame Stand `65e069683` besteht beide Builds, Start und beide kompilierten REST-/SDK-Operationsprofile einschließlich Linkpflege. Die UI-Abnahme findet zusätzlich eine Paginierungslücke nach erfolgreicher Schlüsselausgabe; deren Korrektur benötigt noch die eigene kompilierte Browserprüfung. Danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Der gemeinsame Stand `65e069683` besteht beide Builds, Start und beide kompilierten REST-/SDK-Operationsprofile einschließlich Linkpflege. `d6a686fc7` besteht zusätzlich beide Builds, Start und alle vier API-Key-Browserfälle einschließlich Paginierungsfix. Ein echter OAuth-Diagnoselauf besteht Tokenablauf, Erneuerung und Keychain; ein vorheriger Editorabgleich bleibt als nicht reproduzierter Befund erhalten. Die dauerhafte Abnahme wird um sechs Editorzyklen und echte OAuth-Pfadoperationen erweitert. Danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2044,6 +2044,43 @@ Geheimnisprüfungen sowie die API-Key-Vertragssuite bleiben grün. Die tatsächl
 kompilierte Wiederholung dieses UI-Fixes und die echte OAuth-/Keychain-/
 Ablaufprüfung stehen am neuen Fixstand noch aus. Review Center und Undo bleiben
 außen vor; Paket 4b und das Release bleiben offen.
+
+**Fortschritt am Paginierungsfix `d6a686fc7`:** Beide Produktionsbuilds,
+Neustart und Bootstrap-Anmeldung/-Abmeldung sowie alle vier kompilierten
+API-Key-Browserfälle bestehen ohne Wiederholungen und Überspringungen. Die
+geschützten Originaldaten bleiben unverändert. Der erste echte OAuth-Lauf
+bestätigt PKCE, Grants, Suche, Lesen, Create und dauerhaftes Edit, bricht aber
+danach beim Editorabgleich ab; der bisherige Runner speichert dafür nur einen
+allgemeinen Fehler. Alle eigenen Zugänge werden bereinigt. Eine unabhängige
+REST-/Browser-Lesung desselben Belegs bestätigt anschließend zweimal exakt
+denselben nativen Inhalt und dieselbe Version wie das SDK sowie vier aktuelle
+Editoransichten ohne alte Textfassung. Es liegt kein beobachteter verlorener
+Schreibvorgang vor; die ursprüngliche einzelne Abweichung ist damit nicht erklärt.
+
+Eine private Diagnosekopie erhält alle bisherigen Assertions und Zeitgrenzen und
+ergänzt lesende Phasenbeobachtungen. Sie besteht beide Live-Ansichten, Reloads,
+den tatsächlichen 15-Minuten-Ablauf mit HTTP 401 für den alten Token, automatische
+offizielle SDK-Erneuerung ohne zweite Zustimmung und unabhängiges Wiederöffnen
+aus dem macOS-Schlüsselbund. Sie ist getrennte Diagnoseevidenz und ersetzt die
+fehlgeschlagene dauerhafte Abnahme nicht.
+
+Der dauerhafte Runner prüft deshalb nun sechs aufeinanderfolgende versionierte
+SDK-Änderungen mit 24 Live-/Reload-Prüfungen und protokolliert den genauen
+fehlgeschlagenen Editor-/Zyklus-/Assertion-Schritt ohne Dokumenttexte oder
+Zugangsdaten. Zusätzlich deckt er Copy zwischen zwei neuen Workspaces sowie
+Move und Delete über dieselbe tatsächlich ausgestellte OAuth-Verbindung ab.
+Apply-Anfragen werden vor Versand mit dem vorhandenen atomaren Journal-Schreiber
+dauerhaft gespeichert und anhand des gemeinsamen Validators an die eigenen
+Nonce-Pfade gebunden. Nach wirklichem Tokenablauf und Erneuerung werden alle
+sechs Edit-Statusbelege und drei Pfadstatus-/Recovery-Aufrufe erneut geprüft.
+Die Bereinigung deaktiviert und verifiziert beide eigenen Workspace-Opt-ins.
+Die Produktdienste und die SDK-Laufzeitdateien ändern sich dafür nicht. Die
+eigene kompilierte Ausführung dieser erweiterten Abnahme steht noch aus.
+Die elf lokalen Daten-/Belegprüfungen, die vorhandenen zehn Node- und zwei
+Python-Journalschutzfälle, Syntax und ESLint bestehen. Diese Prüfungen erzeugen
+keine Anwendungsberechtigung und ersetzen den echten OAuth-Lauf nicht. Alle
+13 PR-Prüfungen des bisherigen kompilierten Stands `d6a686fc7` sind erfolgreich,
+einschließlich der tatsächlichen installierten SDKs unter Python 3.10 und 3.15.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
