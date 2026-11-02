@@ -81,7 +81,9 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
     const failure = async (kind: Kind, args: Record<string, unknown>, expected: string, token = currentToken) => {
       const { result, value } = await call(kind, args, token); assert.equal(result.isError, true);
       assert.equal(value.success, false); assert.equal(value.code, expected);
-      assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'code', ...(value.operationId === undefined ? [] : ['operationId']), 'success'].sort());
+      assert.equal(value.error_code, expected); assert.match(String(value.correlation_id), /^[a-f0-9-]{36}$/u);
+      assert.equal(value.retryable, expected === 'PATH_BUSY');
+      assert.equal(value.storage_status, value.phase === 'preview' || value.phase === 'status' ? 'not_applicable' : 'unknown');
       if (args.operation_id) assert.equal(value.operationId, args.operation_id); return { result, value };
     };
     const domain = async () => {
@@ -284,6 +286,43 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      await group('a changed physical projection rejects preview with source diagnostics', async () => {
+        const target = 'projection-race.md', full = path.join(h.source.rootPath, target);
+        await h.upload(target, Buffer.from('# Projection race\n'));
+        const before = await domain(), files = await filesystem();
+        let catalogues = 0, changed = false;
+        const blocked = await h.withProbe(async event => {
+          if (event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId
+            && JSON.stringify(event.values[1]) === '[""]' && ++catalogues === 2) {
+            const future = new Date(Date.now() + 5000); await fs.utimes(full, future, future); changed = true;
+          }
+        }, () => call('delete', { ...slots, action: 'preview', path: target }));
+        assert(changed, 'The real projection changed after its initial observation.');
+        assert.equal(blocked.result.isError, true); assert.equal(blocked.value.code, 'PATH_SOURCE_INCOMPLETE');
+        assert.equal(blocked.value.error_code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(blocked.value.phase, 'preview');
+        assert.deepEqual(blocked.value.issues, [{ code: 'physical-source-changed', path: target }]);
+        assert.equal(blocked.value.retryable, true); assert.equal(blocked.value.retry_after_ms, 250);
+        assert.deepEqual(await domain(), before);
+        const relative = path.relative(h.dataRoot, full);
+        const withoutInjectedTimes = (rows: unknown[]) => rows.map(value => {
+          const row = object(value); return row.path === relative ? { ...row, mtime: null, ctime: null } : row;
+        });
+        assert.deepEqual(withoutInjectedTimes(await filesystem()), withoutInjectedTimes(files));
+      });
+      await group('incomplete native source coverage reports blockers without a mutation', async () => {
+        const target = 'coverage-target.md', invalid = 'coverage-invalid-frontmatter.md';
+        await h.upload(target, Buffer.from('# Safe target\n'));
+        await h.upload(invalid, Buffer.from('---\nbroken: [\n---\n\n# Invalid metadata\n'));
+        const blocked = await noMutation(() => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_SOURCE_INCOMPLETE'));
+        assert.deepEqual(blocked.value.issues, [{ code: 'invalid-frontmatter', path: invalid }]);
+        assert.equal(blocked.value.issue_count, 1); assert.equal(blocked.value.issues_truncated, false);
+        assert.match(String(blocked.value.hint), /sources/);
+        await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id='principal-org' AND user_id='member'");
+        try {
+          const denied = await noMutation(() => failure('delete', { ...slots, action: 'preview', path: target }, 'ACCESS_DENIED'));
+          assert.equal(denied.value.issues, undefined);
+        } finally { await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'"); }
+      });
       await group('renewed real session reads original attribution and delete-right revocation denies status', async () => {
         const now = Date.now(), sid = `path-current-${crypto.randomUUID()}`, raw = crypto.randomBytes(32).toString('hex');
         await h.admin.query('INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at) VALUES($1,$2,\'member\',$3,$4,$4)', [sid, raw, now + 3600000, now]);

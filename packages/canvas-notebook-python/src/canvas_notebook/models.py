@@ -444,7 +444,7 @@ class WorkspaceCopyFailure(WorkspaceCopyFailureRequired, total=False):
 PublicWorkspacePathCode = Literal[
     "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "ACCESS_DENIED",
     "PATH_OPERATION_NOT_FOUND", "PATH_STATUS_NOT_FOUND", "PATH_PLAN_CHANGED",
-    "PATH_SCOPE_CHANGED", "PATH_BUSY", "PATH_CONFLICT", "PATH_TOO_LARGE",
+    "PATH_SCOPE_CHANGED", "PATH_BUSY", "PATH_CONFLICT", "PATH_SOURCE_INCOMPLETE", "PATH_TOO_LARGE",
     "PATH_OUTPUT_TOO_LARGE", "PATH_NATIVE_REQUIRED", "PATH_OUTCOME_UNCONFIRMED",
     "PATH_UNAVAILABLE",
 ]
@@ -719,6 +719,16 @@ class WorkspacePathFailureRequired(TypedDict):
 
 class WorkspacePathFailure(WorkspacePathFailureRequired, total=False):
     operationId: str
+    error_code: PublicWorkspacePathCode
+    correlation_id: str
+    phase: Literal["dispatch", "preview", "apply", "recover", "status"]
+    retryable: bool
+    retry_after_ms: int
+    storage_status: Literal["not_applicable", "unknown"]
+    issues: list[dict[str, str]]
+    issue_count: int
+    issues_truncated: bool
+    hint: str
 
 
 @dataclass(frozen=True, repr=False)

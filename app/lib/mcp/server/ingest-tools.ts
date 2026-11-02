@@ -189,7 +189,9 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
         const status = await readDirectMcpIngestStatus(authInfo, { workspaceId, path: destination, idempotencyKey: key,
           tool: id, expectedFingerprint: directMcpIngestFingerprint([id, destination, file ? [file.file_id, file.mime_type ?? null] : text]) });
         if (status.storage_status === 'confirmed') {
-          const body = { ...status, outcome: 'stored', processing_error_code: code, correlation_id: correlationId };
+          const body = { ...status, outcome: 'stored',
+            ...(status.processing_status !== 'completed' ? { processing_error_code: code } : {}),
+            attempt_error_code: code, correlation_id: correlationId };
           logDirectMcpToolFailure({ ...body, code, phase: directMcpFailurePhase(error, 'create'), retryable: false });
           return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
         }
@@ -201,7 +203,7 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     const busy = error instanceof WorkspaceFileLifecycleBusyError
       || error instanceof WorkspaceMutationLockError && error.retryable
       || error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_BUSY';
-    const detail = { code,
+    const detail = { code, error_code: code,
       message: native ? error.code : known ? error.message : 'The storage outcome is unknown. Query status with the original idempotency_key before retrying.',
       correlation_id: correlationId, phase: directMcpFailurePhase(error, busy ? 'admission' : 'create'), storage_status: 'unknown',
       ...(operationId ? { operation_id: operationId } : {}), retryable: busy,

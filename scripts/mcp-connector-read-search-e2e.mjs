@@ -3,7 +3,7 @@
  * Run: node --import tsx scripts/mcp-connector-read-search-e2e.mjs
  */
 import assert from 'node:assert/strict';
-import { verifyOperationReliabilityAcceptance } from './mcp-operation-reliability-acceptance.mjs';
+import { verifyOperationReliabilityAcceptance, verifySourceCoverageAcceptance, verifyReplacementCompletionAcceptance } from './mcp-operation-reliability-acceptance.mjs';
 import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
 import { verifyReplaceAcceptance } from './mcp-replace-acceptance.mjs';
@@ -29,7 +29,7 @@ const browser = await chromium.launch({ headless: true });
 const owner = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 } });
 await owner.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }]);
 const steps = [];
-let mcp, workspace;
+let mcp, workspace, sourceGapWorkspace;
 async function step(name, run) {
   const start = Date.now();
   await run();
@@ -37,7 +37,7 @@ async function step(name, run) {
   console.log(`PASS ${name}`);
 }
 const tools = ['auth_probe', 'get_workspace_overview', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
-  'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
+  'delete_knowledge_source', 'get_knowledge_manifest', 'search_knowledge', 'replace_knowledge_source', 'create_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset', 'upload_knowledge_asset'];
 try {
   await step('real login, workspace opt-in, browser consent and PKCE', async () => {
     await requireIngestE2EJson(await owner.request.post('/api/auth/sign-in/email', {
@@ -224,8 +224,31 @@ try {
     await page.screenshot({ path: path.join(artifacts, 'native-operation-link.png') });
     await page.close();
   });
+  let replacementCompletion;
+  await step('twelve sequential durable replacements survive room release and same-key replay', async () => {
+    replacementCompletion = await verifyReplacementCompletionAcceptance(call, runId);
+  });
+  let sourceCoverage;
+  await step('incomplete source coverage gives actionable delete diagnostics without mutation', async () => {
+    sourceGapWorkspace = (await requireIngestE2EJson(await owner.request.post('/api/workspaces', {
+      data: { type: 'personal', name: `MCP source coverage ${runId}` }, timeout: 90_000,
+    }), 'Create isolated source coverage workspace')).workspace;
+    await requireIngestE2EJson(await owner.request.put('/api/integrations/mcp-server/workspaces', {
+      data: { workspaceId: sourceGapWorkspace.id, enabled: true },
+    }), 'Enable source coverage workspace');
+    await requireIngestE2EJson(await owner.request.put('/api/integrations/mcp-server/connections/workspaces', {
+      data: { connectionId: mcp.connectionId, workspaceIds: [workspace.id, sourceGapWorkspace.id] },
+    }), 'Grant only acceptance workspaces');
+    sourceCoverage = await verifySourceCoverageAcceptance((name, args) =>
+      call(name, { ...args, workspace_id: sourceGapWorkspace.id }), runId, async document => {
+        await requireIngestE2EJson(await owner.request.post('/api/files/upload', {
+          headers: { 'x-canvas-workspace-id': sourceGapWorkspace.id },
+          multipart: { path: '.', files: { name: document.path, mimeType: 'text/markdown', buffer: Buffer.from(document.content) } },
+        }), 'Seed imported native source with invalid frontmatter');
+      });
+  });
   await fs.writeFile(path.join(artifacts, 'report.json'), JSON.stringify({ passed: true, runId, workspaceId: workspace.id,
-    baseURL, steps, reliability, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
+    baseURL, steps, reliability, replacementCompletion, sourceCoverage, sourceGapWorkspaceId: sourceGapWorkspace.id, documents: documents.map(row => ({ path: row.path, documentId: row.document_id, documentUrl: row.document_url })),
     evidence: 'Rebuilt managed container, real OAuth/HTTP/browser; local Codex connector verified separately.' }, null, 2));
   console.log(`Evidence: ${artifacts}`);
 } catch (error) {
