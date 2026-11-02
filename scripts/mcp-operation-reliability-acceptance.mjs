@@ -1,6 +1,7 @@
 /** Shared acceptance through actual HTTP or installed Codex MCP transport.
  * Synthetic documents only. Fault injection belongs in the isolated PG suites. */
 import assert from 'node:assert/strict';
+import { previewWithTransientRetries } from './mcp-preview-retry-acceptance.mjs';
 import { createHash } from 'node:crypto';
 
 export async function verifyOperationReliabilityAcceptance(call, key) {
@@ -89,16 +90,7 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
     assert.equal(readBack.sha256, createHash('sha256').update(content).digest('hex'));
     assert.equal(readBack.content, content);
     const previewRequest = { api_version: 1, action: 'preview', path };
-    let response = await call('delete_knowledge_source', previewRequest);
-    const retries = [];
-    while (response.isError && response.structuredContent?.retryable === true
-      && ['PATH_SOURCE_INCOMPLETE', 'PATH_BUSY', 'PATH_PLAN_CHANGED'].includes(response.structuredContent.code) && retries.length < 10) {
-      const failure = response.structuredContent;
-      assert(failure.correlation_id); assert.equal(failure.phase, 'preview');
-      retries.push({ code: failure.code, correlationId: failure.correlation_id, issues: failure.issues });
-      await new Promise(resolve => setTimeout(resolve, Math.min(2000, failure.retry_after_ms || 250)));
-      response = await call('delete_knowledge_source', previewRequest);
-    }
+    const { response, retries } = await previewWithTransientRetries(call, previewRequest);
     const preview = success(response);
     assert.equal(preview.action, 'preview');
     assert.equal(preview.preview.kind, 'delete');

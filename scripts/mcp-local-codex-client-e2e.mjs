@@ -3,6 +3,7 @@
  * Run: node --import tsx scripts/mcp-local-codex-client-e2e.mjs <report.json>
  */
 import assert from 'node:assert/strict';
+import { previewWithTransientRetries } from './mcp-preview-retry-acceptance.mjs';
 import { verifyOperationReliabilityAcceptance, verifySourceCoverageAcceptance, verifyReplacementCompletionAcceptance } from './mcp-operation-reliability-acceptance.mjs';
 import { verifyCapabilitiesAcceptance } from './mcp-capabilities-acceptance.mjs';
 import { verifyManifestAcceptance } from './mcp-manifest-acceptance.mjs';
@@ -20,8 +21,13 @@ import { parse } from 'dotenv';
 import { requireIngestE2EJson } from './mcp-file-ingest-e2e-helpers.ts';
 
 const fixture = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+const largeFixtures = await Promise.all(process.argv.slice(3).map(async file => JSON.parse(await fs.readFile(file, 'utf8'))));
 const baseURL = 'http://127.0.0.1:3100';
 assert.equal(fixture.baseURL, baseURL);
+for (const largeFixture of largeFixtures) {
+  assert.equal(largeFixture.baseURL, baseURL); assert.equal(largeFixture.passed, true);
+  assert.equal(largeFixture.documents.length, 300);
+}
 const env = parse(await fs.readFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook.env')));
 const serverName = `canvas_acceptance_${randomUUID().replaceAll('-', '')}`;
 // This per-process configuration replaces the server map, never config.toml.
@@ -72,7 +78,7 @@ try {
   assert.equal(added.length, 1, 'Bind only the actual new Codex OAuth connection.');
   connectionId = added[0].connectionId;
   await requireIngestE2EJson(await owner.request.put('/api/integrations/mcp-server/connections/workspaces', {
-    data: { connectionId, workspaceIds: [fixture.workspaceId, fixture.sourceGapWorkspaceId].filter(Boolean) },
+    data: { connectionId, workspaceIds: [fixture.workspaceId, fixture.sourceGapWorkspaceId, ...largeFixtures.map(row => row.workspaceId)].filter(Boolean) },
   }), 'Grant Codex only the local acceptance workspace');
   await page.close();
   const started = await rpc('thread/start', { cwd: process.cwd(), ephemeral: true });
@@ -140,8 +146,35 @@ try {
   assert(fixture.sourceGapWorkspaceId, 'Run the current HTTP acceptance first.');
   const sourceCoverage = await verifySourceCoverageAcceptance((name, args) =>
     call(name, { ...args, workspace_id: fixture.sourceGapWorkspaceId }), randomUUID());
+  const largePreviews = [];
+  for (const largeFixture of largeFixtures) for (const document of largeFixture.documents.slice(1, 7)) {
+    const args = { path: document.path, workspace_id: largeFixture.workspaceId };
+    const before = await call('read_knowledge_source', args);
+    assert.notEqual(before.isError, true); assert.equal(before.structuredContent.sha256, document.sha256);
+    const started = performance.now();
+    const { response: result, retries } = await previewWithTransientRetries(call, { ...args, api_version: 1, action: 'preview' });
+    const durationMs = Math.round(performance.now() - started);
+    const expectedPreview = largeFixture.expectedPreview ?? 'ready';
+    if (expectedPreview === 'ready') {
+      assert.notEqual(result.isError, true, JSON.stringify(result.structuredContent));
+      assert.equal(result.structuredContent.preview.readiness, 'ready');
+    } else {
+      assert.equal(expectedPreview, 'PATH_TOO_LARGE');
+      assert.equal(result.isError, true);
+      assert.equal(result.structuredContent.error_code, expectedPreview);
+      assert.equal(result.structuredContent.code, expectedPreview);
+      assert.equal(result.structuredContent.phase, 'preview');
+      assert.equal(result.structuredContent.retryable, false);
+      assert.equal(result.structuredContent.storage_status, 'not_applicable');
+      assert(result.structuredContent.correlation_id);
+      assert.equal(result.structuredContent.preview, undefined);
+    }
+    const after = await call('read_knowledge_source', args);
+    assert.notEqual(after.isError, true); assert.equal(after.structuredContent.sha256, document.sha256);
+    largePreviews.push({ workspaceId: largeFixture.workspaceId, path: document.path, outcome: expectedPreview, durationMs, retries, unchanged: true });
+  }
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
-    reliability, sourceCoverage, replacementCompletion, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
+    reliability, sourceCoverage, replacementCompletion, largePreviews, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
       'native read continuation', 'wrong version conflict', 'native search continuation',
       'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation', 'upload retries/status/checksum'],
