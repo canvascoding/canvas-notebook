@@ -1921,6 +1921,24 @@ die Schutzprüfungen führen keine API-/SDK-Dateioperation an diesem Server aus.
 Der erneute Container-Nachweis, die vollständige Matrix, die reguläre
 Gesamtsuite und das Release sind damit weiterhin nicht abgenommen.
 
+Die anschließende Wiederherstellungsprüfung findet einen zusätzlichen
+Integrationsfehler: Der portable PostgreSQL-Export lehnt auf dem echten
+QA-Schema zunächst `canvas_api_integrations` und nach dessen Einordnung auch
+`collaboration_original_markdown_import_api_keys` als unbekannt ab.
+Die beiden Zugangstabellen sind nun explizit erhaltener Zustand der Zielinstanz;
+Quellschlüssel werden nicht in portable Archive übernommen. Schlüsselgebundene
+Originalimport-Zuordnungen werden wie die bisherigen sitzungsgebundenen
+Originalimport-Zuordnungen zurückgesetzt. Dokumente, native Yjs-Zustände und
+dauerhafte Dateiimportbelege behalten ihre bestehende Kopierregel.
+Fünf neue echte PostgreSQL-Gruppen prüfen Exportausschluss, tatsächliche
+Restore-Übernahme und Rollback mit unveränderten Zielschlüsselzeilen samt `xmin`,
+zielseitige Benutzer sowie die Ablehnung eingeschleuster Credentials und
+weiterhin unbekannter Tabellen. Sie verwenden deklarierte Speicherfixtures in
+einer durch die regulären Laufzeitmigrationen initialisierten eigenen Datenbank,
+keinen HTTP-Authentifizierungsersatz. `test:api-keys:migration:native` ist Teil
+der nativen API-Suite. Diese Speicherprüfung ersetzt den noch offenen
+kompilierten Neustart-/Backup-/Restore-/Credential-Nachweis nicht.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei

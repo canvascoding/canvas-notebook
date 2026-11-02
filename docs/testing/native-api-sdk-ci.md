@@ -25,6 +25,15 @@ unchanged native data and completed writer/resource cleanup. A separate negative
 case keeps rejecting a projection changed outside the locking protocol. Issuing
 a signed fixture token here does not replace genuine browser OAuth acceptance.
 
+The native API package also runs `test:api-keys:migration:native` against a
+nonce-owned database initialized by the real runtime migrations. Five storage
+groups verify source-key exclusion from portable exports, actual restore commit
+and rollback with unchanged target credentials, target-only user retention,
+injected-credential rejection and continued rejection of unknown tables.
+Instance-bound original-import associations reset; document/native state and
+durable file-import receipts retain their copy policy. Declared storage fixtures
+do not establish authenticated HTTP or compiled restart/backup/restore acceptance.
+
 ## Database selection and cleanup
 
 CI requires `CANVAS_NATIVE_TEST_DATABASE_URL` and `CANVAS_NATIVE_TEST_RUN_ID`.
