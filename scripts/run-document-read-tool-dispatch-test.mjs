@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/agent-native-path-read-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
+    'server/collaboration-server.ts', 'app/lib/pi/core-tools.ts',
+    'app/lib/pi/native-file-read.ts', 'app/lib/pi/workspace-read-authority.ts',
+    'app/lib/pi/tool-registry.ts', 'app/lib/pi/tool-runtime-helpers.ts',
+    'app/lib/pi/agent-file-operations.ts', 'app/lib/pi/agent-tool-invocation.ts',
+    'app/lib/workspaces/request-principal.ts', 'app/lib/collaboration/agent-file-edits.ts',
+    'app/lib/collaboration/workspace-native-file-read.ts'],
   'scripts/agent-workspace-tree-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/pi/workspace-list-tool.ts',
     'app/lib/pi/core-tools.ts', 'app/lib/pi/tool-registry.ts', 'app/lib/pi/tool-runtime-helpers.ts',

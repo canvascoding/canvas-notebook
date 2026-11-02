@@ -1067,6 +1067,31 @@ ESLint und strenge Typprüfung (3.737 Wurzeln/9.067 Quellen) bestehen fehlerfrei
 Der Prompt-Dateibaum und die abschließende kompilierte Browser-/Release-Abnahme
 bleiben Teil der noch offenen Gesamtabnahme.
 
+**Generisches PI-Pfadlesen – native Quelle vor Dateiprojektion, 02.11.2026:**
+Der registrierte `read`-Aufruf liest in modernen Workspace-Sitzungen vorhandene
+native Textdokumente über den gemeinsamen Katalog-/Admission-Lesescope. Eine
+physische Datei ist dafür nicht erforderlich. `ls` und `read` verwenden dieselben
+echten Aufruf-Principals und frischen Berechtigungsphasen vor und nach dem nativen
+Lesen. Der Snapshot verwendet die SQL-Verbindung dieses Lesescopes. Ein fehlender
+oder beschädigter initialisierter Zustand erlaubt keinen Dateirückfall und wird
+beim Lesen nicht neu initialisiert. Physische, unregistrierte oder nie
+initialisierte Dateien bleiben Bytequellen ohne neue Dokument-, State-, Revisions-
+oder Projektionszeilen. Bestehende Legacy-/Zusatzpfade behalten ihren Pfadschutz.
+Native Textausgaben weisen ihre tatsächliche persistierte oder noch laufende
+Currency aus. Fehler, Binärdateien und zu große physische PDFs melden `isError`.
+
+Der dauerhafte Runner `test:pi:read:native` prüft zehn echte PostgreSQL-/Registry-
+Gruppen: fehlende und veraltete Projektionen, Plain/XML/Blocks, leere Dokumente,
+abweichende Dateiendungen, Block-IDs/-Hashes und Fortsetzung, physische/pristine
+Dateien, Größen-/Byte-Guards, beschädigte/fehlende States, Pfadschutz und bloße
+Ausführungskontexte sowie Rechteentzug vor und nach dem tatsächlichen State-Laden.
+Der vollständige Tool-Ablauf `read → read_document → edit_file V1 → read` benutzt
+den echten lokalen Kollaborationsserver und eine vollständige native Version.
+Reine Reads erhalten alle Fachzeilen samt `xmin`; der letzte Fall bestätigt eine
+beabsichtigte tatsächliche Bearbeitung. Alle eigenen Server, Clients, Schemas,
+Daten und Bundles werden geschlossen beziehungsweise entfernt. Die abschließende
+kompilierte Gesamtabnahme und die Prompt-Baum-Integration bleiben offen.
+
 Ein Manifest unterscheidet physische Originaldatei-Hashes von aktuellen nativen
 Markdown-Hashes. Fehlt die physische Projektion, bleiben deren Hash und Revision
 null und `file_state` lautet `not_materialized`. Erst eine erfolgreiche echte

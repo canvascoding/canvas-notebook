@@ -5,15 +5,13 @@ import path from 'node:path';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
-import { openDb } from '../db';
 import { readWorkspaceDocumentTreePage } from '../files/workspace-document-tree';
 import { readWorkspaceTreePage, formatWorkspaceTreePage, normalizeVisibleWorkspaceTreePath } from '../files/workspace-tree';
 import type { FileNode } from '../files/types';
 import type { WorkspaceContext } from '../workspaces/types';
-import { withWorkspaceAgentToolPrincipal, withWorkspaceAgentToolPrincipalOnConnection,
-  type WorkspaceAgentToolPrincipal } from '../workspaces/request-principal';
 import { getAgentExecutionContext } from './agent-execution-context';
 import { assertAgentPathAllowed, resolveAgentPath } from './agent-file-operations';
+import { withCurrentAgentWorkspaceRead } from './workspace-read-authority';
 
 const parameters = Type.Object({
   path: Type.Optional(Type.String({ maxLength: 4096, description: 'Workspace-relative directory or a separately authorized absolute skill/temp directory. Defaults to the active workspace root.' })),
@@ -38,29 +36,6 @@ async function canonicalNearest(candidate: string): Promise<string> {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT' || path.dirname(current) === current) throw error;
       suffix.unshift(path.basename(current)); current = path.dirname(current);
     }
-  }
-}
-
-function scopeIdentity(workspace: WorkspaceContext): string {
-  return JSON.stringify([workspace.workspaceId, workspace.workspaceType, workspace.rootPath, workspace.rootRelativePath ?? null,
-    workspace.organizationId ?? null, workspace.customerId ?? null, workspace.projectId ?? null, workspace.legacy]);
-}
-
-/** Genuine invocation policy on a short owned transaction, never an actor DTO.
- * The native namespace owns its separate read fence between these two checks. */
-async function currentWorkspace(principal: WorkspaceAgentToolPrincipal): Promise<WorkspaceContext> {
-  const connection = await openDb();
-  let transaction = false, discard: Error | undefined;
-  try {
-    await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); transaction = true;
-    const workspace = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal,
-      async access => structuredClone(access.workspace));
-    await connection.run('COMMIT'); transaction = false;
-    return workspace;
-  } finally {
-    if (transaction) try { await connection.run('ROLLBACK'); }
-    catch { discard = new Error('Discarding unresolved agent directory authorization transaction.'); }
-    await connection.close(discard);
   }
 }
 
@@ -115,14 +90,9 @@ async function list(selection: Selection) {
       { readDirectory: directory => physicalDirectory(root, directory) });
   };
   if (context.legacy) return read();
-  return withWorkspaceAgentToolPrincipal({ workspaceId: context.workspaceId, permission: 'canRead' }, async principal => {
-    const before = await currentWorkspace(principal);
-    const page = await read(before);
-    const after = await currentWorkspace(principal);
-    if (scopeIdentity(before) !== scopeIdentity(after)) throw new Error('The workspace identity changed while listing.');
-    await assertAgentPathAllowed(checkedPath);
-    return page;
-  });
+  const page = await withCurrentAgentWorkspaceRead(workspace => read(workspace));
+  await assertAgentPathAllowed(checkedPath);
+  return page;
 }
 
 export function createWorkspaceListTool(): AgentTool {

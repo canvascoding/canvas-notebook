@@ -206,6 +206,7 @@
     "test:pi:runtime-context": "tsx scripts/runtime-prompt-context-test.ts",
     "test:pi:workspace-tree": "tsx --conditions react-server scripts/workspace-file-tree-context-test.ts && node --conditions=react-server --import tsx --test scripts/workspace-tree-test.ts scripts/workspace-tree-native-test.ts",
     "test:pi:workspace-tree:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/agent-workspace-tree-postgres-test.ts",
+    "test:pi:read:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/agent-native-path-read-postgres-test.ts",
     "test:search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:chat:history-search": "tsx scripts/chat-history-search-test.ts && tsx scripts/chat-history-search-route-test.ts && tsx scripts/chat-history-search-ui-test.tsx && npm run test:pi:session-search",
