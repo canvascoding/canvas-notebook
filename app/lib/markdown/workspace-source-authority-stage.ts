@@ -131,7 +131,8 @@ function nativeSourceHeader(workspace: WorkspaceContext, document: WorkspaceDocu
 }
 
 async function readNativeSource(workspace: WorkspaceContext, document: WorkspaceDocumentCatalogueEntry,
-  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead> {
+  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false,
+  previous?: NativeSourceRead): Promise<NativeSourceRead> {
   const organizationId = workspace.organizationId ?? null;
   if (!raw || !(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
     || raw.yjs_state.byteLength !== Number(metadata!.state_bytes) || raw.state_vector.byteLength !== Number(metadata!.vector_bytes)
@@ -153,7 +154,13 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
   let inventory: NativeDocumentLinkInventory;
-  if (documentIndexRead) {
+  if (previous) {
+    // Only the private second pass supplies this observation. Fresh SQL headers,
+    // binary bounds, identity and full state (including bytes) were checked above.
+    // Changed state must reject the observation, never reuse an old inventory.
+    if (!isDeepStrictEqual(state, previous.state)) fail('native-source-changed', document.path);
+    inventory = previous.inventory;
+  } else if (documentIndexRead) {
     // Global schema readiness is checked by the batch reader before entering
     // this data-only, exactly scoped document inspection. SQL and identity
     // failures must never be mistaken for a local parsing failure.
@@ -184,7 +191,8 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{
+  loadState?: Dependencies['loadState'], documentIndexRead = false,
+  previousSources?: readonly NativeSourceRead[]): Promise<{
     sources: NativeSourceRead[]; gaps: PhysicalSourceGap[]; reservedBytes: number;
   }> {
   const gaps: PhysicalSourceGap[] = [];
@@ -250,9 +258,11 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
   if ((!documentIndexRead && raws.length !== selected.length) || rawById.size !== raws.length
     || raws.some(row => !selectedStateIdSet.has(row.document_id as string))) fail('native-source-changed', '');
   const result: NativeSourceRead[] = [];
+  const previousById = previousSources && new Map(previousSources.map(source => [source.state.documentId, source]));
   for (const [index, document] of selected.entries()) {
     try { result.push(await readNativeSource(workspace, document,
-      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead)); }
+      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead,
+      previousById?.get(document.id))); }
     catch (error) { if (!diagnose(error, document)) throw error; }
   }
   return { sources: result, gaps, reservedBytes };
@@ -473,7 +483,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     let currentSources: NativeSourceRead[];
     try {
       const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead);
+        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead,
+        documentIndexRead ? undefined : nativeRead.sources);
       if (current.gaps.length) fail('native-source-changed', '');
       currentSources = current.sources;
     }

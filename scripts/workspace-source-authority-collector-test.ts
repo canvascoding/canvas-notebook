@@ -306,6 +306,22 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.notEqual(again.privateNativeStates.find(state => state.documentId === first.documentId), first);
       assert.deepEqual((await sql.query<{ yjs_state: Uint8Array }>('SELECT yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [targets[0].documentId])).rows[0].yjs_state, targets[0].binary);
     });
+    await fixture('equal-length changed native bytes cannot reuse the first-pass inventory', async () => {
+      const target = await seed('native.md', 'plain_text', { text: '[Target](target.md)' });
+      await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native.md)');
+      const changed = Buffer.from(target.binary), offset = changed.indexOf(Buffer.from('target.md'));
+      assert(offset >= 0); changed[offset] = 'x'.charCodeAt(0);
+      assert.equal(changed.byteLength, target.binary.byteLength);
+      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, {
+        afterSourceFingerprint: async () => {
+          await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2', [changed, target.documentId]);
+        },
+      });
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.stage.sources.length, 0);
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'native-source-changed'));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+    });
     await fixture('genuine Delete-only Yjs change with an identical statevector after the physical fingerprint discards the complete observation', async () => {
       const target = await seed('native-delete-only.md', 'plain_text', { text: '[Target](target.md)' });
       await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native-delete-only.md)');
