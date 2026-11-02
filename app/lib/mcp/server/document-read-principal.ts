@@ -19,6 +19,8 @@ import { assertGrantStateActive, DirectMcpAuthorizationError, directMcpGrantStat
   verifyDirectMcpJwtClaims, type DirectMcpJwtClaims, type DirectMcpGrantStateRow } from './access-token-verifier';
 import { resolveDirectMcpOAuthConfig } from './config';
 import { getDirectMcpRuntimeSettings } from './runtime-settings';
+import { directMcpCorrelationId } from './diagnostics';
+import { withWorkspaceSourceScanObserver } from '@/app/lib/observability/workspace-source-scan';
 
 declare const principalBrand: unique symbol;
 /** A live private MCP read capture. Neither this type nor historical data is a grant. */
@@ -754,6 +756,7 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
   capture.busy = true;
   const phase: Phase = { capture, connection, active: true, accepting: true, checking: false,
     deadline: performance.now() + MAX_PHASE_MS, pending: new Set() };
+  const correlationId = directMcpCorrelationId();
   phases.set(connection, phase);
   const result = (async () => {
     try {
@@ -789,7 +792,10 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
         sessionId: capture.claims.sessionId, assertCurrent,
         ...(capture.policy.kind !== 'read' ? { tool: capture.policy.tool } : {}),
         ...(capture.policy.kind === 'edit' ? { assertActive: () => assertEditPhaseActive(phase) } : {}) }) as AccessFor<Kind>;
-      const value = await operation(access); phase.accepting = false;
+      const value = await withWorkspaceSourceScanObserver(measurement => {
+        console.info('[direct-mcp]', JSON.stringify({ ...measurement, correlation_id: correlationId,
+          backend_pid: phase.identity?.backend, principal_kind: kind }));
+      }, () => operation(access)); phase.accepting = false;
       if (phase.pending.size) { phase.failure ??= new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_DETACHED'); await Promise.allSettled([...phase.pending]); }
       alive(phase); await current(phase, true); alive(phase); return value;
     } catch (error) {
@@ -799,6 +805,13 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
         await Promise.allSettled([...phase.pending]);
       }
       const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : null;
+      try {
+        console.warn('[direct-mcp]', JSON.stringify({ event: 'principal_phase_failure', correlation_id: correlationId,
+          backend_pid: phase.identity?.backend, principal_kind: kind,
+          elapsed_ms: Math.round(performance.now() - phase.deadline + MAX_PHASE_MS),
+          internal_code: error instanceof DirectMcpDocumentReadPrincipalError ? error.code
+            : ['55P03', '57014', '25P04', '25P02', '08006', '08003'].includes(code) ? code : 'UNCLASSIFIED' }));
+      } catch { /* Diagnostics must preserve the primary failure. */ }
       poison(phase, code === '55P03' ? new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_BUSY') : error);
     } finally { phase.active = false; phase.accepting = false; phases.delete(connection); capture.busy = false; }
   })();
