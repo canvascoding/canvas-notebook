@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { beginWorkspaceSourceScan } from '../observability/workspace-source-scan';
+import { rethrowSourceInfrastructureError } from './source-infrastructure-error';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { mapValidatedNativeStateRow, NativeSessionStateReaderError, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
@@ -455,7 +456,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);
         sources.push({ kind: 'physical', inventory }); gaps.push(...inventory.coverage.gaps);
-      } catch (error) { if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
+      } catch (error) { rethrowSourceInfrastructureError(error);
+        if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
@@ -475,7 +477,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       if (current.gaps.length) fail('native-source-changed', '');
       currentSources = current.sources;
     }
-    catch { fail('native-source-changed', ''); }
+    catch (error) { rethrowSourceInfrastructureError(error); fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {
         throw new ConfirmedSourceReadChange('native-source-changed', binding.expected.path);
@@ -489,6 +491,11 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
     }
   } catch (error) {
+    try { rethrowSourceInfrastructureError(error); }
+    catch (infrastructureError) {
+      measurement.checkpoint(measuring); measurement.finish(false, sources.length, gaps.length);
+      throw infrastructureError;
+    }
     confirmedSourceReadChange = error instanceof ConfirmedSourceReadChange
       && gaps.every(entry => entry.code === 'uninspected-html');
     if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');

@@ -251,6 +251,19 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert.deepEqual(challenged._meta, directMcpToolAuthorizationError(auth, 'knowledge:write')._meta);
     });
     check('preview diagnostics preserve size, busy and authorization without disclosing exception text', () => {
+      for (const code of ['MCP_READ_PHASE_TIMEOUT', '57014', '25P04']) {
+        const error = Object.assign(new Error('secret SQL'), { code });
+        const preview = formatError(error, undefined, 'preview').structuredContent!;
+        assert.equal(preview.code, 'PATH_TIMEOUT'); assert.equal(preview.error_code, 'PATH_TIMEOUT');
+        assert.equal(preview.retryable, true); assert.equal(preview.retry_after_ms, 1000);
+        assert.equal(preview.storage_status, 'not_applicable');
+        assert(!JSON.stringify(preview).includes('secret'));
+        const apply = formatError(error, operationId, 'apply').structuredContent!;
+        assert.equal(apply.retryable, false); assert.equal(apply.storage_status, 'unknown');
+        assert.equal(apply.retry_after_ms, undefined);
+      }
+      assert.equal(formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
+        undefined, 'preview').structuredContent!.code, 'AUTHENTICATION_REQUIRED');
       for (const [cause, expected] of [
         [new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), 'PATH_TOO_LARGE'],
         [new WorkspaceFileLifecycleBusyError(), 'PATH_BUSY'],

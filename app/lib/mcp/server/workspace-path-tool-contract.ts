@@ -12,7 +12,7 @@ const MAX_SELECTIONS = 1000, MAX_STEPS = 10_000, MAX_PATH = 1024, MAX_WORKSPACE 
 const operationPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u, planPattern = /^[a-f0-9]{64}$/u;
 const statuses = { INVALID_REQUEST: 400, AUTHENTICATION_REQUIRED: 401, ACCESS_DENIED: 403,
   PATH_OPERATION_NOT_FOUND: 404, PATH_STATUS_NOT_FOUND: 404, PATH_PLAN_CHANGED: 409, PATH_SCOPE_CHANGED: 409,
-  PATH_BUSY: 409, PATH_CONFLICT: 409, PATH_SOURCE_INCOMPLETE: 409, PATH_TOO_LARGE: 413, PATH_OUTPUT_TOO_LARGE: 413,
+  PATH_BUSY: 409, PATH_TIMEOUT: 503, PATH_CONFLICT: 409, PATH_SOURCE_INCOMPLETE: 409, PATH_TOO_LARGE: 413, PATH_OUTPUT_TOO_LARGE: 413,
   PATH_NATIVE_REQUIRED: 409, PATH_OUTCOME_UNCONFIRMED: 503, PATH_UNAVAILABLE: 503 } as const;
 export type PublicWorkspacePathCode = keyof typeof statuses;
 export const PUBLIC_WORKSPACE_PATH_ERROR_CODES = frozen(Object.keys(statuses) as PublicWorkspacePathCode[]);
@@ -151,6 +151,7 @@ export function normalizePublicWorkspacePathErrorCode(value: unknown): PublicWor
   const mapping: Record<string, PublicWorkspacePathCode> = {
     invalid_token: 'AUTHENTICATION_REQUIRED', insufficient_scope: 'ACCESS_DENIED',
     MCP_READ_PRINCIPAL_REQUIRED: 'AUTHENTICATION_REQUIRED', MCP_READ_PRINCIPAL_EXPIRED: 'AUTHENTICATION_REQUIRED',
+    MCP_READ_PHASE_TIMEOUT: 'PATH_TIMEOUT', '57014': 'PATH_TIMEOUT', '25P04': 'PATH_TIMEOUT',
     MCP_READ_PRINCIPAL_ACCESS_DENIED: 'ACCESS_DENIED', MCP_READ_PRINCIPAL_SCOPE_CHANGED: 'PATH_SCOPE_CHANGED',
     MCP_READ_PRINCIPAL_BUSY: 'PATH_BUSY', MCP_READ_PRINCIPAL_REENTRANT: 'PATH_BUSY', MCP_READ_PRINCIPAL_DETACHED: 'PATH_SCOPE_CHANGED',
     MCP_JOB_PRINCIPAL_REQUIRED: 'AUTHENTICATION_REQUIRED', MCP_JOB_PRINCIPAL_INVALID: 'INVALID_REQUEST',
@@ -531,7 +532,8 @@ export function formatDirectMcpWorkspacePathError(error: unknown, selectedOperat
     : reason === 'NATIVE_SOURCE_EVIDENCE_CHANGED' ? 'PATH_PLAN_CHANGED' : failure.code;
   const body = { ...failure, code, error_code: code, correlation_id: directMcpCorrelationId(),
     phase: ['preview', 'apply', 'recover', 'status'].includes(phase) ? phase : 'dispatch',
-    retryable: code === 'PATH_BUSY', ...(code === 'PATH_BUSY' ? { retry_after_ms: 250 } : {}),
+    retryable: code === 'PATH_BUSY' || code === 'PATH_TIMEOUT' && phase === 'preview',
+    ...(code === 'PATH_BUSY' ? { retry_after_ms: 250 } : code === 'PATH_TIMEOUT' && phase === 'preview' ? { retry_after_ms: 1000 } : {}),
     ...(reason && !authorization(values) ? { reason_code: reason } : {}),
     ...(code === 'PATH_SOURCE_INCOMPLETE' && !authorization(values) ? sourceCoverageDiagnostic(values) : {}),
     storage_status: phase === 'preview' || phase === 'status' ? 'not_applicable' : 'unknown' };

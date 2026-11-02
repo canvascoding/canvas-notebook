@@ -96,6 +96,18 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 3);
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id') || entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
     });
+    for (const code of ['25P04', '57014', '08006', 'MCP_READ_PHASE_TIMEOUT']) {
+      for (const pass of [1, 2]) await fixture(`preserves ${code} during native read pass ${pass}`, async () => {
+        await seed('source.md');
+        const failure = Object.assign(new Error('private infrastructure details'), { code });
+        let reads = 0;
+        beforeQuery = async statement => {
+          if (statement.startsWith('WITH expected AS MATERIALIZED') && ++reads === pass) throw failure;
+        };
+        await assert.rejects(read, error => error === failure);
+        assert.equal(reads, pass);
+      });
+    }
     await fixture('large mixed workspace retains every source and bounded native SQL passes', async () => {
       for (let index = 0; index < 300; index++) await seed(`native-${index}.md`,
         index % 2 ? 'tiptap_blocks' : 'plain_text', { text: `# Document ${index}\n\n[Target](target.md)\n`.repeat(20) });

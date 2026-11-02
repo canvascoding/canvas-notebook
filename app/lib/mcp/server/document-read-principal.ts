@@ -90,7 +90,8 @@ type AccessFor<Kind extends FixedPolicy['kind']> = Kind extends 'copy'
       ? DirectMcpDocumentEditPrincipalAccess : DirectMcpDocumentReadPrincipalAccess;
 type ErrorCode = 'MCP_READ_PRINCIPAL_REQUIRED' | 'MCP_READ_PRINCIPAL_INVALID' | 'MCP_READ_PRINCIPAL_BUSY'
   | 'MCP_READ_PRINCIPAL_SCOPE_CHANGED' | 'MCP_READ_PRINCIPAL_ACCESS_DENIED' | 'MCP_READ_PRINCIPAL_SCHEMA_INVALID'
-  | 'MCP_READ_PRINCIPAL_DETACHED' | 'MCP_READ_PRINCIPAL_REENTRANT' | 'MCP_READ_PRINCIPAL_EXPIRED';
+  | 'MCP_READ_PRINCIPAL_DETACHED' | 'MCP_READ_PRINCIPAL_REENTRANT' | 'MCP_READ_PRINCIPAL_EXPIRED'
+  | 'MCP_READ_PHASE_TIMEOUT';
 export class DirectMcpDocumentReadPrincipalError extends Error {
   readonly status: number;
   constructor(readonly code: ErrorCode) {
@@ -158,8 +159,8 @@ function alive(phase: Phase): void {
   if (!phase.active || !phase.capture.active || phases.get(phase.connection) !== phase) fail('MCP_READ_PRINCIPAL_REQUIRED');
   if (phase.failure !== undefined) throw phase.failure;
   if (phase.capture.failure !== undefined) throw phase.capture.failure;
-  if (performance.now() > phase.deadline) fail('MCP_READ_PRINCIPAL_EXPIRED');
   assertCaptureUnexpired(phase.capture);
+  if (performance.now() > phase.deadline) fail('MCP_READ_PHASE_TIMEOUT');
 }
 function assertCaptureUnexpired(capture: Capture): void {
   if (capture.claims.expiresAt * 1000 <= Date.now()) fail('MCP_READ_PRINCIPAL_EXPIRED');
