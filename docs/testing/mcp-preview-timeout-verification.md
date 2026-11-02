@@ -10,11 +10,12 @@ Native revalidation reuses analysis only for identical fresh bytes and metadata.
 
 ## Verified locally
 
-- Production host build and fresh managed container build passed. Container image: `sha256:1261d37419a72c67c9657130683e1bbcc10798f5769456cfe77ca99fdd2f29b6`. Eleven changed application files matched their source SHA-256.
+- Production host build and fresh managed container build passed. Container image: `sha256:476d0ff150b28e18653f5103d39c8563f83758977428e917a91bc5b988c220ec`. Thirteen changed application files matched their source SHA-256.
 - Collector: 64 tests, including 300 native plus 50 physical sources, equal-length changes, malformed changed bytes and unchanged-byte analysis reuse.
 - MCP path HTTP/PostgreSQL: 19 groups, including actual SQL timeout and changes to rights, source state and session between read transactions. No executable preview or unrelated durable changes escape rejected reads.
 - Path wire contract: 13 groups. Native Copy owner: 10 groups. Ingest status: real lock contention, same-key recovery with exactly one document, durable COMMIT recovery, status reads and revoked authority passed.
 - Browser/OAuth/HTTP: all 17 steps passed on the final image. Includes PKCE, published schemas, pagination, upload restart/hash, selected edit targets, revision protection, document links, six delete previews, twelve replacements and incomplete-source diagnostics.
+- Installed Codex client: real OAuth, schema discovery, reads, edits, upload/status/checksum, source gaps, revision protection and both large fixtures passed. The client used an ephemeral thread with no model turn. This proves the local installed client, not the hosted ChatGPT adapter.
 - Large workspace: 300 synthetic native documents and 1,800 links; six previews ready, approximately 16 seconds each, with unchanged target SHA-256 before/after.
 - Complexity boundary: separate 300-document/6,000-link fixture; six requests returned `PATH_TOO_LARGE`, approximately 23 seconds each, without an executable plan or changed target hashes. The existing 400,000-node plan guard remains in force.
 
@@ -24,7 +25,7 @@ The installed client exposed a valid native update during the independent final 
 
 A real HTTP/PostgreSQL regression updates the native sequence after the final read-only scan's binary SELECT. Before the fix it reproduces `PATH_UNAVAILABLE` with exactly that evidence error. The planner now checks the collector's stale-read marker before choosing a plan and returns a retryable `PATH_PLAN_CHANGED` preview conflict. After restoring the fixture, a fresh preview succeeds. All 19 HTTP/PostgreSQL groups pass; malformed source rejection remains covered by the native plan suite.
 
-Fresh-image installed-client acceptance of this final guard is pending. The PR remains draft until that acceptance completes. Production acceptance must use the newly deployed version and compare raw and structured results for the six existing marked test files. A legitimate incomplete-source response is diagnostic success, not deletion readiness.
+Fresh-image acceptance of the final guard passed all 17 browser/OAuth steps and the installed Codex MCP client suite, including six ready large previews and six complexity-limit rejections with target hash checks. The final-scan race occurred in that clean client run and returned `PATH_PLAN_CHANGED` (correlation `2d40296d-db9d-4917-a58e-c79ff6ab53af`); the advertised retry succeeded. No debugger, live edit or diagnostic prototype hook was installed in this acceptance run. Production acceptance must use the newly deployed version and compare raw and structured results for the six existing marked test files. A legitimate incomplete-source response is diagnostic success, not deletion readiness.
 
 ## Reproduction
 
