@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | Ein Projektions-Race und eine zusätzliche ungeschützte OAuth-MCP-Vorschau sind reproduziert und korrigiert; die nativen Regressionstests bestehen. Die dauerhafte kompilierte REST-/SDK-Prüfung für Copy/Move/Delete, Links, Status/Recover und Rotation ist implementiert und ihre lokalen Schutzprüfungen bestehen; der echte Lauf steht noch aus. Anschließend die bisherigen sporadischen Fehler am frisch gebauten Container erneut prüfen und übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele sowie reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4b | in Umsetzung | Projektions-Race, ungeschützte OAuth-MCP-Vorschau und die Fehlklassifikation einer veralteten letzten Quellenbeobachtung sind reproduziert und korrigiert; die nativen Regressionstests bestehen. Die dauerhafte kompilierte REST-/SDK-Prüfung für Copy/Move/Delete, Links, Status/Recover und Rotation ist mit zwei getrennten Varianten implementiert; beide tatsächlichen Läufe stehen noch aus. Anschließend übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele sowie reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -1950,6 +1950,35 @@ verlangen jeweils sechs REST-/SDK-Operationen, Rotation und sechs historische
 Status-/Recovery-Zugriffe mit unabhängiger REST-Nachkontrolle und getrennter
 privater Evidenz. Zehn Node-Schutzfälle und zwei Python-Dateifälle bestehen;
 beide tatsächlichen Läufe am neuen kompilierten Container stehen noch aus.
+
+**Letzte Quellenbeobachtung und aktueller Prüfstand:** Die gezielte Korrektur aus
+`d7a8e9c3d` ([PR #201](https://github.com/canvascoding/canvas-notebook/pull/201))
+ist auch in diesen Fixstand integriert. Eine gleichzeitige native Versionsänderung
+kann die unabhängig wiederholte letzte Quellenprüfung berechtigt entwerten.
+Der Collector entfernt dann seinen privaten Katalognachweis. Der gemeinsame
+Planer muss dessen vorhandene private Stale-Markierung vor jeder Auswahl eines
+nativen, physischen oder HTML-Plans beachten; andernfalls entsteht fälschlich
+`NATIVE_SOURCE_EVIDENCE_INVALID` beziehungsweise öffentlich `PATH_UNAVAILABLE`.
+Er liefert nun `PREVIEW_STALE`, das über den bestehenden gemeinsamen öffentlichen
+Mapper zu `PATH_PLAN_CHANGED` und HTTP 409 wird. Davon profitieren auch die
+API-Key-REST-/SDK-Aufrufer desselben Planers. OAuth-MCP kennzeichnet ausschließlich
+die erneute Vorschau als wiederholbar; Apply, Recover und Status erhalten dadurch
+keine automatische Schreibwiederholung oder zusätzliche Quellinformationen.
+
+Der neue echte PostgreSQL-/HTTP-Dispatcher-Fall scheitert vor der Korrektur mit
+`PATH_UNAVAILABLE` und besteht danach innerhalb aller 16 nativen MCP-Gruppen.
+Die vorhandenen unabhängigen Projektionsschreiber-, COMMIT-Antwortverlust-,
+Widerrufs- und Recovery-Fälle bleiben enthalten. 14 reine Vertragsgruppen prüfen
+zusätzlich die phasenabhängigen Wiederholhinweise und den Vorrang von
+Authentifizierungsfehlern; alle 37 nativen Delete-Planerfälle, ESLint und striktes
+TypeScript bestehen. Die zuletzt veröffentlichte PR-Version `8983f2bbd` besteht
+inzwischen alle 13 CI-Prüfungen. Diese lokalen Ergebnisse gehören zur hier
+integrierten Korrektur; die neue PR-CI und der eigene kompilierte Containerlauf
+sind gesondert auszuführen. Die Browser-/Connector-Abnahme von PR #201 wird
+nicht als Abnahme unseres API-Key-/SDK-Builds ausgegeben. Der andere Chat hat
+seine lokale Prüfung abgeschlossen und die ursprüngliche Stack-Konfiguration
+wiederhergestellt. Nächster Schritt sind der Build dieses Fixstands und die
+erneute eigene Prüfung beider Operationsvarianten am einzigen Testcontainer.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 

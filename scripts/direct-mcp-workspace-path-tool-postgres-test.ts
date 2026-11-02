@@ -84,7 +84,7 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
       const { result, value } = await call(kind, args, token); assert.equal(result.isError, true);
       assert.equal(value.success, false); assert.equal(value.code, expected);
       assert.equal(value.error_code, expected); assert.match(String(value.correlation_id), /^[a-f0-9-]{36}$/u);
-      assert.equal(value.retryable, expected === 'PATH_BUSY');
+      assert.equal(value.retryable, expected === 'PATH_BUSY' || expected === 'PATH_PLAN_CHANGED' && value.phase === 'preview');
       assert.equal(value.storage_status, value.phase === 'preview' || value.phase === 'status' ? 'not_applicable' : 'unknown');
       if (args.operation_id) assert.equal(value.operationId, args.operation_id); return { result, value };
     };
@@ -342,6 +342,30 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           const row = object(value); return row.path === relative ? { ...row, mtime: null, ctime: null } : row;
         });
         assert.deepEqual(withoutInjectedTimes(await filesystem()), withoutInjectedTimes(files));
+      });
+      await group('native change in final standalone scan must not become invalid HTML evidence', async () => {
+        const target = 'final-standalone-race.md';
+        const document = await h.upload(target, Buffer.from('# Final standalone race\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const readonly = new Set<MetadataSqlEvent['client']>();
+        let injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (/^BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY/iu.test(event.text.trim())) readonly.add(event.client);
+            if (!injected && readonly.has(event.client) && event.text.includes('WITH expected AS MATERIALIZED')
+              && Array.isArray(event.values[0]) && event.values[0].includes(document.documentId)) {
+              injected = true;
+              await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+            }
+          }, () => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_PLAN_CHANGED'));
+          assert(injected, 'The independently repeated standalone scan must observe a real concurrent native change.');
+          assert.equal(rejected.value.retryable, true);
+          assert.equal(rejected.value.retry_after_ms, 250);
+          assert.equal(rejected.value.preview, undefined);
+        } finally {
+          await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
       });
       await group('incomplete native source coverage reports blockers without a mutation', async () => {
         const target = 'coverage-target.md', invalid = 'coverage-invalid-frontmatter.md';

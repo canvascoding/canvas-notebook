@@ -531,7 +531,8 @@ export function formatDirectMcpWorkspacePathError(error: unknown, selectedOperat
     : reason === 'NATIVE_SOURCE_EVIDENCE_CHANGED' ? 'PATH_PLAN_CHANGED' : failure.code;
   const body = { ...failure, code, error_code: code, correlation_id: directMcpCorrelationId(),
     phase: ['preview', 'apply', 'recover', 'status'].includes(phase) ? phase : 'dispatch',
-    retryable: code === 'PATH_BUSY', ...(code === 'PATH_BUSY' ? { retry_after_ms: 250 } : {}),
+    retryable: code === 'PATH_BUSY' || code === 'PATH_PLAN_CHANGED' && phase === 'preview',
+    ...(code === 'PATH_BUSY' || code === 'PATH_PLAN_CHANGED' && phase === 'preview' ? { retry_after_ms: 250 } : {}),
     ...(reason && !authorization(values) ? { reason_code: reason } : {}),
     ...(code === 'PATH_SOURCE_INCOMPLETE' && !authorization(values) ? sourceCoverageDiagnostic(values) : {}),
     storage_status: phase === 'preview' || phase === 'status' ? 'not_applicable' : 'unknown' };
