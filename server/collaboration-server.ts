@@ -41,6 +41,7 @@ import { AuthenticatedNativeSessionTransportError,
   disposeAuthenticatedNativeSessionTransport, isAuthenticatedNativeSessionTransportBusy,
   type AuthenticatedNativeSessionTransport } from '@/app/lib/collaboration/authenticated-native-session-transport';
 import { authenticateNativePeerAdmission } from '@/app/lib/collaboration/authenticated-native-peer-admission';
+import { assertNativePeerRoomAdmissionOpen } from '@/app/lib/collaboration/peer-room-admission';
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
@@ -953,7 +954,8 @@ export function createCollaborationServer(server: http.Server, options: {
           claims.workspaceId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
-            await assertCurrentCollaborationRoomAdmissionOpen(claims);
+            if (native) await assertNativePeerRoomAdmissionOpen(claims);
+            else await assertCurrentCollaborationRoomAdmissionOpen(claims);
             if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);

@@ -2120,6 +2120,33 @@ entfernt; diese Suite gilt ausdrücklich nicht als erfolgreicher Startnachweis.
 Die tatsächlichen kompilierten Starts sind separat belegt. Der reproduzierte
 Livefehler und seine kompilierte Ursachenanalyse bleiben der nächste Schritt.
 
+**Ursacheneingrenzung am kompilierten Stand `51bde8d5f`:** Beide Builds,
+Start, Bootstrap-Anmeldung/-Abmeldung und alle 42 gebundenen Produktquellen sind
+bestätigt. Die kurze echte OAuth-Diagnose reproduziert den zweiten
+schreibgeschützten Editor erneut. Der zweite Tab bekommt HTTP 200 mit
+Schreibrecht, wird danach aber beim WebSocket-Beitritt mit `permission-denied`
+abgewiesen. Das Serverlog benennt zeitgleich `onAuthenticate: ADMISSION_CONFLICT`.
+Der erste SDK-Edit ist bestätigt, Editor 1 zeigt die aktuelle Fassung auch nach
+Reload. Eigene Zugänge werden bereinigt und die geschützten Originale bleiben
+unverändert. Damit ist die fehlerhafte endgültige Ablehnung bei der zusätzlichen
+Raumaufnahme eingegrenzt; die zwei früheren Edit-Fehler sind damit noch nicht
+abschließend erklärt.
+
+Die letzte native Raumaufnahme verwendet nun dieselben Shared-Sperren und
+Reservierungsprüfungen mit ausdrücklich bestätigtem Transaktionsabschluss.
+Ausschließlich ein echter `ADMISSION_CONFLICT`, dessen Rollback und
+Verbindungsfreigabe bestätigt sind, fordert über den vorhandenen Busy-Grund
+eine neue, begrenzte Client-Aufnahme mit frischer Sitzung an. Die vorherige
+native Aufnahme und ihre Transport-/Rechteprüfung sowie alle strengen
+Schreibprüfungen bleiben bestehen. Es gibt keinen automatischen Schreibaufruf.
+Unklare Commit-, Rollback- oder Freigabeergebnisse und andere SQL-Fehler bleiben
+Fehler. Neun Fälle auf echtem PostgreSQL prüfen Leser-Koexistenz, fremde Schreibsperre,
+Dokumentreservierung, den Ausschluss von Zeichnungen und verlorene tatsächliche SQL-/Freigabe-Bestätigungen;
+alle bestehen. Die 23 Transaktionsmechanikfälle bleiben ebenfalls grün.
+Der neue Test verwendet die vorhandene Nonce-/Eigentümer-geprüfte CI-Auswahl
+und ist in die native Edit-Suite eingebunden. Der neue kompilierte
+Zwei-Editor-Lauf und die vollständige Abnahme bleiben offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
