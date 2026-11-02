@@ -3,7 +3,7 @@
 `.github/workflows/native-api-sdk.yml` runs one serial job against an ephemeral
 PostgreSQL 18 service bound to the runner's loopback interface. It runs the API
 contracts/component tests, the complete native API package, native agent list,
-Read and prompt checks, and the installed Python SDK HTTP suites. It builds a
+Read and prompt checks, the public MCP path HTTP suite, and the installed Python SDK HTTP suites. It builds a
 wheel and source distribution from the checkout and installs both into fresh
 Core, MCP and MCP/Keyring environments on Python 3.10 and 3.15. Each environment
 checks dependencies, the exact installed runtime file set and bytes, and the
@@ -16,6 +16,14 @@ inventory and no-replace path moves require that helper on Linux as well as
 macOS. Its generated binary/manifest are intentionally absent from a fresh
 checkout; building decision models alone does not supply them. Missing or
 invalid artifacts fail the tests instead of selecting another IO backend.
+
+Source/projection coordination uses actual independent processes and the shared
+kernel lock. The public MCP path suite adds real signed tokens, current SQL
+grants and the actual HTTP dispatcher. Its Move/Delete preview cases start an
+independent writer during source observation and require successful previews,
+unchanged native data and completed writer/resource cleanup. A separate negative
+case keeps rejecting a projection changed outside the locking protocol. Issuing
+a signed fixture token here does not replace genuine browser OAuth acceptance.
 
 ## Database selection and cleanup
 
@@ -48,6 +56,7 @@ outside CI. No additional Notebook container is created by these commands.
 ```sh
 npm run test:api-keys:ci-config
 npm run test:api-keys:ci-portability -- --all-api
+npm run test:mcp:path-tools:native
 ```
 
 The portability probe creates its own nonce database on the managed server.

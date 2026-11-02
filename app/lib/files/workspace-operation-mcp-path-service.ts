@@ -490,7 +490,10 @@ async function runWorkspaceProgrammaticPathService(input:Request,live:PathInvoca
     else{
       if(!initial)throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');
       scope=initial.scope;
-      const preparation=await readWorkspacePathImportPreparationPlan({principal:live,kind:live.kind,selections:selectedPaths(live.kind,input)});
+      // This entry owns its SQL transaction. Take the same kernel fence as
+      // projection publication before that shared PG admission read begins.
+      const preparation=await withWorkspaceMutationLock(scope.workspace.workspaceId,()=>
+        readWorkspacePathImportPreparationPlan({principal:live,kind:live.kind,selections:selectedPaths(live.kind,input)}));
       await capturePathAuthority(live,undefined,initial);
       if(preparation.readiness!=='native-ready')return encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',
         preview:preparation.version===6?workspaceOperationMcpCohortDeletePreview(preparation):preparation.version===5?workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)

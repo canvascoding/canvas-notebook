@@ -1429,6 +1429,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/workspaces/path-identity.ts'],
   'scripts/direct-mcp-workspace-path-tool-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'scripts/helpers/workspace-projection-writer.ts',
     'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/direct-server.ts',
     'app/lib/mcp/server/workspace-tools.ts', 'app/lib/mcp/server/workspace-path-tool-contract.ts',
     'app/lib/mcp/server/bounded-tool-json.ts', 'app/lib/mcp/server/document-read-principal.ts',

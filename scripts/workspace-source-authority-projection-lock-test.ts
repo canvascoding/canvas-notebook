@@ -1,17 +1,15 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import { stageWorkspaceLinkSourceAuthorityObservation } from '../app/lib/markdown/workspace-source-authority-stage';
+import { startWorkspaceProjectionWriter } from './helpers/workspace-projection-writer';
 
 // Genuine cross-process flock and filesystem behavior. The SQL trace models an
 // empty catalogue only; this suite does not establish PostgreSQL or ACL authority.
@@ -54,47 +52,8 @@ async function ownedFixture(operation: (workspace: WorkspaceContext, root: strin
 }
 
 function writer(workspace: WorkspaceContext, gated: boolean) {
-  const lockModule = pathToFileURL(path.resolve('app/lib/files/workspace-mutation-lock.ts')).href;
-  const source = `import fs from 'node:fs/promises';
-    import { withWorkspaceMutationLock } from ${JSON.stringify(lockModule)};
-    const gate = new Promise(resolve => process.stdin.once('data', resolve));
-    console.log('attempting');
-    await withWorkspaceMutationLock(${JSON.stringify(workspace.workspaceId)}, async () => {
-      console.log('acquired');
-      ${gated ? 'await gate;' : ''}
-      await fs.writeFile(${JSON.stringify(path.join(workspace.rootPath, 'projection.md'))}, ${JSON.stringify('# Projected\n')}, { mode: 0o600 });
-      console.log('published');
-    });
-    process.stdin.destroy();
-    console.log('released');`;
-  const child = spawn(process.execPath, ['--import', 'tsx', '--conditions', 'react-server', '--input-type=module', '--eval', source],
-    { cwd: process.cwd(), env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] });
-  const events = new Set<string>(); const listeners = new Map<string, () => void>();
-  let stdout = '', stderr = '';
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString();
-    let newline: number;
-    while ((newline = stdout.indexOf('\n')) >= 0) {
-      const event = stdout.slice(0, newline); stdout = stdout.slice(newline + 1);
-      events.add(event); listeners.get(event)?.(); listeners.delete(event);
-    }
-  });
-  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-2_000); });
-  const exit = once(child, 'exit');
-  const wait = async (event: string) => {
-    if (events.has(event)) return;
-    const arrived = new Promise<void>(resolve => { listeners.set(event, resolve); });
-    await Promise.race([arrived, exit.then(() => { throw new Error(`Projection writer exited before ${event}: ${stderr}`); }),
-      delay(10_000, undefined, { ref: false }).then(() => { throw new Error(`Projection writer did not reach ${event}.`); })]);
-  };
-  const close = async () => {
-    child.stdin.end('publish\n');
-    if (child.exitCode === null && child.signalCode === null) {
-      await Promise.race([exit, delay(3_000, undefined, { ref: false }).then(() => { child.kill('SIGKILL'); })]);
-    }
-    await exit;
-  };
-  return { child, events, wait, exit, close };
+  return startWorkspaceProjectionWriter({ workspaceId: workspace.workspaceId,
+    filePath: path.join(workspace.rootPath, 'projection.md'), mode: 'create', content: '# Projected\n', gated });
 }
 
 test('source observation waits for a separate projection writer before opening its read transaction', { timeout: 20_000 }, async () =>

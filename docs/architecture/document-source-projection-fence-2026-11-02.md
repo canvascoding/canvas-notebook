@@ -39,8 +39,13 @@ Transaktionsbeendigung und Verbindungsschließung freigegeben. Die Reihenfolge
 bleibt Workspace-Sperre vor PostgreSQL-Sperre. Bereits gehaltene
 Workspace-Sperren bleiben über die bestehende Implementierung wiedereintrittsfähig.
 
-Der Collector auf einer vom Aufrufer gehaltenen Verbindung bleibt unverändert;
-seine Aufrufer verantworten weiterhin ihre eigenen Sperren und Transaktionen.
+Der Collector auf einer vom Aufrufer gehaltenen Verbindung bleibt unverändert.
+Die UI-Einstiege für Rename und Delete halten ihre Workspace-Sperre bereits um
+die gesamte Vorschau. Die erste Quellenprüfung der OAuth-MCP-Vorschau benötigt
+denselben Schutz: Der gemeinsame Programmatic-Service hält die Sperre jetzt
+auch um `readWorkspacePathImportPreparationPlan`, vor dessen eigener
+SQL-Transaktion. Die erneute aktuelle Rechteprüfung bleibt erhalten. Andere
+Besitzer ihrer SQL-Verbindung verantworten weiterhin ihre Sperren und Transaktionen.
 Quellen-, Namespace-, Versions- und Berechtigungsprüfungen bleiben erhalten.
 Ein externer Schreiber außerhalb des Sperrprotokolls kann eine Beobachtung
 weiterhin ungültig machen. Es gibt keinen automatischen Schreib-Replay und
@@ -79,6 +84,22 @@ Zusätzlich bestehen die 53 Collector-Fälle mit eingebettetem PostgreSQL sowie
 gezieltes ESLint und striktes TypeScript über 3754 Wurzeldateien und 9087
 Quelldateien ohne Fehler. Die neue Prozessprüfung läuft auch im nativen
 API-/SDK-Workflow und erhält ein eigenes Log-Artefakt.
+
+Die zusätzliche öffentliche MCP-Abnahme läuft als
+`npm run test:mcp:path-tools:native` über den tatsächlichen HTTP-Dispatcher,
+signierte Tokens und PostgreSQL. Zwei neue Move-/Delete-Fälle starten einen
+zweiten Prozess während der Quellenbeobachtung. Er veröffentlicht eine
+bytegleiche Projektion unter der echten Workspace-Sperre. Der alte
+OAuth-Vorschaupfad lässt den Schreiber während seiner Prüfung eintreten; der
+korrigierte Pfad liefert eine erfolgreiche Vorschau und lässt die Projektion
+erst nach dem Lesen zu. Beide nativen Zustände, Dokumentzeilen und `xmin`
+bleiben erhalten. Der Satz besteht nun 15 Testgruppen einschließlich der
+bestehenden Widerrufs-, Recovery- und ungeschützten Dateiveränderungsfälle.
+Schema, Daten, Clients, Pool und Bundle sind nachweislich bereinigt. Das ist
+eine native HTTP-/SQL-Abnahme mit echten signierten Fixture-Tokens; die reale
+Browser-OAuth-Ausstellung bleibt eine eigene Prüfung. Beide Prozesssätze
+verwenden denselben Testhelfer. Der MCP-Satz läuft ebenfalls in der CI und
+erhält ein separates Log-Artefakt.
 
 Die erneute Prüfung des gebauten Servers, des tatsächlichen Projektionsschreibers
 und der vollständigen REST-/SDK-Dateioperationen bleibt offen. Die gemeinsamen

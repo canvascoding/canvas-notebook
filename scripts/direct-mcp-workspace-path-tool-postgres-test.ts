@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { FileEvent } from '../app/lib/filesystem/file-watcher';
 import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './helpers/native-copy-metadata-owner-fixture';
+import { startWorkspaceProjectionWriter } from './helpers/workspace-projection-writer';
 
 // Real HTTP dispatcher, signed JWTs, current SQL grants and original native
 // owners. The fixture observes real SQL; no authority or mutation result is mocked.
@@ -284,6 +286,38 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM workspace_file_operation_batches WHERE batch_id=$1', [batchId])).rows[0].n, 1);
           const original = (await h.admin.query('SELECT authorization_json FROM workspace_file_operation_batches WHERE batch_id=$1', [batchId])).rows[0];
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
+        });
+      }
+      for (const kind of ['move', 'delete'] as const) {
+        await group(`${kind} preview coordinates a separate projection writer without losing native evidence`, async () => {
+          const target = `coordinated-${kind}-${crypto.randomUUID()}.md`, full = path.join(h.source.rootPath, target);
+          const native = await h.upload(target, Buffer.from('# Coordinated projection\n'));
+          const before = await domain(), bytes = await fs.readFile(full), state = await load(h.connection, native.documentId);
+          assert(state);
+          let catalogues = 0, enteredDuringObservation = false;
+          let projection: ReturnType<typeof startWorkspaceProjectionWriter> | undefined;
+          try {
+            const preview = await h.withProbe(async event => {
+              if (event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId
+                && JSON.stringify(event.values[1]) === '[""]' && ++catalogues === 2) {
+                projection = startWorkspaceProjectionWriter({ workspaceId: h.source.workspaceId, filePath: full,
+                  mode: 'republish', gated: false });
+                await projection.wait('attempting'); await delay(150);
+                enteredDuringObservation = projection.events.has('acquired');
+              }
+            }, () => call(kind, { ...slots, action: 'preview', ...(kind === 'move'
+              ? { selections: [{ source_path: target, destination_path: `coordinated-moved-${crypto.randomUUID()}.md` }] }
+              : { path: target }) }));
+            assert(projection, 'The independent writer must attempt publication during the real source observation.');
+            assert.equal(enteredDuringObservation, false, 'The MCP preparation read must hold the projection kernel fence.');
+            assert.notEqual(preview.result.isError, true, String(preview.value.code));
+            assert.equal(preview.value.action, 'preview');
+            assert.equal(object(preview.value.preview).kind, kind);
+            await projection.wait('published'); const [code] = await projection.exit; assert.equal(code, 0);
+            assert.deepEqual(await fs.readFile(full), bytes);
+            assert.deepEqual(await domain(), before);
+            assert.deepEqual(await load(h.connection, native.documentId), state);
+          } finally { await projection?.close(); }
         });
       }
       await group('a changed physical projection rejects preview with source diagnostics', async () => {

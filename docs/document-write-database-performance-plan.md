@@ -1895,6 +1895,19 @@ Verbindung bleibt unverändert. Die kompilierte Abnahme einschließlich echter
 Projektion und die genaue Zuordnung aller bisherigen Laufzeitfehler bleiben
 offen; der operative Blocker ist damit noch nicht geschlossen.
 
+Die anschließende Prüfung der OAuth-MCP-Vorschau findet eine weitere fehlende
+Sperre vor deren eigener Quellen-Transaktion. Der gemeinsame Service hält nun
+auch dort die bestehende Workspace-Sperre; die UI-Einstiege halten sie bereits.
+Der neue Regressionstest reproduziert den ungeschützten Einstieg. Die
+erweiterte native MCP-Abnahme besteht nach der Korrektur 15 Gruppen über
+tatsächlichen HTTP-Dispatcher, signierte Fixture-Tokens und PostgreSQL,
+einschließlich paralleler Move-/Delete-Projektion, Widerruf und Recovery.
+Native Zeilen, `xmin` und Bytes bleiben erhalten; die Ressourcenbereinigung
+ist bestätigt. `test:mcp:path-tools:native` führt diese Prüfung dauerhaft aus
+und ist im CI-Workflow ergänzt. Die gemeinsam verwendete Prozess-Testmechanik
+behält die vier ursprünglichen Sperrfälle und alle 40 Quellen-/Dateifälle grün.
+Die erneute kompilierte Browser-/OAuth-/SDK-Abnahme am neuen Stand bleibt offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
