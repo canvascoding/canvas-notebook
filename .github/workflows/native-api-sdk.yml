@@ -59,6 +59,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:decision-models
+      - name: Build and verify native filesystem helper
+        run: |
+          npm run build:fd-publication
+          npm run verify:fd-publication
       - name: Test fixture configuration contract
         run: npm run test:api-keys:ci-config
       - name: Allocate owned PostgreSQL 18 fixture database

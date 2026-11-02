@@ -1820,7 +1820,13 @@ Relationen und offene Verbindungen sind vor dem Entfernen jeweils null.
 
 Der neue Workflow führt diese Prüfungen seriell auf Linux mit einem isolierten
 PostgreSQL-Dienst aus und bewahrt Logs und SDK-Artefakte auf. `actionlint`
-bestätigt die Workflow-Syntax. Das ist noch kein erfolgreicher GitHub-Lauf,
+bestätigt die Workflow-Syntax. Der erste GitHub-Lauf hat einen fehlenden
+Vorbereitungsschritt aufgedeckt: Der native Dateisystem-Helfer für Copy-/Move-
+Verzeichnisoperationen muss auch auf Linux vor den Tests gebaut und geprüft
+werden. Die Workflow-Vorbereitung holt das jetzt ausdrücklich nach; die reale
+Copy-Prüfung und alle Abbruchbedingungen bleiben erhalten. Die Bereinigung des
+fehlgeschlagenen Laufs bestätigte null verbliebene Ressourcen.
+Das ist noch kein erfolgreicher GitHub-Lauf,
 keine kompilierte Browser-/OAuth-/OS-Keyring-Abnahme und kein Release-Nachweis.
 [Betrieb und Prüfgrenzen](testing/native-api-sdk-ci.md) beschreiben die Schichten;
 die bisherigen einzelnen CodeQL-Dispositions- und Prüfnotizen bleiben

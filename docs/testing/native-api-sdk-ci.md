@@ -10,6 +10,13 @@ checks dependencies, the exact installed runtime file set and bytes, and the
 applicable SDK tests. The MCP/Keyring wheel environment runs all native SDK
 families over real loopback HTTP against the actual PostgreSQL-backed handlers.
 
+Before those tests, the job builds and verifies the platform's native filesystem
+helper with `build:fd-publication` and `verify:fd-publication`. Copy directory
+inventory and no-replace path moves require that helper on Linux as well as
+macOS. Its generated binary/manifest are intentionally absent from a fresh
+checkout; building decision models alone does not supply them. Missing or
+invalid artifacts fail the tests instead of selecting another IO backend.
+
 ## Database selection and cleanup
 
 CI requires `CANVAS_NATIVE_TEST_DATABASE_URL` and `CANVAS_NATIVE_TEST_RUN_ID`.
