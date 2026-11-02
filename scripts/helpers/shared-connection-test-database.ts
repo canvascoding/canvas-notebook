@@ -6,18 +6,19 @@ import * as schema from '../../app/lib/db/schema';
 import { createPostgresPool, runPostgresMigrations } from '../../app/lib/db/postgres';
 import type { SqlConnection } from '../../app/lib/db';
 import { createPiTestDatabase } from './pi-test-database';
+import { readNativeTestDatabaseConfig, assertNativeTestDatabaseTarget } from './native-test-database-config';
 
 /** Native mode creates and drops only its nonce database on the existing managed local PostgreSQL. */
 export async function createSharedConnectionTestDatabase(options: { poolMax?: 2 | 8 | 10 } = {}) {
   if (process.env.CANVAS_SHARED_CONNECTION_POSTGRES_TEST !== '1') return { ...await createPiTestDatabase(), native: false };
   assert.equal(process.env.NODE_ENV, 'test');
-  const localUrl = new URL(process.env.DATABASE_URL ?? '');
-  assert.equal(localUrl.hostname, '127.0.0.1'); assert.equal(localUrl.port, '55433');
-  assert.equal(localUrl.search, '');
+  const databaseConfig = await readNativeTestDatabaseConfig({ localConnectionString: process.env.DATABASE_URL });
+  const localUrl = new URL(databaseConfig.connectionString);
   const name = `canvas_connection_test_${randomUUID().replace(/-/gu, '')}`;
   assert.match(name, /^canvas_connection_test_[a-f0-9]{32}$/u);
   const administration = new Pool({ connectionString: localUrl.toString(), max: 1 });
-  let created = false;
+  let created = false, databaseOid: string | undefined, marked = false;
+  const marker = `canvas-native-child:${databaseConfig.runId ?? 'managed-local'}:${name}`;
   const testUrl = new URL(localUrl); testUrl.pathname = `/${name}`;
   // Use the actual runtime bootstrap, including its INT8 timestamp parser.
   // This synchronous constructor never connects before the nonce URL is set;
@@ -40,15 +41,22 @@ export async function createSharedConnectionTestDatabase(options: { poolMax?: 2 
     await pool.end();
     try {
       if (created) {
-        const identity = (await administration.query('SELECT pg_get_userbyid(datdba) AS owner,current_user AS role FROM pg_database WHERE datname=$1', [name])).rows[0];
+        const identity = (await administration.query(`SELECT oid::text AS oid,pg_get_userbyid(datdba) AS owner,current_user AS role,
+          shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=$1`, [name])).rows[0];
         assert(identity && identity.owner === identity.role);
+        if (databaseOid !== undefined) assert.equal(identity.oid, databaseOid);
+        assert.equal(identity.marker, marked ? marker : null);
         await administration.query(`DROP DATABASE "${name}"`);
         created = false;
       }
     } finally { await administration.end(); }
   };
   try {
+    await assertNativeTestDatabaseTarget(administration, databaseConfig);
     await administration.query(`CREATE DATABASE "${name}"`); created = true;
+    const identity = (await administration.query('SELECT oid::text AS oid FROM pg_database WHERE datname=$1', [name])).rows[0];
+    assert(identity && /^[1-9][0-9]*$/u.test(identity.oid)); databaseOid = identity.oid;
+    await administration.query(`COMMENT ON DATABASE "${name}" IS '${marker}'`); marked = true;
     await runPostgresMigrations(pool as unknown as Parameters<typeof runPostgresMigrations>[0]);
     assert.equal((await pool.query('SELECT COUNT(*)::integer AS count FROM "user"')).rows[0].count, 0);
   } catch (error) { await cleanup(); throw error; }

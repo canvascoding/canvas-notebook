@@ -2064,7 +2064,11 @@ criticalInputsByEntryPoint['scripts/api-key-python-sdk-path-postgres-test.ts'] =
   'app/lib/documents/path-public-service.ts', 'app/lib/documents/service.ts',
 ])];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
-const criticalInputs = criticalInputsByEntryPoint[entryPoint];
+const criticalInputs = [...criticalInputsByEntryPoint[entryPoint]];
+if (['scripts/helpers/document-read-tool-dispatch-fixture.ts', 'scripts/helpers/native-copy-metadata-owner-fixture.ts']
+  .some(fixture => criticalInputs.includes(fixture))) {
+  criticalInputs.push('scripts/helpers/native-test-database-config.ts');
+}
 const importConditions = entryPoint === 'scripts/workspace-path-operation-attempts-runner-test.ts'
   ? [] : ['react-server'];
 let stage = 'preflight';

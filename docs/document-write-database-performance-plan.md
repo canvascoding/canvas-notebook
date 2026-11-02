@@ -1799,6 +1799,33 @@ Release-/Produktionsabnahme bleiben die folgenden verpflichtenden Schritte.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
+**Portabler CI-Pfad, 02.11.2026 – lokal geprüft, GitHub-Abnahme offen:** Die drei
+gemeinsamen nativen Fixtures verwenden eine zentrale, ausschließlich für Tests
+bestimmte Datenbankauswahl. CI verlangt eine eigene Nonce-Datenbank und prüft
+PostgreSQL 18, Datenbankname, tatsächlichen Eigentümer und Lauf-Marker vor DDL.
+Die Bereinigung bindet zusätzlich die erfasste OID. Fehlende
+CI-Auswahl erlaubt weder eine lokale private ENV-Datei noch einen Runtime-URL-
+Rückfall. Eine eigene Bereinigung erhält Kontrollwerte bei falschem Marker/OID;
+sie entfernt ausschließlich nachgewiesene eigene Ressourcen und meldet Leaks
+weiterhin als Fehler. Die lokale Konfigurationsprüfung besteht 19 Fälle.
+
+Der isolierte CI-Datenbankpfad besteht lokal das vollständige native API-Paket
+sowie die nativen Agent-Listen-/Read-/Prompt-Prüfungen. Frische Wheel-/Sdist-
+Installationen bestehen auf Python 3.10.22 und 3.15.2 in allen zwölf Core-, MCP-
+und MCP/Keyring-Profilen: exakte Laufzeitdateien und Bytes, Abhängigkeiten und
+alle jeweiligen Tests, ohne neue Skips. Beide installierten Wheel-Interpreter
+bestehen außerdem je sechs echte HTTP-/PostgreSQL-SDK-Familien mit 53 Gruppen
+auf eigenen CI-Datenbanken. Kontrollschemata, Datenbankkinder, öffentliche
+Relationen und offene Verbindungen sind vor dem Entfernen jeweils null.
+
+Der neue Workflow führt diese Prüfungen seriell auf Linux mit einem isolierten
+PostgreSQL-Dienst aus und bewahrt Logs und SDK-Artefakte auf. `actionlint`
+bestätigt die Workflow-Syntax. Das ist noch kein erfolgreicher GitHub-Lauf,
+keine kompilierte Browser-/OAuth-/OS-Keyring-Abnahme und kein Release-Nachweis.
+[Betrieb und Prüfgrenzen](testing/native-api-sdk-ci.md) beschreiben die Schichten;
+die bisherigen einzelnen CodeQL-Dispositions- und Prüfnotizen bleiben
+[unverändert archiviert](testing/api-key-access-pr-198-history.md).
+
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
 und SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
 Versions-/Fähigkeitsmatrix benennt unterstützte Typen, Schalter und bewusste

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { lstat, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { types } from 'node:util';
-import { parse } from 'dotenv';
 import { Client, type Pool, type PoolClient, type QueryResult } from 'pg';
+import { readNativeTestDatabaseConfig, assertNativeTestDatabaseTarget } from './native-test-database-config';
 import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../../app/lib/db';
@@ -27,12 +27,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
-  const config = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
-  assert.equal((await stat(config)).mode & 0o077, 0);
-  const connectionString = parse(await readFile(config, 'utf8')).DATABASE_URL; assert(connectionString);
-  const url = new URL(connectionString); assert(['postgres:', 'postgresql:'].includes(url.protocol));
-  assert(['localhost', '127.0.0.1'].includes(url.hostname)); assert.equal(url.port, '55433');
-  assert.equal(url.pathname, '/canvas_notebook'); assert.equal(url.search, ''); assert.equal(url.hash, '');
+  const databaseConfig = await readNativeTestDatabaseConfig(), { connectionString } = databaseConfig;
   const schema = `copy_metadata_${crypto.randomUUID().replaceAll('-', '')}`, applicationName = `copy-metadata-${crypto.randomUUID().replaceAll('-', '')}`;
   const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'canvas-copy-metadata-'))), dataIdentity = await lstat(dataRoot);
   assert.equal(dataIdentity.uid, process.getuid!()); assert.equal(dataIdentity.mode & 0o077, 0);
@@ -43,6 +38,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
   const observed = new Map<PoolClient, PropertyDescriptor | undefined>(), restorers: Array<() => void> = [];
   try {
     await control.connect(); assert.equal(Math.floor(Number((await control.query("SHOW server_version_num")).rows[0].server_version_num) / 10000), 18);
+    await assertNativeTestDatabaseTarget(control, databaseConfig);
     await control.query(`CREATE SCHEMA "${schema}"`); created = true;
     await control.query(`COMMENT ON SCHEMA "${schema}" IS '${applicationName}'`);
     const identity = (await control.query('SELECT oid::text AS oid,pg_get_userbyid(nspowner)=current_user AS owned FROM pg_namespace WHERE nspname=$1', [schema])).rows[0];
