@@ -6,12 +6,14 @@ import path from 'node:path';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { getCurrentSystemPrompt, type Message, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-delegated-output-'));
   process.env.DATA = root; process.env.CANVAS_DATA_ROOT = root;
   const modules = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = modules._load;
+  let database: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
   let onRefresh: (() => void) | undefined;
   let saved: AgentMessage[] = [];
   let savedModel: unknown;
@@ -19,6 +21,10 @@ async function main() {
   let sentOutputCap: number | undefined;
   let effectiveInstructions = '';
   modules._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) {
+      assert(database, 'The isolated worker database must exist before runtime imports.');
+      return database;
+    }
     if (request === 'server-only') return {};
     // CommonJS-only dependency consumers need a shim; the worker's dynamic
     // import executes the real ESM runAgentLoop implementation below.
@@ -42,6 +48,16 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
   try {
+    database = await createPiTestDatabase();
+    const postgres = database.getPostgresRuntimeQueryable();
+    await postgres.query(`INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at)
+      VALUES ('worker-user','Worker output tester','worker-output@example.test',1,1,1)`);
+    await postgres.query(`INSERT INTO canvas_organization_settings
+      (organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+      VALUES ('worker-output-org','worker-user','team',1,1,1)`);
+    await postgres.query(`INSERT INTO canvas_workspaces
+      (id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at)
+      VALUES ('worker-workspace','worker-output-org','personal','worker-user','worker-output','Worker output','active',1,1)`);
     const { runEphemeralWorker } = await import('../app/lib/pi/delegate-task-tool');
     const { prepareToolOutput } = await import('../app/lib/pi/tool-output-preparation');
     const { getPiRequestOutputTokenCap } = await import('../app/lib/pi/context-budget');
@@ -107,8 +123,15 @@ async function main() {
     });
     assert.equal(interrupted.status, 'error', 'a provider-aborted stream must not be reported as a successful delegated run');
     assert.match(interrupted.error || '', /abort|interrupt/i);
-    console.log('delegated-tool-output-budget-test: ok (real worker and agent loop, mocked persistence/transport)');
-  } finally { modules._load = originalLoad; await fs.rm(root, { recursive: true, force: true }); }
+    const turns = (await postgres.query<{ outcome: string | null }>(`SELECT outcome FROM file_agent_turns
+      WHERE workspace_id='worker-workspace' AND user_id='worker-user'`)).rows;
+    assert.deepEqual(turns.map(turn => turn.outcome).sort(), ['cancelled', 'cancelled', 'completed', 'failed'],
+      'Real worker turn records close after success, budget denial, cancellation and provider interruption.');
+    console.log('delegated-tool-output-budget-test: ok (real worker, agent loop and isolated turn database; mocked message persistence/transport)');
+  } finally {
+    modules._load = originalLoad;
+    try { await database?.close(); } finally { await fs.rm(root, { recursive: true, force: true }); }
+  }
 }
 
 void main().catch(error => { console.error(error); process.exitCode = 1; });

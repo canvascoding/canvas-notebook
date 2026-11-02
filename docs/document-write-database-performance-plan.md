@@ -1832,6 +1832,20 @@ keine kompilierte Browser-/OAuth-/OS-Keyring-Abnahme und kein Release-Nachweis.
 die bisherigen einzelnen CodeQL-Dispositions- und Prüfnotizen bleiben
 [unverändert archiviert](testing/api-key-access-pr-198-history.md).
 
+**Reguläre Tool-Output-Regressionen, 02.11.2026 – lokal grün:** Beide zuvor
+fehlgeschlagenen Aggregate bestehen jetzt vollständig. Der Charakterisierungstest
+ändert Secrets über den aktuellen zentralen Service; der Suchtest lädt die
+tatsächlichen import-only SDK-Namensräume für seinen CommonJS-Einstieg. Alle
+sechs Mitglieder von `test:pi:tool-outputs` bestehen. Der delegierte Budgettest
+verwendet eine isolierte PGlite-Datenbank mit den echten Migrationen und dem
+wirklichen Turn-Lebenszyklus. Erfolg, Budgetverweigerung, Abbruch und unterbrochener
+Provider-Stream hinterlassen vier abgeschlossene Einträge; die bestehenden
+Output-/Abbruchprüfungen bleiben erhalten. Zusammen mit dem Block-Budgettest
+besteht `test:pi:tool-output-budgets`. Nachrichtenpersistenz und Modelltransport
+bleiben in diesem isolierten Budgettest ausdrücklich Testersatz; daraus folgt
+keine OAuth-, Modell- oder kompilierte UI-Abnahme. Keine neue Review-Center-
+oder Undo-Funktion wird eingeführt. Die reguläre `test:all`-Abnahme bleibt offen.
+
 **Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
 und SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
 Versions-/Fähigkeitsmatrix benennt unterstützte Typen, Schalter und bewusste
