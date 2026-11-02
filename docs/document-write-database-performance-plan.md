@@ -268,8 +268,8 @@ stehen in den zugehörigen Abschnitten:
 | 2 | in Umsetzung | Verbleibende dominante Abfrageketten nach den unten dokumentierten Teiloptimierungen messen und gezielt bündeln. |
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
-| 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `65e069683` besteht beide Builds, Start und beide REST-/SDK-Operationsprofile einschließlich Linkpflege; `d6a686fc7` zusätzlich alle vier API-Key-Browserfälle. Der erweiterte OAuth-Lauf auf `721e59a9f` reproduziert einen veralteten, schreibgeschützten zweiten Editor nach dem ersten Edit. Weitere Diagnosefälle scheitern vor Apply mit `DOCUMENT_EDIT_UNAVAILABLE`. Daten und Operationsbelege sind gesichert geprüft; die genaue interne Ursache wird vor dem nächsten Fix erfasst. Danach vollständige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4a | in Umsetzung | Am gebauten Stand `871a0ef43` bestehen alle vier Schlüsselverwaltungs-Browserfälle und der vollständige echte OAuth-/Keychain-Lauf einschließlich natürlichem Tokenablauf, Refresh und historischer Status-/Recovery-Zugriffe. Alle 13 CI-Prüfungen sind grün. Die übrige Rechte-/Unterbrechungs-/Dateimatrix und die portable Restore-Abnahme bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `871a0ef43` besteht beide Builds, Start, den vollständigen OAuth-/Editor-/Pfadablauf und beide REST-/SDK-Operationsprofile mit Linkpflege und Schlüsselrotation. Der echte Kalt-Restore einer separaten lokalen Kopie besteht Anmeldung und Originalvergleiche; nach Rückkehr sind auch die ursprünglichen `xmin` unverändert. Die reguläre Gesamtsuite besteht bis einschließlich API-Integration und findet danach eine fehlende Testumgebung am React-UI-Testaufruf. Diesen Aufruf korrigieren und die gesamte Suite wiederholen; anschließend übrige Matrix, Konkurrenz, portablen Restore und Beispiele abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2281,6 +2281,54 @@ Navigation, Socketwechsel/-schluss und Auth-Ablehnung setzen die Bereitschaft
 zurück; `/ws/live-events` und fremde Dokumentframes zählen nicht. Weder SDK-
 Schreibwiederholung noch feste Verzögerung oder geänderte Serverrechte werden
 eingeführt. Die neue kompilierte Gesamtwiederholung bleibt offen.
+
+**Vollständige kompilierte Wiederholung auf `871a0ef43`:** Beide Builds,
+Container-Start, tatsächliches Bootstrap-Login/-Logout und alle 45 gebundenen
+Produktquellen bestehen. Der dauerhafte PKCE-/Consent-/SDK-Lauf besteht sechs
+bestätigte Edits, alle 24 Live-/Reload-Ansichten und 26 positive Socket-
+Synchronisationsprüfungen. Copy eines noch geöffneten Dokuments meldet korrekt
+`COPY_BUSY`; nach bestätigter Owner-/Advisory-Lock-Freigabe führt explizites
+Recover den unveränderten ursprünglichen Auftrag erfolgreich weiter. Danach
+bestehen tatsächliches Manifestlesen, Copy-Inhaltsvergleich, Move und Delete.
+Der Lauf wartet den natürlichen 15-Minuten-Tokenablauf ab, weist den alten Bearer
+mit 401 zurück und bestätigt automatisches SDK-Refresh ohne neuen Consent.
+Alle sechs historischen Edit-Statusabfragen sowie die drei Pfad-Status-/Recover-
+Paare funktionieren weiter; ein unabhängiger Prozess liest den macOS-Keychain-
+Eintrag erneut. Eigene Credentials, Grants, Betriebssystemeinträge, Workspace-
+Freigaben und Sitzungen werden mit null Bereinigungsfehlern entfernt beziehungsweise
+wiederhergestellt. Die geschützten Originale bleiben unverändert.
+
+Am selben Stand bestehen alle vier API-Key-Browserfälle ohne Skip, Retry oder
+Flake. Beide dauerhaften REST-/installierten SDK-Operationsprofile bestehen je
+sechs Copy-/Move-/Delete-Operationen, echte Schlüsselrotation, sechs historische
+SDK-Status-/Recover-Paare und sechs unabhängige REST-Statusabfragen. Das Profil
+mit eingehenden Links bestätigt außerdem vier Gruppen von Linkanpassungen.
+Alle 13 GitHub-Prüfungen dieses Commits sind erfolgreich; die native CI verwendet
+installierte SDKs auf Python 3.10 und 3.15.
+
+**Reguläre Gesamtsuite und Kalt-Restore:** Eine konsistente Sicherung aus echtem
+PostgreSQL-Custom-Dump, DATA- und HOME-Archiv wird bei gestopptem Notebook in eine
+eigene Nonce-Datenbank und eigene Volumes zurückgespielt. Der einzige verwaltete
+Notebook-Container startet damit am unveränderten Image; tatsächliche Anmeldung,
+geschützte Zeilenwerte, Dateibytes und Sicherungsmarker stimmen. Nach dem Test
+wird der ursprüngliche Stand wieder gestartet und zusätzlich auf unveränderte
+ursprüngliche `xmin` geprüft. Dieser Nachweis betrifft die Wiederherstellung
+derselben Instanz; die portable Übernahme in eine andere Instanz mit getrennten
+Credentials bleibt eine eigene Abnahme.
+
+Der erste Suiteversuch scheitert vor jeder Assertion an einem zu langen privaten
+Unix-Socket-Pfad auf macOS; der Supervisor verwendet danach einen kurzen eigenen
+temporären Pfad. Im zweiten Lauf bestehen Browser-Testumgebung, Prozess-Lifecycle,
+Scheduler, CLI, Smoke, API-Integration und die API-Key-Serverprüfungen. Danach
+scheitert der React-Komponententest, weil der echte Produktions-Testlauf
+`NODE_ENV=production` vererbt und React darin `act` nicht bereitstellt. Der
+gemeinsame UI-Testaufruf erhält ausdrücklich `NODE_ENV=test`; die aggregierte
+API-Key-Suite verwendet denselben Aufruf. Der Server bleibt im Produktionsmodus,
+alle bestehenden Assertions bleiben erhalten. Die vollständige API-Key-Teilsuite
+besteht danach auch mit geerbtem `NODE_ENV=production`, einschließlich des UI-
+Tests, zwölf Diagnosefällen und der zehn Node-/zwei Python-Harnessfälle.
+Die gesamte Suite muss nach dieser
+Korrektur erneut erfolgreich laufen; sie ist noch nicht grün.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
