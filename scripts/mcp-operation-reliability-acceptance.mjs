@@ -92,7 +92,7 @@ export async function verifyOperationReliabilityAcceptance(call, key) {
     let response = await call('delete_knowledge_source', previewRequest);
     const retries = [];
     while (response.isError && response.structuredContent?.retryable === true
-      && ['PATH_SOURCE_INCOMPLETE', 'PATH_BUSY'].includes(response.structuredContent.code) && retries.length < 10) {
+      && ['PATH_SOURCE_INCOMPLETE', 'PATH_BUSY', 'PATH_PLAN_CHANGED'].includes(response.structuredContent.code) && retries.length < 10) {
       const failure = response.structuredContent;
       assert(failure.correlation_id); assert.equal(failure.phase, 'preview');
       retries.push({ code: failure.code, correlationId: failure.correlation_id, issues: failure.issues });

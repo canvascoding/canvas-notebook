@@ -262,6 +262,14 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
         assert.equal(apply.retryable, false); assert.equal(apply.storage_status, 'unknown');
         assert.equal(apply.retry_after_ms, undefined);
       }
+      for (const phase of ['preview', 'apply', 'recover', 'status']) {
+        const changed = formatError(Object.assign(new Error('private changed observation'), { code: 'PREVIEW_STALE' }),
+          phase === 'preview' ? undefined : operationId, phase).structuredContent!;
+        assert.equal(changed.code, 'PATH_PLAN_CHANGED');
+        assert.equal(changed.retryable, phase === 'preview');
+        assert.equal(changed.retry_after_ms, phase === 'preview' ? 250 : undefined);
+        assert(!JSON.stringify(changed).includes('private'));
+      }
       assert.equal(formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
         undefined, 'preview').structuredContent!.code, 'AUTHENTICATION_REQUIRED');
       for (const [cause, expected] of [

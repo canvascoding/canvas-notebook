@@ -17,7 +17,7 @@ import { withNativeInspectionSchema } from '../app/lib/collaboration/native-insp
 import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
-import { readWorkspaceLinkSourceAuthorityOnConnection } from '../app/lib/markdown/workspace-source-authority-stage';
+import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../app/lib/markdown/workspace-source-authority-stage';
 import { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } from '../app/lib/markdown/document-link-read-projection';
 import { withWorkspaceSourceScanObserver, type WorkspaceSourceScanMeasurement } from '../app/lib/observability/workspace-source-scan';
 
@@ -319,8 +319,23 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       });
       assert.equal(observed.stage.coverage.complete, false);
       assert.equal(observed.stage.sources.length, 0);
+      assert.equal(requiresWorkspaceLinkSourceAuthorityRevalidation(observed), true, 'A validated changed source needs a fresh preview, not a permanent source gap.');
       assert(observed.stage.coverage.gaps.some(gap => gap.code === 'native-source-changed'));
       assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+    });
+    await fixture('malformed changed native bytes remain a non-retryable rejected source', async () => {
+      const target = await seed('native.md');
+      await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native.md)');
+      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, {
+        afterSourceFingerprint: async () => {
+          await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2',
+            [Buffer.from([255, 255, 255]), target.documentId]);
+        },
+      });
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.stage.sources.length, 0);
+      assert.equal(observed.privateCatalogue, undefined);
+      assert.equal(requiresWorkspaceLinkSourceAuthorityRevalidation(observed), false);
     });
     await fixture('genuine Delete-only Yjs change with an identical statevector after the physical fingerprint discards the complete observation', async () => {
       const target = await seed('native-delete-only.md', 'plain_text', { text: '[Target](target.md)' });

@@ -154,11 +154,11 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
   let inventory: NativeDocumentLinkInventory;
-  if (previous) {
-    // Only the private second pass supplies this observation. Fresh SQL headers,
-    // binary bounds, identity and full state (including bytes) were checked above.
-    // Changed state must reject the observation, never reuse an old inventory.
-    if (!isDeepStrictEqual(state, previous.state)) fail('native-source-changed', document.path);
+  if (previous && isDeepStrictEqual(state, previous.state)) {
+    // Only identical fresh SQL bytes and metadata may reuse the first analysis.
+    // Changed states take the normal validation path below. The outer binding
+    // comparison then marks a valid change as stale; malformed states retain
+    // their original rejection rather than being called a transient change.
     inventory = previous.inventory;
   } else if (documentIndexRead) {
     // Global schema readiness is checked by the batch reader before entering

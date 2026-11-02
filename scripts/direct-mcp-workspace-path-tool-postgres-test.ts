@@ -82,7 +82,7 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
       const { result, value } = await call(kind, args, token); assert.equal(result.isError, true);
       assert.equal(value.success, false); assert.equal(value.code, expected);
       assert.equal(value.error_code, expected); assert.match(String(value.correlation_id), /^[a-f0-9-]{36}$/u);
-      assert.equal(value.retryable, expected === 'PATH_BUSY');
+      assert.equal(value.retryable, expected === 'PATH_BUSY' || expected === 'PATH_PLAN_CHANGED' && args.action === 'preview');
       assert.equal(value.storage_status, value.phase === 'preview' || value.phase === 'status' ? 'not_applicable' : 'unknown');
       if (args.operation_id) assert.equal(value.operationId, args.operation_id); return { result, value };
     };
@@ -321,6 +321,35 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           if (changed === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'");
           else if (changed === 'source') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
           else await h.admin.query("UPDATE session SET expires_at=$1 WHERE id='session-member'", [originalExpiry]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
+      await group('valid native change during collector revalidation is a retryable preview conflict', async () => {
+        const target = 'during-revalidation.md';
+        const document = await h.upload(target, Buffer.from('# Revalidation race\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const before = await domain(), files = await filesystem();
+        let injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (!injected && event.text.includes('WITH expected AS MATERIALIZED')
+              && Array.isArray(event.values[0]) && event.values[0].includes(document.documentId)) {
+              injected = true;
+              await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+            }
+          }, () => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_PLAN_CHANGED'));
+          assert(injected);
+          assert.equal(rejected.value.retry_after_ms, 250);
+          assert.equal(rejected.value.preview, undefined);
+          assert.equal(rejected.value.phase, 'preview');
+          assert.equal(rejected.value.storage_status, 'not_applicable');
+          const after = await domain();
+          const unchanged = (rows: typeof before.rows) => Object.fromEntries(Object.entries(rows).filter(([name]) => name !== 'collaboration_yjs_states'));
+          assert.deepEqual(after.tables, before.tables);
+          assert.deepEqual(unchanged(after.rows), unchanged(before.rows));
+          assert.deepEqual(await filesystem(), files);
+        } finally {
+          await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
         }
         await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
       });
