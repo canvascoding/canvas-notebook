@@ -2147,6 +2147,31 @@ Der neue Test verwendet die vorhandene Nonce-/Eigentümer-geprüfte CI-Auswahl
 und ist in die native Edit-Suite eingebunden. Der neue kompilierte
 Zwei-Editor-Lauf und die vollständige Abnahme bleiben offen.
 
+**Kompilierte Wiederholung auf `16719bc24`:** Beide Builds, Start, Anmeldung,
+43 Quellbindungen und Erhalt der Originale bestehen. Die echte kurze
+OAuth-Diagnose beobachtet das neue Busy-Signal beim zweiten Tab, dessen
+anschließende erfolgreiche Neuaufnahme und acht erfolgreiche Live-/Reload-
+Prüfungen über zwei bestätigte SDK-Edits. Der dritte Edit scheitert weiterhin
+mit `DOCUMENT_EDIT_UNAVAILABLE`. Der neue interne Fingerabdruck weist hier
+exakt auf `ADMISSION_CONFLICT`; die innere Edit-Normalisierung verwirft diesen
+Code, obwohl die äußere öffentliche Normalisierung bereits `DOCUMENT_BUSY`
+kennt. Diese zweite Korrektur und die vollständige Abnahme bleiben offen.
+Eine unabhängige REST-/lesende SQL-Prüfung bestätigt exakt den zuletzt
+bestätigten SDK-Inhalt/Version, Yjs-/Checkpoint-Sequenz 2, zwei dauerhafte
+Operationsbelege und einen fehlgeschlagenen dritten Beleg ohne Apply oder
+Persistenz. Eigene Zugänge sind bereinigt, Originale unverändert.
+
+Die GitHub-CI findet außerdem eine falsche Annahme im neuen Test: Eine frische
+Nonce-Datenbank enthält absichtlich keine öffentlichen Admission-Tabellen.
+Die Fixture erstellt deshalb ihre Tabellen nun mit den tatsächlichen
+Migrationen im eigenen Schema und setzt eine echte Elternreservierung für
+den Fremdschlüssel. Die bisherige Fassung scheitert reproduzierbar auf einer
+frischen eigenen CI-Datenbank, die vorbereitete Korrektur besteht dort alle
+neun Fälle. Öffentliche Relationen bleiben leer; das eigene Schema und die
+OID-/Marker-geprüfte Nonce-Datenbank werden entfernt. Der übernommene Test
+besteht anschließend lokal und mit allen neun Fällen auf einer weiteren
+frischen CI-Datenbank; die neue GitHub-Ausführung steht noch aus.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei

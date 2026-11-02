@@ -20,8 +20,13 @@ async function main(): Promise<void> {
     await control.connect();
     await assertNativeTestDatabaseTarget(control, config);
     await control.query(`CREATE SCHEMA "${schema}"`); created = true;
-    const tables = ['collaboration_admission_requests', 'collaboration_admission_scopes', 'collaboration_admission_targets'];
-    for (const table of tables) await control.query(`CREATE TABLE "${schema}".${table} (LIKE public.${table} INCLUDING ALL)`);
+    const { COLLABORATION_ROOM_RELEASE_UP_SQL } = await import('../app/lib/db/collaboration-room-owner-migration');
+    const { COLLABORATION_ADMISSION_STATEMENTS } = await import('../app/lib/db/collaboration-admission-migration');
+    await control.query('BEGIN');
+    await control.query(`SET LOCAL search_path TO "${schema}",pg_catalog`);
+    await control.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
+    for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await control.query(statement);
+    await control.query('COMMIT');
     dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-native-peer-room-'));
     Object.assign(process.env, { DATABASE_URL: connectionString, CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_MODE: 'external',
       CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'true', CANVAS_POSTGRES_VECTOR_ENABLED: 'false', CANVAS_MCP_DIRECT_ENABLED: 'false',
@@ -103,6 +108,9 @@ async function main(): Promise<void> {
 
     phase = 'reserved document';
     const requestId = randomUUID();
+    await control.query(`INSERT INTO "${schema}".collaboration_admission_requests
+      (request_id,request_digest,intent_text,status,revision,created_at) VALUES($1,$2,'{}','reserved',1,1)`,
+      [requestId,'a'.repeat(64)]);
     await control.query(`INSERT INTO "${schema}".collaboration_admission_targets
       (request_id,document_id,snapshot_text,active) VALUES($1,$2,'{}',true)`, [requestId,scope.documentId]);
     await assert.rejects(assertNativePeerRoomAdmissionOpen(scope), busy);
