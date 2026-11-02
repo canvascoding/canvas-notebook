@@ -251,6 +251,40 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert.deepEqual(challenged._meta, directMcpToolAuthorizationError(auth, 'knowledge:write')._meta);
     });
     check('preview diagnostics preserve size, busy and authorization without disclosing exception text', () => {
+      for (const code of ['MCP_READ_PHASE_TIMEOUT', '57014', '25P04']) {
+        const error = Object.assign(new Error('secret SQL'), { code });
+        const preview = formatError(error, undefined, 'preview').structuredContent as Record<string, unknown>;
+        assert.equal(preview.code, 'PATH_TIMEOUT'); assert.equal(preview.error_code, 'PATH_TIMEOUT');
+        assert.equal(preview.retryable, true); assert.equal(preview.retry_after_ms, 1000);
+        assert.equal(preview.storage_status, 'not_applicable');
+        assert(!JSON.stringify(preview).includes('secret'));
+        const apply = formatError(error, operationId, 'apply').structuredContent as Record<string, unknown>;
+        assert.equal(apply.retryable, false); assert.equal(apply.storage_status, 'unknown');
+        assert.equal(apply.retry_after_ms, undefined);
+      }
+      for (const phase of ['preview', 'apply', 'recover', 'status']) {
+        const changed = formatError(Object.assign(new Error('private changed observation'), { code: 'PREVIEW_STALE' }),
+          phase === 'preview' ? undefined : operationId, phase).structuredContent as Record<string, unknown>;
+        assert.equal(changed.code, 'PATH_PLAN_CHANGED');
+        assert.equal(changed.retryable, phase === 'preview');
+        assert.equal(changed.retry_after_ms, phase === 'preview' ? 250 : undefined);
+        assert(!JSON.stringify(changed).includes('private'));
+      }
+      for (const evidencePhase of ['native-states', 'private-diagnostic-marker']) {
+        const logged: string[] = [], warn = console.warn;
+        let wire;
+        try {
+          console.warn = (_label: unknown, body: string) => { logged.push(body); };
+          wire = formatError(Object.assign(new Error('private-diagnostic-marker'),
+            { code: 'NATIVE_SOURCE_EVIDENCE_INVALID', evidencePhase }), undefined, 'preview');
+        } finally { console.warn = warn; }
+        assert.equal(JSON.parse(logged[0]).evidence_phase, evidencePhase === 'native-states' ? evidencePhase : undefined);
+        assert(!JSON.stringify(wire).includes('evidence_phase'));
+        assert(!JSON.stringify(wire).includes('native-states'));
+        assert(!logged.join('').includes('private-diagnostic-marker'));
+      }
+      assert.equal((formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
+        undefined, 'preview').structuredContent as Record<string, unknown>).code, 'AUTHENTICATION_REQUIRED');
       for (const [cause, expected] of [
         [new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), 'PATH_TOO_LARGE'],
         [new WorkspaceFileLifecycleBusyError(), 'PATH_BUSY'],

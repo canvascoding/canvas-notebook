@@ -323,6 +323,8 @@ All eight methods retain the full `CanvasToolResult` and camelCase payload. A re
 
 `PATH_STATUS_NOT_FOUND` does not prove that no original work occurred. Recover is existing-only; `PATH_OPERATION_NOT_FOUND` does not start a replacement. A genuinely renewed session for the same authorized user/client can inspect or continue its original operation under current rights; an operation ID is not a grant, and the original operation attribution remains separate from the current session.
 
+An interrupted source read or server processing phase can return `PATH_TIMEOUT`. For a received tool failure, `.require_success()` raises `CanvasToolError` with that code and retains any retry hints in its original result. A failed Preview issues no executable plan. The facade does not retry the Preview or any write automatically; after an Apply/Recover failure, retain the original operation ID and exact request for an explicit Status decision. This processing timeout is separate from an expired OAuth token.
+
 The caller ID uses the same exact 16–128-character format as Copy, with an alphanumeric first character followed by ASCII letters, digits, `_` or `-`. Plan IDs are the actual 64-character lowercase hexadecimal values. The fixed wire retains literal path whitespace, enforces canonical nonempty paths, JavaScript UTF-16 length bounds and a maximum of 65,536 escaped UTF-8 JSON bytes. These local checks do not replace current server authorization, plan validation or native cohort requirements. No result is silently clipped. Move/Delete-specific installed-artifact and server acceptance remains a separate gate from existing Copy evidence.
 
 ## Current surface

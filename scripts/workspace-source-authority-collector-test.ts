@@ -17,8 +17,9 @@ import { withNativeInspectionSchema } from '../app/lib/collaboration/native-insp
 import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
-import { readWorkspaceLinkSourceAuthorityOnConnection } from '../app/lib/markdown/workspace-source-authority-stage';
+import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../app/lib/markdown/workspace-source-authority-stage';
 import { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } from '../app/lib/markdown/document-link-read-projection';
+import { withWorkspaceSourceScanObserver, type WorkspaceSourceScanMeasurement } from '../app/lib/observability/workspace-source-scan';
 
 // Actual embedded PostgreSQL queries and real FS/Yjs. Minimal owned tables model
 // the read contract only: no production DDL/ACL/backend/lock/concurrency proof.
@@ -94,6 +95,46 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(observed.nativeBindings.length, 0); assert.equal(observed.privateNativeStates.length, 0);
       assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 3);
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id') || entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
+    });
+    for (const code of ['25P04', '57014', '08006', 'MCP_READ_PHASE_TIMEOUT']) {
+      for (const pass of [1, 2]) await fixture(`preserves ${code} during native read pass ${pass}`, async () => {
+        await seed('source.md');
+        const failure = Object.assign(new Error('private infrastructure details'), { code });
+        let reads = 0;
+        beforeQuery = async statement => {
+          if (statement.startsWith('WITH expected AS MATERIALIZED') && ++reads === pass) throw failure;
+        };
+        await assert.rejects(read, error => error === failure);
+        assert.equal(reads, pass);
+      });
+    }
+    await fixture('large mixed workspace retains every source and bounded native SQL passes', async () => {
+      for (let index = 0; index < 300; index++) await seed(`native-${index}.md`,
+        index % 2 ? 'tiptap_blocks' : 'plain_text', { text: `# Document ${index}\n\n[Target](target.md)\n`.repeat(20) });
+      for (let index = 0; index < 50; index++) await fs.writeFile(path.join(root, `physical-${index}.md`),
+        `# Physical ${index}\n\n[Target](target.md)\n`);
+      let sqlMs = 0;
+      const measured: SqlConnection = { ...connection,
+        get: async (statement, values) => { const start = performance.now();
+          try { return await connection.get(statement, values); } finally { sqlMs += performance.now() - start; } },
+        all: async (statement, values) => { const start = performance.now();
+          try { return await connection.all(statement, values); } finally { sqlMs += performance.now() - start; } } };
+      const start = performance.now();
+      const measurements: WorkspaceSourceScanMeasurement[] = [];
+      const observed = await withWorkspaceSourceScanObserver(value => measurements.push(value), () =>
+        readWorkspaceLinkSourceAuthorityOnConnection(measured, workspace, { physicalParserVersion: 3 }));
+      t.diagnostic(JSON.stringify({ fixture: '300-native-50-physical', totalMs: Math.round(performance.now() - start),
+        sqlMs: Math.round(sqlMs), queries: trace.length }));
+      assert.equal(observed.stage.coverage.complete, true, JSON.stringify(observed.stage.coverage.gaps));
+      assert.equal(observed.nativeBindings.length, 300);
+      assert.equal(observed.stage.sources.length, 350);
+      assert.equal(measurements.length, 1);
+      assert.equal(measurements[0].sources, 350);
+      assert.deepEqual(Object.keys(measurements[0].phases), ['catalogue', 'filesystem', 'native', 'physical', 'revalidation']);
+      assert(Object.values(measurements[0].phases).every(value => Number.isFinite(value) && value >= 0));
+      t.diagnostic(JSON.stringify(measurements[0]));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
     });
     await fixture('coherent incomplete HTML keeps the private catalogue without certifying coverage', async () => {
       const native = await seed('native-html.md', 'plain_text', { text: '<img src="unrelated.png">\n' });
@@ -264,6 +305,37 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       }
       assert.notEqual(again.privateNativeStates.find(state => state.documentId === first.documentId), first);
       assert.deepEqual((await sql.query<{ yjs_state: Uint8Array }>('SELECT yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [targets[0].documentId])).rows[0].yjs_state, targets[0].binary);
+    });
+    await fixture('equal-length changed native bytes cannot reuse the first-pass inventory', async () => {
+      const target = await seed('native.md', 'plain_text', { text: '[Target](target.md)' });
+      await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native.md)');
+      const changed = Buffer.from(target.binary), offset = changed.indexOf(Buffer.from('target.md'));
+      assert(offset >= 0); changed[offset] = 'x'.charCodeAt(0);
+      assert.equal(changed.byteLength, target.binary.byteLength);
+      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, {
+        afterSourceFingerprint: async () => {
+          await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2', [changed, target.documentId]);
+        },
+      });
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.stage.sources.length, 0);
+      assert.equal(requiresWorkspaceLinkSourceAuthorityRevalidation(observed), true, 'A validated changed source needs a fresh preview, not a permanent source gap.');
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'native-source-changed'));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+    });
+    await fixture('malformed changed native bytes remain a non-retryable rejected source', async () => {
+      const target = await seed('native.md');
+      await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native.md)');
+      const observed = await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, {
+        afterSourceFingerprint: async () => {
+          await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2',
+            [Buffer.from([255, 255, 255]), target.documentId]);
+        },
+      });
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.stage.sources.length, 0);
+      assert.equal(observed.privateCatalogue, undefined);
+      assert.equal(requiresWorkspaceLinkSourceAuthorityRevalidation(observed), false);
     });
     await fixture('genuine Delete-only Yjs change with an identical statevector after the physical fingerprint discards the complete observation', async () => {
       const target = await seed('native-delete-only.md', 'plain_text', { text: '[Target](target.md)' });

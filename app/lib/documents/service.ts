@@ -240,7 +240,8 @@ function normalizeError(error: unknown): Error {
     if (error.code === 'MCP_READ_PRINCIPAL_REQUIRED') return new DocumentReadError('AUTHENTICATION_REQUIRED');
     if (error.code === 'MCP_READ_PRINCIPAL_INVALID') return new DocumentReadError('INVALID_REQUEST');
     if (error.code === 'MCP_READ_PRINCIPAL_ACCESS_DENIED') return new DocumentReadError('ACCESS_DENIED');
-    if (error.code === 'MCP_READ_PRINCIPAL_BUSY' || error.code === 'MCP_READ_PRINCIPAL_EXPIRED') return new DocumentReadError('DOCUMENT_BUSY');
+    if (error.code === 'MCP_READ_PRINCIPAL_BUSY' || error.code === 'MCP_READ_PRINCIPAL_EXPIRED'
+      || error.code === 'MCP_READ_PHASE_TIMEOUT') return new DocumentReadError('DOCUMENT_BUSY');
     if (error.code === 'MCP_READ_PRINCIPAL_SCHEMA_INVALID') return new DocumentReadError('DOCUMENT_READ_UNAVAILABLE');
     return new DocumentReadError('DOCUMENT_SCOPE_CHANGED');
   }

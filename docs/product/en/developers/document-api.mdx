@@ -516,6 +516,7 @@ REST uses HTTP status codes and a bounded JSON body. Native read/search errors c
 | `DOCUMENT_TOO_LARGE` / search size errors | Reduce the request or selected scope where applicable; do not discard guards or truncate a mutation silently |
 | `PATH_PLAN_CHANGED` / `PATH_SCOPE_CHANGED` / `PATH_CONFLICT` | Preserve the original request; examine the actual plan/scope conflict before choosing a distinct intended operation |
 | `PATH_BUSY` | Stop this attempt and keep its identity; do not automatically submit another Apply |
+| `PATH_TIMEOUT` | A source read or server processing phase timed out (HTTP 503 for REST). A failed Preview issues no executable plan; request a fresh Preview when a retry hint permits it. For Apply/Recover, retain the caller ID and inspect Status before deciding any further write |
 | `PATH_OUTCOME_UNCONFIRMED` / `PATH_OUTPUT_TOO_LARGE` | Keep the caller ID and complete retained request; use permitted explicit Status/Recover instead of assuming no effect |
 | `PATH_STATUS_NOT_FOUND` / `PATH_OPERATION_NOT_FOUND` | Distinguish a missing status observation from an existing-only recovery miss; neither starts a replacement operation |
 | `PATH_TOO_LARGE` / `PATH_NATIVE_REQUIRED` / `PATH_UNAVAILABLE` | Respect the reported limit/cohort/availability boundary; never truncate or fall back to raw filesystem mutation |

@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Dauerhafte Schlüsselverwaltungs- und echte OAuth-/Keychain-Runner bestehen am gebauten Stand `9ba00fd2b`. Die beiden nachfolgenden Sperrkorrekturen sind in `974e4a162` enthalten; alle 13 PR-Prüfungen und dessen Host-Produktionsbuild bestehen. Die erneute kompilierte Abnahme sowie übrige Rechte-/Unterbrechungs-/Dateimatrixfälle bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | Projektions-Race, ungeschützte OAuth-MCP-Vorschau und die Fehlklassifikation einer veralteten letzten Quellenbeobachtung sind reproduziert und korrigiert; die nativen Regressionstests bestehen. Die dauerhafte kompilierte REST-/SDK-Prüfung für Copy/Move/Delete, Links, Status/Recover und Rotation ist mit zwei getrennten Varianten implementiert; beide tatsächlichen Läufe stehen noch aus. Anschließend übrige Varianten, Konkurrenz, Neustart/Restore, Beispiele sowie reguläre `test:all`-/Recovery-Abnahme abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. Zusätzliche Anschlusskorrekturen erhalten tatsächliche SQL-Timeouts im eigenständigen Quellenleser und ergänzen den SDK-Fehlercode. Die gemeinsamen nativen Regressionen bestehen. Beide Varianten der dauerhaften kompilierten REST-/SDK-Operationsprüfung stehen am neuen gemeinsamen Build noch aus; danach übrige Matrix, Konkurrenz, Neustart/Restore, Beispiele und reguläre `test:all`-/Recovery-Abnahme abschließen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -1979,6 +1979,51 @@ nicht als Abnahme unseres API-Key-/SDK-Builds ausgegeben. Der andere Chat hat
 seine lokale Prüfung abgeschlossen und die ursprüngliche Stack-Konfiguration
 wiederhergestellt. Nächster Schritt sind der Build dieses Fixstands und die
 erneute eigene Prüfung beider Operationsvarianten am einzigen Testcontainer.
+
+**Integration von PR #201 nach dessen Main-Merge:** Der geprüfte Main-Stand
+`3ec143a25359e38a808641cf1f2f052a8e0e8a49` ist aufgenommen. Die drei
+Konfliktdateien sind mit beiden Testfamilien aufgelöst: Die unabhängigen
+Move-/Delete-Projektionsschreiber bleiben erhalten, ebenso die neuen Fälle für
+geänderte Rechte, Sitzungen und Quellen zwischen kurzen Lesetransaktionen sowie
+echte SQL-Timeouts. Unsere beiden Workspace-Projektionssperren bleiben bestehen;
+der gemeinsame finale Stale-Guard entspricht Main. Die optimierte
+Inventarwiederverwendung verlangt weiter vollständig gleiche, erneut gelesene
+SQL-Zustände. Virtuelle Linkgraphen werden nur innerhalb eines Planeraufrufs
+wiederverwendet. Daraus folgt noch kein vollständiges 10-/200-Quellen-Leistungsbudget.
+
+Der zusätzliche API-Key-Abgleich reproduziert einen echten Anschlussfehler:
+Der eigenständige Quellenleser verschluckte einen tatsächlich ausgelösten
+PostgreSQL-Timeout. Seine blockierte Beobachtung wurde anschließend als ungültiger
+nativer Plan mit HTTP 400 ausgegeben. Er erhält nun den ersten erkannten
+Infrastrukturfehler auch durch Rollback und Verbindungsschließung und wirft ihn
+vor der Planerauswahl erneut. Unbekannte Fehler bleiben blockierte Beobachtungen;
+die bestehende Kernel-Sperre und die Bereinigung bleiben erhalten. Sechs echte
+Timeoutfälle für Move/Delete über REST und beide registrierten MCP-Protokolle
+liefern nun `PATH_TIMEOUT`, bei REST HTTP 503, ohne Änderungen an Dokumentdaten.
+Sie sind Teil aller 17 bestandenen nativen API-Key-Adaptergruppen. Alle 21
+zusammengeführten nativen MCP-Pfadgruppen, 13 echte JWT-/PostgreSQL-
+Berechtigungsfamilien, die native Ingest-Prüfung, 115 Quellen-/Planerfälle und
+28 Quellen-/Projektionssperrfälle bestehen. Die zusätzlichen isolierten
+Bereinigungsfälle prüfen auch den Vorrang des ursprünglichen Fehlers vor einem
+zweiten Fehler beim Schließen. Striktes TypeScript umfasst 3.765 Wurzeln und
+9.098 Quelldateien ohne Fehler; die gezielten ESLint-Prüfungen bestehen.
+
+Der neue öffentliche Code `PATH_TIMEOUT` ist außerdem in den SDK-Typen und
+Entwickleranleitungen ergänzt. Der Typvertrag scheitert davor und besteht
+danach; alle 23 mechanischen SDK-Pfadtests bleiben grün. Empfangene Fehler
+behalten ihr Originalergebnis; Preview, Apply und Recover lösen keinen
+automatischen SDK-Folgeaufruf aus. Da sich eine SDK-Laufzeitdatei geändert hat,
+ist für die neue kompilierte Abnahme ein frisch gebautes und installiertes
+Artefakt erforderlich. Das bisherige Wheel wird dafür nicht wiederverwendet.
+
+Der Host-Build von `85669b15b` besteht, ebenso dessen vollständige native CI.
+Sein anschließender Linux-Build wurde nach dem Benutzerauftrag zur Main-
+Integration geordnet beendet; der ursprüngliche Notebook-Testcontainer ist
+nachweislich wieder gesund, Datenbanken und Volumes sind gesichert. Diese
+Ergebnisse gelten nicht als Build-/Containerabnahme der neuen Zusammenführung.
+Nächste Schritte sind deren eigener sauberer Commit, CI, Host-/Linux-Build,
+frisches SDK und die vollständige noch offene kompilierte Matrix. Review Center
+und Undo bleiben außen vor; Paket 4b und das Release bleiben offen.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 

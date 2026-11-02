@@ -302,6 +302,8 @@ The caller operation ID has exactly Copy's 16–128-character format. Apply/Reco
 
 A received tool error keeps its original `CanvasToolError.result` and optional `.operation_id`. A transport failure without an Apply/Recover result raises `CanvasMutationOutcomeUnknown` with the original caller operation ID in `.idempotency_key` and the exact exception as `__cause__`. The facade invokes its transport once and performs no automatic status or recovery call. Cancellation propagates and can leave an unknown outcome. `PATH_STATUS_NOT_FOUND` does not prove absence of work; `PATH_OPERATION_NOT_FOUND` during explicit recovery never creates a replacement. Renewed authorization for the same actual client/user may continue an original under current rights without changing its original attribution.
 
+An interrupted source read or server processing phase can return `PATH_TIMEOUT`. For a received tool failure, `.require_success()` raises `CanvasToolError` with that code and retains any retry hints in its original result. A failed Preview issues no executable plan. The facade does not retry the Preview or any write automatically; after an Apply/Recover failure, retain the original operation ID and exact request for an explicit Status decision. This processing timeout is separate from an expired OAuth token.
+
 Request validation follows the fixed wire: exact ordered rows or one path, canonical nonempty paths without normalization, JavaScript UTF-16 lengths, and a 64 KiB escaped UTF-8 JSON cap. The full raw result is retained. Move/Delete acceptance must identify its new source and installed artifact separately; prior Copy results do not establish it.
 
 ## Validation boundaries

@@ -16,7 +16,7 @@ import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/w
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { prepareNativeLinkMutations } from '../app/lib/markdown/workspace-native-link-mutations';
 import { compileWorkspaceNativeMixedBatch } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
-import { captureWorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceError } from '../app/lib/files/workspace-operation-native-source-evidence';
+import { captureWorkspaceOperationNativeSourceEvidence, captureWorkspaceOperationNativeSourceEvidenceV2, WorkspaceOperationNativeSourceEvidenceError } from '../app/lib/files/workspace-operation-native-source-evidence';
 import { inspectOriginalPhysicalLinks, workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../app/lib/markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../app/lib/markdown/workspace-source-authority-stage';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
@@ -351,6 +351,8 @@ test('default dispatch keeps proven pristine physical Markdown in V1 and denies 
     const plan = await planner.buildWorkspaceOperationBatchPlan({ scope, actions });
     assert.equal(plan.version, 1); assert.equal(stageReads, 1); assert.equal(legacyReads, 1);
     assert.deepEqual(plan, createWorkspaceOperationBatchPlan({ snapshot: legacySnapshot, actions }));
+    // This deliberately partial observation has no complete native evidence.
+    // The current evidence decoder rejects it before a delete plan can exist.
     observed.stage.coverage = { complete: false, gaps: [{ code: 'missing-native-state', path: filePath }] };
     await assert.rejects(planner.buildWorkspaceOperationBatchPlan({ scope, actions }), error =>
       error instanceof WorkspaceOperationNativeSourceEvidenceError && error.code === 'NATIVE_SOURCE_EVIDENCE_INVALID'
@@ -607,4 +609,30 @@ test('native Delete identity V2: accessors and observation proxies do not execut
   const preview = JSON.stringify(workspaceOperationBatchPublicPreview(plan));
   for (const secret of ['planIdentityVersion', 'integrityProof', plan.integrityProof, 'sourceEvidence', 'nativeTarget',
     plan.nativeTarget.binaryHash, plan.nativeTarget.stateProof, 'privateCatalogue', 'privateNativeStates']) assert(!preview.includes(secret));
+});
+
+test('source rejection diagnoses a bounded validation phase without serializing private input', () => {
+  const original = observation([state()]);
+  const capturedScope = captureWorkspaceOperationJobScope(scope.workspace);
+  assert.throws(() => captureWorkspaceOperationNativeSourceEvidenceV2(capturedScope, { ...original, privateCatalogue: [] }), error => {
+    assert(error instanceof WorkspaceOperationNativeSourceEvidenceError);
+    assert.equal(Object.getOwnPropertyDescriptor(error, 'evidencePhase')?.value, 'catalogue-v2');
+    return true;
+  });
+  const malformedShape = { ...original, unexpected: 'private-marker' };
+  const malformedInventory = structuredClone(original);
+  malformedInventory.stage.scope.kind = 'document-index';
+  const malformedState = structuredClone(original);
+  malformedState.privateNativeStates[0].checkpointSequence = -1;
+  for (const [input, phase] of [[malformedShape, 'observation-shape'], [malformedInventory, 'inventory'],
+    [malformedState, 'native-states']] as const) {
+    assert.throws(() => captureWorkspaceOperationNativeSourceEvidence(capturedScope, input), error => {
+      assert(error instanceof WorkspaceOperationNativeSourceEvidenceError);
+      assert.equal(error.code, 'NATIVE_SOURCE_EVIDENCE_INVALID');
+      assert.equal(Object.getOwnPropertyDescriptor(error, 'evidencePhase')?.value, phase);
+      assert.equal(Object.getOwnPropertyDescriptor(error, 'evidencePhase')?.enumerable, false);
+      assert(!JSON.stringify(error).includes('private-marker'));
+      return true;
+    });
+  }
 });

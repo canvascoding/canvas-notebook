@@ -115,6 +115,31 @@ async function main() {
         }
       }
     });
+    await check('real source SQL timeouts preserve PATH_TIMEOUT across Key REST and both MCP protocols without domain writes', async () => {
+      for (const kind of ['move', 'delete'] as const) {
+        const current = job(kind); await h.upload(current.sourcePath, Buffer.from('# Key timeout source\n'));
+        for (const transport of ['rest', 'mcp-v1', 'mcp-v2'] as const) {
+          const before = await snapshot(); let injected = false;
+          const blocked = await h.withProbe(async event => {
+            if (!injected && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === workspaceId) {
+              injected = true;
+              await event.raw("SET LOCAL statement_timeout='25ms'");
+              await event.raw('SELECT pg_sleep(0.1)');
+            }
+          }, async () => {
+            if (transport === 'rest') {
+              const response = await post(kind, input(current, 'preview'));
+              assert(injected, 'The REST request must reach its actual PostgreSQL timeout before checking the response.');
+              assert.equal(response.status, 503); return response.body;
+            }
+            const response = await mcp(current, 'preview', transport === 'mcp-v2'); assert.equal(response.isError, true); return response.structuredContent;
+          });
+          assert(injected, 'The actual Key source transaction must reach its PostgreSQL timeout.');
+          assert.equal(blocked.success, false); assert.equal(blocked.code, 'PATH_TIMEOUT'); assert.equal(blocked.preview, undefined);
+          assert.equal(outputChecks.get(kind)!(blocked).valid, true); assert.deepEqual(await snapshot(), before);
+        }
+      }
+    });
     await check('strict REST/UTF-8/body bounds, hidden MCP paths and exact proxy routes reject before domain writes', async () => {
       const before = await snapshot(); let getters = 0;
       assert.throws(() => decodeApiKeyWorkspaceMoveRequest({ ...input(job('move'), 'preview'), get selections() { getters++; return []; } }, 'request'));

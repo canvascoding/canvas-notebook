@@ -5,6 +5,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
+import { beginWorkspaceSourceScan } from '../observability/workspace-source-scan';
+import { rethrowSourceInfrastructureError } from './source-infrastructure-error';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { mapValidatedNativeStateRow, NativeSessionStateReaderError, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
@@ -130,7 +132,8 @@ function nativeSourceHeader(workspace: WorkspaceContext, document: WorkspaceDocu
 }
 
 async function readNativeSource(workspace: WorkspaceContext, document: WorkspaceDocumentCatalogueEntry,
-  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<NativeSourceRead> {
+  rows: Row, metadata: Row, raw: Row | undefined, loadState?: Dependencies['loadState'], documentIndexRead = false,
+  previous?: NativeSourceRead): Promise<NativeSourceRead> {
   const organizationId = workspace.organizationId ?? null;
   if (!raw || !(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
     || raw.yjs_state.byteLength !== Number(metadata!.state_bytes) || raw.state_vector.byteLength !== Number(metadata!.vector_bytes)
@@ -152,7 +155,13 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
   let inventory: NativeDocumentLinkInventory;
-  if (documentIndexRead) {
+  if (previous && isDeepStrictEqual(state, previous.state)) {
+    // Only identical fresh SQL bytes and metadata may reuse the first analysis.
+    // Changed states take the normal validation path below. The outer binding
+    // comparison then marks a valid change as stale; malformed states retain
+    // their original rejection rather than being called a transient change.
+    inventory = previous.inventory;
+  } else if (documentIndexRead) {
     // Global schema readiness is checked by the batch reader before entering
     // this data-only, exactly scoped document inspection. SQL and identity
     // failures must never be mistaken for a local parsing failure.
@@ -183,7 +192,8 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
  * remain private observations, never caller-supplied authority or a cache. */
 async function readNativeSources(connection: SqlConnection, workspace: WorkspaceContext,
   documents: readonly WorkspaceDocumentCatalogueEntry[], limits: Limits, remainingBytes: number,
-  loadState?: Dependencies['loadState'], documentIndexRead = false): Promise<{
+  loadState?: Dependencies['loadState'], documentIndexRead = false,
+  previousSources?: readonly NativeSourceRead[]): Promise<{
     sources: NativeSourceRead[]; gaps: PhysicalSourceGap[]; reservedBytes: number;
   }> {
   const gaps: PhysicalSourceGap[] = [];
@@ -249,9 +259,11 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
   if ((!documentIndexRead && raws.length !== selected.length) || rawById.size !== raws.length
     || raws.some(row => !selectedStateIdSet.has(row.document_id as string))) fail('native-source-changed', '');
   const result: NativeSourceRead[] = [];
+  const previousById = previousSources && new Map(previousSources.map(source => [source.state.documentId, source]));
   for (const [index, document] of selected.entries()) {
     try { result.push(await readNativeSource(workspace, document,
-      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead)); }
+      byId.get(document.id)!, metadata[index], rawById.get(document.id), loadState, documentIndexRead,
+      previousById?.get(document.id))); }
     catch (error) { if (!diagnose(error, document)) throw error; }
   }
   return { sources: result, gaps, reservedBytes };
@@ -286,12 +298,15 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const nativeBindings: WorkspaceNativeSourceBinding[] = [], privateNativeStates: PersistedCollaborationState[] = [];
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
+  const measurement = beginWorkspaceSourceScan();
+  let measuring: 'catalogue' | 'filesystem' | 'native' | 'physical' | 'revalidation' = 'catalogue';
   try {
     const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
     const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
     privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
+    measurement.checkpoint(measuring); measuring = 'filesystem';
     const registered = new Map(catalogue.map((entry) => [entry.path, entry]));
     const verifyPhysicalAuthority = async (filePath: string) => {
       const current = await readWorkspaceDocumentCatalogue(connection!, workspace, { paths: [filePath] });
@@ -388,6 +403,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       }
     }
     // Extension/capability never authorize projection bytes for this branch.
+    measurement.checkpoint(measuring); measuring = 'native';
     const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
       limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
     totalBytes += nativeRead.reservedBytes;
@@ -424,6 +440,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         parentPath = path.posix.dirname(parentPath);
       }
     }
+    measurement.checkpoint(measuring); measuring = 'physical';
     for (const item of observed) {
       if (!item.stat.isFile()) continue;
       const document = registered.get(originalMove?.logicalPath(item.relativePath) ?? item.relativePath);
@@ -450,10 +467,12 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);
         sources.push({ kind: 'physical', inventory }); gaps.push(...inventory.coverage.gaps);
-      } catch (error) { if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
+      } catch (error) { rethrowSourceInfrastructureError(error);
+        if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
+    measurement.checkpoint(measuring); measuring = 'revalidation';
     const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
@@ -465,11 +484,12 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     let currentSources: NativeSourceRead[];
     try {
       const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
-        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead);
+        limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead,
+        documentIndexRead ? undefined : nativeRead.sources);
       if (current.gaps.length) fail('native-source-changed', '');
       currentSources = current.sources;
     }
-    catch { fail('native-source-changed', ''); }
+    catch (error) { rethrowSourceInfrastructureError(error); fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {
         throw new ConfirmedSourceReadChange('native-source-changed', binding.expected.path);
@@ -483,6 +503,11 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
     }
   } catch (error) {
+    try { rethrowSourceInfrastructureError(error); }
+    catch (infrastructureError) {
+      measurement.checkpoint(measuring); measurement.finish(false, sources.length, gaps.length, gaps.map(gap => gap.code));
+      throw infrastructureError;
+    }
     confirmedSourceReadChange = error instanceof ConfirmedSourceReadChange
       && gaps.every(entry => entry.code === 'uninspected-html');
     if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');
@@ -502,6 +527,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     // coverage contract; retaining this witness grants no execution authority.
     ...(privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
+  measurement.checkpoint(measuring);
+  measurement.finish(!gaps.length, sources.length, gaps.length, gaps.map(gap => gap.code));
   if (confirmedSourceReadChange) confirmedSourceReadChanges.add(observation);
   return observation;
 }
@@ -511,7 +538,12 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
 export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: WorkspaceContext,
   dependencies: Dependencies & WorkspacePhysicalSourceReadOptions = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
   let connection: SqlConnection | undefined, transaction = false, discard: Error | undefined;
+  let infrastructureFailure: unknown;
   let stage: WorkspaceSourceAuthorityStage | undefined, observation: WorkspaceLinkSourceAuthorityObservation | undefined;
+  const preserveInfrastructureFailure = (error: unknown) => {
+    if (infrastructureFailure !== undefined) return;
+    try { rethrowSourceInfrastructureError(error); } catch (failure) { infrastructureFailure = failure; }
+  };
   const unavailable = () => {
     const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, catalogueProof: stage?.catalogueProof ?? null,
@@ -543,11 +575,16 @@ export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: Wo
       // An incomplete observation grants nothing. Roll back every failed readonly
       // stage instead of publishing a successful transaction for partial coverage.
       await connection.run(stage.coverage.complete ? 'COMMIT' : 'ROLLBACK'); transaction = false;
-    } catch { unavailable(); }
+    } catch (error) { preserveInfrastructureFailure(error); unavailable(); }
     finally {
-      if (transaction) try { await connection?.run('ROLLBACK'); } catch { discard = new Error('Discarding unresolved source authority stage.'); }
-      try { await connection?.close(discard); } catch { unavailable(); }
+      if (transaction) try { await connection?.run('ROLLBACK'); } catch (error) {
+        preserveInfrastructureFailure(error); discard = new Error('Discarding unresolved source authority stage.');
+      }
+      try { await connection?.close(discard); } catch (error) { preserveInfrastructureFailure(error); unavailable(); }
     }
+    // Transport/principal failures are not document coverage gaps. Preserve the
+    // first actual failure after cleanup, before a planner can decode this DTO.
+    if (infrastructureFailure !== undefined) throw infrastructureFailure;
     return observation!;
   });
 }

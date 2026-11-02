@@ -200,7 +200,8 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
         // An unsuccessful observation cannot establish absence or confirm a commit.
       }
     }
-    const busy = error instanceof WorkspaceFileLifecycleBusyError
+    const busy = error instanceof DirectMcpDocumentReadPrincipalError && error.code === 'MCP_READ_PRINCIPAL_BUSY'
+      || error instanceof WorkspaceFileLifecycleBusyError
       || error instanceof WorkspaceMutationLockError && error.retryable
       || error instanceof MarkdownFileImportError && error.code === 'MARKDOWN_IMPORT_BUSY';
     const detail = { code, error_code: code,
