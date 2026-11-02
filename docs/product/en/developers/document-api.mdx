@@ -19,15 +19,15 @@ Use this sequence: search for a document, keep its stable identity, read its ful
 
 | Transport | Authentication | Available document operations |
 | --- | --- | --- |
-| REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
-| Explicit key REST routes and Direct MCP at `/mcp` | A regularly issued key in `X-Canvas-API-Key` | Workspace listing/browse, native Read/Search, Markdown Create/Import V1, Edit/Status V1, and native Copy Preview/Apply/Status/Recover |
+| REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit/status, and original-file Import/Status |
+| Explicit key REST routes and Direct MCP at `/mcp` | A regularly issued key in `X-Canvas-API-Key` | Workspace listing/browse, native Read/Search, Markdown Create/Import V1, original-file Import/Status, Edit/Status V1, and Copy/Move/Delete Preview/Apply/Status/Recover |
 | Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled Copy/Move/Delete |
 
-These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
+These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check the current credential, user/workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
 
 REST requests send `Content-Type: application/json` with the actual user-session cookie or `Authorization: Bearer` followed by the issued Session Bearer. Use the normal supported sign-in flow to obtain that session. Signing out its source session revokes subsequent uses; a copied Bearer is not an independent long-lived API key.
 
-Create an independent key under **Settings → Connections → API access**, selecting its workspaces, actions and expiry. The full key is shown once; store it in your application's secret store. Key requests send `X-Canvas-API-Key` without an additional Session/OAuth Bearer or session cookie. Rotation atomically invalidates the old key while retaining its integration's operation ownership; logout of the issuing browser session does not revoke it. Key actions are checked separately: `create` permits new Markdown creation, `import` permits new Markdown import, `edit` permits edits and `edit` plus `status` permits edit-status lookup. Copy Preview/Apply need `copy`, Copy Status needs `copy` plus `status`, and Copy Recover needs `copy` plus `recover`. Read is a separate action. Current user/workspace/seat rights still apply, and MCP additionally requires each tool to be enabled. Move/Delete key adapters remain pending in this preview.
+Create an independent key under **Settings → Connections → API access**, selecting its workspaces, actions and expiry. The full key is shown once; store it in your application's secret store. Key requests send `X-Canvas-API-Key` without an additional Session/OAuth Bearer or session cookie. Rotation atomically invalidates the old key while retaining its integration's operation ownership; logout of the issuing browser session does not revoke it. Key actions are checked separately: `create` permits new Markdown creation, `import` permits new or existing-original Markdown import, and `import` plus `status` permits original-import lookup. `edit` permits edits and `edit` plus `status` permits edit-status lookup. Copy/Move/Delete require `copy`, `move` or `delete` respectively for every action; Status additionally requires `status`, and Recover additionally requires `recover`. Read is a separate action. Current user/workspace/seat rights still apply, and MCP additionally requires each tool to be enabled.
 
 For OAuth MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
 
@@ -187,6 +187,27 @@ For import, replace `content` with the host's actual `file` object:
 ```
 
 `download_url` must be a genuine temporary HTTPS file reference supplied by the host, not a URL invented by an agent. `file_id` is required; MIME type and file name are optional. Network and content validation still apply. When the existing completion and destination can be confirmed, a completed same-key import retry returns without downloading a replacement URL. A changed original document can instead produce `MCP_INGEST_DESTINATION_CHANGED`; completion is not permission to overwrite it. An unfinished recovery may still need the original source bytes. Preserve the file identity and MIME selection on retries.
+
+## Import an existing workspace Markdown file
+
+Existing-original import is separate from importing a host upload. `POST /api/documents/import-existing` selects one current `.md`/`.markdown` file already in the workspace; `POST /api/documents/import-existing/status` reads its historical result. Both retain their existing user-session contract and also accept an explicit API key. A key needs `import` for Import and `import` plus `status` for Status, together with current workspace rights.
+
+The Import body uses the physical manifest's exact `file_version`, not a native document version, revision or standalone SHA. Preserve the caller's operation ID and complete request before sending:
+
+```javascript
+const importBody = {
+  apiVersion: 1,
+  workspaceId,
+  path: manifestEntry.path,
+  operationId: retainedOperationId,
+  expectedFileVersion: manifestEntry.file_version,
+  initialRepresentation: "auto"
+};
+```
+
+Status accepts exactly `apiVersion: 1`, `workspaceId` and `operationId`. These routes accept at most 32 KiB of JSON and never accept uploaded file bytes. A confirmed response includes `status: "confirmed"`, `outcome: "imported"` or `"already_imported"`, `documentAtImport`, original source byte count/hash, and `requiresFreshFileActionPreview: true`. Status may return `status: "not_found"`; that lookup is not evidence that no earlier work or document exists. The original document facts do not claim today's path or full native version. Perform a fresh native Read before editing and request a fresh file-action Preview before acting on that result.
+
+For API-key Direct MCP, `import_knowledge_file` advertises `action: "import_existing"` and `"status_existing"` with the corresponding snake_case fields: `api_version`, `workspace_id`, `operation_id`, and, for Import, `path`, `expected_file_version` and optional `initial_representation`. Use the actual `tools/list` capability; the OAuth upload descriptor does not advertise these actions. Do not mix the existing-file request with upload `file`, destination or `idempotency_key` fields. Lost responses retain the original caller operation and request for an explicit Status lookup or deliberate identical retry; no client should silently start a replacement import.
 
 ## Edit native content
 
@@ -365,11 +386,13 @@ The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit
 
 Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
 
-## Native Move and Delete through MCP
+## Move and Delete through REST or MCP
 
-`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. All four actions require current `knowledge:write`, the actual client/user workspace grant, and current Read, Write, Delete and agent access in that one workspace. An OAuth scope or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps the same current tool/authorization checks when that feature is off.
+`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. OAuth calls require current `knowledge:write` and the actual client/user workspace grant. API-key calls require the `move` or `delete` action on that workspace for every action, plus `status` for Status or `recover` for Recover. Both modes require current Read, Write, Delete and agent access in that one workspace. An OAuth scope, key action or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps its current authorization checks when that feature is off.
 
-Move accepts 1–1,000 ordered, supported roots in one workspace. Every selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete accepts exactly one initialized native file `path`. It is not a general recursive directory or arbitrary physical-file deletion API. These operations use the central native lifecycle and incoming-link handling; they expose no Undo or restore action.
+The key-only REST routes are `POST /api/documents/move` and `POST /api/documents/delete`, using `X-Canvas-API-Key` without a cookie or Bearer credential. JSON uses `apiVersion`, `action`, `workspaceId`, and the action's `operationId`/`planId`; Move selections use `sourcePath` and `destinationPath`, while Delete uses `path`. Status needs only the version, action, workspace and original operation ID. Apply/Recover retain the exact original selection and plan ID. MCP uses the snake_case selectors shown below. REST permits ordinary allowed hidden paths; MCP excludes hidden path segments. Both reach the same current owner, planner, journal and explicit recovery services.
+
+Move accepts 1–1,000 ordered, supported roots in one workspace. Every MCP selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete selects exactly one supported file or folder root through `path`. Native-only documents, physical files and mixed cohorts are planned through the central services; the actual Preview determines support and readiness. A physical PDF remains a file and is not parsed into a native document. Unsupported cohorts are rejected. These operations preserve the existing lifecycle, history and incoming-link handling; they expose no Undo or restore action.
 
 Start with a real Preview for the intended selection:
 

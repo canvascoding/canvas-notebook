@@ -31,7 +31,7 @@ The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.
 
 ## Authorize and read progressively
 
-The development API also accepts independent keys issued under **Settings → Connections → API access**. Pass `api_key=key_from_your_secret_store` to `CanvasMcpTransport` instead of OAuth or `access_token`; these modes are mutually exclusive. This mode sends `X-Canvas-API-Key`, has no automatic credential refresh, and checks the key's explicit workspaces/actions together with current user rights. It supports the branch's native Read/Search, workspace browse, Markdown Create/Import, Edit/Status, and Copy Preview/Apply/Status/Recover adapters. The corresponding key Move/Delete adapters remain pending. The full access matrix and compiled-container/released deployment acceptance remain in progress.
+The development API also accepts independent keys issued under **Settings → Connections → API access**. Pass `api_key=key_from_your_secret_store` to `CanvasMcpTransport` instead of OAuth or `access_token`; these modes are mutually exclusive. This mode sends `X-Canvas-API-Key`, has no automatic credential refresh, and checks the key's explicit workspaces/actions together with current user rights. It supports the branch's native Read/Search, workspace browse, Markdown Create/Import, original-file Import/Status, Edit/Status, and Copy/Move/Delete Preview/Apply/Status/Recover adapters. The full access matrix and compiled-container/released deployment acceptance remain in progress.
 
 `create_markdown(..., idempotency_key=...)` needs `create`, and `import_markdown(..., idempotency_key=...)` needs `import`; full document reads need the separate `read` action. Both methods request native API version 1 and return stable document identity and confirmed durable versions. Following a socket failure after a write, close that transport lifetime before opening a fresh one. Keep the original idempotency key and explicitly retry the identical operation; the SDK does not automatically replay it. A temporary URL may be replaced for the same import file identity. No API-key mode provides browser-session, admin or Secrets API access.
 
@@ -138,6 +138,29 @@ async def import_note(notebook, workspace_id, file_reference, caller_key):
 ```
 
 Native Create/Import requires a `.md` or `.markdown` destination and the server's enabled native-document feature. A completed import retry can skip a replacement download only when the original destination is still confirmed. A changed destination can return `MCP_INGEST_DESTINATION_CHANGED`; pending recovery may need the original source again. There is currently no general Create-status method.
+
+## Import an existing workspace Markdown file
+
+`import_existing_markdown` imports an existing visible `.md`/`.markdown` file through the central Original Import V1 service. Discover the API-key connection's `import_existing` and `status_existing` capabilities in `tools/list`; the OAuth upload descriptor does not advertise these actions. Import requires the key's `import` action and current workspace Write/Agent rights. Status additionally requires `status`.
+
+Retain one caller operation ID and the exact request before calling. Use the physical manifest entry's actual `file_version`, including its original-file identity; a SHA, revision or native document version cannot replace it. This imports the selected existing file rather than uploading bytes or overwriting another native document:
+
+```python
+async def import_existing_note(notebook, workspace_id, path, file_version, operation_id):
+    return (await notebook.import_existing_markdown(
+        workspace_id, path,
+        operation_id=operation_id,
+        expected_file_version=file_version,
+        initial_representation="auto",
+    )).require_success()
+
+async def inspect_original_import(notebook, workspace_id, operation_id):
+    return (await notebook.original_import_status(
+        workspace_id, operation_id,
+    )).require_success()
+```
+
+A confirmed result retains `documentAtImport`, source byte count/hash and `requiresFreshFileActionPreview: true`. Those are historical import facts, not today's document path or full version. Read the returned stable document ID afresh before editing or planning a file action. Status can return `status: "not_found"`; that does not establish that no earlier work or document exists. A missing mutation response preserves the original operation ID in `CanvasMutationOutcomeUnknown.idempotency_key` and its actual cause. The SDK does not replay the import or automatically call Status; cancellation propagates. A malformed reply preserves its original result in `CanvasProtocolError`.
 
 ## Edit by full version and inspect status
 
@@ -262,9 +285,9 @@ The central Copy owner imports supported selected physical `.md`/`.markdown` fil
 
 ## Move and Delete through retained requests
 
-The unreleased SDK methods `move_preview`, `move_apply`, `move_status`, `move_recover` and their `delete_*` equivalents target the explicitly enabled `move_knowledge_source` and `delete_knowledge_source` tools. Every action requires current `knowledge:write`, the actual user/client workspace grant, and Read, Write, Delete and agent access in that one workspace. The SDK does not enable a tool, add rights or select another workspace to bypass a denial.
+The unreleased SDK methods `move_preview`, `move_apply`, `move_status`, `move_recover` and their `delete_*` equivalents target the explicitly enabled `move_knowledge_source` and `delete_knowledge_source` tools. OAuth requires current `knowledge:write` and the actual user/client workspace grant. API-key access requires the corresponding `move` or `delete` action for every call, with `status` or `recover` additionally required for those actions. Both modes require current Read, Write, Delete and agent access in that one workspace. The SDK does not enable a tool, add rights or select another workspace to bypass a denial.
 
-Move accepts an ordered list of 1–1,000 exact `source_path`/`destination_path` roots in the same workspace. Collisions remain conflicts: none of these methods accepts collision renaming or a destination-directory option. Delete accepts exactly one initialized native file `path`; it is not a generic recursive directory deletion. Both use the central link and native lifecycle orchestration. These methods expose no Undo or restore action.
+Move accepts an ordered list of 1–1,000 exact `source_path`/`destination_path` roots in the same workspace. Collisions remain conflicts: none of these methods accepts collision renaming or a destination-directory option. Delete selects exactly one supported file or folder root through `path`. Native-only documents, physical files and mixed cohorts use the central planner, link and lifecycle orchestration; the actual Preview determines support and readiness. A physical PDF stays a file, rather than being parsed into a native document. Unsupported cohorts are rejected. These methods expose no Undo or restore action.
 
 Keep the caller operation ID, actual plan ID, workspace and complete intended selection before awaiting a mutation. The following preparation functions make no Apply call:
 
