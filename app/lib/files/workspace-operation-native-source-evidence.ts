@@ -555,6 +555,7 @@ function captureAndAssertNativeEvidenceStates(evidence: NativeEvidenceFacts, sup
 }
 export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOperationJobScope,
   observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidenceV1 {
+  let evidencePhase = 'observation-shape';
   try {
     const observationData = record(observation, ['stage', 'nativeBindings', 'privateNativeStates'], ['privateCatalogue']);
     const stageData = record(observationData.stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace',
@@ -567,7 +568,9 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
     // Validate shapes before semanticBody accesses nested DTOs. Hash placeholders
     // are replaced only after this rejection-only validation has completed.
     const preliminary = { evidenceVersion: 1 as const, ...facts, semanticProof: '0'.repeat(64), evidenceProof: '0'.repeat(64) };
+    evidencePhase = 'inventory';
     inspect(preliminary, false);
+    evidencePhase = 'catalogue';
     if (Object.hasOwn(observationData, 'privateCatalogue')) {
       // This complete transient witness is validated independently of the
       // persisted evidence budget. It never becomes serialized stage data.
@@ -575,30 +578,49 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
         facts.stage.catalogueProof!, facts.nativeBindings, reason => fail(reason === 'too-large'
           ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID'));
     }
+    evidencePhase = 'proof';
     const body = { ...preliminary, semanticProof: nativeLinkJsonProof(semanticBody(facts)) };
     const { evidenceProof: _placeholder, ...withoutProof } = body;
     const evidence = decodeWorkspaceOperationNativeSourceEvidence({ ...withoutProof, evidenceProof: nativeLinkJsonProof(withoutProof) });
+    evidencePhase = 'native-states';
     captureAndAssertNativeEvidenceStates(evidence, observationData.privateNativeStates);
     return evidence;
-  } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
+  } catch (error) {
+    const rejected = error instanceof WorkspaceOperationNativeSourceEvidenceError ? error
+      : new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    if (Object.isExtensible(rejected) && !Object.hasOwn(rejected, 'evidencePhase')) {
+      Object.defineProperty(rejected, 'evidencePhase', { value: evidencePhase });
+    }
+    throw rejected;
+  }
 }
 /** V2 requires the actual complete transient catalogue. Its raw scope, stage,
  * bindings and native bytes still pass the unchanged V1 capture first. */
 export function captureWorkspaceOperationNativeSourceEvidenceV2(scope: WorkspaceOperationJobScope,
   observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidenceV2 {
+  let evidencePhase = 'observation-shape';
   try {
     const captured = record(observation, ['stage', 'nativeBindings', 'privateNativeStates', 'privateCatalogue']);
     const legacy = captureWorkspaceOperationNativeSourceEvidence(scope, {
       stage: captured.stage, nativeBindings: captured.nativeBindings, privateNativeStates: captured.privateNativeStates,
     } as WorkspaceLinkSourceAuthorityObservation);
+    evidencePhase = 'catalogue-v2';
     const witness = captureWorkspaceOperationNativeCatalogueWitness(captured.privateCatalogue, legacy.workspaceScope,
       legacy.stage.catalogueProof!, legacy.nativeBindings, reason => fail(reason === 'too-large'
         ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID'));
     const facts = { evidenceVersion: 2 as const, workspaceScope: legacy.workspaceScope,
       stage: legacy.stage, nativeBindings: legacy.nativeBindings, semanticCatalogueProof: witness.semanticCatalogueProof };
     const body = { ...facts, semanticProof: nativeLinkJsonProof(semanticBodyV2(facts)) };
+    evidencePhase = 'proof-v2';
     return decodeWorkspaceOperationNativeSourceEvidence({ ...body, evidenceProof: nativeLinkJsonProof(body) });
-  } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
+  } catch (error) {
+    const rejected = error instanceof WorkspaceOperationNativeSourceEvidenceError ? error
+      : new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    if (Object.isExtensible(rejected) && !Object.hasOwn(rejected, 'evidencePhase')) {
+      Object.defineProperty(rejected, 'evidencePhase', { value: evidencePhase });
+    }
+    throw rejected;
+  }
 }
 
 /** HTML facts are a separate, deliberately non-executable component. Its

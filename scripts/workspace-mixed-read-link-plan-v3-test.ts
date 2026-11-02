@@ -58,6 +58,24 @@ function operation(snapshots: WorkspaceMixedReadLinkSnapshotV3[], kind: 'rename'
     selections: kind === 'delete' ? [{ sourcePath }] : [{ sourcePath, destinationPath }], snapshots });
 }
 
+test('300 native documents with 6000 links retain untouched resolutions within the preview budget', () => {
+  const documents = Array.from({ length: 300 }, (_, index) => nativeInventory(
+    Array.from({ length: 20 }, (_, link) => `Paragraph ${link}: [reference](large-0.md).`).join('\n\n'),
+    `large-${index}.md`));
+  const snapshot = mixedSnapshot(documents), original = JSON.stringify(snapshot);
+  assert.equal(documents.reduce((count, document) => count + document.links.length, 0), 6000);
+  const started = performance.now();
+  const plan = operation([snapshot], 'delete', 'large-1.md');
+  const elapsedMs = performance.now() - started;
+  assert.equal(plan.readiness, 'ready');
+  assert.deepEqual(plan.mutations, []);
+  assert.equal(plan.pathMappings.length, 1);
+  assert.equal(plan.pathMappings[0].source.path, 'large-1.md');
+  assert.equal(JSON.stringify(snapshot), original);
+  assert(elapsedMs < 5000, `Pure graph planning exceeded the preview budget: ${elapsedMs}ms`);
+  console.log(JSON.stringify({ fixture: 'large-native-link-plan', documents: 300, links: 6000, elapsedMs }));
+});
+
 test('V2 retains native graph shape, version, proof body, deterministic output and input bytes', () => {
   for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
     const mixed = mixedSnapshot([nativeInventory('[target](target.md)', 'source.md', 'mixed-read', representation),

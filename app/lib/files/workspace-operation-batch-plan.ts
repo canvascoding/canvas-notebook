@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 
-import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { buildWorkspacePlannerSnapshot, WorkspacePreviewStaleError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
 import { createWorkspaceFileOperationPlan, computeWorkspaceFileOperationPlanId,
   type WorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-planner';
@@ -18,7 +18,7 @@ import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-fold
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope,
   WorkspaceOperationLegacyBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchPreviewPublic } from './workspace-operation-batch-public';
-import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
+import { stageWorkspaceLinkSourceAuthorityObservation, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
 import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-lifecycle-guard';
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
   createWorkspaceOperationNativeDeleteBatchPlanV3, createWorkspaceOperationNativeDeleteBatchPlanV4,
@@ -317,6 +317,12 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   if (!dependencies.buildSnapshot) {
     const observation = await readWorkspaceFileLifecycleSourceAuthority(input.scope.workspace)
       ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace, { physicalParserVersion: 3 });
+    // A valid concurrent change invalidates this independent final scan too.
+    // Its rejected observation intentionally lacks private catalogue evidence;
+    // it must never be misclassified as an HTML import/delete candidate.
+    if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)) {
+      throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+    }
     if (input.actions.length===1 && input.actions[0].kind==='delete' && isWorkspaceCohortDeleteRequest(observation,input.actions[0].selections)) return createWorkspaceOperationCohortDeletePlan({...input,observation});
     if (input.actions.length === 1 && input.actions[0].kind === 'delete' && input.actions[0].selections.length === 1) {
       const selectedPath = input.actions[0].selections[0].sourcePath;

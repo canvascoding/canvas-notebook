@@ -31,6 +31,27 @@ await withDocumentReadToolDispatchFixture(async fixture => {
   };
   const content = '# Receipt test\n\nDurable source bytes.\n';
   const args = { workspace_id: workspaceId, path: 'status/created.md', idempotency_key: randomUUID() };
+  const lockedArgs = { ...args, path: 'status/locked.md', idempotency_key: randomUUID() };
+  const beforeLock = await fixture.snapshot();
+  try {
+    await admin.query('BEGIN');
+    await admin.query('LOCK TABLE mcp_direct_workspace_grant IN ROW EXCLUSIVE MODE');
+    const blocked = await call({ ...lockedArgs, content });
+    assert.equal(blocked.isError, true);
+    assert.equal(blocked.structuredContent.code, 'MCP_READ_PRINCIPAL_BUSY');
+    assert.equal(blocked.structuredContent.retryable, true);
+    assert.equal(blocked.structuredContent.retry_after_ms, 250);
+    assert.equal(blocked.structuredContent.storage_status, 'unknown');
+    assert(blocked.structuredContent.operation_id);
+  } finally { await admin.query('ROLLBACK'); }
+  assert.deepEqual(await fixture.snapshot(), beforeLock);
+  const afterLock = await call({ ...lockedArgs, content });
+  assert.notEqual(afterLock.isError, true, JSON.stringify(afterLock.structuredContent));
+  const sameKey = await call({ ...lockedArgs, content });
+  assert.notEqual(sameKey.isError, true);
+  assert.equal(sameKey.structuredContent.document_id, afterLock.structuredContent.document_id);
+  assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
+    [workspaceId, lockedArgs.path])).rows[0].count, 1);
   const absent = await call({ ...args, action: 'status' });
   assert.notEqual(absent.isError, true); assert.equal(absent.structuredContent.storage_status, 'unknown');
   const created = await call({ ...args, content });

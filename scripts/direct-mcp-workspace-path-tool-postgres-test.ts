@@ -82,7 +82,7 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
       const { result, value } = await call(kind, args, token); assert.equal(result.isError, true);
       assert.equal(value.success, false); assert.equal(value.code, expected);
       assert.equal(value.error_code, expected); assert.match(String(value.correlation_id), /^[a-f0-9-]{36}$/u);
-      assert.equal(value.retryable, expected === 'PATH_BUSY');
+      assert.equal(value.retryable, expected === 'PATH_BUSY' || expected === 'PATH_PLAN_CHANGED' && args.action === 'preview');
       assert.equal(value.storage_status, value.phase === 'preview' || value.phase === 'status' ? 'not_applicable' : 'unknown');
       if (args.operation_id) assert.equal(value.operationId, args.operation_id); return { result, value };
     };
@@ -286,6 +286,121 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           assert.equal(object(typeof original.authorization_json === 'string' ? JSON.parse(original.authorization_json) : original.authorization_json).actorSessionId, 'session-member');
         });
       }
+      for (const changed of ['rights', 'source', 'session'] as const) await group(`preview rejects ${changed} changed between its read transactions`, async () => {
+        const target = `between-phases-${changed}.md`;
+        const document = await h.upload(target, Buffer.from('# Between read phases\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const originalExpiry = (await h.admin.query("SELECT expires_at FROM session WHERE id='session-member'")).rows[0].expires_at;
+        const before = await domain(), files = await filesystem();
+        let sourceConnection: MetadataSqlEvent['client'] | undefined, injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (!sourceConnection && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId) sourceConnection = event.client;
+            if (!injected && sourceConnection === event.client && /^COMMIT\s*;?$/iu.test(event.text.trim())) {
+              injected = true;
+              // The probe runs AFTER the real COMMIT: neither the admission
+              // fence nor a transaction remains held during this change.
+              if (changed === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id='principal-org' AND user_id='member'");
+              else if (changed === 'source') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+              else await h.admin.query("UPDATE session SET expires_at=1 WHERE id='session-member'");
+            }
+          }, () => call('delete', { ...slots, action: 'preview', path: target }));
+          assert(injected, 'The first full source read must commit before the second authorization/read phase.');
+          assert.equal(rejected.result.isError, true);
+          assert.equal(rejected.value.code, changed === 'rights' ? 'ACCESS_DENIED' : changed === 'source' ? 'PATH_PLAN_CHANGED' : 'AUTHENTICATION_REQUIRED');
+          assert.equal(rejected.value.phase, 'preview');
+          assert.equal(rejected.value.storage_status, 'not_applicable');
+          assert.equal(rejected.value.preview, undefined);
+          const alteredTable = changed === 'rights' ? 'organization_user_permissions' : changed === 'source' ? 'collaboration_yjs_states' : 'session';
+          const after = await domain();
+          assert.deepEqual(after.tables, before.tables);
+          const unchanged = (rows: typeof before.rows) => Object.fromEntries(Object.entries(rows).filter(([name]) => name !== alteredTable));
+          assert.deepEqual(unchanged(after.rows), unchanged(before.rows));
+          assert.deepEqual(await filesystem(), files);
+        } finally {
+          if (changed === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'");
+          else if (changed === 'source') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+          else await h.admin.query("UPDATE session SET expires_at=$1 WHERE id='session-member'", [originalExpiry]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
+      await group('valid native change during collector revalidation is a retryable preview conflict', async () => {
+        const target = 'during-revalidation.md';
+        const document = await h.upload(target, Buffer.from('# Revalidation race\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const before = await domain(), files = await filesystem();
+        let injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (!injected && event.text.includes('WITH expected AS MATERIALIZED')
+              && Array.isArray(event.values[0]) && event.values[0].includes(document.documentId)) {
+              injected = true;
+              await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+            }
+          }, () => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_PLAN_CHANGED'));
+          assert(injected);
+          assert.equal(rejected.value.retry_after_ms, 250);
+          assert.equal(rejected.value.preview, undefined);
+          assert.equal(rejected.value.phase, 'preview');
+          assert.equal(rejected.value.storage_status, 'not_applicable');
+          const after = await domain();
+          const unchanged = (rows: typeof before.rows) => Object.fromEntries(Object.entries(rows).filter(([name]) => name !== 'collaboration_yjs_states'));
+          assert.deepEqual(after.tables, before.tables);
+          assert.deepEqual(unchanged(after.rows), unchanged(before.rows));
+          assert.deepEqual(await filesystem(), files);
+        } finally {
+          await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
+      await group('native change in final standalone scan must not become invalid HTML evidence', async () => {
+        const target = 'final-standalone-race.md';
+        const document = await h.upload(target, Buffer.from('# Final standalone race\n'));
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const readonly = new Set<MetadataSqlEvent['client']>();
+        let injected = false;
+        try {
+          const rejected = await h.withProbe(async event => {
+            if (/^BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY/iu.test(event.text.trim())) readonly.add(event.client);
+            if (!injected && readonly.has(event.client) && event.text.includes('WITH expected AS MATERIALIZED')
+              && Array.isArray(event.values[0]) && event.values[0].includes(document.documentId)) {
+              injected = true;
+              await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+            }
+          }, () => failure('delete', { ...slots, action: 'preview', path: target }, 'PATH_PLAN_CHANGED'));
+          assert(injected, 'The independently repeated standalone scan must observe a real concurrent native change.');
+          assert.equal(rejected.value.retryable, true);
+          assert.equal(rejected.value.preview, undefined);
+        } finally {
+          await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+        }
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
+      await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
+        const target = 'sql-timeout-preview.md';
+        await h.upload(target, Buffer.from('# Timeout preview\n'));
+        const before = await domain(), files = await filesystem();
+        let injected = false;
+        const blocked = await h.withProbe(async event => {
+          if (!injected && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId) {
+            injected = true;
+            await event.raw("SET LOCAL statement_timeout='25ms'");
+            await event.raw('SELECT pg_sleep(0.1)');
+          }
+        }, () => call('delete', { ...slots, action: 'preview', path: target }));
+        assert(injected, 'The real source transaction must reach the injected SQL timeout.');
+        assert.equal(blocked.result.isError, true);
+        assert.equal(blocked.value.code, 'PATH_TIMEOUT');
+        assert.equal(blocked.value.error_code, 'PATH_TIMEOUT');
+        assert.equal(blocked.value.phase, 'preview');
+        assert.equal(blocked.value.storage_status, 'not_applicable');
+        assert.equal(blocked.value.retryable, true);
+        assert.equal(blocked.value.retry_after_ms, 1000);
+        assert.match(String(blocked.value.correlation_id), /^[a-f0-9-]{36}$/u);
+        assert.deepEqual(await domain(), before);
+        assert.deepEqual(await filesystem(), files);
+        await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
       await group('a changed physical projection rejects preview with source diagnostics', async () => {
         const target = 'projection-race.md', full = path.join(h.source.rootPath, target);
         await h.upload(target, Buffer.from('# Projection race\n'));

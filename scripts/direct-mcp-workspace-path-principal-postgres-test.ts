@@ -1,6 +1,8 @@
 import 'next/dist/server/node-environment-baseline';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { mock } from 'node:test';
 import type { PoolClient } from 'pg';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { SqlConnection } from '../app/lib/db';
@@ -93,6 +95,16 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
     const absent = async (id: string) => assert.equal((await admin.query(
       'SELECT count(*)::integer AS count FROM path_mcp_principal_writes WHERE id=$1', [id])).rows[0].count, 0);
 
+    await check('phase budget expiry remains distinct from token expiry', async () => {
+      for (const route of routes) {
+        await assert.rejects(route.run(async access => {
+          const actualNow = performance.now.bind(performance);
+          const clock = mock.method(performance, 'now', () => actualNow() + 6000);
+          try { await access.assertCurrent(); }
+          finally { clock.mock.restore(); }
+        }), expectedCode('MCP_READ_PHASE_TIMEOUT'));
+      }
+    });
     await check('both fixed tools use genuine identity, same B/XID and one bounded borrowed phase', async () => {
       for (const route of routes) {
         const origins: PathOrigin[] = [];
@@ -612,8 +624,8 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
     });
     assert.deepEqual(await fixture.snapshot(), domainBefore, 'Principal/absent-handler probes do not mutate document/history/projection state.');
   });
-  assert.equal(passed, 12); completed = true;
-  console.log(`Direct MCP Workspace path principals PostgreSQL: ${passed}/12 genuine JWT/PG authority families; no file, original/history, worker or public-handler acceptance.`);
+  assert.equal(passed, 13); completed = true;
+  console.log(`Direct MCP Workspace path principals PostgreSQL: ${passed}/13 genuine JWT/PG authority families; no file, original/history, worker or public-handler acceptance.`);
 }
 
 void directMcpWorkspacePathPrincipalPostgresTest().catch(error => {

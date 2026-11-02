@@ -172,8 +172,10 @@ try {
   });
   await step('binary upload retries, status and original SHA-256', async () => {
     await verifyUploadAcceptance(call, runId, async () => {
-      const proof = JSON.parse(await fs.readFile(path.resolve('artifacts/mcp-operation-reliability/image-source-verification.json'), 'utf8'));
-      const runtime = JSON.parse(await fs.readFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/mcp-operation-reliability-runtime/fixture.json'), 'utf8'));
+      const proof = JSON.parse(await fs.readFile(process.env.CANVAS_MCP_IMAGE_PROOF
+        ?? path.resolve('artifacts/mcp-operation-reliability/image-source-verification.json'), 'utf8'));
+      const runtime = JSON.parse(await fs.readFile(process.env.CANVAS_MCP_RUNTIME_FIXTURE
+        ?? path.join(os.homedir(), '.local/state/canvas-local-team-seat/mcp-operation-reliability-runtime/fixture.json'), 'utf8'));
       const { stdout } = await promisify(execFile)('docker', ['inspect', 'canvas-local-prod-notebook']);
       const [container] = JSON.parse(stdout);
       assert.equal(container.Image, proof.image, 'Restart only the source-verified test image.');
