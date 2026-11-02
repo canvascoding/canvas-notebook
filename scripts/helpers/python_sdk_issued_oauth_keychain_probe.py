@@ -68,6 +68,17 @@ def success(result):
     return result.require_success()
 
 
+def manifest_success(result):
+    """OAuth manifest carries its fixed summary beside structured data."""
+    if result.is_error:
+        return success(result)
+    payload = result.require_success()
+    assert isinstance(payload, dict) and isinstance(payload.get("entries"), list)
+    assert len(result.content) == 1 and result.content[0].type == "text"
+    assert result.content[0].text == f'Manifest page: {len(payload["entries"])} files.'
+    return payload
+
+
 def assert_edit_status(actual: dict, original: dict) -> None:
     # Effect/identity/durability stay fixed; an asynchronous checkpoint or history
     # acknowledgement may legitimately advance after the original response.
@@ -265,7 +276,7 @@ async def main() -> None:
             async def entries() -> list[dict]:
                 cursor, seen, found = None, set(), []
                 for _ in range(100):
-                    page = success(await notebook.get_manifest(destination, max_depth=3, max_entries=20, cursor=cursor))
+                    page = manifest_success(await notebook.get_manifest(destination, max_depth=3, max_entries=20, cursor=cursor))
                     assert page["coverage"]["source"] == "visible_workspace_namespace"
                     found.extend(page["entries"])
                     if not page["has_more"]:

@@ -2237,6 +2237,30 @@ Python-Journalfälle, Syntax, ESLint und strenges TypeScript mit sechs Wurzeln/
 5191 Quellen bestehen. Für diesen lokalen Korrekturstand stehen die neuen
 Builds, kompilierte Abnahme und GitHub-Prüfungen noch aus.
 
+**Kompilierte Abnahme auf `a12c8f58f`:** Beide Builds, Start, Bootstrap-
+Anmeldung/-Abmeldung und alle 45 Produktquellbindungen bestehen. Der aktuelle
+`main`-Stand mit PR #201 ist vollständig enthalten. Der dauerhafte echte
+OAuth-Lauf besteht sechs bestätigte Edits und 24 Editorprüfungen, Busy-
+Ablehnung ohne Geburten, positive Owner-/PG-Sperrfreigabe und ausdrückliches
+Recover des ursprünglichen Copy-Auftrags. Der folgende Manifest-/Inhaltsschritt
+scheitert. Eine unabhängige ausschließlich lesende Prüfung bestätigt den
+abgeschlossenen Journal-/Veröffentlichungsbeleg, genau eine aktive Kopie,
+bytegleichen Markdown-Inhalt und gleiche native Inhalte mit frischen Block-IDs.
+Quellinhalt, Version und geschützte Originaldaten bleiben unverändert; es wird
+weder Apply noch Recover erneut gesendet.
+
+Ein isolierter echter OAuth-Manifestaufruf identifiziert den Fehler des
+Abnahmehelfers eindeutig als `JSONDecodeError`: Er verlangt JSON im Textfeld,
+während der bestehende OAuth-Manifestvertrag dort seine feste Zusammenfassung
+und daneben `structuredContent` liefert. Nur die Manifestprüfung verwendet
+deshalb eine eigene Prüfung auf genau diese Zusammenfassung samt tatsächlicher
+Eintragszahl. Die bisherigen JSON-Prüfungen der nativen Dokument-/Copy-Werkzeuge,
+Pagination und Inhalts-/Identitätsassertions bleiben erhalten. Sieben lokale
+mechanische Envelope-Fälle bestehen. Weitere diagnostische Komplettläufe
+werden außerdem durch korrekt gemeldetes `DOCUMENT_BUSY` während gleichzeitiger
+Editorzugriffe beendet; diese Ergebnisse werden erhalten und nicht als grüne
+Vollabnahme gezählt. Die neue vollständige kompilierte Abnahme bleibt offen.
+
 ### 5b. Vollständige API- und SDK-Testmatrix
 
 **Portabler CI-Pfad, 02.11.2026 – lokal und in GitHub bis `9ba00fd2b` geprüft:** Die drei
