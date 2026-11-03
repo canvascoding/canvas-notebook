@@ -53,7 +53,7 @@ import { prepareNativeCopyPhaseOnConnection, recordNativeCopyParentOnConnection,
   type NativeCopyPhasePathReceipt } from './workspace-operation-native-copy-phase';
 import { nativeCopyPhaseStepCount, nativeCopyPhasePathSteps, nativeCopyPhaseParentSteps,
   assertNativeCopyPhaseParent, withCapturedNativeCopyPhaseStage, withNativeCopyPhaseCompilation,
-  nativeCopyPhaseCompiler } from './workspace-operation-native-copy-phase-contract';
+  captureNativeCopyPhaseStage } from './workspace-operation-native-copy-phase-contract';
 import { readNativeCopyPhaseJournalOnConnection, readCompletedNativeCopyHistoryOnConnection } from './workspace-operation-native-copy-phase-read';
 import { readNativeCopyReceiptStorageIdentityOnConnection } from '../collaboration/native-copy-historical-receipt';
 import type { WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
@@ -317,16 +317,12 @@ async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation
     }
   });
 }
-/** Detach original data before BEGIN. Current authority, B/XID and every write
- * remain inside the fixed phase; this pure frame ends with this one TX. */
+/** Check the captured plan before BEGIN. Current authority, B/XID and every
+ * write are checked inside this transaction. */
 function copyPhaseTransaction<T>(owner: Owner, stage: WorkspaceOperationOwnedCopyStage,
   operation: (detached: WorkspaceOperationOwnedCopyStage) => Promise<T>, onCommitted?: (result: T) => void): Promise<T> {
-  return withCapturedNativeCopyPhaseStage(stage, detached => withNativeInspectionSchema(() =>
-    withNativeCopyPhaseCompilation(detached, () => {
-      // Replay the immutable original before opening the bounded SQL transaction.
-      nativeCopyPhaseCompiler(detached);
-      return transaction(owner, 'write', () => operation(detached), onCommitted);
-    })));
+  const captured = captureNativeCopyPhaseStage(stage);
+  return transaction(owner, 'write', () => operation(captured), onCommitted);
 }
 
 async function principal<T>(owner: Owner, operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
@@ -859,74 +855,76 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
         if (mode === 'recover') throw new NativeCopyOperationNotFoundError();
         durable = await createStage(owner, store, operationId, selections, renameOnCollision, expectedPlanId, destinationDirectory);
       }
-      const stage = durable; owner.stage = stage;
-      pendingSteps = [...nativeCopyPhasePathSteps(stage), ...nativeCopyPhaseParentSteps(stage)].map(step => step.stepKey);
-      const expectedStepCount = await withNativeInspectionSchema(() => nativeCopyPhaseStepCount(stage));
-      // B0 is only an original-intent header. It lets the existing recovery
-      // endpoint route a rollback before the clone/link transaction succeeds.
-      await transaction(owner, 'write', () => principal(owner, () => prepareWorkspaceOperationOnConnection(owner.database,
-        { operationId, planId: stage.plan.planId, request: stage.request,
-          actor: { type: stage.origin.actor.type, id: stage.origin.actor.userId },
-          sourceWorkspaceId: stage.identity.sourceWorkspaceId, destinationWorkspaceId: stage.identity.destinationWorkspaceId,
-          expectedStepCount })));
-      const publish = async (assetCap?: PreparedExcalidrawCopyAssets): Promise<NativeCopyExecutionResult> => {
-        const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
-          { stage: detached, request: owner.invocation.request,
-            ...principalFields(owner.invocation),
-            ...(assetCap ? { assetOriginal: readPreparedExcalidrawCopyAssets(assetCap) } : {}) }));
-        if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
-          if (!prepared.managedIntent) problem();
-          owner.assetPublication = Object.freeze({ stageDigest: stage.payloadSha256,
-            originalProof: prepared.managedIntent.assetOriginal.originalProof });
-        }
-        pendingSteps.push(...prepared.linkReceipts.map(link => link.stepKey), 'copy-completion');
-        if (assetCap) await assertPreparedExcalidrawCopyAssetsCurrent(assetCap);
-        const assetReceipt = assetCap ? await publishPreparedExcalidrawCopyAssets(assetCap) : undefined;
-        const pathReceipts = await publishPaths(owner, stage);
-        const entries = new Map(stage.plan.nativePathPlan.pathMappings.map(mapping => [mapping.destinationPath,
-          Object.freeze({ path: mapping.destinationPath, type: mapping.source.kind === 'directory' ? 'addDir' as const : 'add' as const })]));
-        for (const path of pathReceipts) for (const parent of path.receipt.createdParents) {
-          entries.set(parent.relativePath, Object.freeze({ path: parent.relativePath, type: 'addDir' }));
-        }
-        const publishedViews: NativeCopyViewOutcome = Object.freeze({ kind: 'published',
-          destinationWorkspaceId: stage.identity.destinationWorkspaceId,
-          entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
-        const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
-          { stage: detached, request: owner.invocation.request,
-            ...principalFields(owner.invocation),
-            pathReceipts, ...(assetReceipt ? { assetReceipt } : {}) }), committed => {
-          if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
-            viewOutcome = committed.publication === 'published' ? publishedViews
-              : Object.freeze({ kind: 'historical', destinationWorkspaceId: stage.identity.destinationWorkspaceId });
-          }
-        });
-        if (result.disposition !== 'completed' || result.operation.status !== 'completed') problem();
-        const journal = await transaction(owner, 'write', () => principal(owner, async () =>
-          await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
-        completedSteps = journal.steps.filter(step => step.status === 'applied').map(step => step.stepKey);
-        pendingSteps = journal.steps.filter(step => step.status !== 'applied').map(step => step.stepKey);
-        if (pendingSteps.length || completedSteps.length !== expectedStepCount) problem();
-        if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
-          if (!result.managedReceipt) problem();
-          await retireConfirmedAssets(owner, result.managedReceipt);
-          if (stage.version === 6) await store.removeCompletedRawCopy(stage.identity);
-          else await store.removeCompletedManagedCopy(stage.identity);
-        } else if (stage.version === 8 || stage.version === 9) await store.removeCompletedRawHtmlCopy(stage.identity);
-        else if (stage.version === 7) await store.removeCompletedHtmlCopy(stage.identity);
-        else await store.removeCompletedNativeCopy(stage.identity);
-        return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
-          copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
-      };
-      if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6)) return publish();
-      const saved = await withCapturedNativeCopyPhaseStage(stage, detached =>
-        transaction(owner, 'write', () => principal(owner, () => {
-          if (detached.version !== 4 && detached.version !== 5 && detached.version !== 6) problem();
-          return readOriginalExcalidrawCopyOnConnection(owner.database, { stage: detached });
+      // Reuse only detached, pinned plan data within this one attempt. Each
+      // SQL phase still obtains current authority on its own transaction.
+      return withCapturedNativeCopyPhaseStage(durable, stage => withNativeInspectionSchema(() =>
+        withNativeCopyPhaseCompilation(stage, async () => {
+          owner.stage = stage;
+          pendingSteps = [...nativeCopyPhasePathSteps(stage), ...nativeCopyPhaseParentSteps(stage)].map(step => step.stepKey);
+          const expectedStepCount = nativeCopyPhaseStepCount(stage);
+          // B0 is only an original-intent header. It lets the existing recovery
+          // endpoint route a rollback before the clone/link transaction succeeds.
+          await transaction(owner, 'write', () => principal(owner, () => prepareWorkspaceOperationOnConnection(owner.database,
+            { operationId, planId: stage.plan.planId, request: stage.request,
+              actor: { type: stage.origin.actor.type, id: stage.origin.actor.userId },
+              sourceWorkspaceId: stage.identity.sourceWorkspaceId, destinationWorkspaceId: stage.identity.destinationWorkspaceId,
+              expectedStepCount })));
+          const publish = async (assetCap?: PreparedExcalidrawCopyAssets): Promise<NativeCopyExecutionResult> => {
+            const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
+              { stage: detached, request: owner.invocation.request,
+                ...principalFields(owner.invocation),
+                ...(assetCap ? { assetOriginal: readPreparedExcalidrawCopyAssets(assetCap) } : {}) }));
+            if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
+              if (!prepared.managedIntent) problem();
+              owner.assetPublication = Object.freeze({ stageDigest: stage.payloadSha256,
+                originalProof: prepared.managedIntent.assetOriginal.originalProof });
+            }
+            pendingSteps.push(...prepared.linkReceipts.map(link => link.stepKey), 'copy-completion');
+            if (assetCap) await assertPreparedExcalidrawCopyAssetsCurrent(assetCap);
+            const assetReceipt = assetCap ? await publishPreparedExcalidrawCopyAssets(assetCap) : undefined;
+            const pathReceipts = await publishPaths(owner, stage);
+            const entries = new Map(stage.plan.nativePathPlan.pathMappings.map(mapping => [mapping.destinationPath,
+              Object.freeze({ path: mapping.destinationPath, type: mapping.source.kind === 'directory' ? 'addDir' as const : 'add' as const })]));
+            for (const path of pathReceipts) for (const parent of path.receipt.createdParents) {
+              entries.set(parent.relativePath, Object.freeze({ path: parent.relativePath, type: 'addDir' }));
+            }
+            const publishedViews: NativeCopyViewOutcome = Object.freeze({ kind: 'published',
+              destinationWorkspaceId: stage.identity.destinationWorkspaceId,
+              entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
+            const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
+              { stage: detached, request: owner.invocation.request,
+                ...principalFields(owner.invocation),
+                pathReceipts, ...(assetReceipt ? { assetReceipt } : {}) }), committed => {
+              if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
+                viewOutcome = committed.publication === 'published' ? publishedViews
+                  : Object.freeze({ kind: 'historical', destinationWorkspaceId: stage.identity.destinationWorkspaceId });
+              }
+            });
+            if (result.disposition !== 'completed' || result.operation.status !== 'completed') problem();
+            const journal = await transaction(owner, 'write', () => principal(owner, async () =>
+              await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
+            completedSteps = journal.steps.filter(step => step.status === 'applied').map(step => step.stepKey);
+            pendingSteps = journal.steps.filter(step => step.status !== 'applied').map(step => step.stepKey);
+            if (pendingSteps.length || completedSteps.length !== expectedStepCount) problem();
+            if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
+              if (!result.managedReceipt) problem();
+              await retireConfirmedAssets(owner, result.managedReceipt);
+              if (stage.version === 6) await store.removeCompletedRawCopy(stage.identity);
+              else await store.removeCompletedManagedCopy(stage.identity);
+            } else if (stage.version === 8 || stage.version === 9) await store.removeCompletedRawHtmlCopy(stage.identity);
+            else if (stage.version === 7) await store.removeCompletedHtmlCopy(stage.identity);
+            else await store.removeCompletedNativeCopy(stage.identity);
+            return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
+              copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
+          };
+          if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6)) return publish();
+          const saved = await transaction(owner, 'write', () => principal(owner, () =>
+            readOriginalExcalidrawCopyOnConnection(owner.database, { stage })));
+          const destinationWorkspace = owner.workspaces!.destination;
+          return saved
+            ? withRecoveredExcalidrawCopyAssets({ stage, destinationWorkspace, original: saved.intent.assetOriginal }, publish)
+            : withPreparedExcalidrawCopyAssets({ stage, destinationWorkspace }, publish);
         })));
-      const destinationWorkspace = owner.workspaces!.destination;
-      return saved
-        ? withRecoveredExcalidrawCopyAssets({ stage, destinationWorkspace, original: saved.intent.assetOriginal }, publish)
-        : withPreparedExcalidrawCopyAssets({ stage, destinationWorkspace }, publish);
     }));
   } catch (error) {
     if (!durable || authenticationError(error)) throw bindViewError(error);
