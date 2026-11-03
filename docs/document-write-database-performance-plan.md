@@ -2529,6 +2529,16 @@ sichtbaren Inhalt und die während des Messfensters übertragenen Bytes wurden
 getrennt erfasst. SQL, Pool-Ausleihen und der genaue Abstand zur Freigabe des
 vorherigen Dokuments sind in dieser Messung noch offen.
 
+Eine separate instrumentierte Messung auf `93fad1da2` mit zehn Dokumenten
+zählte bei acht warmen Wechseln 593–618 SQL-Aufrufe und 108–116 Pool-Ausleihen
+pro Wechsel über die beobachteten Datei-HTTP-Endpunkte. Der Session-Endpunkt
+allein führte je 396 SQL-Aufrufe und 48 Pool-Ausleihen aus und benötigte
+509–655 ms serverseitig. Auf ihn entfielen 3.168 von 4.853 SQL-Aufrufen.
+Die Standortabfragen waren mit insgesamt 609 SQL-Aufrufen die zweitgrößte
+Gruppe. Die Instrumentierung zählt Aufrufe des PostgreSQL-Treibers bis zum
+Abschluss der jeweiligen HTTP-Antwort. WebSocket- und Hintergrundarbeit
+sind in diesen Zahlen nicht enthalten.
+
 #### Umsetzung in überprüfbaren Schritten
 
 1. **Istzustand messen:** Zwei regulär angelegte Testdokumente bei insgesamt 10
