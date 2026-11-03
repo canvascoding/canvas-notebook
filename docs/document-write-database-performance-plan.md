@@ -269,7 +269,7 @@ stehen in den zugehörigen Abschnitten:
 | 3 | in Umsetzung | Tatsächlich umgestellte Aufrufer gegen vollständigen Link-Neuaufbau und die abschließenden Leistungsbudgets prüfen. |
 | 4 | in Umsetzung | Die implementierten API-Key-Schreib-/Job-Ursprünge und Originalimporte über die gemeinsamen Speicherkerne abschließend auf Transport-/Linkparität prüfen. Die native CI und installierten SDK-Familien bestehen; dies ersetzt noch keine ganze kompilierte Matrix. |
 | 4a | in Umsetzung | Am gebauten Stand `871a0ef43` bestehen alle vier Schlüsselverwaltungs-Browserfälle und der vollständige echte OAuth-/Keychain-Lauf einschließlich natürlichem Tokenablauf, Refresh und historischer Status-/Recovery-Zugriffe. Alle 13 CI-Prüfungen sind grün. Die übrige Rechte-/Unterbrechungs-/Dateimatrix und die portable Restore-Abnahme bleiben offen. Alle geforderten Adapter sind implementiert, siehe 5a. |
-| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `871a0ef43` besteht beide Builds, Start, den vollständigen OAuth-/Editor-/Pfadablauf und beide REST-/SDK-Operationsprofile mit Linkpflege und Schlüsselrotation. `f6bfdc29e` besteht beide Builds, Start und alle 13 CI-Prüfungen; die reguläre Gesamtsuite endet mit 330 bestandenen, einem fehlgeschlagenen und 269 bedingt übersprungenen Browserfällen. Der einzige Fehler betrifft die Studio-Retry-Testsimulation; die korrigierte Variante besteht drei unabhängige Wiederholungen. Die Gesamtsuite am abschließenden Commit erneut ausführen. Der rohe Kalt-Klon besteht Start und Lesen, verweigert Schreiben wegen veränderter inodegebundener Autoritätsmarker; eine funktionsfähige Wiederherstellung ist damit nicht abgenommen. Originale samt `xmin` bleiben unverändert. Übrige Matrix, Konkurrenz, unterstützten Restore und Beispiele anschließend abschließen. |
+| 4b | in Umsetzung | `main` mit PR #201 ist unter Erhalt unserer Projektionssperren integriert. `871a0ef43` besteht den echten OAuth-/Editor-/Pfadablauf und beide REST-/SDK-Operationsprofile. `2a4aded19` besteht beide Builds, Start und alle 13 CI-Prüfungen. `test:all` ist mit drei exakt gebundenen Testdatei-Korrekturen am selben Produktstand grün: 331 bestanden, 0 fehlgeschlagen, 269 bestehende bedingte Skips. Originale samt `xmin`, Dateibytes und Autoritätsmarkern bleiben unverändert. Der rohe Kalt-Klon belegt Start und Lesen; unterstützte Schreib-Wiederherstellung, übrige API-/SDK-Matrix, vollständige Leistungsabnahme und Beispiele bleiben offen. |
 | 4c | offen | Zunächst die in 5c benannten kalten und warmen Browserabläufe messen; Cache-Lebensdauer erst danach festlegen. |
 | 5 | offen | Nach vollständigen Nachweisen Gesamtsuite, PR/CI/Reviews und kontrolliertes Release mit Deployment-Verifikation durchführen. |
 
@@ -2345,8 +2345,30 @@ tatsächlicher Identitätsprüfung und Sitzungscache; rohe wiederholte Logins ha
 im gezielten Test HTTP 429 ausgelöst. Die korrigierte Retry-Variante besteht drei
 unabhängige Browserdurchläufe ohne Retry oder Skip. Produktdateien und ihre 45
 Quellenbindungen bleiben dabei unverändert; geschützte Originalzeilen samt `xmin`,
-Dateibytes und Autoritätsmarker bleiben erhalten. Eine erneute vollständige
-`test:all`-Abnahme am abschließenden Commit bleibt erforderlich.
+Dateibytes und Autoritätsmarker bleiben erhalten.
+
+**Vollständiger regulärer Lauf, 03.11.2026:** Der kombinierte Produktstand
+`2a4aded19` besteht macOS- und Linux-Produktionsbuild, echten Containerstart und
+alle 13 CI-Prüfungen. Der Studio-Retry-Fall besteht im Gesamtlauf. Zwei weitere
+Läufe weisen unabhängige Testfehler nach: Eine vorübergehend fehlende Panelbox
+wird vor dem Drag gelesen; eine bestehende Sitzung verliert die TCP-Verbindung
+vor der HTTP-Antwort. Die Panel-Messung wartet auf eine sichtbare Geometrie und
+behält alle Toleranzen und Interaktionsprüfungen. Der gemeinsame Testhelfer
+erlaubt genau einen Playwright-Transport-Retry bei `ECONNRESET` innerhalb des
+bestehenden GET-Zeitlimits. Der echte TCP-Vertragstest prüft einmaligen Reset,
+anhaltenden Reset und HTTP 401; Identitätsprüfung, 429-Grenzen und Login bleiben
+unverändert. Alle 28 gezielten Browserdurchläufe bestehen.
+
+`npm run test:all` endet erfolgreich mit **331 bestanden, 0 fehlgeschlagen,
+269 bestehenden bedingten Skips** im Browserabschnitt (48,7 Minuten). Der
+Lauf bindet die drei korrigierten Testdateien per SHA-256 an den unveränderten
+Produktstand mit 45 überprüften Produktdateien. Er verwendet echte
+Administrator- und Zweitbenutzersitzungen, frische PostgreSQL-/DATA-/HOME-Sicherungen
+und einen neu erstellten Notebook-Container auf denselben gültigen QA-Volumes.
+Die Abschlussprüfung bestätigt unveränderte Originalzeilen einschließlich
+`xmin`, Dateibytes und Autoritätsmarker. Review Center und Undo bleiben aus.
+Diese Abnahme belegt die reguläre Suite; die übrigen Release-Gates bleiben
+in Abschnitt 5b und 5c separat aufgeführt.
 
 ### 5b. Vollständige API- und SDK-Testmatrix
 
