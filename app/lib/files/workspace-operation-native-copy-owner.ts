@@ -769,6 +769,7 @@ function authenticationError(error: unknown): boolean {
     || ['PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'AGENT_ACTOR_CONTEXT_DENIED'].includes(String(Reflect.get(error, 'code'))));
 }
 async function recordRecovery(invocation: Invocation, purpose: ApiKeyWorkspaceCopyPurpose, stage: WorkspaceOperationOwnedCopyStage, code: string): Promise<void> {
+  const expectedStepCount = await withNativeInspectionSchema(() => nativeCopyPhaseStepCount(stage));
   // This is a new actual checkout after the uncertain owner was discarded.
   // It records recovery status only; it never retries native or FS mutations.
   await withSession({ origin: stage.origin, request: invocation.request,
@@ -781,7 +782,7 @@ async function recordRecovery(invocation: Invocation, purpose: ApiKeyWorkspaceCo
       if (!header) await prepareWorkspaceOperationOnConnection(owner.database, { operationId: stage.identity.operationId,
         planId: stage.plan.planId, request: stage.request, actor: { type: stage.origin.actor.type, id: stage.origin.actor.userId },
         sourceWorkspaceId: stage.identity.sourceWorkspaceId, destinationWorkspaceId: stage.identity.destinationWorkspaceId,
-        expectedStepCount: nativeCopyPhaseStepCount(stage) });
+        expectedStepCount });
       await failWorkspaceOperationOnConnection(owner.database,
         { operationId: stage.identity.operationId, recoveryRequired: true, errorCode: code });
     });
@@ -860,13 +861,14 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
       }
       const stage = durable; owner.stage = stage;
       pendingSteps = [...nativeCopyPhasePathSteps(stage), ...nativeCopyPhaseParentSteps(stage)].map(step => step.stepKey);
+      const expectedStepCount = await withNativeInspectionSchema(() => nativeCopyPhaseStepCount(stage));
       // B0 is only an original-intent header. It lets the existing recovery
       // endpoint route a rollback before the clone/link transaction succeeds.
       await transaction(owner, 'write', () => principal(owner, () => prepareWorkspaceOperationOnConnection(owner.database,
         { operationId, planId: stage.plan.planId, request: stage.request,
           actor: { type: stage.origin.actor.type, id: stage.origin.actor.userId },
           sourceWorkspaceId: stage.identity.sourceWorkspaceId, destinationWorkspaceId: stage.identity.destinationWorkspaceId,
-          expectedStepCount: nativeCopyPhaseStepCount(stage) })));
+          expectedStepCount })));
       const publish = async (assetCap?: PreparedExcalidrawCopyAssets): Promise<NativeCopyExecutionResult> => {
         const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
           { stage: detached, request: owner.invocation.request,
@@ -903,7 +905,7 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
           await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
         completedSteps = journal.steps.filter(step => step.status === 'applied').map(step => step.stepKey);
         pendingSteps = journal.steps.filter(step => step.status !== 'applied').map(step => step.stepKey);
-        if (pendingSteps.length || completedSteps.length !== nativeCopyPhaseStepCount(stage)) problem();
+        if (pendingSteps.length || completedSteps.length !== expectedStepCount) problem();
         if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
           if (!result.managedReceipt) problem();
           await retireConfirmedAssets(owner, result.managedReceipt);
