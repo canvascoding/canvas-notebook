@@ -630,8 +630,6 @@ def run(message):
     if not isinstance(intent, dict) or not re.fullmatch('[a-f0-9]{64}', key):
         fail('INVALID_INPUT')
     if intent['dataRoot']['dev'] != str(os.fstat(3).st_dev):
-        if not isinstance(intent.get('source'), dict) or 'kind' not in intent['source']:
-            fail('SOURCE_CHANGED')
         load = runpy.run_path(os.path.join(os.path.dirname(__file__), 'native-storage-witness.py'))
         mapping = load['read_device_map'](3)
         if mapping is None or mapping['recordedDevice'] != intent['dataRoot']['dev']:

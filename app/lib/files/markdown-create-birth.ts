@@ -623,9 +623,10 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       || !Number.isSafeInteger(progress.uploadedBytes) || progress.uploadedBytes !== file.size) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     const part = read(session, selected.fileId + '.part', 5 * 1024 * 1024, 1, 0o600);
     if (part.bytes.length !== selected.sourceBytes || createHash('sha256').update(part.bytes).digest('hex') !== selected.sourceHash
-      || !fileMatches(part.info, expected.part) || (progressInfo ? !fileMatches(progressInfo, expected.progress) : expected.progress !== null)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
-    if (!isDeepStrictEqual([uploads, workspace, session].map(fd => syncDirectory(syncFs.fstatSync(fd, { bigint: true }))), expected.directories)
-      || !isDeepStrictEqual({ dev: manifestRead.info.dev.toString(), ino: manifestRead.info.ino.toString(), uid: Number(manifestRead.info.uid), mode: Number(manifestRead.info.mode & BigInt(0o7777)) }, expected.manifestInode)
+      || !fileMatches(part.info, expected.part, frame.storageDeviceMap)
+      || (progressInfo ? !fileMatches(progressInfo, expected.progress, frame.storageDeviceMap) : expected.progress !== null)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+    if (!isDeepStrictEqual([uploads, workspace, session].map(fd => storedIdentity(frame, syncDirectory(syncFs.fstatSync(fd, { bigint: true })))), expected.directories)
+      || !isDeepStrictEqual({ dev: storedDevice(manifestRead.info.dev.toString(), frame.storageDeviceMap), ino: manifestRead.info.ino.toString(), uid: Number(manifestRead.info.uid), mode: Number(manifestRead.info.mode & BigInt(0o7777)) }, expected.manifestInode)
       || !isDeepStrictEqual(Object.fromEntries(['id', 'userId', 'workspaceId', 'targetDir', 'createdAt', 'expiresAt'].map(key => [key, manifest[key] ?? null])), expected.header)
       || !isDeepStrictEqual(Object.fromEntries(['id', 'sourceIndex', 'relativePath', 'targetPath', 'size', 'mimeType'].map(key => [key, file[key] ?? null])), expected.selected)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     if (!stableFile(manifestRead.info, read(session, 'session.json', 16 * 1024 * 1024, 1, 0o600).info)
@@ -735,7 +736,6 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     workspace = await fs.open(resolvedWorkspace, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     const dataIdentity = identity(await data.stat()), workspaceIdentity = identity(await workspace.stat());
     const storageDeviceMap = await readNativeStorageDeviceMap(data);
-    if (storageDeviceMap && !Object.hasOwn(captured.source, 'kind')) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     const intent = { version: 1, targetPath: captured.targetPath, origin: captured.origin, source: captured.source,
       operationId: captured.operationId, dataRoot: { ...dataIdentity, dev: storedDevice(dataIdentity.dev, storageDeviceMap) },
       workspaceRoot: { ...workspaceIdentity, dev: storedDevice(workspaceIdentity.dev, storageDeviceMap) } };

@@ -192,6 +192,20 @@ def read_device_map(root_fd):
     return alias
 
 
+def storage_device_mapper(root_fd):
+    """Select a recorded identity only for objects on the verified device."""
+    alias = read_device_map(root_fd)
+    if alias is None:
+        raise ValueError("Storage binding disappeared")
+
+    def map_device(device):
+        if device != alias["currentDevice"]:
+            raise ValueError("Object is outside the verified storage device")
+        return alias["recordedDevice"]
+
+    return map_device
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
