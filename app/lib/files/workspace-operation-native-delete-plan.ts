@@ -2,6 +2,7 @@ import 'server-only';
 
 import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import type { NativeDocumentLinkInventory, NativeLinkMutationRecipe, NativeNamespaceEntry, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import type { WorkspaceMixedReadLinkSnapshotV3 } from '../markdown/workspace-link-contract-v3';
@@ -223,7 +224,21 @@ function nativeDeletePlanIntegrityProofFromCapturedData(
   if (body.planIdentityVersion === 3) return nativeLinkJsonProof({ integrityVersion: 3, plan: body });
   return nativeLinkJsonProof({ integrityVersion: 2, plan: body });
 }
+const decodedDeletePlanAttributes = new WeakMap<object, readonly string[]>();
+
+function canReuseDecodedDeletePlan(input: unknown): input is WorkspaceOperationNativeDeleteBatchPlan {
+  if (!input || typeof input !== 'object') return false;
+  const attributes = decodedDeletePlanAttributes.get(input);
+  if (!attributes) return false;
+  if (!attributes.length) return true;
+  try {
+    const current = Object.keys(getNativeInspectionSchema().marks.link.spec.attrs ?? {});
+    return attributes.every(key => current.includes(key));
+  } catch { return false; }
+}
+
 export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): WorkspaceOperationNativeDeleteBatchPlan {
+  if (canReuseDecodedDeletePlan(input)) return input;
   if (isDeleteHtmlV4(input)) return deleteHtmlV4(() => decodeWorkspaceOperationNativeDeleteBatchPlanV4(input));
   try {
     const mixed = input && typeof input === 'object' && !types.isProxy(input)
@@ -276,7 +291,15 @@ export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): W
     if (!isDeepStrictEqual(value.coverage, diagnostic.coverage) || !isDeepStrictEqual(value.linkAssessment, diagnostic.linkAssessment)) fail();
     const { planId, ...body } = value;
     if (nativeDeletePlanIdFromCapturedData(body as Exclude<WorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationNativeDeleteBatchPlanV4>) !== planId) fail();
-    return freeze(value);
+    const decoded = freeze(value);
+    const attributes = new Set<string>();
+    for (const { inventory } of evidence.stage.sources) {
+      for (const link of inventory.links) {
+        if (link.ref.kind === 'link-mark') for (const key of Object.keys(link.ref.expected)) attributes.add(key);
+      }
+    }
+    decodedDeletePlanAttributes.set(decoded, [...attributes]);
+    return decoded;
   } catch (error) {
     if (error instanceof WorkspaceOperationNativeDeletePlanError || error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error;
     return fail();

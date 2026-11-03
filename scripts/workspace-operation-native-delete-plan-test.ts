@@ -246,6 +246,14 @@ test('incoming-link plans remain current across projection replacement but rejec
   const peer = observation([observed.privateNativeStates[0], state('tiptap_blocks', 'Peer changed [Target](%20note%20.md)', 'incoming.md')]);
   assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, peer, captureWorkspaceOperationJobScope(scope.workspace)));
 });
+test('only the decoder-owned frozen Delete plan can be reused', () => {
+  const input = structuredClone(build(observation([state()])));
+  const decoded = decodeWorkspaceOperationNativeDeleteBatchPlan(input);
+  assert.equal(decodeWorkspaceOperationNativeDeleteBatchPlan(decoded), decoded);
+  assert.notEqual(decodeWorkspaceOperationNativeDeleteBatchPlan(input), decoded);
+  assert.equal(Reflect.set(decoded.nativeTarget, 'path', 'forged.md'), false);
+});
+
 test('malformed native structure has a stable invalid code while source-import and size diagnostics survive', () => {
   const plan = build(observation([state()]));
   for (const change of [{ actions: null }, { nativeGraphPlan: null }, { nativeGraphPlan: { ...plan.nativeGraphPlan, steps: [null] } }]) {
