@@ -665,7 +665,11 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
     return;
   }
   const fresh = hasFreshLocationSession(entry, path, session);
-  if (entry.parkedAt !== undefined && !fresh) throw new Error('The parked document requires current authorization.');
+  const wasParked = entry.parkedAt !== undefined;
+  if (wasParked && !fresh) throw new Error('The parked document requires current authorization.');
+  const parkedStateIsCurrent = wasParked && !session.degraded && !session.projectionError?.permanent
+    && isCollaborationStateProof(session.stateProof)
+    && session.stateProof === collaborationStateProof(entry.doc, Y);
   entry.parkedAt = undefined;
   const candidate = entry.path !== path && !fresh && hasHistoricalLocationSession(entry, path, session);
   entry.requests.abort();
@@ -683,12 +687,14 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
   const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
+    locallyUsable: wasParked ? false : entry.clientState.locallyUsable,
     checkpointStateVector: null, checkpointStateProof: null, persistedStateProof: null,
     connection: session.permission === 'read' ? 'read_only' : 'reconnecting',
     error: locationRecovered ? null : entry.clientState.error,
     failure: locationRecovered ? null : entry.clientState.failure,
     durability: entry.clientState.durability === 'degraded' && !locationRecovered ? 'degraded'
       : entry.clientState.unsyncedChanges > 0 ? 'local_pending' : 'server_received' };
+  if (parkedStateIsCurrent) transition(entry, { type: 'local_document_restored' });
   entry.startProvider?.();
   emit(entry);
 }
