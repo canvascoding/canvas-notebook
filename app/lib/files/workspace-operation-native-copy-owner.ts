@@ -918,7 +918,11 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
           copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
       };
       if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6)) return publish();
-      const saved = await transaction(owner, 'write', () => principal(owner, () => readOriginalExcalidrawCopyOnConnection(owner.database, { stage })));
+      const saved = await withCapturedNativeCopyPhaseStage(stage, detached =>
+        transaction(owner, 'write', () => principal(owner, () => {
+          if (detached.version !== 4 && detached.version !== 5 && detached.version !== 6) problem();
+          return readOriginalExcalidrawCopyOnConnection(owner.database, { stage: detached });
+        })));
       const destinationWorkspace = owner.workspaces!.destination;
       return saved
         ? withRecoveredExcalidrawCopyAssets({ stage, destinationWorkspace, original: saved.intent.assetOriginal }, publish)
