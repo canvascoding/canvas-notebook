@@ -683,7 +683,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
     catch (error) { return Promise.reject(error); } }
   if (captured && captured.binding.actionMode === 'apply' && (captured.binding.plan.version === 5
     || captured.binding.plan.version === 6
-    || captured.binding.plan.version === 2 && captured.binding.plan.planIdentityVersion === 4)) {
+    || captured.binding.plan.version === 2)) {
     // Preparation and preflight inspect the same fixed grammar as B2. Keep
     // its lifetime within this fully awaited transaction; current data and
     // every ordinary SQL/authority boundary are still freshly checked.
@@ -905,9 +905,9 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
     await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
     return false;
   });
-  // The Move preflight also inspects the complete native corpus. Keep the
+  // The native path preflight also inspects the complete corpus. Keep the
   // grammar within this actual transaction, as in the later fixed Move phases.
-  return captured.move ? withNativeInspectionSchema(prepare) : prepare();
+  return captured.move || captured.binding.actionMode === 'apply' ? withNativeInspectionSchema(prepare) : prepare();
 }
 
 declare const moveOwnerBrand: unique symbol;
