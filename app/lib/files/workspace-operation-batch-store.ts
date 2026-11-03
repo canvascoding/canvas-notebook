@@ -96,7 +96,7 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-// Only genuine registered Move3/Physical5/Cohort6 originals may reuse immutable JSON data.
+// Only genuine registered native Move and Delete originals may reuse immutable JSON data.
 // These are bytes, never a Claim, SQL, permission, expiry or current-state proof.
 const fingerprintJson = JSON, fingerprintStringify = JSON.stringify, fingerprintApply = Reflect.apply;
 const fingerprintSlice = String.prototype.slice, fingerprintDescriptor = Object.getOwnPropertyDescriptor;
@@ -154,7 +154,7 @@ function rememberOriginalPlanFragment(batch: WorkspaceOperationBatchRecord, full
   if (!fingerprintHooksCurrent(json, stringify) || !fingerprintHeadersCurrent(batch, values)
     || !plan || typeof plan !== 'object') return;
   const version = fingerprintDescriptor(plan, 'version')?.value;
-  if (version !== 3 && version !== 5 && version !== 6 || !immutableFingerprintPlan(plan)) return;
+  if (version !== 2 && version !== 3 && version !== 5 && version !== 6 || !immutableFingerprintPlan(plan)) return;
   const fragment = fingerprintApply(stringify, json, [plan]) as string;
   const prefix = fingerprintApply(stringify, json, [[values[0], values[1], values[2]]]) as string;
   values[3] = null;
