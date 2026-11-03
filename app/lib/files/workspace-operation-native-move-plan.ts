@@ -2,6 +2,7 @@ import 'server-only';
 
 import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import type { NativeLinkMutationRecipe, NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import type { FilePlanV3, WorkspaceMixedReadLinkSnapshotV3 } from '../markdown/workspace-link-contract-v3';
@@ -226,11 +227,26 @@ function nativeMovePlanIntegrityProofFromCapturedData(
   if (body.planIdentityVersion === 3) return nativeLinkJsonProof({ integrityVersion: 3, plan: body });
   return nativeLinkJsonProof({ integrityVersion: 2, plan: body });
 }
+const decodedMovePlanAttributes = new WeakMap<object, readonly string[]>();
+
+function canReuseDecodedMovePlan(input: unknown): input is WorkspaceOperationNativeMoveBatchPlan {
+  if (!input || typeof input !== 'object') return false;
+  const attributes = decodedMovePlanAttributes.get(input);
+  if (!attributes) return false;
+  if (!attributes.length) return true;
+  try {
+    const current = Object.keys(getNativeInspectionSchema().marks.link.spec.attrs ?? {});
+    return attributes.every(key => current.includes(key));
+  } catch { return false; }
+}
+
 /** Historical JSON integrity only. Path mappings and all recipes are rederived
  * independently. Opaque compiler hashes are syntax/integrity data until the
  * current-byte replay below; a forged hash can never authorize execution. */
 export function decodeWorkspaceOperationNativeMoveBatchPlan(input: unknown): WorkspaceOperationNativeMoveBatchPlan {
-  return guarded(() => {
+  // Only this decoder's detached and recursively frozen JSON can be reused.
+  if (canReuseDecodedMovePlan(input)) return input;
+  const decoded = guarded(() => {
     const value = capture(input) as WorkspaceOperationNativeMoveBatchPlan;
     if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
     const expectedKeys = value.planIdentityVersion === 2 || value.planIdentityVersion === 3 || value.planIdentityVersion === 4 ? [...keys, 'planIdentityVersion', 'integrityProof'] : keys;
@@ -277,6 +293,16 @@ export function decodeWorkspaceOperationNativeMoveBatchPlan(input: unknown): Wor
     if (nativeMovePlanIdFromCapturedData(value) !== value.planId) fail();
     return freeze(value);
   });
+  if (decoded.planIdentityVersion === undefined || decoded.planIdentityVersion === 2) {
+    const attributes = new Set<string>();
+    for (const { inventory } of decoded.sourceEvidence.stage.sources) {
+      for (const link of inventory.links) {
+        if (link.ref.kind === 'link-mark') for (const key of Object.keys(link.ref.expected)) attributes.add(key);
+      }
+    }
+    decodedMovePlanAttributes.set(decoded, [...attributes]);
+  }
+  return decoded;
 }
 type NativeMovePlanInput = {
   scope: WorkspaceOperationBatchScope; actions: WorkspaceOperationBatchAction[]; observation: WorkspaceLinkSourceAuthorityObservation;

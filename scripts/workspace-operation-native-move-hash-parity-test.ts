@@ -44,6 +44,11 @@ export function workspaceOperationNativeMoveHashParityTest(): void {
     const decoded = decodeWorkspaceOperationNativeMoveBatchPlan(input);
     assert.deepEqual(decoded, plan); assert.equal(JSON.stringify(decoded), before);
     assert.equal(JSON.stringify(input), before); assert(Object.isFrozen(decoded));
+    if (decoded.planIdentityVersion === undefined || decoded.planIdentityVersion === 2) {
+      assert.equal(decodeWorkspaceOperationNativeMoveBatchPlan(decoded), decoded);
+    }
+    assert.notEqual(decodeWorkspaceOperationNativeMoveBatchPlan(input), decoded);
+    assert.equal(Reflect.set(decoded.nativePathPlan.pathMappings[0], 'destinationPath', 'forged.md'), false);
   }
 
   // Public hash APIs retain their own strict capture, including code-free rejection.
