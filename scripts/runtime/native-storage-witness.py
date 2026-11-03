@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Inspect native storage on Linux without modifying or authorizing it."""
+
+import argparse
+import ctypes
+import hashlib
+import json
+import os
+import stat
+import sys
+
+
+MARKERS = (
+    "canvas-markdown-create-births-anchor.json",
+    "canvas-markdown-upload-attempts-anchor.json",
+    "canvas-upload-live-anchor.json",
+)
+MAX_HANDLE_BYTES = 128
+MAX_MARKER_BYTES = 4096
+AT_EMPTY_PATH = 0x1000
+
+
+class FileHandle(ctypes.Structure):
+    _fields_ = [
+        ("size", ctypes.c_uint),
+        ("kind", ctypes.c_int),
+        ("data", ctypes.c_ubyte * MAX_HANDLE_BYTES),
+    ]
+
+
+def profile(info):
+    return {
+        "device": str(info.st_dev),
+        "inode": str(info.st_ino),
+        "owner": info.st_uid,
+        "mode": stat.S_IMODE(info.st_mode),
+    }
+
+
+def marker_profile(info):
+    return (info.st_dev, info.st_ino, info.st_uid, info.st_mode,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def witness(fd):
+    libc = ctypes.CDLL(None, use_errno=True)
+    name_to_handle = libc.name_to_handle_at
+    name_to_handle.argtypes = [
+        ctypes.c_int, ctypes.c_char_p, ctypes.POINTER(FileHandle),
+        ctypes.POINTER(ctypes.c_int), ctypes.c_int,
+    ]
+    name_to_handle.restype = ctypes.c_int
+    handle = FileHandle()
+    handle.size = MAX_HANDLE_BYTES
+    mount = ctypes.c_int()
+    if name_to_handle(fd, b"", ctypes.byref(handle), ctypes.byref(mount), AT_EMPTY_PATH) != 0:
+        raise OSError(ctypes.get_errno(), "Native file handle unavailable")
+    fsid = os.fstatvfs(fd).f_fsid
+    if not fsid or handle.kind <= 0 or not 0 < handle.size <= MAX_HANDLE_BYTES:
+        raise ValueError("Missing filesystem identity")
+    return {
+        "fileSystemId": f"{fsid:x}",
+        "handleType": handle.kind,
+        "handleSha256": hashlib.sha256(bytes(handle.data[:handle.size])).hexdigest(),
+    }
+
+
+def marker_witness(root_fd, name, root_info):
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root_fd)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != root_info.st_uid or before.st_dev != root_info.st_dev
+                or stat.S_IMODE(before.st_mode) != 0o600 or not 0 < before.st_size <= MAX_MARKER_BYTES):
+            raise ValueError("Unexpected marker profile")
+        with os.fdopen(os.dup(fd), "rb") as reader:
+            content = reader.read(MAX_MARKER_BYTES + 1)
+        result = {
+            "profile": profile(before),
+            "object": witness(fd),
+            "contentSha256": hashlib.sha256(content).hexdigest(),
+        }
+        if (len(content) != before.st_size or marker_profile(before) != marker_profile(os.fstat(fd))
+                or marker_profile(before) != marker_profile(os.stat(name, dir_fd=root_fd, follow_symlinks=False))):
+            raise ValueError("Marker changed during observation")
+        return result
+    finally:
+        os.close(fd)
+
+
+def inspect(root):
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        root_witness = witness(fd)
+        markers = {name: marker_witness(fd, name, before) for name in MARKERS}
+        if (profile(before) != profile(os.fstat(fd)) or witness(fd) != root_witness
+                or profile(before) != profile(os.stat(root, follow_symlinks=False))):
+            raise ValueError("Root changed during observation")
+        return {"version": 1, "root": profile(before), "object": root_witness, "markers": markers}
+    finally:
+        os.close(fd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", required=True)
+    args = parser.parse_args()
+    if sys.platform != "linux":
+        parser.error("Linux descriptor file handles are required")
+    if not os.path.isabs(args.root):
+        parser.error("An absolute storage root is required")
+    try:
+        print(json.dumps(inspect(args.root), sort_keys=True))
+    except (AttributeError, OSError, ValueError):
+        print(json.dumps({"code": "NATIVE_STORAGE_WITNESS_UNAVAILABLE"}), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
