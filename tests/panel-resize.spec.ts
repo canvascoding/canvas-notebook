@@ -8,16 +8,27 @@ async function login(page: Page) {
   await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
+async function visibleBoundingBox(locator: Locator) {
+  let box = { x: 0, y: 0, width: 0, height: 0 };
+  await expect.poll(async () => {
+    const current = await locator.boundingBox();
+    if (!current) return false;
+    box = current;
+    return box.width > 0 && box.height > 0;
+  }).toBe(true);
+  return box;
+}
+
 async function expectStableHover(handle: Locator, controlledPanel: Locator) {
-  const handleBefore = await handle.boundingBox();
-  const panelBefore = await controlledPanel.boundingBox();
+  const handleBefore = await visibleBoundingBox(handle);
+  const panelBefore = await visibleBoundingBox(controlledPanel);
   expect(handleBefore).not.toBeNull();
   expect(panelBefore).not.toBeNull();
 
   await handle.hover();
 
-  const handleAfter = await handle.boundingBox();
-  const panelAfter = await controlledPanel.boundingBox();
+  const handleAfter = await visibleBoundingBox(handle);
+  const panelAfter = await visibleBoundingBox(controlledPanel);
   expect(handleAfter).not.toBeNull();
   expect(panelAfter).not.toBeNull();
   expect(handleAfter!.width).toBe(1);
@@ -27,7 +38,7 @@ async function expectStableHover(handle: Locator, controlledPanel: Locator) {
 }
 
 async function dragVerticalHandle(page: Page, handle: Locator, deltaX: number) {
-  const box = await handle.boundingBox();
+  const box = await visibleBoundingBox(handle);
   expect(box).not.toBeNull();
 
   const startX = box!.x + box!.width / 2;
@@ -68,9 +79,9 @@ test.describe('panel resizing', () => {
     await expect(explorerHandle).toBeVisible();
     await expectStableHover(explorerHandle, explorer);
 
-    const explorerWidthBefore = (await explorer.boundingBox())!.width;
+    const explorerWidthBefore = (await visibleBoundingBox(explorer)).width;
     await dragVerticalHandle(page, explorerHandle, 70);
-    await expect.poll(async () => (await explorer.boundingBox())!.width).toBeCloseTo(explorerWidthBefore + 70, 0);
+    await expect.poll(async () => (await explorer.boundingBox())?.width ?? 0).toBeCloseTo(explorerWidthBefore + 70, 0);
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
 
     const chatDock = page.getByTestId('notebook-chat-dock');
@@ -84,13 +95,13 @@ test.describe('panel resizing', () => {
     await expect(chatHandle).toBeVisible();
     await expectStableHover(chatHandle, chat);
 
-    const chatWidthBefore = (await chat.boundingBox())!.width;
+    const chatWidthBefore = (await visibleBoundingBox(chat)).width;
     await dragVerticalHandle(page, chatHandle, -60);
-    await expect.poll(async () => (await chat.boundingBox())!.width).toBeCloseTo(chatWidthBefore + 60, 0);
+    await expect.poll(async () => (await chat.boundingBox())?.width ?? 0).toBeCloseTo(chatWidthBefore + 60, 0);
 
     await chatHandle.focus();
     await chatHandle.press('ArrowLeft');
-    await expect.poll(async () => (await chat.boundingBox())!.width).toBeCloseTo(chatWidthBefore + 70, 0);
+    await expect.poll(async () => (await chat.boundingBox())?.width ?? 0).toBeCloseTo(chatWidthBefore + 70, 0);
 
     await page.reload();
     await expect(explorerHandle).toHaveAttribute('aria-valuenow', String(Math.round(explorerWidthBefore + 70)));
@@ -118,9 +129,9 @@ test.describe('panel resizing', () => {
     await expect(handle).toBeVisible();
     await expectStableHover(handle, dock);
 
-    const widthBefore = (await dock.boundingBox())!.width;
+    const widthBefore = (await visibleBoundingBox(dock)).width;
     await dragVerticalHandle(page, handle, -50);
-    await expect.poll(async () => (await dock.boundingBox())!.width).toBeCloseTo(widthBefore + 50, 0);
+    await expect.poll(async () => (await dock.boundingBox())?.width ?? 0).toBeCloseTo(widthBefore + 50, 0);
     await expect(handle).toHaveAttribute('aria-valuenow', String(Math.round(widthBefore + 50)));
   });
 
