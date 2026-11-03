@@ -52,7 +52,7 @@ import { decodePreparedWorkspacePathCopyOriginal, preparedWorkspacePathCopyProof
 import { captureNativeCopyPhaseStage, copyPhaseChanged, nativeCopyPhasePathSteps, nativeCopyPhaseParentSteps,
   nativeCopyPhaseExpectedLinks, nativeCopyPhaseAdmissions, nativeCopyPhaseCompiler, nativeCopyPhaseOriginals,
   nativeCopyPhaseReceiptProof, nativeCopyPhaseStepCount, assertNativeCopyPhaseParent, nativeCopyPhaseCompletionReceipt,
-  nativeCopyPhaseCompletionFence, NATIVE_COPY_COMPLETION_STEP_KEY, withNativeCopyPhaseCompilation, nativeCopyPhaseRawBirths } from './workspace-operation-native-copy-phase-contract';
+  nativeCopyPhaseCompletionFence, NATIVE_COPY_COMPLETION_STEP_KEY, withPreparedNativeCopyPhaseCompilation, nativeCopyPhaseRawBirths } from './workspace-operation-native-copy-phase-contract';
 import { readNativeCopyPhaseJournalOnConnection, readNativeCopyPhaseJournalHeaderOnConnection, readNativeCopyPhaseLedgerOnConnection,
   readNativeCopyPhaseLinkReceiptsOnConnection, readNativeCopyPhaseRawLinkReceiptsOnConnection,
   type NativeCopyPhaseLinkReceipt } from './workspace-operation-native-copy-phase-read';
@@ -383,7 +383,7 @@ async function phase<T>(database: SqlConnection, input: NativeCopyPhaseInput,
     return current(database, captured, async access => {
       const frame: PhaseWitness = { database, identity: await witness(database), stageDigest: captured.stage.payloadSha256, stage: captured.stage,
         access, purpose, active: true };
-      try { return await phaseContext.run(frame, () => withNativeCopyPhaseCompilation(captured.stage, async () => {
+      try { return await phaseContext.run(frame, () => withPreparedNativeCopyPhaseCompilation(captured.stage, async () => {
         await samePhase(database); await owner(database, captured.stage);
         const result = await operation(captured); await samePhase(database); await owner(database, captured.stage); return result;
       })); } finally { frame.active = false; }

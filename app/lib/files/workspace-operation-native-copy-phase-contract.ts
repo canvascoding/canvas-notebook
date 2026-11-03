@@ -254,6 +254,17 @@ export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperatio
     });
   } finally { frame.active = false; frame.compiled = null; frame.stage = null; frame.pin = null; }
 }
+/** Reuse only the owner's preparation for this exact detached phase. */
+export async function withPreparedNativeCopyPhaseCompilation<T>(stage: WorkspaceOperationOwnedCopyStage,
+  operation: () => T | Promise<T>): Promise<T> {
+  const frame = compilations.getStore();
+  if (frame?.stage !== stage || !frame.compiled) return withNativeCopyPhaseCompilation(stage, operation);
+  assertCompilationPin(frame);
+  const result = await operation();
+  assertCompilationPin(frame);
+  return result;
+}
+
 export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 | NativeMixedHtmlImportCopyBatchPlanV6 {
   const frame = compilations.getStore();
   if (frame && !frame.active) copyPhaseChanged();

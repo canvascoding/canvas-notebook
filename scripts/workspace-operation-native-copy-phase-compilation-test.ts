@@ -13,7 +13,8 @@ import { captureWorkspaceOperationCopyOrigin } from '../app/lib/files/workspace-
 import { prepareNativeCopyStage, decodeNativeCopyStage, type WorkspaceOperationNativeCopyStage } from '../app/lib/files/workspace-operation-native-copy-stage';
 import type { WorkspaceOperationOwnedCopyStage } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import { captureNativeCopyPhaseStage, NativeCopyPhaseError, nativeCopyPhaseCompiler,
-  nativeCopyPhaseSha, withNativeCopyPhaseCompilation, withCapturedNativeCopyPhaseStage } from '../app/lib/files/workspace-operation-native-copy-phase-contract';
+  nativeCopyPhaseSha, withNativeCopyPhaseCompilation, withCapturedNativeCopyPhaseStage,
+  withPreparedNativeCopyPhaseCompilation } from '../app/lib/files/workspace-operation-native-copy-phase-contract';
 
 // Actual Yjs/C1/Stage codecs and compiler. Catalogue/physical root facts are
 // declared pure data, never evidence of current SQL/ACL/FD authority or COMMIT.
@@ -100,6 +101,21 @@ test('another detached Stage never receives the active Stage result, and every f
   });
   const second = await withNativeCopyPhaseCompilation(stage, () => nativeCopyPhaseCompiler(stage));
   assert.notEqual(first, second); assert.deepEqual(first, second);
+});
+
+test('the SQL phase can reuse the exact precomputed plan and still rejects changed bytes', async () => {
+  await assert.rejects(withCapturedNativeCopyPhaseStage(nativeCopyPhaseFixture(), async stage => {
+    await assert.rejects(withNativeCopyPhaseCompilation(stage, async () => {
+      const prepared = nativeCopyPhaseCompiler(stage);
+      await withPreparedNativeCopyPhaseCompilation(stage, async () => {
+        await Promise.resolve();
+        assert.equal(nativeCopyPhaseCompiler(stage), prepared);
+      });
+      await withPreparedNativeCopyPhaseCompilation(stage, () => {
+        stage.nativeRecords[0].state.yjsState[0] ^= 1;
+      });
+    }), changed);
+  }), changed);
 });
 
 for (const recordIndex of [0, 1, 2]) for (const field of ['yjsState', 'stateVector'] as const) test(`record ${recordIndex} ${field}: mutable original binary drift is sticky even after restoration`, async () => {

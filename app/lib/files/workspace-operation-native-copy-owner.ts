@@ -52,7 +52,8 @@ import { prepareNativeCopyPhaseOnConnection, recordNativeCopyParentOnConnection,
   recordNativeCopyPathOnConnection, completeNativeCopyPhaseOnConnection,
   type NativeCopyPhasePathReceipt } from './workspace-operation-native-copy-phase';
 import { nativeCopyPhaseStepCount, nativeCopyPhasePathSteps, nativeCopyPhaseParentSteps,
-  assertNativeCopyPhaseParent, withCapturedNativeCopyPhaseStage } from './workspace-operation-native-copy-phase-contract';
+  assertNativeCopyPhaseParent, withCapturedNativeCopyPhaseStage, withNativeCopyPhaseCompilation,
+  nativeCopyPhaseCompiler } from './workspace-operation-native-copy-phase-contract';
 import { readNativeCopyPhaseJournalOnConnection, readCompletedNativeCopyHistoryOnConnection } from './workspace-operation-native-copy-phase-read';
 import { readNativeCopyReceiptStorageIdentityOnConnection } from '../collaboration/native-copy-historical-receipt';
 import type { WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
@@ -320,7 +321,12 @@ async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation
  * remain inside the fixed phase; this pure frame ends with this one TX. */
 function copyPhaseTransaction<T>(owner: Owner, stage: WorkspaceOperationOwnedCopyStage,
   operation: (detached: WorkspaceOperationOwnedCopyStage) => Promise<T>, onCommitted?: (result: T) => void): Promise<T> {
-  return withCapturedNativeCopyPhaseStage(stage, detached => transaction(owner, 'write', () => operation(detached), onCommitted));
+  return withCapturedNativeCopyPhaseStage(stage, detached => withNativeInspectionSchema(() =>
+    withNativeCopyPhaseCompilation(detached, () => {
+      // Replay the immutable original before opening the bounded SQL transaction.
+      nativeCopyPhaseCompiler(detached);
+      return transaction(owner, 'write', () => operation(detached), onCommitted);
+    })));
 }
 
 async function principal<T>(owner: Owner, operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
