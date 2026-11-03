@@ -176,9 +176,28 @@ def verify_binding(root_fd, info, root_witness):
         os.close(fd)
 
 
+def read_device_map(root_fd):
+    """Derive a device alias from the already-open root, never from a path."""
+    before = os.fstat(root_fd)
+    if not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid() or before.st_mode & 0o022:
+        raise ValueError("Unexpected storage directory")
+    try:
+        os.stat(BINDING, dir_fd=root_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    current = witness(root_fd)
+    alias = verify_binding(root_fd, before, current)
+    if profile(os.fstat(root_fd)) != profile(before) or witness(root_fd) != current:
+        raise ValueError("The opened storage directory changed")
+    return alias
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--root")
+    source.add_argument("--device-map-fd", action="store_true",
+                        help="Verify the already-open storage directory on inherited descriptor 3")
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--initialize-binding", action="store_true",
                         help="Record the current, verified root once while the service is offline")
@@ -187,10 +206,14 @@ def main():
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("Linux descriptor file handles are required")
-    if not os.path.isabs(args.root):
+    if args.device_map_fd and (args.initialize_binding or args.verify_binding):
+        parser.error("Descriptor verification is a separate read-only operation")
+    if args.root is not None and not os.path.isabs(args.root):
         parser.error("An absolute storage root is required")
     try:
-        print(json.dumps(inspect(args.root, initialize=args.initialize_binding, verify=args.verify_binding), sort_keys=True))
+        result = read_device_map(3) if args.device_map_fd else inspect(
+            args.root, initialize=args.initialize_binding, verify=args.verify_binding)
+        print(json.dumps(result, sort_keys=True))
     except (AttributeError, OSError, ValueError):
         print(json.dumps({"code": "NATIVE_STORAGE_WITNESS_UNAVAILABLE"}), file=sys.stderr)
         return 1
