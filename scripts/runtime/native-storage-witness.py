@@ -6,6 +6,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import secrets
 import stat
 import sys
@@ -100,16 +101,18 @@ def marker_witness(root_fd, name, root_info):
         os.close(fd)
 
 
-def inspect(root, initialize=False):
+def inspect(root, initialize=False, verify=False):
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         before = os.fstat(fd)
         root_witness = witness(fd)
         markers = {name: marker_witness(fd, name, before) for name in MARKERS}
+        observed = {"version": 1, "root": profile(before), "object": root_witness, "markers": markers}
+        if verify:
+            observed["binding"] = verify_binding(fd, before, root_witness)
         if (profile(before) != profile(os.fstat(fd)) or witness(fd) != root_witness
                 or profile(before) != profile(os.stat(root, follow_symlinks=False))):
             raise ValueError("Root changed during observation")
-        observed = {"version": 1, "root": profile(before), "object": root_witness, "markers": markers}
         if initialize:
             initialize_binding(fd, before, observed)
         return observed
@@ -140,18 +143,54 @@ def initialize_binding(root_fd, info, observed):
         os.fsync(root_fd)
 
 
+def verify_binding(root_fd, info, root_witness):
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError("The data root must be owned by the runtime user")
+    fd = os.open(BINDING, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root_fd)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != info.st_uid or before.st_dev != info.st_dev
+                or stat.S_IMODE(before.st_mode) != 0o600 or not 0 < before.st_size <= MAX_MARKER_BYTES):
+            raise ValueError("Unexpected binding profile")
+        with os.fdopen(os.dup(fd), "rb") as reader:
+            raw = reader.read(MAX_MARKER_BYTES + 1)
+        if (len(raw) != before.st_size or marker_profile(before) != marker_profile(os.fstat(fd))
+                or marker_profile(before) != marker_profile(os.stat(BINDING, dir_fd=root_fd, follow_symlinks=False))):
+            raise ValueError("Binding changed during observation")
+        binding = json.loads(raw)
+        if (not isinstance(binding, dict) or set(binding) != {"version", "root", "object"}
+                or (json.dumps(binding, sort_keys=True, separators=(",", ":")) + "\n").encode() != raw
+                or type(binding["version"]) is not int or binding["version"] != 1
+                or binding["object"] != root_witness):
+            raise ValueError("The binding does not identify this data root")
+        prior = binding["root"]
+        current = profile(info)
+        if (not isinstance(prior, dict) or set(prior) != set(current)
+                or not isinstance(prior["device"], str) or not re.fullmatch(r"0|[1-9][0-9]{0,19}", prior["device"])
+                or int(prior["device"]) >= 2**64 or type(prior["owner"]) is not int or type(prior["mode"]) is not int
+                or {**prior, "device": current["device"]} != current):
+            raise ValueError("The recorded storage profile changed")
+        return {"recordedDevice": prior["device"], "currentDevice": current["device"]}
+    finally:
+        os.close(fd)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)
-    parser.add_argument("--initialize-binding", action="store_true",
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--initialize-binding", action="store_true",
                         help="Record the current, verified root once while the service is offline")
+    action.add_argument("--verify-binding", action="store_true",
+                        help="Compare the recorded root with the current opened directory")
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("Linux descriptor file handles are required")
     if not os.path.isabs(args.root):
         parser.error("An absolute storage root is required")
     try:
-        print(json.dumps(inspect(args.root, initialize=args.initialize_binding), sort_keys=True))
+        print(json.dumps(inspect(args.root, initialize=args.initialize_binding, verify=args.verify_binding), sort_keys=True))
     except (AttributeError, OSError, ValueError):
         print(json.dumps({"code": "NATIVE_STORAGE_WITNESS_UNAVAILABLE"}), file=sys.stderr)
         return 1
