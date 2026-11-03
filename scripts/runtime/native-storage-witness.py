@@ -6,6 +6,7 @@ import ctypes
 import hashlib
 import json
 import os
+import secrets
 import stat
 import sys
 
@@ -18,6 +19,7 @@ MARKERS = (
 MAX_HANDLE_BYTES = 128
 MAX_MARKER_BYTES = 4096
 AT_EMPTY_PATH = 0x1000
+BINDING = "canvas-native-storage-binding.json"
 
 
 class FileHandle(ctypes.Structure):
@@ -78,10 +80,17 @@ def marker_witness(root_fd, name, root_info):
             raise ValueError("Unexpected marker profile")
         with os.fdopen(os.dup(fd), "rb") as reader:
             content = reader.read(MAX_MARKER_BYTES + 1)
+        value = json.loads(content)
+        identity = value.get("data" if name == MARKERS[0] else "root") if isinstance(value, dict) else None
+        root_matches = identity == {
+            "dev": str(root_info.st_dev), "ino": str(root_info.st_ino),
+            "uid": root_info.st_uid, "mode": stat.S_IMODE(root_info.st_mode),
+        }
         result = {
             "profile": profile(before),
             "object": witness(fd),
             "contentSha256": hashlib.sha256(content).hexdigest(),
+            "rootMatches": root_matches,
         }
         if (len(content) != before.st_size or marker_profile(before) != marker_profile(os.fstat(fd))
                 or marker_profile(before) != marker_profile(os.stat(name, dir_fd=root_fd, follow_symlinks=False))):
@@ -91,7 +100,7 @@ def marker_witness(root_fd, name, root_info):
         os.close(fd)
 
 
-def inspect(root):
+def inspect(root, initialize=False):
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         before = os.fstat(fd)
@@ -100,21 +109,49 @@ def inspect(root):
         if (profile(before) != profile(os.fstat(fd)) or witness(fd) != root_witness
                 or profile(before) != profile(os.stat(root, follow_symlinks=False))):
             raise ValueError("Root changed during observation")
-        return {"version": 1, "root": profile(before), "object": root_witness, "markers": markers}
+        observed = {"version": 1, "root": profile(before), "object": root_witness, "markers": markers}
+        if initialize:
+            initialize_binding(fd, before, observed)
+        return observed
     finally:
         os.close(fd)
+
+
+def initialize_binding(root_fd, info, observed):
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError("The data root must be owned by the runtime user")
+    if any(marker is not None and not marker["rootMatches"] for marker in observed["markers"].values()):
+        raise ValueError("The existing markers must match the original storage root")
+    binding = {key: observed[key] for key in ("version", "root", "object")}
+    encoded = (json.dumps(binding, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    temporary = "." + BINDING + "." + secrets.token_hex(16)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root_fd)
+    try:
+        with os.fdopen(fd, "wb") as target:
+            target.write(encoded)
+            target.flush()
+            os.fsync(target.fileno())
+        if witness(root_fd) != binding["object"] or profile(os.fstat(root_fd)) != binding["root"]:
+            raise ValueError("The data root changed before publication")
+        os.link(temporary, BINDING, src_dir_fd=root_fd, dst_dir_fd=root_fd, follow_symlinks=False)
+        os.fsync(root_fd)
+    finally:
+        os.unlink(temporary, dir_fd=root_fd)
+        os.fsync(root_fd)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)
+    parser.add_argument("--initialize-binding", action="store_true",
+                        help="Record the current, verified root once while the service is offline")
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("Linux descriptor file handles are required")
     if not os.path.isabs(args.root):
         parser.error("An absolute storage root is required")
     try:
-        print(json.dumps(inspect(args.root), sort_keys=True))
+        print(json.dumps(inspect(args.root, initialize=args.initialize_binding), sort_keys=True))
     except (AttributeError, OSError, ValueError):
         print(json.dumps({"code": "NATIVE_STORAGE_WITNESS_UNAVAILABLE"}), file=sys.stderr)
         return 1
