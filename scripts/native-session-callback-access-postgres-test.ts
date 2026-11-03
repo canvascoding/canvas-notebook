@@ -230,12 +230,13 @@ async function main(): Promise<void> {
       assert(returned);assert.equal(await permissionRow(),1);assert.deepEqual(await stored(native.identity),before);
     }));
     await check('write loss in reader and actual Principal final-check windows rejects returned draft',async()=>withWriter(async()=>{
-      for(const finalWindow of [2,3]){
+      for(const finalWindow of [3,5]){
         let changed=false,reads=0,checks=0,armed=false;const before=await stored(native.identity);
         await assert.rejects(captured(p=>transaction(async(db,client)=>{
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{
-            // current() starts with the raw workspace row, before its permission/seat reads.
-            if(armed&&reads===2&&sql.includes('SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path')&&++checks===finalWindow){
+            // Each Current fence reads two joint snapshots. After the final native
+            // binary read, snapshots 3 and 5 enter the reader and Principal finals.
+            if(armed&&reads===2&&sql.includes('SELECT header.*,account.*')&&++checks===finalWindow){
               changed=true;await client.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
             }
             const row=(await client.query(sql,args)).rows[0];if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;return row;
@@ -274,12 +275,13 @@ async function main(): Promise<void> {
       })),code('NATIVE_SESSION_REQUIRED'));
     });
     await check('facade misuse in both completion windows remains fatal after native capability closes',async()=>{
-      for(const finalWindow of [2,3])for(const field of ['workspace','userId','sessionId','assertCurrent','retained-assertion']){
+      // Observe the second joint snapshot in each of the two completion fences.
+      for(const finalWindow of [4,6])for(const field of ['workspace','userId','sessionId','assertCurrent','retained-assertion']){
         let attempted=false,reads=0,checks=0,armed=false,retained!:ExistingNativeSessionRequestAccess,assertion!:()=>Promise<void>;
         await assert.rejects(captured(p=>transaction(async(db,client)=>{
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{const row=(await client.query(sql,args)).rows[0];
             if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-            if(armed&&reads===2&&sql.includes('SELECT expires_at FROM')&&++checks===finalWindow){
+            if(armed&&reads===2&&sql.includes('SELECT header.*,account.*')&&++checks===finalWindow){
               attempted=true;if(field==='retained-assertion')await assert.rejects(assertion(),code('NATIVE_SESSION_REQUIRED'));
               else assert.throws(()=>Reflect.get(retained,field),code('NATIVE_SESSION_REQUIRED'));
             }return row;

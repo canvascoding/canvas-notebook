@@ -124,24 +124,30 @@ function captureScope(connection: SqlConnection, input: { workspace: WorkspaceCo
     low: Number(unsigned & BigInt(0xffffffff)), expected, pending: new Set() };
 }
 
-async function connectionIdentity(connection: SqlConnection, principal?: PrincipalReaderPhase): Promise<ConnectionIdentity> {
+async function connectionIdentity(connection: SqlConnection, principal?: PrincipalReaderPhase, expectedSchema?: string): Promise<ConnectionIdentity> {
   if (principal && (!principal.active || principal.connection !== connection || authenticatedReaders.get(connection) !== principal)) {
     fail('NATIVE_SESSION_REQUIRED');
   }
+  const relations = expectedSchema === undefined ? '' : `,
+    (SELECT count(*) = cardinality($2::text[]) AND bool_and(
+      (to_regclass(name)::oid = to_regclass($1||'.'||quote_ident(name))::oid) IS TRUE)
+      FROM unnest($2::text[]) names(name)) AS relations_match`;
   const row = await connection.get(`SELECT current_schema() AS schema_name,current_setting('search_path') AS search_path,
     pg_backend_pid() AS backend_pid,extract(epoch FROM a.backend_start)::text AS backend_start,
     (SELECT virtualxid FROM pg_locks WHERE locktype='virtualxid' AND pid=pg_backend_pid()
       AND granted AND mode='ExclusiveLock') AS transaction_id,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
-    current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only
-    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as Row | undefined;
+    current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only${relations}
+    FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`,
+    expectedSchema === undefined ? [] : [quote(expectedSchema), requiredTables]) as Row | undefined;
   if (!row || typeof row.schema_name !== 'string' || !row.schema_name || row.schema_name.length > 63
     || /[\u0000-\u001f\u007f]/u.test(row.schema_name) || typeof row.search_path !== 'string'
     || !Number.isSafeInteger(row.backend_pid) || Number(row.backend_pid) < 1
     || typeof row.backend_start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.backend_start)
     || typeof row.transaction_id !== 'string' || !/^[0-9]+\/[0-9]+$/u.test(row.transaction_id)
     || !safeNumber(row.database_oid, 1) || row.isolation !== 'read committed'
-    || row.read_only !== (principal ? 'off' : 'on')) fail('NATIVE_SESSION_SCOPE_CHANGED');
+    || row.read_only !== (principal ? 'off' : 'on')
+    || (expectedSchema !== undefined && row.relations_match !== true)) fail('NATIVE_SESSION_SCOPE_CHANGED');
   return Object.freeze({ schema: row.schema_name, searchPath: row.search_path, backend: Number(row.backend_pid),
     backendStart: row.backend_start, transaction: row.transaction_id, database: Number(row.database_oid) });
 }
@@ -162,15 +168,11 @@ function assertActive(captured: Capture): void {
 }
 async function checkConnection(captured: Capture): Promise<void> {
   assertActive(captured);
-  const current = await connectionIdentity(captured.connection,captured.principal), expected = captured.identity;
+  const expected = captured.identity;
+  if (!expected) fail('NATIVE_SESSION_SCOPE_CHANGED');
+  const current = await connectionIdentity(captured.connection, captured.principal, expected.schema);
   assertActive(captured);
-  if (!expected || Object.keys(expected).some(key => current[key as keyof ConnectionIdentity] !== expected[key as keyof ConnectionIdentity])) {
-    fail('NATIVE_SESSION_SCOPE_CHANGED');
-  }
-  const rows = await captured.connection.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same_relation
-    FROM unnest($2::text[]) names(name)`, [quote(expected.schema), requiredTables]) as Row[];
-  assertActive(captured);
-  if (rows.length !== requiredTables.length || rows.some(row => row.same_relation !== true || !requiredTables.includes(String(row.name)))) {
+  if (Object.keys(expected).some(key => current[key as keyof ConnectionIdentity] !== expected[key as keyof ConnectionIdentity])) {
     fail('NATIVE_SESSION_SCOPE_CHANGED');
   }
 }
