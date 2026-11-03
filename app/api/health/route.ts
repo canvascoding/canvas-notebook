@@ -14,6 +14,7 @@ import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/l
 import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 import type { DirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 import { createCachedAsyncCheck, HealthCheckTimeoutError, withHealthCheckTimeout } from '@/app/lib/health/async-check';
+import { nativeStorageAnchorRootsMatch } from '@/app/lib/health/native-storage-anchor-roots';
 import { readCollaborationProjectionHealth } from '@/app/lib/collaboration/projection-repository';
 
 const getCachedDirectMcpReadiness = createCachedAsyncCheck(getDirectMcpReadiness, 30_000);
@@ -52,6 +53,8 @@ async function performHealthChecks() {
 
   checks.mcp = mcpReadiness.status === 'failed' ? 'error' : 'ok';
   if (mcpReadiness.status === 'failed') status = 503;
+  checks.nativeStorageAnchorRoots = await nativeStorageAnchorRootsMatch() ? 'ok' : 'error';
+  if (checks.nativeStorageAnchorRoots === 'error') status = 503;
 
   if (!providerGate.ok) {
     checks.databaseProvider = 'error';

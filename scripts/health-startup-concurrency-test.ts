@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { NextResponse } from 'next/server';
 import * as asyncChecks from '../app/lib/health/async-check';
+import { nativeStorageAnchorRootsMatch } from '../app/lib/health/native-storage-anchor-roots';
 import { loadIsolatedModule } from './helpers/isolated-source-module';
 
 function deferred<T>() {
@@ -12,6 +16,7 @@ function deferred<T>() {
 }
 
 async function main() {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-health-storage-'));
   const unhandled: unknown[] = [];
   const listener = (error: unknown) => { unhandled.push(error); };
   process.on('unhandledRejection', listener);
@@ -55,6 +60,9 @@ async function main() {
       '@/app/lib/license/entitlements': { requireRuntimeCapability: async () => {}, requireTeamRuntimeLicense: async () => {} },
       '@/app/lib/mcp/server/readiness': { getDirectMcpReadiness: async () => ({ status: 'disabled', code: 'MCP_DISABLED' }) },
       '@/app/lib/health/async-check': asyncChecks,
+      '@/app/lib/health/native-storage-anchor-roots': {
+        nativeStorageAnchorRootsMatch: () => nativeStorageAnchorRootsMatch(dataRoot),
+      },
     }, { process: { env: { CANVAS_HEALTH_CHECK_TIMEOUT_MS: '20' } } });
 
     const pollWave = async () => {
@@ -92,6 +100,29 @@ async function main() {
     await route.GET();
     assert.equal(opens, 3, 'only share in-flight work; do not cache complete DB health results');
 
+    const root = await stat(dataRoot, { bigint: true });
+    const identity = { dev: String(root.dev), ino: String(root.ino), uid: Number(root.uid), mode: Number(root.mode & 0o7777n) };
+    const anchors = [
+      ['canvas-markdown-create-births-anchor.json', 'data', 2],
+      ['canvas-markdown-upload-attempts-anchor.json', 'root', 1],
+      ['canvas-upload-live-anchor.json', 'root', 1],
+    ] as const;
+    for (const [name, field, version] of anchors) {
+      const file = path.join(dataRoot, name);
+      const changed = JSON.stringify({ version, [field]: { ...identity, dev: String(root.dev + 1n) } });
+      await writeFile(file, changed, { mode: 0o600 });
+      const failed = await route.GET();
+      assert.equal(failed.status, 503, 'A stale native storage root is not ready for writes.');
+      const body = await failed.json();
+      assert.equal(body.checks.nativeStorageAnchorRoots, 'error');
+      assert.equal(body.checks.db, 'ok');
+      assert(!JSON.stringify(body).includes(dataRoot));
+      await writeFile(file, JSON.stringify({ version, [field]: identity }));
+      const restored = await route.GET();
+      assert.equal(restored.status, 200);
+      assert.equal((await restored.json()).checks.nativeStorageAnchorRoots, 'ok');
+    }
+
     authFailure = true;
     const failedAuth = await route.GET();
     assert.equal(failedAuth.status, 503, 'disabled MCP must not mask failed authentication');
@@ -125,6 +156,7 @@ async function main() {
     console.log('Health startup checks: bounded waves, late failures/releases, independent responses and Auth/MCP readiness passed.');
   } finally {
     process.removeListener('unhandledRejection', listener);
+    await rm(dataRoot, { recursive: true });
   }
 }
 
