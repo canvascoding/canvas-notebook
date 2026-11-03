@@ -2516,6 +2516,19 @@ Die Ausgangspunkte sind `app/components/DashboardShell.tsx`,
 `app/lib/collaboration/opened-document-registry.ts`. Vor Umsetzung den dann
 aktuellen Code und gebauten Produktstand erneut abgleichen.
 
+#### Ausgangsmessung auf dem integrierten Linux-Build
+
+Auf Commit `1a4f09bf9` wurden je vier sichtbare Tabwechsel in isolierten
+Workspaces mit 10 und 200 Testdokumenten gemessen. Bei 10 Dokumenten dauerte
+A→B→A pro Wechsel 821–855 ms, bei 200 Dokumenten 855–919 ms. Beim Klick auf
+den bereits aktiven Tab waren es 27–43 ms. Bei den warmen Wechseln entstanden
+typischerweise zehn HTTP-Aufrufe, eine neue Kollaborationsverbindung und ein
+erneutes Öffnen der Yjs-Datenbank. Drei Standortabfragen und zwei Watch-Aufrufe
+machten typischerweise die Hälfte der HTTP-Aufrufe aus. Die Zeit bis zum
+sichtbaren Inhalt und die während des Messfensters übertragenen Bytes wurden
+getrennt erfasst. SQL, Pool-Ausleihen und der genaue Abstand zur Freigabe des
+vorherigen Dokuments sind in dieser Messung noch offen.
+
 #### Umsetzung in überprüfbaren Schritten
 
 1. **Istzustand messen:** Zwei regulär angelegte Testdokumente bei insgesamt 10
