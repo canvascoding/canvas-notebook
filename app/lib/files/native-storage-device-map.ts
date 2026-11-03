@@ -35,7 +35,7 @@ export async function readNativeStorageDeviceMap(root: FileHandle): Promise<Nati
   });
   const value = JSON.parse(raw) as Partial<NativeStorageDeviceMap> | null;
   const validDevice = (device: unknown): device is string =>
-    typeof device === 'string' && /^(?:0|[1-9][0-9]{0,19})$/u.test(device) && BigInt(device) < 2n ** 64n;
+    typeof device === 'string' && /^(?:0|[1-9][0-9]{0,19})$/u.test(device) && BigInt(device) <= BigInt('18446744073709551615');
   if (!value || Object.keys(value).length !== 2 || !validDevice(value.currentDevice) || !validDevice(value.recordedDevice)
     || value.currentDevice !== (await root.stat({ bigint: true })).dev.toString()) {
     throw new Error('Native storage binding changed during verification.');

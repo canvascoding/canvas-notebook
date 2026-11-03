@@ -40,7 +40,7 @@ export async function nativeStorageAnchorRootsMatch(dataRoot = resolveCanvasData
           const identity = value?.[marker.identity];
           if (!(marker.versions as readonly number[]).includes(value?.version)
             || identity?.dev !== expectedDevice || identity?.ino !== String(root.ino)
-            || identity?.uid !== Number(root.uid) || identity?.mode !== Number(root.mode & 0o7777n)) return false;
+            || identity?.uid !== Number(root.uid) || identity?.mode !== Number(root.mode & BigInt(0o7777))) return false;
         } finally {
           await handle.close();
         }
