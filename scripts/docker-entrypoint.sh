@@ -469,6 +469,12 @@ EOF
   fi
 fi
 
+# Capture the filesystem binding before the application opens write paths.
+# Legacy markers with a changed root are preserved and reported by readiness.
+if ! node --import tsx scripts/initialize-native-storage-binding.ts >> "$STARTUP_LOG" 2>&1; then
+  printf '  [entrypoint] Native storage continuity check could not start.\n' >> "$STARTUP_LOG"
+fi
+
 printf '\n\n  Canvas Notebook ready.\n\n'
 
 exec "$@"
