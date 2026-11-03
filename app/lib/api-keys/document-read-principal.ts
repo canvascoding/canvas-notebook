@@ -560,7 +560,10 @@ function withFixedPrincipalOnConnection<T>(connection: SqlConnection, principal:
       await connection.run("SET LOCAL statement_timeout='5s'");
       await connection.run("SET LOCAL lock_timeout='50ms'");
       await connection.run("SET LOCAL transaction_timeout='5s'");
-      await connection.run(`LOCK TABLE ${policyTables.map(name => `${schema}.${quote(name)}`).join(',')} IN SHARE MODE NOWAIT`);
+      // Create can overlap a brief membership sync. Use the existing lock
+      // timeout while acquiring the same policy locks before observing rights.
+      const policyLockWait = family === 'create' ? '' : ' NOWAIT';
+      await connection.run(`LOCK TABLE ${policyTables.map(name => `${schema}.${quote(name)}`).join(',')} IN SHARE MODE${policyLockWait}`);
       // Row locks fence this integration's revocation/grant changes while other
       // credentials can still update their bounded usage statistics.
       const locked = await connection.get(`SELECT k.id FROM ${schema}.canvas_api_keys k JOIN ${schema}.canvas_api_integrations i ON i.id=k.integration_id

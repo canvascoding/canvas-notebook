@@ -67,6 +67,36 @@ async function main() {
         assert(!JSON.stringify(origins[0]).includes(issued.key));
       }
     });
+    await check('Create can wait briefly for membership sync, while sustained contention still fails closed', async () => {
+      const writer = await pool.connect();
+      try {
+        await writer.query('BEGIN');
+        await writer.query('LOCK TABLE team_membership_sync_state IN ROW EXCLUSIVE MODE');
+        const pid = (await writer.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        await assert.rejects(run('create'), code('API_KEY_PRINCIPAL_BUSY'));
+        let settled = false;
+        const pending = run('create').finally(() => { settled = true; });
+        void pending.catch(() => undefined);
+        let waited = false;
+        try {
+          while (!settled) {
+            waited = (await fixture.admin.query(`
+              SELECT EXISTS (SELECT 1 FROM pg_locks
+                WHERE NOT granted AND relation = 'team_membership_sync_state'::regclass
+                  AND $1 = ANY(pg_blocking_pids(pid))) AS waiting`, [pid])).rows[0].waiting;
+            if (waited) break;
+            await new Promise(resolve => setTimeout(resolve, 1));
+          }
+        } finally {
+          await writer.query('ROLLBACK');
+        }
+        assert(waited, 'Create must actually wait on the conflicting PostgreSQL table lock.');
+        await pending;
+      } finally {
+        await writer.query('ROLLBACK');
+        writer.release();
+      }
+    });
     await check('Create, Import, Read, Edit, List and Browse handles cannot cross fixed families', async () => {
       const deny = (principal: unknown, purpose: ApiKeyDocumentCreatePurpose = 'create') => transaction(database =>
         phase(database, principal as ApiKeyDocumentCreatePrincipal, purpose, async () => assert.fail('Wrong principal family.')));
