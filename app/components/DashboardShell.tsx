@@ -63,7 +63,8 @@ import {
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { requestWorkspaceFileLinkTarget } from '@/app/lib/files/file-link-request';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
-import { findOpenedLiveDocument, LiveDocumentNetworkError, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { CollaborationDocumentLocationRequestError } from '@/app/lib/collaboration/document-location-retry';
+import { findOpenedLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
 import { notebookUrlAfterDocumentMove } from '@/app/lib/notebook/document-location-url';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
@@ -837,7 +838,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             ? { ...current, path: normalizedPath } : current);
         } catch (error) {
           if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-          const local = error instanceof LiveDocumentNetworkError && !controller.signal.aborted
+          const local = error instanceof CollaborationDocumentLocationRequestError
+            && error.code === 'LOCATION_NETWORK_ERROR' && !controller.signal.aborted
             ? findOpenedLiveDocument(workspaceId, normalizedPath, expectedDocumentId, authScope) : null;
           if (!local) return { status: 'failed' as const, path: normalizedPath,
             error: error instanceof Error ? error.message : 'Document location lookup failed.' };
