@@ -8,6 +8,7 @@ import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveCanvasDataRoot } from '../runtime-data-paths';
 import { getFdPublicationBackend, type FdPublicationBackend } from './fd-publication';
+import { readNativeStorageDeviceMap, type NativeStorageDeviceMap } from './native-storage-device-map';
 import { isDeepStrictEqual, types } from 'node:util';
 import { inCollaborationProjectionPhase } from '../collaboration/projection-errors';
 import { captureApiKeyDocumentCreateOrigin } from '../api-keys/document-create-origin';
@@ -123,6 +124,7 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
     frame = { active: true, configuredData, resolvedData: await fs.realpath(configuredData), configuredWorkspace,
       resolvedWorkspace: await fs.realpath(configuredWorkspace), data, workspace, backend,
       dataIdentity: identity(await data.stat()), workspaceIdentity: identity(await workspace.stat()), intent: {},
+      storageDeviceMap: await readNativeStorageDeviceMap(data),
       key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', input.workspaceId, input.operationId])) };
     await root(frame);
     const current = frame, observedData = data, observedWorkspace = workspace;
@@ -147,7 +149,8 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
         if ((info.mode & BigInt(0o077)) !== BigInt(0) || !backend.hasExactNameAt(parent, name)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       }
       const intent = read(claim, 'intent.json');
-      if (!isDeepStrictEqual(intent.dataRoot, current.dataIdentity) || !isDeepStrictEqual(intent.workspaceRoot, current.workspaceIdentity)
+      if (!isDeepStrictEqual(intent.dataRoot, storedIdentity(current, current.dataIdentity))
+        || !isDeepStrictEqual(intent.workspaceRoot, storedIdentity(current, current.workspaceIdentity))
         || intent.operationId !== input.operationId || typeof intent.targetPath !== 'string') return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       const agentSource = !!intent.source && typeof intent.source === 'object' && Reflect.get(intent.source,'kind') === 'agent-markdown-v1';
       if (agentSource && !isDeepStrictEqual(agentMarkdownCreateAttribution(intent),intent.sourceAttribution)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
@@ -178,17 +181,17 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
           const expected = initial[relative] || recorded?.identity;
           const child = own(backend.openDirectoryAt(parent, name));
           if (!expected || !backend.hasExactNameAt(parent, name)
-            || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+            || !isDeepStrictEqual(storedIdentity(current, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
           ancestors.push({ parent, name, expected }); parent = child;
         }
         const target = readFile(parent, segments.at(-1)!, fileLimit, 0o644);
-        if (!fileMatches(target.info, prepared!.file) || !fileMatches(target.info, settled!.file)
+        if (!fileMatches(target.info, prepared!.file, current.storageDeviceMap) || !fileMatches(target.info, settled!.file, current.storageDeviceMap)
           || target.info.ctimeNs.toString() !== settled!.ctimeNs
           || createHash('sha256').update(target.bytes).digest('hex') !== completed.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         for (const ancestor of ancestors) {
           const child = own(backend.openDirectoryAt(ancestor.parent, ancestor.name));
           if (!backend.hasExactNameAt(ancestor.parent, ancestor.name)
-            || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+            || !isDeepStrictEqual(storedIdentity(current, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         }
       }
       readStorePointer(current); await root(current);
@@ -304,6 +307,7 @@ export function agentMarkdownCreateAttribution(intent: Record<string, unknown>):
 type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats; bytes: Buffer }>;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
+  storageDeviceMap?: NativeStorageDeviceMap;
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
   readonly input?: MarkdownCreateBirthStorageInput;
   fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
@@ -472,11 +476,19 @@ const syncDirectory = (info: BigIntStats): Identity => {
   return { dev: info.dev.toString(), ino: info.ino.toString(), uid: Number(info.uid), mode: Number(info.mode & BigInt(0o7777)) };
 };
 const stableFile = (a: BigIntStats, b: BigIntStats): boolean => ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeNs', 'ctimeNs', 'birthtimeNs'].every(key => Reflect.get(a, key) === Reflect.get(b, key));
-function fileMatches(info: BigIntStats, expected: unknown): boolean {
+function storedDevice(device: string, map?: NativeStorageDeviceMap): string {
+  if (!map) return device;
+  if (device !== map.currentDevice) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+  return map.recordedDevice;
+}
+function storedIdentity(frame: Frame, observed: Identity): Identity {
+  return { ...observed, dev: storedDevice(observed.dev, frame.storageDeviceMap) };
+}
+function fileMatches(info: BigIntStats, expected: unknown, map?: NativeStorageDeviceMap): boolean {
   if (!expected || typeof expected !== 'object' || Object.keys(expected).sort().join(',') !== 'birthTime,dev,ino,mode,mtimeNs,size,uid'
     || !info.isFile() || info.uid !== BigInt(process.geteuid!())) return false;
   const row = expected as Record<string, unknown>;
-  if (row.dev !== info.dev.toString() || row.ino !== info.ino.toString() || row.uid !== Number(info.uid)
+  if (row.dev !== storedDevice(info.dev.toString(), map) || row.ino !== info.ino.toString() || row.uid !== Number(info.uid)
     || row.mode !== Number(info.mode & BigInt(0o7777)) || row.size !== Number(info.size) || row.mtimeNs !== info.mtimeNs.toString()) return false;
   if (row.birthTime === 'None') return process.platform === 'linux';
   if (typeof row.birthTime !== 'string') return false;
@@ -511,16 +523,16 @@ function readStorePointer(frame: Frame): StorePin {
   try {
     const anchor = read(frame.data.fd, 'canvas-markdown-create-births-anchor.json'), value = JSON.parse(anchor.bytes.toString('utf8')) as Record<string, unknown>;
     if (!value || Object.getPrototypeOf(value) !== Object.prototype || !canonical(value).equals(anchor.bytes)
-      || !isDeepStrictEqual(value.data, frame.dataIdentity)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+      || !isDeepStrictEqual(value.data, storedIdentity(frame, frame.dataIdentity))) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     let name: string;
     if (value.version === 1 && Object.keys(value).sort().join(',') === 'data,store,version') name = 'canvas-markdown-create-births';
     else if (value.version === 2 && Object.keys(value).sort().join(',') === 'data,pendingName,pointerFile,store,storeName,version'
       && typeof value.storeName === 'string' && /^canvas-markdown-create-births-[a-f0-9]{32}$/u.test(value.storeName)
-      && value.pendingName === 'anchor.pending' && isDeepStrictEqual(value.pointerFile, { dev: anchor.info.dev.toString(), ino: anchor.info.ino.toString(),
+      && value.pendingName === 'anchor.pending' && isDeepStrictEqual(value.pointerFile, { dev: storedDevice(anchor.info.dev.toString(), frame.storageDeviceMap), ino: anchor.info.ino.toString(),
         uid: Number(anchor.info.uid), mode: 0o600 })) name = value.storeName;
     else return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     const store = directory(frame.data.fd, name), observed = syncDirectory(syncFs.fstatSync(store, { bigint: true }));
-    if (!isDeepStrictEqual(observed, value.store) || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(directory(frame.data.fd, name), { bigint: true })), observed)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+    if (!isDeepStrictEqual(storedIdentity(frame, observed), value.store) || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(directory(frame.data.fd, name), { bigint: true })), observed)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     if (frame.fingerprint) {
       const claim = directory(store, frame.key), intent = read(claim, 'intent.json');
       const parsed = JSON.parse(intent.bytes.toString('utf8'));
