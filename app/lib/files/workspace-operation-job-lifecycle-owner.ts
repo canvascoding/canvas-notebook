@@ -837,10 +837,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
       await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
       return result;
     });
-    const htmlInspection = captured.binding.plan.kind === 'physical-original-delete'
-      || captured.binding.plan.kind === 'native-original-delete' && captured.binding.plan.planIdentityVersion === 4;
-    if (!htmlInspection) return complete();
-    // HTML-aware native and physical Delete share fixed grammar for this fully
+    // Native and physical Delete share fixed grammar for this fully
     // awaited B2 attempt, including rollback/drain. No document facts or
     // current-authority results are cached.
     return withNativeInspectionSchema(complete).catch(error => poison(captured, error));
