@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import stat
 import sys
 import uuid
@@ -23,6 +24,7 @@ DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 STORE = 'canvas-markdown-create-births'
 ANCHOR = STORE + '-anchor.json'
+storage_device_map = None
 
 
 class Refused(Exception):
@@ -53,7 +55,12 @@ def decode(data):
 
 
 def identity(info):
-    return {'dev': str(info.st_dev), 'ino': str(info.st_ino), 'uid': info.st_uid, 'mode': stat.S_IMODE(info.st_mode)}
+    device = str(info.st_dev)
+    if storage_device_map is not None:
+        if device != storage_device_map['currentDevice']:
+            fail('NAMESPACE_CHANGED')
+        device = storage_device_map['recordedDevice']
+    return {'dev': device, 'ino': str(info.st_ino), 'uid': info.st_uid, 'mode': stat.S_IMODE(info.st_mode)}
 
 
 def file_identity(info):
@@ -615,11 +622,21 @@ def current_source(intent):
 
 
 def run(message):
+    global storage_device_map
+    storage_device_map = None
     if set(message) - {'action', 'intent', 'key', 'bytes', 'serializedHash', 'revisionId'} or message.get('action') not in ('open', 'verify', 'prepare', 'observe', 'complete'):
         fail('INVALID_INPUT')
     intent, key = message['intent'], message['key']
     if not isinstance(intent, dict) or not re.fullmatch('[a-f0-9]{64}', key):
         fail('INVALID_INPUT')
+    if intent['dataRoot']['dev'] != str(os.fstat(3).st_dev):
+        if not isinstance(intent.get('source'), dict) or 'kind' not in intent['source']:
+            fail('SOURCE_CHANGED')
+        load = runpy.run_path(os.path.join(os.path.dirname(__file__), 'native-storage-witness.py'))
+        mapping = load['read_device_map'](3)
+        if mapping is None or mapping['recordedDevice'] != intent['dataRoot']['dev']:
+            fail('NAMESPACE_CHANGED')
+        storage_device_map = mapping
     root = intent['workspaceRoot']
     if directory(3) != intent['dataRoot'] or directory(4) != root:
         fail('NAMESPACE_CHANGED')

@@ -657,8 +657,8 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       if (prior && (prior.path !== relative || Object.keys(prior).sort().join(',') !== 'identity,path')) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       let expected = initial[relative] || prior?.identity;
       if (!expected) { frame.fixedSourceWithinTurn?.(); assertWithinTurn(); backend.mkdirAt(parent, name, 0o755); syncFs.fsyncSync(parent); const born = directoryAt(parent, name);
-        expected = syncDirectory(syncFs.fstatSync(born, { bigint: true })); writeRecord(claim, recordName, { path: relative, identity: expected }); ancestry.push({ parent, name, child: born, expected }); parent = born; }
-      else { const child = directoryAt(parent, name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+        expected = storedIdentity(frame, syncDirectory(syncFs.fstatSync(born, { bigint: true }))); writeRecord(claim, recordName, { path: relative, identity: expected }); ancestry.push({ parent, name, child: born, expected }); parent = born; }
+      else { const child = directoryAt(parent, name); if (!isDeepStrictEqual(storedIdentity(frame, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         ancestry.push({ parent, name, child, expected }); parent = child; }
     }
     const name = segments.at(-1)!; let target: { bytes: Buffer; info: BigIntStats } | null = null;
@@ -666,21 +666,21 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
     try { target = read(parent, name, fileLimit, complete && settled ? 1 : 2, 0o644); }
     catch (error) { if (!error || typeof error !== 'object' || Reflect.get(error, 'code') !== 'ENOENT') throw error; }
     if (target) {
-      if (!fileMatches(target.info, prepared.file) || createHash('sha256').update(target.bytes).digest('hex') !== prepared.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
-      if (target.info.nlink === BigInt(1)) { if (!settled || !fileMatches(target.info, settled.file) || settled.ctimeNs !== target.info.ctimeNs.toString()) return fail('MARKDOWN_CREATE_BIRTH_RECOVERY_REQUIRED'); }
-      else { const twin = read(claim, 'content.tmp', fileLimit, 2, 0o644); if (!fileMatches(twin.info, prepared.file) || twin.info.dev !== target.info.dev || twin.info.ino !== target.info.ino || !twin.bytes.equals(target.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
+      if (!fileMatches(target.info, prepared.file, frame.storageDeviceMap) || createHash('sha256').update(target.bytes).digest('hex') !== prepared.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      if (target.info.nlink === BigInt(1)) { if (!settled || !fileMatches(target.info, settled.file, frame.storageDeviceMap) || settled.ctimeNs !== target.info.ctimeNs.toString()) return fail('MARKDOWN_CREATE_BIRTH_RECOVERY_REQUIRED'); }
+      else { const twin = read(claim, 'content.tmp', fileLimit, 2, 0o644); if (!fileMatches(twin.info, prepared.file, frame.storageDeviceMap) || twin.info.dev !== target.info.dev || twin.info.ino !== target.info.ino || !twin.bytes.equals(target.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
     } else {
       const staged = read(claim, 'content.tmp', fileLimit, 1, 0o644);
-      if (!fileMatches(staged.info, prepared.file) || !staged.bytes.equals(Buffer.from(serialized))) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      if (!fileMatches(staged.info, prepared.file, frame.storageDeviceMap) || !staged.bytes.equals(Buffer.from(serialized))) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
       rootCurrent(); const expiresAt = sourceCurrent(intent); readStorePointer(frame);
-      for (const ancestor of ancestry) { const named = directoryAt(ancestor.parent, ancestor.name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(named, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
+      for (const ancestor of ancestry) { const named = directoryAt(ancestor.parent, ancestor.name); if (!isDeepStrictEqual(storedIdentity(frame, syncDirectory(syncFs.fstatSync(named, { bigint: true }))), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
       assertWithinTurn();
       if (expiresAt !== null && Date.now() >= expiresAt) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_EXPIRED');
       // Every call in this final turn is synchronous and descriptor-bound.
       // The stopped preparation child has no target-write operation to resume.
       frame.fixedSourceWithinTurn?.();
       backend.linkAt(claim, 'content.tmp', parent, name); syncFs.fsyncSync(parent);
-      const actual = read(parent, name, fileLimit, 2, 0o644); if (!fileMatches(actual.info, prepared.file) || !actual.bytes.equals(staged.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      const actual = read(parent, name, fileLimit, 2, 0o644); if (!fileMatches(actual.info, prepared.file, frame.storageDeviceMap) || !actual.bytes.equals(staged.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
       writeRecord(claim, 'born.json', prepared);
     }
     rootCurrent();
@@ -734,11 +734,14 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     const resolvedData = await fs.realpath(configuredData), resolvedWorkspace = await fs.realpath(configuredWorkspace);
     workspace = await fs.open(resolvedWorkspace, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     const dataIdentity = identity(await data.stat()), workspaceIdentity = identity(await workspace.stat());
+    const storageDeviceMap = await readNativeStorageDeviceMap(data);
+    if (storageDeviceMap && !Object.hasOwn(captured.source, 'kind')) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     const intent = { version: 1, targetPath: captured.targetPath, origin: captured.origin, source: captured.source,
-      operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
+      operationId: captured.operationId, dataRoot: { ...dataIdentity, dev: storedDevice(dataIdentity.dev, storageDeviceMap) },
+      workspaceRoot: { ...workspaceIdentity, dev: storedDevice(workspaceIdentity.dev, storageDeviceMap) } };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, input: captured, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
+      intent, input: captured, active: true, backend, storageDeviceMap, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
       ...(withStoragePhase ? { withStoragePhase } : {}) };
     frame = current;
     const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;
