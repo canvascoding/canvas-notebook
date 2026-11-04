@@ -6,12 +6,12 @@ sectionOrder: 11
 order: 1
 locale: en
 translationKey: developers.document-api
-updatedAt: 2026-11-01
+updatedAt: 2026-11-05
 ---
 
 # Document API
 
-**Unreleased preview.** This reference describes the development API. It is not yet a publicly deployed API or a released SDK. Availability depends on the installed Canvas version, enabled native-document features, and the tools authorized for your connection.
+The document API is available starting with Canvas Notebook 2026.11.4.3. Operations depend on the enabled native-document features and the tools authorized for your connection.
 
 Use this sequence: search for a document, keep its stable identity, read its full version, then submit a guarded edit. A path or a Markdown file hash is not a native document version. Keep credentials outside document content and application logs.
 
@@ -384,7 +384,7 @@ The central Copy owner imports supported selected physical `.md`/`.markdown` fil
 
 Public Preview V6 also includes `importLinkBindings` with status `requires-native-import-rebinding` and semantic target paths, literals, fragments, aliases and embed flags. These are display facts for the central import/binding work, not native document IDs, content versions or import receipts. The retained Copy request shape is unchanged.
 
-The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit-retained-request) now provides `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` over this same tool. Preview alone exposes collision renaming. Retain the caller operation ID, actual plan ID and exact resolved request before awaiting Apply; Status/Recover remain explicit. The facade keeps full raw results and camelCase payloads. If an Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. The facade does not automatically replay, query status or recover. A received tool error is different: `.require_success()` raises `CanvasToolError` with the original result and optional `.operation_id`.
+The [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit-retained-request) now provides `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` over this same tool. Preview alone exposes collision renaming. Retain the caller operation ID, actual plan ID and exact resolved request before awaiting Apply; Status/Recover remain explicit. The facade keeps full raw results and camelCase payloads. If an Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. The facade does not automatically replay, query status or recover. A received tool error is different: `.require_success()` raises `CanvasToolError` with the original result and optional `.operation_id`.
 
 Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
 
@@ -500,7 +500,7 @@ JSON arguments are bounded to 65,536 escaped UTF-8 bytes. Workspace IDs are at m
 
 Move/Delete tool failures use `{ apiVersion: 1, success: false, code, operationId? }`; an included `operationId` is the original caller ID. Keep it with the retained request, including after a late output-size error. Its absence is not permission to generate a replacement. Actual HTTP authorization failures and OAuth challenge metadata remain distinct from a received tool error.
 
-The accompanying unreleased [Python SDK](/docs/developers/python-sdk#move-and-delete-through-retained-requests) exposes the eight explicit `move_*` / `delete_*` methods over these same contracts. It retains full raw results and camelCase payloads. A received tool error remains a `CanvasToolError` with its original result and optional caller `.operation_id`; a missing Apply/Recover result raises `CanvasMutationOutcomeUnknown`, preserving that caller ID in `.idempotency_key` and the original exception as `__cause__`. The facade does not silently retry, poll Status or recover. SDK-specific artifact/HTTP evidence and compiled UI/OAuth acceptance remain separately recorded gates, not a publication claim.
+The [Python SDK](/docs/developers/python-sdk#move-and-delete-through-retained-requests) exposes the eight explicit `move_*` / `delete_*` methods over these same contracts. It retains full raw results and camelCase payloads. A received tool error remains a `CanvasToolError` with its original result and optional caller `.operation_id`; a missing Apply/Recover result raises `CanvasMutationOutcomeUnknown`, preserving that caller ID in `.idempotency_key` and the original exception as `__cause__`. The facade does not silently retry, poll Status or recover.
 
 ## Errors and client handling
 
@@ -527,4 +527,4 @@ Routes can also rate-limit with HTTP 429. REST responses are not cacheable. Appl
 
 ## Current boundary
 
-The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools and the explicit Copy/Move/Delete actions described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK; that connection and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a copied/moved/uploaded PDF, Markdown output, or physical file receipt as a parsed native document mutation result. Public package publication, this page's website delivery and deployment are separate release steps; development source and local acceptance do not establish live availability.
+The [Python SDK](/docs/developers/python-sdk) wraps the native document tools and explicit Copy, Move, and Delete actions. SDK 0.1.0 is available as a wheel and source package from the [Notebook release](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.4.3). The internal skill-script bridge has a separate runtime. File and asset operations use their own schemas and receipts.
