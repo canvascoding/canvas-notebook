@@ -32,10 +32,13 @@ function sortedComponentEvidence(components, select) {
 }
 
 function verifyArchitecture(inventory, linkage, expectedArchitecture) {
-  assert.equal(inventory.schemaVersion, 4);
+  assert.equal(inventory.schemaVersion, 5);
   assert.match(inventory.platform, new RegExp(`(?:linux/)?${expectedArchitecture}`, 'u'));
   assert.equal(inventory.baseImage, policy.baseImage.reference);
-  assert.equal(inventory.debianSnapshot, policy.debianSnapshot.timestamp);
+  assert.deepEqual(inventory.debianRepositories, {
+    ...policy.debianRepositories,
+    installedLockSha256: policy.debianRepositories.lockSha256,
+  });
   assert.equal(inventory.nativeComponents.find((entry) => entry.name === 'node')?.version, policy.baseImage.nodeVersion);
 
   const libvips = inventory.nativeComponents.find((entry) => entry.name === 'libvips');

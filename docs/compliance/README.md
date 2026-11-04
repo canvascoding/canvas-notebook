@@ -98,9 +98,12 @@ in `third-party-release-approval-2026.7.17.1.md` und gilt nicht fuer Upgrades.
 Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 
 - Der Node-Image-Index bleibt digestgepinnt. Canvas-eigene apt-Aufloesungen
-  verwenden den Debian-Snapshot `20260716T000000Z`; PostgreSQL-Binaerpakete
+  verwenden signierte Bookworm-/Updates-/Security-Quellen von `deb.debian.org`,
+  deren amd64-/arm64-/Quellenindizes in `debian-repository-lock.json` per SHA-256
+  festgelegt sind. Jeder APT-Update prueft diese Bindung vor der Installation;
+  geaenderte Indizes erfordern eine explizite Lock-Aktualisierung. PostgreSQL-Binaerpakete
   und die 45 pip-Pakete sind versions- und hashgebunden.
-- Der CA-Store wird aus demselben signierten Snapshot ueber einen einmaligen
+- Der CA-Store wird aus denselben signierten und geprueften Listen ueber einen einmaligen
   HTTP-Bootstrap bezogen; alle folgenden APT-Zugriffe verwenden HTTPS. Eine
   zweite Debian-libvips-Binaerinstallation wird nicht ausgeliefert.
 - Die vollstaendigen libvips-Development-Header stehen nur im isolierten

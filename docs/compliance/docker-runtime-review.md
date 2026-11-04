@@ -267,13 +267,14 @@ Die neue Definition bindet den Lieferumfang an:
 
 - `node:24-bookworm-slim` unter dem unveraenderlichen Multi-Arch-Digest
   `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
-- Debian Bookworm und Security unter Snapshot `20260716T000000Z`, jeweils mit
-  `deb` und `deb-src`,
+- Debian Bookworm, Updates und Security aus signierten Debian-Spiegeln, mit
+  SHA-256-gepinnten amd64-/arm64-/Quellenindizes in `debian-repository-lock.json`
+  und zwingender Pruefung nach jedem APT-Update, jeweils mit `deb` und `deb-src`,
 - PostgreSQL 18.4 und `postgresql-client-common` 293 aus PGDG mit exakten
   amd64-/arm64-Binary-Hashes und den exakten `.dsc`-/Source-Archiv-Hashes,
 - 45 pip-Pakete mit einer gemeinsamen, versions- und wheel-gehashten
   Python-3.11-Lockdatei fuer linux/amd64 und linux/arm64,
-- ein Schema-4-Runtime-Inventar mit Dockerfile-/Policy-/Lock-Hash, Node,
+- ein Schema-5-Runtime-Inventar mit Dockerfile-/Policy-/Repository-Lock-Hash, Node,
   libvips, dpkg-Binary-zu-Source-Zuordnung, Python, globalem npm und den lokal
   gebauten Sharp-Addons.
 

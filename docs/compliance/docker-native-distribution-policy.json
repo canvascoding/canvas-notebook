@@ -12,11 +12,6 @@
     "nodeVersion": "24.18.0",
     "nodeSourceUrl": "https://github.com/nodejs/node/archive/refs/tags/v24.18.0.tar.gz"
   },
-  "debianSnapshot": {
-    "timestamp": "20260716T000000Z",
-    "archiveUrl": "https://snapshot.debian.org/archive/debian/20260716T000000Z/",
-    "securityArchiveUrl": "https://snapshot.debian.org/archive/debian-security/20260716T000000Z/"
-  },
   "postgresql": {
     "clientVersion": "18.4-1.pgdg12+1",
     "commonVersion": "293.pgdg12+1",
@@ -100,5 +95,9 @@
     "linkageEvidencePattern": "sharp-linkage-linux-*.json",
     "sourceAsset": "vips-8.18.7.tar.xz",
     "complianceAssetPattern": "canvas-native-compliance-*.tar.gz"
+  },
+  "debianRepositories": {
+    "lockFile": "docs/compliance/debian-repository-lock.json",
+    "lockSha256": "88f9473776aef41e80954cb6737c1adbdb0bd531453671d3674fd349d0cdf1c0"
   }
 }

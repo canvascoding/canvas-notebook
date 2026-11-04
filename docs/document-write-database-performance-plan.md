@@ -7,6 +7,19 @@ Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
 ## Aktueller Abnahmestand vom 04.11.2026
 
+Die Build-Quelle wird nach dem Snapshot-Ausfall auf `deb.debian.org` umgestellt.
+Alle neun Quellen-/Binärlisten (Bookworm, Updates und Security; amd64/arm64) sind
+heruntergeladen und gegen die veröffentlichten SHA-256-Werte geprüft. Bookworm
+und Updates behalten dieselben Paketindizes; Security erhält den geprüften
+Stand vom 04.11.2026. `debian-repository-lock.json` bindet die Indexinhalte, und
+ein obligatorischer APT-Hook verweigert Installationen nach Indexänderungen.
+APT-Signatur- und Ablaufprüfungen bleiben aktiv. Schema 5 des Runtime-Inventars
+belegt den tatsächlich installierten Repository-Lock statt eines nicht mehr
+verwendeten Snapshot-Datums. Parser-/Negativtests, Lint und `test:licenses` sind
+bestanden; echter APT-Build, Host-Build und die anschließenden Abnahmen stehen
+für diese Änderung noch aus. Alle 13 CI-Prüfungen des vorherigen Commits
+`2e38c50a9` sind erfolgreich abgeschlossen.
+
 Die Cache-Korrektur in `1e9e895b2` ist gepusht und besteht den Host-Produktionsbuild
 (einschließlich Release-Typprüfung), die gezielten Retention-, Lifecycle-, Rename-
 und Recovery-Tests sowie Lint. Alle 13 CI-Prüfungen dieses Commits sind grün,

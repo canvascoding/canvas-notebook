@@ -51,7 +51,7 @@ const nativeDistributionPolicy = JSON.parse(fs.readFileSync(
   'utf8',
 )) as {
   baseImage: { reference: string; nodeVersion: string };
-  debianSnapshot: { timestamp: string };
+  debianRepositories: { lockFile: string; lockSha256: string };
   postgresql: {
     clientVersion: string;
     commonVersion: string;
@@ -146,11 +146,10 @@ assert.match(
 
 for (const requiredDockerFragment of [
   `ARG NODE_BASE_IMAGE=${nativeDistributionPolicy.baseImage.reference}`,
-  `ARG DEBIAN_SNAPSHOT=${nativeDistributionPolicy.debianSnapshot.timestamp}`,
+  'COPY docs/compliance/debian-repository-lock.json /usr/local/share/canvas-debian-repository-lock.json',
+  'node /usr/local/libexec/canvas-debian-repository-lock.mjs configure',
   `ARG LIBVIPS_VERSION=${nativeDistributionPolicy.libvips.version}`,
   `ARG LIBVIPS_SHA256=${nativeDistributionPolicy.libvips.sourceSha256}`,
-  'Types: deb deb-src',
-  'URIs: http://snapshot.debian.org/archive/debian/',
   "sed -i 's#URIs: http://#URIs: https://#g'",
   'FROM canvas-base AS libvips-build',
   'libarchive13 libexif12 libexpat1 libfontconfig1 libglib2.0-0 libheif1',

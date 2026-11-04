@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-04",
+  "repositories": [
+    {
+      "uri": "https://deb.debian.org/debian",
+      "suite": "bookworm",
+      "indexSha256": {
+        "main/binary-amd64/Packages": "515e692f2c4121c6fcec444ef100cc18f79a991910615f3a88c8b7becfc94d2f",
+        "main/binary-amd64/Packages.gz": "6777ea16514725f9427f48c240d92e0a6b8496138e37a1491d8597e66774e309",
+        "main/binary-amd64/Packages.xz": "9e0b5aabb2465b3d2e7a7fe27f9913846277833f7a2826e7767acccff5b588c5",
+        "main/binary-arm64/Packages": "c7c883a61f348283050d3a754e7c8119117c4019bf65da804c78fdae315866f1",
+        "main/binary-arm64/Packages.gz": "aee1ed47a695b38ecc6283e3952e8c3e18682cf7b2558ec62460a95c6d0b193b",
+        "main/binary-arm64/Packages.xz": "2ddb1737692e8c45c53e8d57c0ce4cd21c78c5703b830c3226b1423566a06c00",
+        "main/source/Sources": "92d75d23e1757f7a0a21ccb8612cd8a63c64d4020241a31b234b2a2be9653844",
+        "main/source/Sources.gz": "c5a2379970764ac50e167f75909655c552602c1a4d7018c0907b3e30d8dc9de4",
+        "main/source/Sources.xz": "92d11a035571df011f06f28c61cb9825130ef1d92abb2f2e0525e8674dc44af8"
+      }
+    },
+    {
+      "uri": "https://deb.debian.org/debian",
+      "suite": "bookworm-updates",
+      "indexSha256": {
+        "main/binary-amd64/Packages": "80a1f6ee524222c49f230fc5700d00f946d0a47eb5258180106dd03df126e16a",
+        "main/binary-amd64/Packages.xz": "87e7e94047fb7fb6f4ceecc7022d4bee55b66031cc2a7666d3196f3e0aabb846",
+        "main/binary-arm64/Packages": "3ac9c5c664d85f1ffdd661a7ad01e39fdc16ffca087766b3bdbb19ccab1d80ec",
+        "main/binary-arm64/Packages.xz": "5dfd52317071685ad6e58c4ef0720128b7db68624079f83be02bdf55f07ac070",
+        "main/source/Sources": "49e607c6d5dbdc679b1f25fde5da4e94437e2afd8e659b1f11489046ee0034a2",
+        "main/source/Sources.xz": "45fcd5257b7ad716ef3b674305dd678ad2d6e6198a0dd7a8f45bb0e8d3f3a7f3"
+      }
+    },
+    {
+      "uri": "https://deb.debian.org/debian-security",
+      "suite": "bookworm-security",
+      "indexSha256": {
+        "main/binary-amd64/Packages": "2394608932f9ddd111062fa7035355e49c1ecf35a6ffd93c0ebdfdab98bd6e9e",
+        "main/binary-amd64/Packages.xz": "e50b9986e392f4aabdd02adeb806fca1cab2e8f60ef7ba12dc42c66817558f8e",
+        "main/binary-arm64/Packages": "6fde4c14e0dcaef0d560898ace946dd4f903a7e2a86fc272c82d52dca75dbf9a",
+        "main/binary-arm64/Packages.xz": "472d28fe49d3b51afa3af309a9279808c8c6a8f5c0c52e84b70ac3c3353a8834",
+        "main/source/Sources": "9d4aea270d64bbfb6e165aaad9c2dff90de0203faccf759dbdb2451ff36af2f0",
+        "main/source/Sources.xz": "db29a9b1b8182ee78953b2ed61f69c0ec9a614733020f3402888eec66a6f62a5"
+      }
+    }
+  ]
+}
