@@ -7,38 +7,37 @@ Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
 ## Aktueller Abnahmestand vom 04.11.2026
 
-Die Build-Quelle wird nach dem Snapshot-Ausfall auf `deb.debian.org` umgestellt.
-Alle neun Quellen-/Binärlisten (Bookworm, Updates und Security; amd64/arm64) sind
-heruntergeladen und gegen die veröffentlichten SHA-256-Werte geprüft. Bookworm
-und Updates behalten dieselben Paketindizes; Security erhält den geprüften
-Stand vom 04.11.2026. `debian-repository-lock.json` bindet die Indexinhalte, und
-ein obligatorischer APT-Hook verweigert Installationen nach Indexänderungen.
-APT-Signatur- und Ablaufprüfungen bleiben aktiv. Schema 5 des Runtime-Inventars
-belegt den tatsächlich installierten Repository-Lock statt eines nicht mehr
-verwendeten Snapshot-Datums. Parser-/Negativtests, Lint und `test:licenses` sind
-bestanden; echter APT-Build, Host-Build und die anschließenden Abnahmen stehen
-für diese Änderung noch aus. Alle 13 CI-Prüfungen des vorherigen Commits
-`2e38c50a9` sind erfolgreich abgeschlossen.
+Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
+`debian-repository-lock.json` an alle neun geprüften Paket-/Quellenlisten gebunden.
+Echte APT-Positiv- und Negativprüfungen sowie Host- und Linux-Build sind bestanden.
+Signatur- und Ablaufprüfungen bleiben aktiv; ein geänderter Index wird abgewiesen.
+Der Paketquellen-Ausfall blockiert den Build damit nicht mehr.
 
-Die Cache-Korrektur in `1e9e895b2` ist gepusht und besteht den Host-Produktionsbuild
-(einschließlich Release-Typprüfung), die gezielten Retention-, Lifecycle-, Rename-
-und Recovery-Tests sowie Lint. Alle 13 CI-Prüfungen dieses Commits sind grün,
-einschließlich Native API und installiertem SDK. Ein zusätzlicher Hook-Lifecycle-Test bestätigt
-erneute Session-Anforderungen im echten Clientpfad bei RAM-Wiederverwendung, Peer-Löschungen mit gleichem
-Versionsvektor, Read-Downgrade, Benutzerisolation, Verdrängung des ältesten von
-vier Dokumenten und Ablauf nach 15 Sekunden. Transport und IndexedDB werden in
-diesem Hook-Test kontrolliert; dies ersetzt keine echte HTTP-/Browser-Abnahme.
+Produktstand `3236393b3` hält den Editor während der lokalen Sicherung bei einem
+Dokumentwechsel gemountet. Zehn kompilierte UI-Regressionsfälle bestanden; alle
+13 CI-Prüfungen einschließlich Native API und installiertem SDK sind grün.
+Die vollständige kompilierte Gesamtsuite ergab anschließend **330 bestanden,
+1 fehlgeschlagen, 269 bedingte Skips** in 39,2 Minuten. Die früheren drei
+Link-Navigationsfehler sind darin behoben. Originaldaten und vorheriger lokaler
+Laufzeitstand wurden nachweislich unverändert wiederhergestellt.
+Belege: `compiled-transition-owner-3236393b3-1793809559839-result.json` und
+`compiled-test-all-3236393b3-1793809988264-result.json`.
 
-Der Linux-Build dieses Commits wurde nach 11:40 Minuten ohne Fortschritt beim
-Snapshot-Paketabruf kontrolliert abgebrochen; der ursprüngliche lokale Container
-ist wieder gesund. Begrenzte Diagnose-Builds zeigen Timeouts bzw. HTTP 503
-`No healthy backends` bei den Paket-/Quellenlisten, auch über stabile Dateipfade;
-der alternative Snapshot-Endpunkt liefert ebenfalls HTTP 503. Eine erneute
-Prüfung am 04.11. um 12:08 UTC liefert HTTP 504 für dieselbe Quellenliste. Paketstand,
-Signaturprüfung und Produkt-Dockerfile wurden nicht geändert. Beleg:
-`document-service-integration-artifacts/sync-retention-linux-build-external-failure-20261104.json`.
-Die aktuelle kompilierte Browser-Abnahme und das Release sind deshalb weiterhin
-offen. Die folgenden Ergebnisse gehören zum letzten abgeschlossenen Build:
+Der verbleibende Fehler ist eine vorübergehende PostgreSQL-Zeilensperre auf
+`canvas_organization_settings` beim Vorschauabruf für die zweite Datei einer
+Mehrfachverschiebung. Die Korrektur übersetzt nur nach bestätigtem Rollback und
+Verbindungsabschluss einen echten `PRINCIPAL_BUSY` in `PATH_IMPORT_PREVIEW_BUSY`.
+Der Browser wiederholt ausschließlich diese lesende Vorschau, höchstens dreimal
+und ohne Wechsel der beobachteten Anmeldung. Schreiboperationen werden nicht
+wiederholt. Regressionstests gegen den alten Stand schlagen erwartungsgemäß
+fehl; mit der Korrektur bestehen Client-/Transaktionsprüfungen, die echte
+PostgreSQL-Sperrprobe, angrenzende Dateioperations-/Quelltests und Lint.
+Die neuen Regressionen sind in die Native-API-/SDK-CI aufgenommen.
+
+Host-/Linux-Build und vollständige Browser-Abnahme dieser letzten Korrektur,
+die noch offenen Cache-/API-/SDK-Abnahmen, PR-Abschluss und Release stehen aus.
+PR #198 bleibt Entwurf. Die folgenden Abschnitte dokumentieren ältere
+Teilnachweise und ersetzen den aktuellen Abnahmestand nicht.
 
 Produktstand `2f85bb3c7de36deab07afe81d785ac3fe01a5be2` enthält `main`
 `3ec143a25` einschließlich PR #201. PR #198 bleibt Entwurf; ein Release dieses

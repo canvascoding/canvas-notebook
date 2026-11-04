@@ -9,7 +9,7 @@ import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-t
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
 import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
-import { withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
@@ -100,55 +100,68 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
   if (!authenticatedNativeTextSessionEnabled()) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID');
   type Sources = { workspace: Access['workspace']; scope: ReturnType<typeof captureWorkspaceOperationJobScope>;
     observation: Awaited<ReturnType<typeof readWorkspaceLinkSourceAuthorityOnConnection>> };
-  const readSources = (expected?: Sources): Promise<Sources> => executeLifecycleTransaction({
-    openConnection: async () => {
-      const actual = await openDb().catch(cause => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); });
-      return { get: (sql, values) => actual.get(sql, values), all: (sql, values) => actual.all(sql, values),
-        run: (sql, values) => actual.run(sql, values), close: async error => {
-          try { await actual.close(error); }
-          catch (cause) { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); }
-        } };
-    },
-    execute: async database => {
-      // The genuine OnConnection principal requires RC/RW. This fixed entry
-      // executes SELECTs only and grants no writable connection to its caller.
-      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-      const read = async (access: Access): Promise<Sources> => {
-        await access.assertCurrent(); const workspace = access.workspace;
-        if (workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
-          || !workspace.permissions.canWrite || !workspace.permissions.canDelete) {
-          throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_ACCESS_DENIED');
-        }
-        const locked = await database.get('SELECT pg_catalog.pg_try_advisory_xact_lock_shared($1::bigint) AS locked',
-          [collaborationAdmissionLockKey(workspace.workspaceId)]) as { locked?: unknown } | undefined;
-        if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
-        const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
-        if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)) {
-          await access.assertCurrent();
-          throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
-        }
-        // A rejected/incoherent observation intentionally has no catalogue
-        // witness. Report its gaps instead of passing it to an evidence parser.
-        if (!observation.privateCatalogue) {
-          await access.assertCurrent();
-          throw new WorkspacePathSourceIncompleteError(observation.stage.coverage.gaps);
-        }
-        const scope = captureWorkspaceOperationJobScope(workspace);
-        if (expected && (!isDeepStrictEqual(scope, expected.scope)
-          || !isDeepStrictEqual(observation, expected.observation))) {
-          await access.assertCurrent();
-          throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
-        }
-        await access.assertCurrent(); return { workspace, scope, observation };
-      };
-      return captured.principal.kind === 'request'
-        ? withWorkspaceRequestPrincipalOnConnection(database, captured.principal.principal, read)
-        : captured.principal.kind === 'move'
-          ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, captured.principal.principal, read)
-          : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, captured.principal.principal, read);
-    },
-    recoverCommitted: async (_value, cause) => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); },
-  });
+  const readSources = async (expected?: Sources): Promise<Sources> => {
+    let rollbackClosedError: unknown;
+    try {
+      return await executeLifecycleTransaction({
+        openConnection: async () => {
+          const actual = await openDb().catch(cause => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); });
+          return { get: (sql, values) => actual.get(sql, values), all: (sql, values) => actual.all(sql, values),
+            run: (sql, values) => actual.run(sql, values), close: async error => {
+              try { await actual.close(error); }
+              catch (cause) { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); }
+            } };
+        },
+        execute: async database => {
+          // The genuine OnConnection principal requires RC/RW. This fixed entry
+          // executes SELECTs only and grants no writable connection to its caller.
+          await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+          const read = async (access: Access): Promise<Sources> => {
+            await access.assertCurrent(); const workspace = access.workspace;
+            if (workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
+              || !workspace.permissions.canWrite || !workspace.permissions.canDelete) {
+              throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_ACCESS_DENIED');
+            }
+            const locked = await database.get('SELECT pg_catalog.pg_try_advisory_xact_lock_shared($1::bigint) AS locked',
+              [collaborationAdmissionLockKey(workspace.workspaceId)]) as { locked?: unknown } | undefined;
+            if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
+            const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
+            if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)) {
+              await access.assertCurrent();
+              throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+            }
+            // A rejected/incoherent observation intentionally has no catalogue
+            // witness. Report its gaps instead of passing it to an evidence parser.
+            if (!observation.privateCatalogue) {
+              await access.assertCurrent();
+              throw new WorkspacePathSourceIncompleteError(observation.stage.coverage.gaps);
+            }
+            const scope = captureWorkspaceOperationJobScope(workspace);
+            if (expected && (!isDeepStrictEqual(scope, expected.scope)
+              || !isDeepStrictEqual(observation, expected.observation))) {
+              await access.assertCurrent();
+              throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+            }
+            await access.assertCurrent(); return { workspace, scope, observation };
+          };
+          return captured.principal.kind === 'request'
+            ? withWorkspaceRequestPrincipalOnConnection(database, captured.principal.principal, read)
+            : captured.principal.kind === 'move'
+              ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, captured.principal.principal, read)
+              : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, captured.principal.principal, read);
+        },
+        recoverCommitted: async (_value, cause) => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); },
+        afterRollbackClosed: error => { rollbackClosedError = error; },
+      });
+    } catch (error) {
+      // Only a cleanly rolled-back, disposed read may become retryable. The
+      // failed principal is poisoned; callers must start a fresh request.
+      if (error === rollbackClosedError && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY') {
+        throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY', { cause: error });
+      }
+      throw error;
+    }
+  };
   // The plan is pure historical data, not authority. Do not hold a database
   // transaction/admission fence during its CPU-intensive proof construction.
   const first = await readSources();

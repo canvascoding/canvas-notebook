@@ -75,6 +75,11 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:api-keys 2>&1 | tee "$RUNNER_TEMP/api-contracts.log"
+      - name: File preview contention and transaction cleanup
+        run: |
+          set -euo pipefail
+          npm run test:files:preview-busy 2>&1 | tee "$RUNNER_TEMP/preview-busy-contracts.log"
+          npm run test:files:preview-busy:native 2>&1 | tee "$RUNNER_TEMP/preview-busy-native.log"
       - name: Genuine native API and agent tools
         run: |
           set -euo pipefail
@@ -126,6 +131,7 @@ jobs:
           path: |
             ${{ runner.temp }}/source-projection-lock.log
             ${{ runner.temp }}/api-contracts.log
+            ${{ runner.temp }}/preview-busy-*.log
             ${{ runner.temp }}/native-api.log
             ${{ runner.temp }}/native-mcp-paths.log
             ${{ runner.temp }}/native-agent-*.log

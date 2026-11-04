@@ -436,7 +436,7 @@ test('a native peer edit during staged physical reads invalidates the native pro
         readWorkspaceLinkSourceAuthorityOnConnection: async (...args: Parameters<typeof sourceModule.readWorkspaceLinkSourceAuthorityOnConnection>) => {
           observation = await sourceModule.readWorkspaceLinkSourceAuthorityOnConnection(...args); return observation;
         } },
-      '../workspaces/request-principal': { withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
+      '../workspaces/request-principal': { WorkspaceRequestPrincipalError: class extends Error {}, withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
         supplied: object, read: (access: { workspace: WorkspaceContext; assertCurrent: () => Promise<void> }) => Promise<unknown>) => {
         assert.equal(typeof actual.get, 'function'); assert.equal(supplied, principal);
         assert.deepEqual(traced.trace.slice(0, 2), ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE']);

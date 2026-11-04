@@ -629,14 +629,25 @@ export async function previewWorkspaceRename(
   newPath: string,
   workspaceId?: string | null,
 ): Promise<WorkspaceFileOperationDryRun> {
-  const response = await fetch('/api/files/rename', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
-    credentials: 'include',
-    body: JSON.stringify({ oldPath, newPath, dryRun: true }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview path change'));
-  return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read path preview');
+  const authScope = openedDocumentAuthScope();
+  const headers = { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) };
+  const body = JSON.stringify({ oldPath, newPath, dryRun: true });
+  for (let attempt = 0; ; attempt++) {
+    if (openedDocumentAuthScope() !== authScope) throw new Error('The signed-in session changed. Please retry.');
+    const response = await fetch('/api/files/rename', {
+      method: 'POST', headers, credentials: 'include', body,
+    });
+    if (response.status === 409 && attempt < 2) {
+      const failure = await response.clone().json().catch(() => null);
+      // This loop owns only dry-run requests, never apply or receipt recovery.
+      if (failure?.code === 'PATH_IMPORT_PREVIEW_BUSY') {
+        await new Promise<void>(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+        continue;
+      }
+    }
+    if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview path change'));
+    return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read path preview');
+  }
 }
 
 export async function previewWorkspaceDelete(paths: string[], workspaceId?: string | null): Promise<WorkspaceFileOperationDryRun> {
