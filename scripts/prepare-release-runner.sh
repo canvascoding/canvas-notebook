@@ -28,8 +28,8 @@ if [[ -e "$swap_file" ]]; then
   exit 1
 fi
 
-# The application build needs Node/Python. Android, .NET, Haskell and CodeQL
-# SDKs are unused by this job. Remove only large SDKs, only until enough free
+# The application build needs Node/Python. The SDKs and browsers below are
+# unused by this job. Remove only large installations, only until enough free
 # space remains for the swap file plus the dependency/build/artifact workspace.
 unused_sdks=(
   /usr/local/lib/android
@@ -37,6 +37,13 @@ unused_sdks=(
   /opt/ghc
   /usr/local/.ghcup
   /opt/hostedtoolcache/CodeQL
+  /usr/share/swift
+  /opt/hostedtoolcache/go
+  /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk
+  /usr/lib/jvm
+  /usr/local/share/chromium
+  /opt/microsoft/msedge
+  /opt/google/chrome
 )
 for sdk in "${unused_sdks[@]}"; do
   if (( $(available_kib) >= required_kib )); then break; fi
