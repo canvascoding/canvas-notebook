@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Preserve explicitly requested OAuth scopes and refuse tokens with broader or unverifiable scope. Existing users can authorize a fresh credential profile with the rights their application needs.
+
 ## 0.1.0
 
 - Separately installable native-document facade over official MCP 2.3.0 Streamable HTTP, with optional external dependencies.
