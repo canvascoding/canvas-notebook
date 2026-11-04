@@ -7,6 +7,26 @@ Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
 ## Aktueller Abnahmestand vom 04.11.2026
 
+Die Cache-Korrektur in `1e9e895b2` ist gepusht und besteht den Host-Produktionsbuild
+(einschließlich Release-Typprüfung), die gezielten Retention-, Lifecycle-, Rename-
+und Recovery-Tests sowie Lint. Alle 13 CI-Prüfungen dieses Commits sind grün,
+einschließlich Native API und installiertem SDK. Ein zusätzlicher Hook-Lifecycle-Test bestätigt
+erneute Session-Anforderungen im echten Clientpfad bei RAM-Wiederverwendung, Peer-Löschungen mit gleichem
+Versionsvektor, Read-Downgrade, Benutzerisolation, Verdrängung des ältesten von
+vier Dokumenten und Ablauf nach 15 Sekunden. Transport und IndexedDB werden in
+diesem Hook-Test kontrolliert; dies ersetzt keine echte HTTP-/Browser-Abnahme.
+
+Der Linux-Build dieses Commits wurde nach 11:40 Minuten ohne Fortschritt beim
+Snapshot-Paketabruf kontrolliert abgebrochen; der ursprüngliche lokale Container
+ist wieder gesund. Begrenzte Diagnose-Builds zeigen Timeouts bzw. HTTP 503
+`No healthy backends` bei den Paket-/Quellenlisten, auch über stabile Dateipfade;
+der alternative Snapshot-Endpunkt liefert ebenfalls HTTP 503. Eine erneute
+Prüfung am 04.11. um 12:08 UTC liefert HTTP 504 für dieselbe Quellenliste. Paketstand,
+Signaturprüfung und Produkt-Dockerfile wurden nicht geändert. Beleg:
+`document-service-integration-artifacts/sync-retention-linux-build-external-failure-20261104.json`.
+Die aktuelle kompilierte Browser-Abnahme und das Release sind deshalb weiterhin
+offen. Die folgenden Ergebnisse gehören zum letzten abgeschlossenen Build:
+
 Produktstand `2f85bb3c7de36deab07afe81d785ac3fe01a5be2` enthält `main`
 `3ec143a25` einschließlich PR #201. PR #198 bleibt Entwurf; ein Release dieses
 Gesamtplans ist noch nicht veröffentlicht. Die folgenden älteren Abschnitte sind
