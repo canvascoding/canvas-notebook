@@ -253,18 +253,18 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
     check('preview diagnostics preserve size, busy and authorization without disclosing exception text', () => {
       for (const code of ['MCP_READ_PHASE_TIMEOUT', '57014', '25P04']) {
         const error = Object.assign(new Error('secret SQL'), { code });
-        const preview = formatError(error, undefined, 'preview').structuredContent!;
+        const preview = formatError(error, undefined, 'preview').structuredContent as Record<string, unknown>;
         assert.equal(preview.code, 'PATH_TIMEOUT'); assert.equal(preview.error_code, 'PATH_TIMEOUT');
         assert.equal(preview.retryable, true); assert.equal(preview.retry_after_ms, 1000);
         assert.equal(preview.storage_status, 'not_applicable');
         assert(!JSON.stringify(preview).includes('secret'));
-        const apply = formatError(error, operationId, 'apply').structuredContent!;
+        const apply = formatError(error, operationId, 'apply').structuredContent as Record<string, unknown>;
         assert.equal(apply.retryable, false); assert.equal(apply.storage_status, 'unknown');
         assert.equal(apply.retry_after_ms, undefined);
       }
       for (const phase of ['preview', 'apply', 'recover', 'status']) {
         const changed = formatError(Object.assign(new Error('private changed observation'), { code: 'PREVIEW_STALE' }),
-          phase === 'preview' ? undefined : operationId, phase).structuredContent!;
+          phase === 'preview' ? undefined : operationId, phase).structuredContent as Record<string, unknown>;
         assert.equal(changed.code, 'PATH_PLAN_CHANGED');
         assert.equal(changed.retryable, phase === 'preview');
         assert.equal(changed.retry_after_ms, phase === 'preview' ? 250 : undefined);
@@ -283,8 +283,8 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
         assert(!JSON.stringify(wire).includes('native-states'));
         assert(!logged.join('').includes('private-diagnostic-marker'));
       }
-      assert.equal(formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
-        undefined, 'preview').structuredContent!.code, 'AUTHENTICATION_REQUIRED');
+      assert.equal((formatError(Object.assign(new Error(), { code: 'MCP_READ_PRINCIPAL_EXPIRED' }),
+        undefined, 'preview').structuredContent as Record<string, unknown>).code, 'AUTHENTICATION_REQUIRED');
       for (const [cause, expected] of [
         [new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), 'PATH_TOO_LARGE'],
         [new WorkspaceFileLifecycleBusyError(), 'PATH_BUSY'],
@@ -301,7 +301,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       }
       const incomplete = Object.assign(new Error('private source bytes'), { code: 'PATH_SOURCE_INCOMPLETE', issueCount: 52,
         issues: Array.from({ length: 52 }, (_, index) => ({ code: 'invalid-frontmatter', path: `notes/${index}.md`, raw: 'private contents' })) });
-      const diagnostic = formatError(incomplete, undefined, 'preview').structuredContent!;
+      const diagnostic = formatError(incomplete, undefined, 'preview').structuredContent as Record<string, unknown>;
       assert.equal(diagnostic.code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(diagnostic.issue_count, 52);
       assert.equal((diagnostic.issues as unknown[]).length, 50); assert.equal(diagnostic.issues_truncated, true);
       assert(!JSON.stringify(diagnostic).includes('private'));
@@ -311,9 +311,27 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       formatError(hostile, undefined, 'preview'); assert.equal(traps, 0);
       const auth = new DirectMcpAuthorizationError('invalid_token', 401, 'private auth');
       const wire = formatError(new AggregateError([new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_TOO_LARGE'), auth]), undefined, 'preview');
-      assert.equal(wire.structuredContent?.code, 'AUTHENTICATION_REQUIRED');
-      const denied = formatError(new AggregateError([incomplete, auth]), undefined, 'preview').structuredContent!;
+      assert.equal((wire.structuredContent as Record<string, unknown>).code, 'AUTHENTICATION_REQUIRED');
+      const denied = formatError(new AggregateError([incomplete, auth]), undefined, 'preview').structuredContent as Record<string, unknown>;
       assert.equal(denied.code, 'AUTHENTICATION_REQUIRED'); assert.equal(denied.issues, undefined);
+    });
+    check('a stale source scan permits a fresh preview but never retries a write or discloses private details', () => {
+      const stale = Object.assign(new Error('private source witness'), { code: 'PREVIEW_STALE', status: 409 });
+      assert.equal(failure(stale).status, 409);
+      for (const phase of ['preview', 'apply', 'recover', 'status']) {
+        const wire = formatError(new Error('private wrapper', { cause: stale }), operationId, phase);
+        const body = wire.structuredContent as Record<string, unknown>;
+        assert.equal(body.code, 'PATH_PLAN_CHANGED'); assert.equal(body.error_code, 'PATH_PLAN_CHANGED');
+        assert.equal(body.operationId, operationId); assert.equal(body.phase, phase);
+        assert.equal(body.retryable, phase === 'preview');
+        assert.equal(body.retry_after_ms, phase === 'preview' ? 250 : undefined);
+        assert.equal(body.storage_status, phase === 'preview' || phase === 'status' ? 'not_applicable' : 'unknown');
+        assert(!JSON.stringify(wire).includes('private'));
+      }
+      const auth = new DirectMcpAuthorizationError('invalid_token', 401, 'private auth');
+      const denied = formatError(new AggregateError([stale, auth]), operationId, 'preview').structuredContent as Record<string, unknown>;
+      assert.equal(denied.code, 'AUTHENTICATION_REQUIRED'); assert.equal(denied.retryable, false);
+      assert.equal(denied.retry_after_ms, undefined); assert.equal(denied.issues, undefined);
     });
     check('whole escaped MCP envelope has a strict 1MiB cap without trimming paths or receipts', () => {
       const empty = preview(); empty.preview.paths = Array.from({ length: 1000 }, (_, index) => ({ sourcePath: `s${index}`, destinationPath: `d${index}` }));
@@ -329,7 +347,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert(bytes(format(fits)) <= resultCap); assert.throws(() => format(over), error('PATH_OUTPUT_TOO_LARGE', 413));
       const emitted = format(result('recover'), operationId); assert.deepEqual(JSON.parse((emitted.content[0] as { text: string }).text), emitted.structuredContent);
     });
-    assert.equal(groups, 13); completed = true;
+    assert.equal(groups, 14); completed = true;
     console.log(JSON.stringify({ test: 'mcp-server-workspace-path-contract', groups, scope: 'pure strict wire/schema/formatter only; no runtime authority or owner claim' }));
   } finally {
     if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase;

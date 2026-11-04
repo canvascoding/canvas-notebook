@@ -244,12 +244,19 @@ export default async function middleware(request: NextRequest) {
       || request.method === 'POST' && /^\/api\/excalidraw\/scenes\/[^/]{1,200}\/operations$/u.test(pathname)
     ) && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/iu.test(request.headers.get('authorization') || '');
     const bearerCandidate = mobileBearerCandidate || excalidrawBearerCandidate;
+    // Presence delegates only this exact read route to its real key checker.
+    // Malformed/banned/revoked keys still fail there; creation and other APIs
+    // do not acquire a new authentication mode through this candidate.
+    const apiKeyValue = request.headers.get('x-canvas-api-key');
+    const apiKeyWorkspaceListCandidate = request.method === 'GET' && pathname === '/api/workspaces'
+      && apiKeyValue !== null && apiKeyValue.length <= 4096;
+    const credentialCandidate = bearerCandidate || apiKeyWorkspaceListCandidate;
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-    if (!sessionCookie && !bearerCandidate && logMissingSession) {
+    if (!sessionCookie && !credentialCandidate && logMissingSession) {
       console.log(`[Middleware] No session credential for ${pathname}. Denying API request.`);
     }
 
-    if (!sessionCookie && !bearerCandidate) {
+    if (!sessionCookie && !credentialCandidate) {
       const errorResponse = NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -300,7 +307,7 @@ export const config = {
     // body readers; keep only their exact routes outside proxy body buffering.
     // Public setup/invitation handlers enforce their own token/setup checks,
     // shared abuse limits and 16 KiB body reader before consuming input.
-    '/api/((?!documents/(?:read|search|(?:edit|import-existing)(?:/status)?)$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
+    '/api/((?!documents/(?:read|search|browse|create|import|copy|move|delete|(?:edit|import-existing)(?:/status)?)$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
     // Localized page URLs can contain dots. They still need locale forwarding
     // for the global 404; root-level public asset URLs remain excluded above.

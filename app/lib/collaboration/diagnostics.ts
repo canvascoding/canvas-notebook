@@ -5,7 +5,8 @@ export type CollaborationDiagnostic = {
   event: 'yjs_persisted' | 'yjs_persistence_failed' | 'projection_completed' | 'projection_failed'
     | 'projection_superseded' | 'projection_recovery_failed' | 'projection_failure_status_failed' | 'guest_version_failed' | 'room_generation_rejected' | 'room_startup_failed'
     | 'agent_applied' | 'agent_durable' | 'agent_durability_unconfirmed' | 'agent_audit_failed' | 'agent_target_conflict'
-    | 'agent_database_busy' | 'agent_direct_edit_grant_created' | 'agent_direct_edit_grant_revoked' | 'agent_direct_edit_grant_denied';
+    | 'agent_database_busy' | 'agent_direct_edit_grant_created' | 'agent_direct_edit_grant_revoked' | 'agent_direct_edit_grant_denied'
+    | 'native_edit_failed' | 'native_peer_access_failed';
   operationId?: string;
   documentId?: string;
   workspaceId?: string;

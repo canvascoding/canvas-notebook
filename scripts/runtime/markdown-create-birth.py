@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import stat
 import sys
 import uuid
@@ -23,6 +24,7 @@ DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 STORE = 'canvas-markdown-create-births'
 ANCHOR = STORE + '-anchor.json'
+storage_device_map = None
 
 
 class Refused(Exception):
@@ -53,7 +55,12 @@ def decode(data):
 
 
 def identity(info):
-    return {'dev': str(info.st_dev), 'ino': str(info.st_ino), 'uid': info.st_uid, 'mode': stat.S_IMODE(info.st_mode)}
+    device = str(info.st_dev)
+    if storage_device_map is not None:
+        if device != storage_device_map['currentDevice']:
+            fail('NAMESPACE_CHANGED')
+        device = storage_device_map['recordedDevice']
+    return {'dev': device, 'ino': str(info.st_ino), 'uid': info.st_uid, 'mode': stat.S_IMODE(info.st_mode)}
 
 
 def file_identity(info):
@@ -421,7 +428,16 @@ def direct_mcp_attribution(intent):
     elif not bounded(selected['fileId']) or selected['declaredMimeType'] is not None and \
             not bounded(selected['declaredMimeType']):
         fail('SOURCE_CHANGED')
-    raw = selected['ingestValidationJson']
+    validate_programmatic_ingest_json(selected['ingestValidationJson'])
+    return dict(selected)
+
+
+
+def validate_programmatic_ingest_json(raw):
+    def length(value):
+        return len(value.encode('utf-16-le', errors='surrogatepass')) // 2
+    def bounded(value, maximum=200):
+        return isinstance(value, str) and 0 < length(value) <= maximum
     if not isinstance(raw, str) or len(raw.encode('utf-8')) > 32 * 1024:
         fail('SOURCE_CHANGED')
     validation = decode(raw.encode('utf-8'))
@@ -440,6 +456,53 @@ def direct_mcp_attribution(intent):
         if not isinstance(warning, dict) or set(warning) != {'code', 'message'} or not bounded(warning.get('code')) \
                 or not isinstance(warning.get('message'), str) or length(warning['message']) > 4096:
             fail('SOURCE_CHANGED')
+
+
+def api_key_attribution(intent):
+    """Exact key-source metadata only; genuine current rights remain in Node."""
+    selected, origin = intent.get('source'), intent.get('origin')
+    source_keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'integrationId', 'instanceId',
+                   'credentialId', 'purpose', 'operationId', 'requestId', 'ingestRequestFingerprint', 'sourceHash',
+                   'sourceBytes', 'fileId', 'declaredMimeType', 'ingestValidationJson'}
+    origin_keys = {'kind', 'userId', 'integrationId', 'instanceId', 'credentialId', 'workspaceId', 'workspaceType',
+                   'organizationId', 'customerId', 'projectId', 'ownerUserId', 'rootPath', 'rootRelativePath',
+                   'legacy', 'status', 'schema', 'schemaOid', 'databaseOid', 'searchPath', 'purpose', 'entryPoint'}
+    def text(value, maximum, minimum=1):
+        if not isinstance(value, str):
+            return False
+        try:
+            value.encode('utf-8')
+        except UnicodeError:
+            return False
+        return minimum <= len(value.encode('utf-16-le')) // 2 <= maximum and not re.search(r'[\x00-\x1f\x7f]', value)
+    def identifier(value):
+        return text(value, 256) and value.strip().strip('\ufeff') == value
+    if not isinstance(selected, dict) or set(selected) != source_keys or not isinstance(origin, dict) or set(origin) != origin_keys \
+            or origin.get('kind') != 'api_key' or origin.get('purpose') not in ('create', 'import') \
+            or origin.get('entryPoint') not in ('request', 'mcp') or origin.get('legacy') is not False or origin.get('status') != 'active' \
+            or origin.get('workspaceType') not in ('personal', 'organization', 'team', 'project') \
+            or not all(identifier(origin.get(key)) for key in ['userId', 'integrationId', 'instanceId', 'credentialId', 'workspaceId']) \
+            or not all(origin.get(key) is None or identifier(origin.get(key)) for key in ['organizationId', 'customerId', 'projectId', 'ownerUserId']) \
+            or not text(origin.get('rootPath'), 8192) or not text(origin.get('rootRelativePath'), 4096, 0) \
+            or not text(origin.get('searchPath'), 4096) or not text(origin.get('schema'), 63) or len(origin['schema'].encode('utf-8')) > 63 \
+            or not all(type(origin.get(key)) is int and 0 < origin[key] <= 9007199254740991 for key in ['schemaOid', 'databaseOid']):
+        fail('SOURCE_CHANGED')
+    if selected.get('kind') != 'api-key-markdown-v1' or selected.get('actorSessionId') is not None \
+            or any(selected.get(key) != origin.get(other) for key, other in [('workspaceId', 'workspaceId'), ('actorUserId', 'userId'),
+                ('integrationId', 'integrationId'), ('instanceId', 'instanceId'), ('credentialId', 'credentialId'), ('purpose', 'purpose')]) \
+            or not all(isinstance(selected.get(key), str) and re.fullmatch('[a-f0-9]{64}', selected[key]) for key in ['operationId', 'ingestRequestFingerprint', 'sourceHash']) \
+            or selected['operationId'] != intent.get('operationId') or selected['requestId'] != 'api-key-create:' + selected['operationId'] \
+            or not text(selected.get('targetPath'), 1024) or selected['targetPath'] != intent.get('targetPath') \
+            or not re.search(r'\.(?:md|markdown)$', selected['targetPath'], re.IGNORECASE) \
+            or any(name in ('', '.', '..') or origin['entryPoint'] == 'mcp' and name.startswith('.') or re.search(r'[\\\x00-\x1f\x7f]', name) for name in selected['targetPath'].split('/')) \
+            or type(selected.get('sourceBytes')) is not int or not 0 <= selected['sourceBytes'] <= 512 * 1024:
+        fail('SOURCE_CHANGED')
+    if selected['purpose'] == 'create':
+        if selected['fileId'] is not None or selected['declaredMimeType'] is not None:
+            fail('SOURCE_CHANGED')
+    elif not text(selected['fileId'], 200) or selected['declaredMimeType'] is not None and not text(selected['declaredMimeType'], 200):
+        fail('SOURCE_CHANGED')
+    validate_programmatic_ingest_json(selected['ingestValidationJson'])
     return dict(selected)
 
 
@@ -480,6 +543,8 @@ def current_source(intent):
     if 'kind' in selected:
         if selected.get('kind') == 'direct-mcp-markdown-v1':
             return direct_mcp_attribution(intent)
+        if selected.get('kind') == 'api-key-markdown-v1':
+            return api_key_attribution(intent)
         if selected.get('kind') == 'agent-markdown-v1':
             return agent_attribution(intent)
         keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'}
@@ -557,11 +622,19 @@ def current_source(intent):
 
 
 def run(message):
+    global storage_device_map
+    storage_device_map = None
     if set(message) - {'action', 'intent', 'key', 'bytes', 'serializedHash', 'revisionId'} or message.get('action') not in ('open', 'verify', 'prepare', 'observe', 'complete'):
         fail('INVALID_INPUT')
     intent, key = message['intent'], message['key']
     if not isinstance(intent, dict) or not re.fullmatch('[a-f0-9]{64}', key):
         fail('INVALID_INPUT')
+    if intent['dataRoot']['dev'] != str(os.fstat(3).st_dev):
+        load = runpy.run_path(os.path.join(os.path.dirname(__file__), 'native-storage-witness.py'))
+        mapping = load['read_device_map'](3)
+        if mapping is None or mapping['recordedDevice'] != intent['dataRoot']['dev']:
+            fail('NAMESPACE_CHANGED')
+        storage_device_map = mapping
     root = intent['workspaceRoot']
     if directory(3) != intent['dataRoot'] or directory(4) != root:
         fail('NAMESPACE_CHANGED')

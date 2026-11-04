@@ -47,6 +47,7 @@ export function projectWorkspaceOperationBatchFileViews(input: {
 
 async function resolveReviewerScope(batch: WorkspaceOperationBatchRecord): Promise<WorkspaceOperationBatchScope> {
   if (batch.authorization.mode === 'direct-mcp') throw new Error('BATCH_MCP_AUTHORIZATION_REQUIRED');
+  if (batch.authorization.mode === 'api-key') throw new Error('BATCH_API_KEY_AUTHORIZATION_REQUIRED');
   const userId = workspaceOperationBatchAuthorityUserId(batch);
   if (!userId) throw new Error('BATCH_ACCESS_DENIED');
   const db = await openDb();

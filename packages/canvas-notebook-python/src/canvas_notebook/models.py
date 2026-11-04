@@ -129,6 +129,47 @@ class DocumentCreateResult(TypedDict):
     projection: DocumentProjection
 
 
+class OriginalImportedDocument(TypedDict):
+    """Immutable initial import facts, without a current document version."""
+
+    workspaceId: str
+    organizationId: str | None
+    documentId: str
+    lineageId: str
+    path: str
+    representation: Literal["plain_text", "tiptap_xml", "tiptap_blocks"]
+    lifecycleGeneration: int
+    schemaVersion: Literal[1]
+    documentSequence: Literal[0]
+    stateProof: str
+    persistedAt: int
+
+
+class OriginalImportSource(TypedDict):
+    sha256: str
+    bytes: int
+
+
+class OriginalDocumentImportConfirmedResult(TypedDict):
+    apiVersion: Literal[1]
+    operationId: str
+    status: Literal["confirmed"]
+    outcome: Literal["imported", "already_imported"]
+    documentAtImport: OriginalImportedDocument
+    source: OriginalImportSource
+    requiresFreshFileActionPreview: Literal[True]
+
+
+class OriginalDocumentImportNotFoundResult(TypedDict):
+    apiVersion: Literal[1]
+    operationId: str
+    status: Literal["not_found"]
+    requiresFreshFileActionPreview: Literal[True]
+
+
+OriginalDocumentImportResult = OriginalDocumentImportConfirmedResult | OriginalDocumentImportNotFoundResult
+
+
 class EditEffect(TypedDict):
     outcome: Literal["applied", "no_change"]
     beforeVersion: str
@@ -158,6 +199,7 @@ class DocumentEditResult(TypedDict):
     operationId: str
     state: Literal["pending", "confirmed", "conflict", "failed"]
     document: DocumentIdentity
+    document_url: str
     effect: EditEffect | None
     persistence: EditPersistence
     projection: EditProjection
@@ -402,7 +444,7 @@ class WorkspaceCopyFailure(WorkspaceCopyFailureRequired, total=False):
 PublicWorkspacePathCode = Literal[
     "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "ACCESS_DENIED",
     "PATH_OPERATION_NOT_FOUND", "PATH_STATUS_NOT_FOUND", "PATH_PLAN_CHANGED",
-    "PATH_SCOPE_CHANGED", "PATH_BUSY", "PATH_CONFLICT", "PATH_SOURCE_INCOMPLETE", "PATH_TOO_LARGE",
+    "PATH_SCOPE_CHANGED", "PATH_BUSY", "PATH_TIMEOUT", "PATH_CONFLICT", "PATH_SOURCE_INCOMPLETE", "PATH_TOO_LARGE",
     "PATH_OUTPUT_TOO_LARGE", "PATH_NATIVE_REQUIRED", "PATH_OUTCOME_UNCONFIRMED",
     "PATH_UNAVAILABLE",
 ]

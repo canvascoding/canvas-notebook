@@ -30,7 +30,8 @@ import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-t
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
 import { finalizeWorkspaceNativeCopyViews } from './workspace-operation-copy-view-finalizer';
 
-export { runDirectMcpWorkspaceMoveService, runDirectMcpWorkspaceDeleteService } from './workspace-operation-mcp-path-service';
+export { runDirectMcpWorkspaceMoveService, runDirectMcpWorkspaceDeleteService,
+  runApiKeyWorkspaceMoveService, runApiKeyWorkspaceDeleteService } from './workspace-operation-mcp-path-service';
 
 type Selection = { sourcePath: string; destinationPath: string };
 type Scope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
@@ -410,6 +411,74 @@ async function runNativeCopyWithViews(mode: 'execute' | 'recover',
 
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { DecodedDirectMcpWorkspaceCopyRequestV1, DirectMcpWorkspaceCopyResultV1 } from '../mcp/server/workspace-copy-tool-contract';
+import type { ApiKeyCredential } from '../api-keys/authentication';
+import type { ApiKeyWorkspaceCopyPrincipal, ApiKeyWorkspaceCopyPurpose } from '../api-keys/document-read-principal';
+import type { DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
+import type { WorkspaceOperationCopyApiKeyOrigin, WorkspaceOperationCopyMcpOrigin } from './workspace-operation-copy-origin';
+
+type CopyInvocation = Readonly<{ origin: WorkspaceOperationCopyMcpOrigin; mcpPrincipal: DirectMcpWorkspaceCopyPrincipal }>
+  | Readonly<{ origin: WorkspaceOperationCopyApiKeyOrigin; apiKeyPrincipal: ApiKeyWorkspaceCopyPrincipal }>;
+type CopyPrelude = Readonly<{ invocation: CopyInvocation; fileOptions: WorkspaceFileOperationOptions }>;
+
+function copyPreludeData(invocation: CopyInvocation, destination: WorkspaceContext): CopyPrelude {
+  // Notification facts only; the actual Owner obtains current authority again.
+  const workspace = Object.freeze({ ...destination, permissions: Object.freeze({ ...destination.permissions }),
+    ...(destination.actor ? { actor: Object.freeze({ ...destination.actor }) } : {}) });
+  return Object.freeze({ invocation: Object.freeze(invocation), fileOptions: Object.freeze({ workspace }) });
+}
+
+async function requireNativeCopy(input: DecodedDirectMcpWorkspaceCopyRequestV1): Promise<void> {
+  if (input.action !== 'status' && !authenticatedNativeTextSessionEnabled()) {
+    const { WorkspaceCopyToolError } = await import('../mcp/server/workspace-copy-tool-contract');
+    throw new WorkspaceCopyToolError('COPY_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
+  }
+}
+
+/** The genuine principal phase and its actual COMMIT/close finish before the
+ * native Owner borrows another B. Uncertain prelude completion never starts a
+ * mutation or substitutes a historical grant. */
+async function captureCopyPrelude(input: DecodedDirectMcpWorkspaceCopyRequestV1,
+  current: (database: import('../db').SqlConnection) => Promise<CopyPrelude>): Promise<CopyPrelude> {
+  const [{ openDb }, { executeLifecycleTransaction }, { WorkspaceCopyToolError }] = await Promise.all([
+    import('../db'), import('../collaboration/lifecycle-transaction'), import('../mcp/server/workspace-copy-tool-contract')]);
+  return executeLifecycleTransaction({ openConnection: openDb,
+    execute: async database => {
+      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+      return current(database);
+    },
+    recoverCommitted: async (_captured, commitError) => {
+      throw new AggregateError([new WorkspaceCopyToolError('COPY_UNAVAILABLE', input.action === 'preview' ? undefined : input.operationId), commitError],
+        'Copy origin transaction completion was not confirmed.');
+    },
+  });
+}
+
+/** Both transports retain their genuine opaque handle. Only this fixed native
+ * dispatch selects the Owner/status reader and its existing view finalizer. */
+async function runCapturedCopy(input: DecodedDirectMcpWorkspaceCopyRequestV1, captured: CopyPrelude): Promise<DirectMcpWorkspaceCopyResultV1> {
+  const [{ encodeDirectMcpWorkspaceCopyResultV1 }, { previewWorkspaceNativeCopyOperation },
+    { workspaceOperationNativeCopyPublicPreview }, { readMcpWorkspaceNativeCopyOperationStatus, readApiKeyWorkspaceNativeCopyOperationStatus }] = await Promise.all([
+    import('../mcp/server/workspace-copy-tool-contract'), import('./workspace-operation-native-copy-owner'),
+    import('./workspace-operation-native-copy-public'), import('./workspace-operation-native-copy-status')]);
+  const invocation = captured.invocation;
+  if (input.action === 'status') {
+    const operation = 'apiKeyPrincipal' in invocation
+      ? await readApiKeyWorkspaceNativeCopyOperationStatus({ ...invocation, operationId: input.operationId })
+      : await readMcpWorkspaceNativeCopyOperationStatus({ ...invocation, operationId: input.operationId });
+    return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'status', operation }, input.operationId);
+  }
+  const selected = { ...invocation, selections: input.selections, renameOnCollision: input.renameOnCollision,
+    ...(input.destinationDirectory === undefined ? {} : { destinationDirectory: input.destinationDirectory }) };
+  if (input.action === 'preview') {
+    const plan = await previewWorkspaceNativeCopyOperation(selected);
+    return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'preview', preview: workspaceOperationNativeCopyPublicPreview(plan) });
+  }
+  const result = await runNativeCopyWithViews(input.action === 'apply' ? 'execute' : 'recover',
+    { ...selected, operationId: input.operationId, expectedPlanId: input.planId }, captured.fileOptions);
+  observeExecutionStatus('copy', result.execution.status, input.action === 'recover' || result.alreadyKnown ? 'recovery' : 'apply');
+  return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: input.action,
+    execution: result.execution, copied: result.copied, alreadyKnown: result.alreadyKnown }, input.operationId);
+}
 
 /** Fixed MCP Copy entry only. Input is the frozen result of the shared wire
  * decoder; it supplies no actor, Origin, session, workspace roots or authority.
@@ -419,65 +488,42 @@ export async function runDirectMcpWorkspaceCopyService(
   input: DecodedDirectMcpWorkspaceCopyRequestV1,
   authInfo: AuthInfo,
 ): Promise<DirectMcpWorkspaceCopyResultV1> {
-  const { encodeDirectMcpWorkspaceCopyResultV1, WorkspaceCopyToolError } = await import('../mcp/server/workspace-copy-tool-contract');
-  const selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
-  // Historical status remains inspectable under the current fixed Copy policy
-  // when creation/edit activation is off. Mutation-capable entries keep the gate.
-  if (input.action !== 'status' && !authenticatedNativeTextSessionEnabled()) {
-    throw new WorkspaceCopyToolError('COPY_NATIVE_REQUIRED', selectedOperationId);
-  }
-  const [{ openDb }, { executeLifecycleTransaction }, {
-    withDirectMcpWorkspaceCopyPrincipal, withDirectMcpWorkspaceCopyPrincipalOnConnection,
-  }, { captureWorkspaceOperationCopyMcpOrigin }, {
-    previewWorkspaceNativeCopyOperation,
-  }, { workspaceOperationNativeCopyPublicPreview }, { readMcpWorkspaceNativeCopyOperationStatus }] = await Promise.all([
-    import('../db'), import('../collaboration/lifecycle-transaction'), import('../mcp/server/document-read-principal'),
-    import('./workspace-operation-copy-origin'), import('./workspace-operation-native-copy-owner'),
-    import('./workspace-operation-native-copy-public'), import('./workspace-operation-native-copy-status'),
-  ]);
+  await requireNativeCopy(input);
+  const [{ withDirectMcpWorkspaceCopyPrincipal, withDirectMcpWorkspaceCopyPrincipalOnConnection },
+    { captureWorkspaceOperationCopyMcpOrigin }] = await Promise.all([
+    import('../mcp/server/document-read-principal'), import('./workspace-operation-copy-origin')]);
   return withDirectMcpWorkspaceCopyPrincipal(authInfo, {
     sourceWorkspaceId: input.sourceWorkspaceId, destinationWorkspaceId: input.destinationWorkspaceId,
   }, async mcpPrincipal => {
-    // This short phase owns no Copy mutation. Its actual COMMIT and awaited
-    // close finish before the Owner may enter another B/current-principal phase.
-    const captured = await executeLifecycleTransaction({
-      openConnection: openDb,
-      execute: async database => {
-        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-        return withDirectMcpWorkspaceCopyPrincipalOnConnection(database, mcpPrincipal, async access => {
-          const origin = captureWorkspaceOperationCopyMcpOrigin({ userId: access.userId, clientId: access.clientId,
-            sessionId: access.sessionId, sourceWorkspace: access.sourceWorkspace, destinationWorkspace: access.destinationWorkspace });
-          // Retained notification data only. This object is never supplied to
-          // the Owner as a grant, and its ID must match each actual outcome.
-          const workspace: WorkspaceContext = Object.freeze({ ...access.destinationWorkspace,
-            permissions: Object.freeze({ ...access.destinationWorkspace.permissions }),
-            ...(access.destinationWorkspace.actor ? { actor: Object.freeze({ ...access.destinationWorkspace.actor }) } : {}) });
-          return Object.freeze({ origin, fileOptions: Object.freeze({ workspace }) });
-        });
-      },
-      recoverCommitted: async (_captured, commitError) => {
-        // A lost prelude acknowledgement never authorizes entering the Owner.
-        // This is not a mutation replay, historical lookup or cleanup attempt.
-        throw new AggregateError([new WorkspaceCopyToolError('COPY_UNAVAILABLE', selectedOperationId), commitError],
-          'MCP Copy origin transaction completion was not confirmed.');
-      },
-    });
-    if (input.action === 'status') {
-      const operation = await readMcpWorkspaceNativeCopyOperationStatus({ origin: captured.origin, mcpPrincipal, operationId: input.operationId });
-      return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'status', operation }, input.operationId);
-    }
-    if (input.action === 'preview') {
-      const plan = await previewWorkspaceNativeCopyOperation({ origin: captured.origin, mcpPrincipal,
-        selections: input.selections, renameOnCollision: input.renameOnCollision,
-        ...(input.destinationDirectory === undefined ? {} : { destinationDirectory: input.destinationDirectory }) });
-      return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'preview', preview: workspaceOperationNativeCopyPublicPreview(plan) });
-    }
-    const ownerInput = { origin: captured.origin, mcpPrincipal, operationId: input.operationId, expectedPlanId: input.planId,
-      selections: input.selections, renameOnCollision: input.renameOnCollision,
-      ...(input.destinationDirectory === undefined ? {} : { destinationDirectory: input.destinationDirectory }) };
-    const result = await runNativeCopyWithViews(input.action === 'apply' ? 'execute' : 'recover', ownerInput, captured.fileOptions);
-    observeExecutionStatus('copy', result.execution.status, input.action === 'recover' || result.alreadyKnown ? 'recovery' : 'apply');
-    return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: input.action,
-      execution: result.execution, copied: result.copied, alreadyKnown: result.alreadyKnown }, input.operationId);
+    const captured = await captureCopyPrelude(input, database => withDirectMcpWorkspaceCopyPrincipalOnConnection(database, mcpPrincipal, async access =>
+      copyPreludeData({ mcpPrincipal, origin: captureWorkspaceOperationCopyMcpOrigin({ userId: access.userId, clientId: access.clientId,
+        sessionId: access.sessionId, sourceWorkspace: access.sourceWorkspace, destinationWorkspace: access.destinationWorkspace }) }, access.destinationWorkspace)));
+    return runCapturedCopy(input, captured);
+  });
+}
+
+/** Genuine key access only. No constructed AuthInfo, Session or PI attribution.
+ * Every public action chooses a fixed purpose before the shared native path. */
+export async function runApiKeyWorkspaceCopyService(input: DecodedDirectMcpWorkspaceCopyRequestV1,
+  credential: ApiKeyCredential, source: 'request' | 'mcp', signal?: AbortSignal): Promise<DirectMcpWorkspaceCopyResultV1> {
+  await requireNativeCopy(input);
+  const [{ withApiKeyWorkspaceCopyPrincipal, withApiKeyWorkspaceCopyPrincipalOnConnection },
+    { captureWorkspaceOperationCopyApiKeyOrigin }, { WorkspaceCopyToolError }] = await Promise.all([
+    import('../api-keys/document-read-principal'), import('./workspace-operation-copy-origin'), import('../mcp/server/workspace-copy-tool-contract')]);
+  const purpose: ApiKeyWorkspaceCopyPurpose = input.action === 'preview' ? 'copy_preview' : input.action === 'apply' ? 'copy_apply'
+    : input.action === 'status' ? 'copy_status' : 'copy_recover';
+  const active = () => {
+    if (signal?.aborted) throw new WorkspaceCopyToolError(input.action === 'apply' || input.action === 'recover'
+      ? 'COPY_OUTCOME_UNCONFIRMED' : 'COPY_UNAVAILABLE', input.action === 'preview' ? undefined : input.operationId);
+  };
+  active();
+  return withApiKeyWorkspaceCopyPrincipal(credential, { sourceWorkspaceId: input.sourceWorkspaceId,
+    destinationWorkspaceId: input.destinationWorkspaceId, purpose, source }, async apiKeyPrincipal => {
+    const captured = await captureCopyPrelude(input, database => withApiKeyWorkspaceCopyPrincipalOnConnection(database, apiKeyPrincipal, purpose, async access =>
+      copyPreludeData({ apiKeyPrincipal, origin: captureWorkspaceOperationCopyApiKeyOrigin({ userId: access.userId, integrationId: access.integrationId,
+        instanceId: access.instanceId, credentialId: access.credentialId, entryPoint: access.entryPoint,
+        sourceWorkspace: access.sourceWorkspace, destinationWorkspace: access.destinationWorkspace }) }, access.destinationWorkspace)));
+    active();
+    return runCapturedCopy(input, captured);
   });
 }

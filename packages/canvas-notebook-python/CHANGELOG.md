@@ -1,9 +1,14 @@
 # Changelog
 
-## 0.1.0.dev0 — unreleased
+## 0.1.0
 
 - Separately installable native-document facade over official MCP 2.3.0 Streamable HTTP, with optional external dependencies.
 - OAuth authorization-code/PKCE callback lifetime and separate memory/OS-keyring storage for tokens and client registration.
+- Separate `api_key` transport mode with the explicit Canvas key header, HTTPS outside loopback, exclusive authentication selection and no additional mutation retries. Workspace list/overview/tree/manifest, native Read/Search, Markdown Create/Import, native Edit/Status and Copy/Move/Delete/Recovery adapters have separate installed-wheel HTTP/PostgreSQL acceptance records, including current grants, issuing-session logout, rotation, conflicts, actual lost acknowledgements and explicit recovery. Final compiled-container and deployed-release acceptance remain pending.
+- Existing-original `import_existing_markdown` and `original_import_status` methods use the actual API-key MCP capability with an explicit original operation ID and physical file version. Typed results retain historical initial-import facts separately from current document reads. Comparison-envelope validation never rewrites results or replays mutations; ambiguous outcomes retain the caller ID and cancellation propagates. Their installed-client acceptance is recorded separately from earlier artifact records.
+- Optional `edit_target_block_id` on native `read_page` / `read_all`, requiring edit targets and an explicit expected version. Every continuation preserves the selection and version; empty targets retain the server's visible-block meaning. Native edit results type the server's identity-bound `document_url`.
+- Fresh wheel and source-distribution installations pass all twelve core/MCP/keyring combinations on Python 3.10.22 and 3.15.2. Each installation verifies all eight runtime files against the current source. The dependency-free core runs its isolated import test; each adapter installation passes its mechanical tests. These checks do not substitute for real OAuth, OS-store or compiled-service acceptance.
+- Bounded `get_manifest` method preserves physical/native hashes, coverage and continuation without automatic pagination or retries.
 - Native search, version-bound paginated read, creation/import, edit and historical edit-status methods retain the central Canvas contracts.
 - Four native Copy methods delegate Preview/Apply/Status/Recover to the explicitly enabled central MCP tool. Collision renaming is Preview-only; Apply/Recover retain the exact resolved roots, original order, caller operation ID and actual plan. Full results and uncertain outcomes remain explicit; no automatic replay, polling or recovery.
 - Historical baseline before the SDK Copy additions: wheel/source builds, installations, 26 boundary tests, strict typing and five actual MCP HTTP/PostgreSQL document families passed on their recorded source versions and artifacts.

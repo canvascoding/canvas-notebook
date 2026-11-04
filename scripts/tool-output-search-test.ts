@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
+import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
 async function main() {
   const data = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-output-search-'));
+  process.env.DATA = data;
   process.env.CANVAS_DATA_ROOT = data;
+  const modules = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+  const originalLoad = modules._load;
   try {
+    // The tsx entry is CommonJS; use the actual import-only SDK namespaces.
+    const sdk = new Map<string, unknown>();
+    for (const name of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-ai/compat', '@earendil-works/pi-ai/oauth']) {
+      sdk.set(name, await import(name));
+    }
+    modules._load = (request, parent, isMain) => sdk.has(request) ? sdk.get(request) : originalLoad(request, parent, isMain);
     const { storeToolOutput } = await import('../app/lib/pi/tool-output-store');
     const { searchStoredToolOutput } = await import('../app/lib/pi/tool-output-search');
     const { createRipgrepTool } = await import('../app/lib/pi/web-tools');
@@ -32,6 +42,6 @@ async function main() {
     await assert.rejects(() => searchStoredToolOutput(identity, saved.reference, '['));
     await assert.rejects(() => searchStoredToolOutput(identity, saved.reference, 'a', { signal: AbortSignal.abort() }));
     console.log('tool-output-search-test: ok (2.4 MB JSON line, Unicode read offsets, bounded many/greedy matches, actual rg tool, isolation, abort)');
-  } finally { await fs.rm(data, { recursive: true, force: true }); }
+  } finally { modules._load = originalLoad; await fs.rm(data, { recursive: true, force: true }); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

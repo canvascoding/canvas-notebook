@@ -28,6 +28,7 @@ import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/ch
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
+import { captureCollaborationDiagnosticCause } from '@/app/lib/collaboration/diagnostic-cause';
 import { reportCollaborationStartupFailure, type CollaborationStartupPhase } from '../app/lib/collaboration/startup-diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
@@ -40,6 +41,7 @@ import { AuthenticatedNativeSessionTransportError,
   disposeAuthenticatedNativeSessionTransport, isAuthenticatedNativeSessionTransportBusy,
   type AuthenticatedNativeSessionTransport } from '@/app/lib/collaboration/authenticated-native-session-transport';
 import { authenticateNativePeerAdmission } from '@/app/lib/collaboration/authenticated-native-peer-admission';
+import { assertNativePeerRoomAdmissionOpen } from '@/app/lib/collaboration/peer-room-admission';
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
@@ -372,7 +374,7 @@ async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInpu
 
 type NativeDirectAuthorityAccess = Readonly<{
   workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
-  sessionId: string; assertActive(): void;
+  sessionId: string | null; assertActive(): void;
 }>;
 
 /** Only the fixed native principal can establish this short current-B phase.
@@ -391,7 +393,7 @@ async function withNativeDirectConnectionAuthority<T>(input: AgentDirectConnecti
       if (access.workspace.workspaceId !== input.workspace.workspaceId
         || (access.workspace.organizationId ?? null) !== (input.workspace.organizationId ?? null)
         || access.userId !== input.initiatedByUserId || access.actorId !== input.actorId
-        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== input.actorSessionId) {
+        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== (input.actorSessionId ?? null)) {
         throw new AgentDirectConnectionAuthorizationError('Current native write authority does not match this operation.');
       }
       access.assertActive();
@@ -758,6 +760,12 @@ export function createCollaborationServer(server: http.Server, options: {
             connection.close({ code: 1013, reason: 'Collaboration diagnosis requires rejoin' });
             return;
           }
+          if (!isAuthenticatedNativeSessionTransportBusy(error)) try {
+            const cause = captureCollaborationDiagnosticCause(error);
+            logCollaborationDiagnostic('warn', { event: 'native_peer_access_failed', documentId: connection.context.claims.documentId,
+              workspaceId: connection.context.claims.workspaceId, causeCode: cause.code,
+              phase: cause.fingerprint ? `native_peer_check:${cause.fingerprint}` : 'native_peer_check' });
+          } catch { /* Diagnostics cannot change whether the original check succeeds. */ }
           throw error;
         }
       }
@@ -946,7 +954,8 @@ export function createCollaborationServer(server: http.Server, options: {
           claims.workspaceId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
-            await assertCurrentCollaborationRoomAdmissionOpen(claims);
+            if (native) await assertNativePeerRoomAdmissionOpen(claims);
+            else await assertCurrentCollaborationRoomAdmissionOpen(claims);
             if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);

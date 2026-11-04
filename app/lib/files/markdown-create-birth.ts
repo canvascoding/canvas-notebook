@@ -8,8 +8,10 @@ import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveCanvasDataRoot } from '../runtime-data-paths';
 import { getFdPublicationBackend, type FdPublicationBackend } from './fd-publication';
+import { readNativeStorageDeviceMap, type NativeStorageDeviceMap } from './native-storage-device-map';
 import { isDeepStrictEqual, types } from 'node:util';
 import { inCollaborationProjectionPhase } from '../collaboration/projection-errors';
+import { captureApiKeyDocumentCreateOrigin } from '../api-keys/document-create-origin';
 
 type Identity = Readonly<{ dev: string; ino: string; uid: number; mode: number }>;
 type Observation = Readonly<{ state: 'intent' | 'prepared' | 'born' | 'complete'; fingerprint: string;
@@ -21,6 +23,12 @@ export type MarkdownCreateBirthOriginal = Readonly<{ id: string; fingerprint: st
 export type DirectMcpMarkdownCreateSourceBinding = Readonly<{
   kind: 'direct-mcp-markdown-v1'; workspaceId: string; targetPath: string; actorUserId: string; actorSessionId: string;
   clientId: string; tool: 'create_knowledge_source' | 'import_knowledge_file'; operationId: string; requestId: string;
+  ingestRequestFingerprint: string; sourceHash: string; sourceBytes: number; fileId: string | null;
+  declaredMimeType: string | null; ingestValidationJson: string;
+}>;
+export type ApiKeyMarkdownCreateSourceBinding = Readonly<{
+  kind: 'api-key-markdown-v1'; workspaceId: string; targetPath: string; actorUserId: string; actorSessionId: null;
+  integrationId: string; instanceId: string; credentialId: string; purpose: 'create' | 'import'; operationId: string; requestId: string;
   ingestRequestFingerprint: string; sourceHash: string; sourceBytes: number; fileId: string | null;
   declaredMimeType: string | null; ingestValidationJson: string;
 }>;
@@ -116,6 +124,7 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
     frame = { active: true, configuredData, resolvedData: await fs.realpath(configuredData), configuredWorkspace,
       resolvedWorkspace: await fs.realpath(configuredWorkspace), data, workspace, backend,
       dataIdentity: identity(await data.stat()), workspaceIdentity: identity(await workspace.stat()), intent: {},
+      storageDeviceMap: await readNativeStorageDeviceMap(data),
       key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', input.workspaceId, input.operationId])) };
     await root(frame);
     const current = frame, observedData = data, observedWorkspace = workspace;
@@ -140,7 +149,8 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
         if ((info.mode & BigInt(0o077)) !== BigInt(0) || !backend.hasExactNameAt(parent, name)) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       }
       const intent = read(claim, 'intent.json');
-      if (!isDeepStrictEqual(intent.dataRoot, current.dataIdentity) || !isDeepStrictEqual(intent.workspaceRoot, current.workspaceIdentity)
+      if (!isDeepStrictEqual(intent.dataRoot, storedIdentity(current, current.dataIdentity))
+        || !isDeepStrictEqual(intent.workspaceRoot, storedIdentity(current, current.workspaceIdentity))
         || intent.operationId !== input.operationId || typeof intent.targetPath !== 'string') return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       const agentSource = !!intent.source && typeof intent.source === 'object' && Reflect.get(intent.source,'kind') === 'agent-markdown-v1';
       if (agentSource && !isDeepStrictEqual(agentMarkdownCreateAttribution(intent),intent.sourceAttribution)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
@@ -171,17 +181,17 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
           const expected = initial[relative] || recorded?.identity;
           const child = own(backend.openDirectoryAt(parent, name));
           if (!expected || !backend.hasExactNameAt(parent, name)
-            || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+            || !isDeepStrictEqual(storedIdentity(current, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
           ancestors.push({ parent, name, expected }); parent = child;
         }
         const target = readFile(parent, segments.at(-1)!, fileLimit, 0o644);
-        if (!fileMatches(target.info, prepared!.file) || !fileMatches(target.info, settled!.file)
+        if (!fileMatches(target.info, prepared!.file, current.storageDeviceMap) || !fileMatches(target.info, settled!.file, current.storageDeviceMap)
           || target.info.ctimeNs.toString() !== settled!.ctimeNs
           || createHash('sha256').update(target.bytes).digest('hex') !== completed.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         for (const ancestor of ancestors) {
           const child = own(backend.openDirectoryAt(ancestor.parent, ancestor.name));
           if (!backend.hasExactNameAt(ancestor.parent, ancestor.name)
-            || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+            || !isDeepStrictEqual(storedIdentity(current, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         }
       }
       readStorePointer(current); await root(current);
@@ -250,6 +260,31 @@ export function directMcpMarkdownCreateAttribution(intent: Record<string, unknow
   return Object.freeze(Object.fromEntries(directMcpSourceKeys.map(key => [key, source[key]]))) as DirectMcpMarkdownCreateSourceBinding;
 }
 
+/** Key origin and source audit data only. The private Key owner and actual
+ * Principal separately guard every storage action and synchronous link. */
+export function apiKeyMarkdownCreateAttribution(intent: Record<string, unknown>): ApiKeyMarkdownCreateSourceBinding {
+  const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'integrationId', 'instanceId', 'credentialId',
+    'purpose', 'operationId', 'requestId', 'ingestRequestFingerprint', 'sourceHash', 'sourceBytes', 'fileId', 'declaredMimeType', 'ingestValidationJson'] as const;
+  if (!plainBirthRecord(intent) || !plainBirthData(intent.source, keys)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  const source = intent.source, origin = captureApiKeyDocumentCreateOrigin(intent.origin);
+  if (!origin || source.kind !== 'api-key-markdown-v1' || source.actorSessionId !== null
+    || source.workspaceId !== origin.workspaceId || source.actorUserId !== origin.userId || source.integrationId !== origin.integrationId
+    || source.instanceId !== origin.instanceId || source.credentialId !== origin.credentialId || source.purpose !== origin.purpose
+    || !['operationId', 'ingestRequestFingerprint', 'sourceHash'].every(key => typeof source[key] === 'string' && /^[a-f0-9]{64}$/u.test(source[key] as string))
+    || source.operationId !== intent.operationId || source.requestId !== `api-key-create:${source.operationId}`
+    || typeof source.targetPath !== 'string' || !source.targetPath || source.targetPath.length > 1024 || source.targetPath !== intent.targetPath
+    || !/\.(?:md|markdown)$/iu.test(source.targetPath) || source.targetPath.split('/').some(name => !name || name === '.' || name === '..'
+      || origin.entryPoint === 'mcp' && name.startsWith('.') || /[\\\u0000-\u001f\u007f]/u.test(name))
+    || !Number.isSafeInteger(source.sourceBytes) || Number(source.sourceBytes) < 0 || Number(source.sourceBytes) > 512 * 1024
+    || !directMcpValidationJson(source.ingestValidationJson)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  if (source.purpose === 'create' ? source.fileId !== null || source.declaredMimeType !== null
+    : typeof source.fileId !== 'string' || !source.fileId || source.fileId.length > 200
+      || source.declaredMimeType !== null && (typeof source.declaredMimeType !== 'string' || !source.declaredMimeType || source.declaredMimeType.length > 200)) {
+    return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+  }
+  return Object.freeze(Object.fromEntries(keys.map(key => [key, source[key]]))) as ApiKeyMarkdownCreateSourceBinding;
+}
+
 /** Original PI attribution only; the private Create owner supplies authority. */
 export function agentMarkdownCreateAttribution(intent: Record<string, unknown>): AgentMarkdownCreateSourceBinding {
   const keys = ['kind','workspaceId','targetPath','actorUserId','actorSessionId','agentId','toolName','toolCallId',
@@ -272,6 +307,7 @@ export function agentMarkdownCreateAttribution(intent: Record<string, unknown>):
 type StorePin = Readonly<{ name: string; directory: Identity; file: BigIntStats; bytes: Buffer }>;
 type Frame = { active: boolean; configuredData: string; resolvedData: string; configuredWorkspace: string;
   resolvedWorkspace: string; data: FileHandle; workspace: FileHandle; dataIdentity: Identity; workspaceIdentity: Identity;
+  storageDeviceMap?: NativeStorageDeviceMap;
   key: string; intent: Record<string, unknown>; fingerprint?: string; backend: FdPublicationBackend; storePin?: StorePin;
   readonly input?: MarkdownCreateBirthStorageInput;
   fixedSourceWithinTurn?: () => void; withStoragePhase?: MarkdownCreateBirthStoragePhase };
@@ -440,11 +476,19 @@ const syncDirectory = (info: BigIntStats): Identity => {
   return { dev: info.dev.toString(), ino: info.ino.toString(), uid: Number(info.uid), mode: Number(info.mode & BigInt(0o7777)) };
 };
 const stableFile = (a: BigIntStats, b: BigIntStats): boolean => ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeNs', 'ctimeNs', 'birthtimeNs'].every(key => Reflect.get(a, key) === Reflect.get(b, key));
-function fileMatches(info: BigIntStats, expected: unknown): boolean {
+function storedDevice(device: string, map?: NativeStorageDeviceMap): string {
+  if (!map) return device;
+  if (device !== map.currentDevice) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+  return map.recordedDevice;
+}
+function storedIdentity(frame: Frame, observed: Identity): Identity {
+  return { ...observed, dev: storedDevice(observed.dev, frame.storageDeviceMap) };
+}
+function fileMatches(info: BigIntStats, expected: unknown, map?: NativeStorageDeviceMap): boolean {
   if (!expected || typeof expected !== 'object' || Object.keys(expected).sort().join(',') !== 'birthTime,dev,ino,mode,mtimeNs,size,uid'
     || !info.isFile() || info.uid !== BigInt(process.geteuid!())) return false;
   const row = expected as Record<string, unknown>;
-  if (row.dev !== info.dev.toString() || row.ino !== info.ino.toString() || row.uid !== Number(info.uid)
+  if (row.dev !== storedDevice(info.dev.toString(), map) || row.ino !== info.ino.toString() || row.uid !== Number(info.uid)
     || row.mode !== Number(info.mode & BigInt(0o7777)) || row.size !== Number(info.size) || row.mtimeNs !== info.mtimeNs.toString()) return false;
   if (row.birthTime === 'None') return process.platform === 'linux';
   if (typeof row.birthTime !== 'string') return false;
@@ -479,16 +523,16 @@ function readStorePointer(frame: Frame): StorePin {
   try {
     const anchor = read(frame.data.fd, 'canvas-markdown-create-births-anchor.json'), value = JSON.parse(anchor.bytes.toString('utf8')) as Record<string, unknown>;
     if (!value || Object.getPrototypeOf(value) !== Object.prototype || !canonical(value).equals(anchor.bytes)
-      || !isDeepStrictEqual(value.data, frame.dataIdentity)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+      || !isDeepStrictEqual(value.data, storedIdentity(frame, frame.dataIdentity))) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     let name: string;
     if (value.version === 1 && Object.keys(value).sort().join(',') === 'data,store,version') name = 'canvas-markdown-create-births';
     else if (value.version === 2 && Object.keys(value).sort().join(',') === 'data,pendingName,pointerFile,store,storeName,version'
       && typeof value.storeName === 'string' && /^canvas-markdown-create-births-[a-f0-9]{32}$/u.test(value.storeName)
-      && value.pendingName === 'anchor.pending' && isDeepStrictEqual(value.pointerFile, { dev: anchor.info.dev.toString(), ino: anchor.info.ino.toString(),
+      && value.pendingName === 'anchor.pending' && isDeepStrictEqual(value.pointerFile, { dev: storedDevice(anchor.info.dev.toString(), frame.storageDeviceMap), ino: anchor.info.ino.toString(),
         uid: Number(anchor.info.uid), mode: 0o600 })) name = value.storeName;
     else return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     const store = directory(frame.data.fd, name), observed = syncDirectory(syncFs.fstatSync(store, { bigint: true }));
-    if (!isDeepStrictEqual(observed, value.store) || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(directory(frame.data.fd, name), { bigint: true })), observed)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
+    if (!isDeepStrictEqual(storedIdentity(frame, observed), value.store) || !isDeepStrictEqual(syncDirectory(syncFs.fstatSync(directory(frame.data.fd, name), { bigint: true })), observed)) return fail('MARKDOWN_CREATE_BIRTH_NAMESPACE_CHANGED');
     if (frame.fingerprint) {
       const claim = directory(store, frame.key), intent = read(claim, 'intent.json');
       const parsed = JSON.parse(intent.bytes.toString('utf8'));
@@ -555,6 +599,7 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
     if (Object.hasOwn(selected, 'kind')) {
       const attribution = selected.kind === 'manual-empty-v1' ? manualEmptyAttribution(intent)
         : selected.kind === 'direct-mcp-markdown-v1' ? directMcpMarkdownCreateAttribution(intent)
+          : selected.kind === 'api-key-markdown-v1' ? apiKeyMarkdownCreateAttribution(intent)
           : selected.kind === 'agent-markdown-v1' ? agentMarkdownCreateAttribution(intent)
           : fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
       if (selected.kind === 'manual-empty-v1' && serialized !== '' || !frame.fixedSourceWithinTurn
@@ -578,9 +623,10 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       || !Number.isSafeInteger(progress.uploadedBytes) || progress.uploadedBytes !== file.size) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     const part = read(session, selected.fileId + '.part', 5 * 1024 * 1024, 1, 0o600);
     if (part.bytes.length !== selected.sourceBytes || createHash('sha256').update(part.bytes).digest('hex') !== selected.sourceHash
-      || !fileMatches(part.info, expected.part) || (progressInfo ? !fileMatches(progressInfo, expected.progress) : expected.progress !== null)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
-    if (!isDeepStrictEqual([uploads, workspace, session].map(fd => syncDirectory(syncFs.fstatSync(fd, { bigint: true }))), expected.directories)
-      || !isDeepStrictEqual({ dev: manifestRead.info.dev.toString(), ino: manifestRead.info.ino.toString(), uid: Number(manifestRead.info.uid), mode: Number(manifestRead.info.mode & BigInt(0o7777)) }, expected.manifestInode)
+      || !fileMatches(part.info, expected.part, frame.storageDeviceMap)
+      || (progressInfo ? !fileMatches(progressInfo, expected.progress, frame.storageDeviceMap) : expected.progress !== null)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+    if (!isDeepStrictEqual([uploads, workspace, session].map(fd => storedIdentity(frame, syncDirectory(syncFs.fstatSync(fd, { bigint: true })))), expected.directories)
+      || !isDeepStrictEqual({ dev: storedDevice(manifestRead.info.dev.toString(), frame.storageDeviceMap), ino: manifestRead.info.ino.toString(), uid: Number(manifestRead.info.uid), mode: Number(manifestRead.info.mode & BigInt(0o7777)) }, expected.manifestInode)
       || !isDeepStrictEqual(Object.fromEntries(['id', 'userId', 'workspaceId', 'targetDir', 'createdAt', 'expiresAt'].map(key => [key, manifest[key] ?? null])), expected.header)
       || !isDeepStrictEqual(Object.fromEntries(['id', 'sourceIndex', 'relativePath', 'targetPath', 'size', 'mimeType'].map(key => [key, file[key] ?? null])), expected.selected)) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     if (!stableFile(manifestRead.info, read(session, 'session.json', 16 * 1024 * 1024, 1, 0o600).info)
@@ -612,8 +658,8 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
       if (prior && (prior.path !== relative || Object.keys(prior).sort().join(',') !== 'identity,path')) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
       let expected = initial[relative] || prior?.identity;
       if (!expected) { frame.fixedSourceWithinTurn?.(); assertWithinTurn(); backend.mkdirAt(parent, name, 0o755); syncFs.fsyncSync(parent); const born = directoryAt(parent, name);
-        expected = syncDirectory(syncFs.fstatSync(born, { bigint: true })); writeRecord(claim, recordName, { path: relative, identity: expected }); ancestry.push({ parent, name, child: born, expected }); parent = born; }
-      else { const child = directoryAt(parent, name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(child, { bigint: true })), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+        expected = storedIdentity(frame, syncDirectory(syncFs.fstatSync(born, { bigint: true }))); writeRecord(claim, recordName, { path: relative, identity: expected }); ancestry.push({ parent, name, child: born, expected }); parent = born; }
+      else { const child = directoryAt(parent, name); if (!isDeepStrictEqual(storedIdentity(frame, syncDirectory(syncFs.fstatSync(child, { bigint: true }))), expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
         ancestry.push({ parent, name, child, expected }); parent = child; }
     }
     const name = segments.at(-1)!; let target: { bytes: Buffer; info: BigIntStats } | null = null;
@@ -621,21 +667,21 @@ function synchronousBirth(frame: Frame, serialized: string, assertWithinTurn: ()
     try { target = read(parent, name, fileLimit, complete && settled ? 1 : 2, 0o644); }
     catch (error) { if (!error || typeof error !== 'object' || Reflect.get(error, 'code') !== 'ENOENT') throw error; }
     if (target) {
-      if (!fileMatches(target.info, prepared.file) || createHash('sha256').update(target.bytes).digest('hex') !== prepared.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
-      if (target.info.nlink === BigInt(1)) { if (!settled || !fileMatches(target.info, settled.file) || settled.ctimeNs !== target.info.ctimeNs.toString()) return fail('MARKDOWN_CREATE_BIRTH_RECOVERY_REQUIRED'); }
-      else { const twin = read(claim, 'content.tmp', fileLimit, 2, 0o644); if (!fileMatches(twin.info, prepared.file) || twin.info.dev !== target.info.dev || twin.info.ino !== target.info.ino || !twin.bytes.equals(target.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
+      if (!fileMatches(target.info, prepared.file, frame.storageDeviceMap) || createHash('sha256').update(target.bytes).digest('hex') !== prepared.serializedHash) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      if (target.info.nlink === BigInt(1)) { if (!settled || !fileMatches(target.info, settled.file, frame.storageDeviceMap) || settled.ctimeNs !== target.info.ctimeNs.toString()) return fail('MARKDOWN_CREATE_BIRTH_RECOVERY_REQUIRED'); }
+      else { const twin = read(claim, 'content.tmp', fileLimit, 2, 0o644); if (!fileMatches(twin.info, prepared.file, frame.storageDeviceMap) || twin.info.dev !== target.info.dev || twin.info.ino !== target.info.ino || !twin.bytes.equals(target.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
     } else {
       const staged = read(claim, 'content.tmp', fileLimit, 1, 0o644);
-      if (!fileMatches(staged.info, prepared.file) || !staged.bytes.equals(Buffer.from(serialized))) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      if (!fileMatches(staged.info, prepared.file, frame.storageDeviceMap) || !staged.bytes.equals(Buffer.from(serialized))) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
       rootCurrent(); const expiresAt = sourceCurrent(intent); readStorePointer(frame);
-      for (const ancestor of ancestry) { const named = directoryAt(ancestor.parent, ancestor.name); if (!isDeepStrictEqual(syncDirectory(syncFs.fstatSync(named, { bigint: true })), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
+      for (const ancestor of ancestry) { const named = directoryAt(ancestor.parent, ancestor.name); if (!isDeepStrictEqual(storedIdentity(frame, syncDirectory(syncFs.fstatSync(named, { bigint: true }))), ancestor.expected)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED'); }
       assertWithinTurn();
       if (expiresAt !== null && Date.now() >= expiresAt) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_EXPIRED');
       // Every call in this final turn is synchronous and descriptor-bound.
       // The stopped preparation child has no target-write operation to resume.
       frame.fixedSourceWithinTurn?.();
       backend.linkAt(claim, 'content.tmp', parent, name); syncFs.fsyncSync(parent);
-      const actual = read(parent, name, fileLimit, 2, 0o644); if (!fileMatches(actual.info, prepared.file) || !actual.bytes.equals(staged.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
+      const actual = read(parent, name, fileLimit, 2, 0o644); if (!fileMatches(actual.info, prepared.file, frame.storageDeviceMap) || !actual.bytes.equals(staged.bytes)) return fail('MARKDOWN_CREATE_BIRTH_TARGET_CHANGED');
       writeRecord(claim, 'born.json', prepared);
     }
     rootCurrent();
@@ -653,7 +699,7 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
   withStoragePhase?: MarkdownCreateBirthStoragePhase): Promise<T> {
   const captured = captureBirthInput(input);
   if (withStoragePhase !== undefined && (typeof withStoragePhase !== 'function'
-    || !['agent-markdown-v1', 'direct-mcp-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
+    || !['agent-markdown-v1', 'direct-mcp-markdown-v1', 'api-key-markdown-v1'].includes(captured.source.kind as string))) return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
   let fixedSourceGuard: ((stage: string) => Promise<void>) | undefined, fixedSourceWithinTurn: (() => void) | undefined;
   if (Object.hasOwn(captured.source, 'kind')) {
     const context = await import('../collaboration/markdown-file-import-persistence');
@@ -671,6 +717,10 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
       agentMarkdownCreateAttribution(captured);
       fixedSourceGuard = stage => context.assertAuthenticatedAgentMarkdownBirthStorageAllowed(captured, stage);
       fixedSourceWithinTurn = () => context.assertAuthenticatedAgentMarkdownBirthWithinTurn(captured);
+    } else if (captured.source.kind === 'api-key-markdown-v1') {
+      apiKeyMarkdownCreateAttribution(captured);
+      fixedSourceGuard = stage => context.assertAuthenticatedApiKeyMarkdownBirthStorageAllowed(captured, stage);
+      fixedSourceWithinTurn = () => context.assertAuthenticatedApiKeyMarkdownBirthWithinTurn(captured);
     } else return fail('MARKDOWN_CREATE_BIRTH_SOURCE_CHANGED');
     await fixedSourceGuard('entry');
   }
@@ -685,11 +735,13 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
     const resolvedData = await fs.realpath(configuredData), resolvedWorkspace = await fs.realpath(configuredWorkspace);
     workspace = await fs.open(resolvedWorkspace, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     const dataIdentity = identity(await data.stat()), workspaceIdentity = identity(await workspace.stat());
+    const storageDeviceMap = await readNativeStorageDeviceMap(data);
     const intent = { version: 1, targetPath: captured.targetPath, origin: captured.origin, source: captured.source,
-      operationId: captured.operationId, dataRoot: dataIdentity, workspaceRoot: workspaceIdentity };
+      operationId: captured.operationId, dataRoot: { ...dataIdentity, dev: storedDevice(dataIdentity.dev, storageDeviceMap) },
+      workspaceRoot: { ...workspaceIdentity, dev: storedDevice(workspaceIdentity.dev, storageDeviceMap) } };
     const current: Frame = { configuredData, resolvedData, configuredWorkspace, resolvedWorkspace, data, workspace,
       dataIdentity, workspaceIdentity, key: sha(JSON.stringify(['canvas-markdown-first-birth-v1', captured.origin.workspaceId, captured.operationId])),
-      intent, input: captured, active: true, backend, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
+      intent, input: captured, active: true, backend, storageDeviceMap, ...(fixedSourceWithinTurn ? { fixedSourceWithinTurn } : {}),
       ...(withStoragePhase ? { withStoragePhase } : {}) };
     frame = current;
     const first = await invoke(current, 'open', boundary); current.fingerprint = first.fingerprint;

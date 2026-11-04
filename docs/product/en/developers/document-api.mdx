@@ -6,7 +6,7 @@ sectionOrder: 11
 order: 1
 locale: en
 translationKey: developers.document-api
-updatedAt: 2026-10-19
+updatedAt: 2026-11-01
 ---
 
 # Document API
@@ -19,14 +19,17 @@ Use this sequence: search for a document, keep its stable identity, read its ful
 
 | Transport | Authentication | Available document operations |
 | --- | --- | --- |
-| REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
+| REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit/status, and original-file Import/Status |
+| Explicit key REST routes and Direct MCP at `/mcp` | A regularly issued key in `X-Canvas-API-Key` | Workspace listing/browse, native Read/Search, Markdown Create/Import V1, original-file Import/Status, Edit/Status V1, and Copy/Move/Delete Preview/Apply/Status/Recover |
 | Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled Copy/Move/Delete |
 
-These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
+These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check the current credential, user/workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
 
 REST requests send `Content-Type: application/json` with the actual user-session cookie or `Authorization: Bearer` followed by the issued Session Bearer. Use the normal supported sign-in flow to obtain that session. Signing out its source session revokes subsequent uses; a copied Bearer is not an independent long-lived API key.
 
-For MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
+Create an independent key under **Settings → Connections → API access**, selecting its workspaces, actions and expiry. The full key is shown once; store it in your application's secret store. Key requests send `X-Canvas-API-Key` without an additional Session/OAuth Bearer or session cookie. Rotation atomically invalidates the old key while retaining its integration's operation ownership; logout of the issuing browser session does not revoke it. Key actions are checked separately: `create` permits new Markdown creation, `import` permits new or existing-original Markdown import, and `import` plus `status` permits original-import lookup. `edit` permits edits and `edit` plus `status` permits edit-status lookup. Copy/Move/Delete require `copy`, `move` or `delete` respectively for every action; Status additionally requires `status`, and Recover additionally requires `recover`. Read is a separate action. Current user/workspace/seat rights still apply, and MCP additionally requires each tool to be enabled.
+
+For OAuth MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
 
 | Tool | Scope |
 | --- | --- |
@@ -115,9 +118,25 @@ For a complete body, concatenate fragments in order until `nextCursor` is null. 
 
 `document.version` is an opaque full native content token, including deletion evidence. `metadataVersion` separately identifies path/title metadata. `currency.observedDurable` distinguishes the observed body from a durable observation; `durableVersion` and `durableSequence` describe persistence. `projection.status` reports `current`, `pending`, or `unavailable` independently. A matching visible text string is not a substitute for these fields.
 
-## Create or import native Markdown through MCP
+## Create or import native Markdown
 
-There is no create endpoint in the REST V1 surface documented here. Use `create_knowledge_source` for complete UTF-8 Markdown or `import_knowledge_file` for a host-provided file reference. Supply `api_version: 1` to request the native result explicitly.
+Use `create_knowledge_source` for complete UTF-8 Markdown or `import_knowledge_file` for a host-provided file reference. Supply `api_version: 1` to request the native result explicitly. API-key connections require this version and a `.md` or `.markdown` destination; they never fall back to legacy file creation.
+
+Key-only REST adapters are `POST /api/documents/create` and `POST /api/documents/import`. Send `Content-Type: application/json` and your actual `X-Canvas-API-Key`. Their selectors use camelCase and accept exactly `apiVersion`, `workspaceId`, `path`, `idempotencyKey`, and either `content` or `file`. For example, a Create body is:
+
+```json
+{
+  "apiVersion": 1,
+  "workspaceId": "your-workspace-id",
+  "path": "notes/example.md",
+  "idempotencyKey": "create-example-001",
+  "content": "# Example\n\nComplete Markdown.\n"
+}
+```
+
+For Import, replace `content` with the actual `file` object shown below; its nested `download_url`, `file_id`, `mime_type`, and `file_name` retain their host-reference names. These two REST routes do not accept a browser Session Bearer. Existing authenticated browser creation/upload entry points remain separate. REST permits ordinary allowed hidden workspace paths; MCP excludes hidden path segments. Both use the same native writer and return the native result below. At most 512 KiB of valid UTF-8 text is accepted. Empty Markdown is allowed. Existing files are never overwritten.
+
+Key REST failures contain `apiVersion: 1`, `success: false` and a safe `code`, including key-authentication codes. Conflicting content/path under the same caller key returns HTTP 409. The abuse limit returns HTTP 429 and a bounded `Retry-After` header. A failed or lost response does not prove that nothing was persisted: retain the original idempotency key and source identity. After restoring access, explicitly retry that exact operation; a completed import can use a renewed download URL with the same file ID and MIME selection. An incomplete import may still require its original source bytes.
 
 ```json
 {
@@ -168,6 +187,27 @@ For import, replace `content` with the host's actual `file` object:
 ```
 
 `download_url` must be a genuine temporary HTTPS file reference supplied by the host, not a URL invented by an agent. `file_id` is required; MIME type and file name are optional. Network and content validation still apply. When the existing completion and destination can be confirmed, a completed same-key import retry returns without downloading a replacement URL. A changed original document can instead produce `MCP_INGEST_DESTINATION_CHANGED`; completion is not permission to overwrite it. An unfinished recovery may still need the original source bytes. Preserve the file identity and MIME selection on retries.
+
+## Import an existing workspace Markdown file
+
+Existing-original import is separate from importing a host upload. `POST /api/documents/import-existing` selects one current `.md`/`.markdown` file already in the workspace; `POST /api/documents/import-existing/status` reads its historical result. Both retain their existing user-session contract and also accept an explicit API key. A key needs `import` for Import and `import` plus `status` for Status, together with current workspace rights.
+
+The Import body uses the physical manifest's exact `file_version`, not a native document version, revision or standalone SHA. Preserve the caller's operation ID and complete request before sending:
+
+```javascript
+const importBody = {
+  apiVersion: 1,
+  workspaceId,
+  path: manifestEntry.path,
+  operationId: retainedOperationId,
+  expectedFileVersion: manifestEntry.file_version,
+  initialRepresentation: "auto"
+};
+```
+
+Status accepts exactly `apiVersion: 1`, `workspaceId` and `operationId`. These routes accept at most 32 KiB of JSON and never accept uploaded file bytes. A confirmed response includes `status: "confirmed"`, `outcome: "imported"` or `"already_imported"`, `documentAtImport`, original source byte count/hash, and `requiresFreshFileActionPreview: true`. Status may return `status: "not_found"`; that lookup is not evidence that no earlier work or document exists. The original document facts do not claim today's path or full native version. Perform a fresh native Read before editing and request a fresh file-action Preview before acting on that result.
+
+For API-key Direct MCP, `import_knowledge_file` advertises `action: "import_existing"` and `"status_existing"` with the corresponding snake_case fields: `api_version`, `workspace_id`, `operation_id`, and, for Import, `path`, `expected_file_version` and optional `initial_representation`. Use the actual `tools/list` capability; the OAuth upload descriptor does not advertise these actions. Do not mix the existing-file request with upload `file`, destination or `idempotency_key` fields. Lost responses retain the original caller operation and request for an explicit Status lookup or deliberate identical retry; no client should silently start a replacement import.
 
 ## Edit native content
 
@@ -284,7 +324,11 @@ Status observes the recorded operation without applying or reconciling it. It re
 
 ## Native Copy through MCP
 
-`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. All four actions require `knowledge:write`, current client/user grants and access to both workspaces: source Read and destination Read/Write with agent access. The same-workspace case uses the stronger destination policy. Preview, Apply and Recover additionally require the native feature gate. A renewed session for the same authorized client/user can inspect or recover its existing operation; an operation ID grants no access by itself.
+`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. OAuth connections need `knowledge:write` and current client/user grants for all four actions. API-key connections use the separate action grants above. Both check current access to both workspaces: source Read and destination Read/Write with agent access. The same-workspace case uses the stronger destination policy. A renewed session or a rotated key for the same authorized integration can inspect or recover its existing operation; an operation ID grants no access by itself.
+
+The key-only REST adapter is `POST /api/documents/copy` with `X-Canvas-API-Key` and at most 64 KiB of UTF-8 JSON. It accepts `apiVersion: 1`, `action`, `sourceWorkspaceId`, `destinationWorkspaceId`, `operationId`, `planId`, `selections`, `renameOnCollision`, and `destinationDirectory`, as appropriate for the selected action. Each REST selection uses `sourcePath` and `destinationPath`. MCP uses the snake_case fields below. Both adapters share the existing native Copy owner, status reader and explicit recovery phases. REST permits ordinary allowed hidden paths; MCP excludes hidden path segments. The browser's `/api/files/copy` route retains its separate Session contract.
+
+Workspace overview, tree and manifest include native documents before a physical Markdown projection is materialized. Manifest `coverage.source` is `visible_workspace_namespace`; it is not an atomic content snapshot. A missing physical file has `file_state: "not_materialized"` with null physical `sha256` and `revision`. Only a successful current native read can make that entry complete; its separate `document` hash uses `authoritative_markdown_utf8`. Never substitute that native hash for original-file bytes.
 
 Start with a Preview using the actual workspace IDs and canonical workspace-relative paths:
 
@@ -332,6 +376,8 @@ For a pure status observation send only `api_version`, `action: "status"`, both 
 
 Explicit Recover uses the exact retained Apply request with `action: "recover"`, including its original operation ID, plan ID and resolved selections. It continues an existing operation only. `COPY_OPERATION_NOT_FOUND` never starts a replacement copy. Keep the original request and ID after `COPY_OUTCOME_UNCONFIRMED`, a transport failure or a late output-size error.
 
+An open source or destination editor can block Copy with `COPY_BUSY` (REST HTTP 409). Close the affected editors and allow their saved connection to release before explicitly recovering the original request. A busy response can leave a prepared journal and private recovery staging; retain the original operation ID, plan ID and selections. A prepared journal proves neither completed publication nor an absent operation. The SDK does not automatically replay Apply or invoke Recover.
+
 The request is bounded to 65,536 escaped UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. Workspace IDs are at most 200 JavaScript UTF-16 units and path fields at most 1,024; text must be well-formed Unicode. Workspace IDs must equal their ECMAScript-trimmed value, while canonical relative paths preserve whitespace. Selection paths must be nonempty; optional `destination_directory: ""` means the root. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
 
 The central Copy owner imports supported selected physical `.md`/`.markdown` files as new native destination documents, including supported Markdown beside unrelated HTML. The source remains unchanged. Copying one raw Markdown file with its own fully inspected static HTML or external HTML links is supported only within the same workspace and requires a safe HTML assessment; its own local HTML links remain blocked in this MVP. Affected HTML links that cannot be safely interpreted, unsupported source nodes or unresolved selected-source links can still block the action. Retain the actual Preview and use the same Copy Apply/Recover contract; do not migrate the source or rewrite its `.md` projection yourself. Copy does not parse a PDF into a native notebook document.
@@ -342,11 +388,13 @@ The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit
 
 Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
 
-## Native Move and Delete through MCP
+## Move and Delete through REST or MCP
 
-`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. All four actions require current `knowledge:write`, the actual client/user workspace grant, and current Read, Write, Delete and agent access in that one workspace. An OAuth scope or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps the same current tool/authorization checks when that feature is off.
+`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. OAuth calls require current `knowledge:write` and the actual client/user workspace grant. API-key calls require the `move` or `delete` action on that workspace for every action, plus `status` for Status or `recover` for Recover. Both modes require current Read, Write, Delete and agent access in that one workspace. An OAuth scope, key action or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps its current authorization checks when that feature is off.
 
-Move accepts 1–1,000 ordered, supported roots in one workspace. Every selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete accepts exactly one initialized native file `path`. It is not a general recursive directory or arbitrary physical-file deletion API. These operations use the central native lifecycle and incoming-link handling; they expose no Undo or restore action.
+The key-only REST routes are `POST /api/documents/move` and `POST /api/documents/delete`, using `X-Canvas-API-Key` without a cookie or Bearer credential. JSON uses `apiVersion`, `action`, `workspaceId`, and the action's `operationId`/`planId`; Move selections use `sourcePath` and `destinationPath`, while Delete uses `path`. Status needs only the version, action, workspace and original operation ID. Apply/Recover retain the exact original selection and plan ID. MCP uses the snake_case selectors shown below. REST permits ordinary allowed hidden paths; MCP excludes hidden path segments. Both reach the same current owner, planner, journal and explicit recovery services.
+
+Move accepts 1–1,000 ordered, supported roots in one workspace. Every MCP selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete selects exactly one supported file or folder root through `path`. Native-only documents, physical files and mixed cohorts are planned through the central services; the actual Preview determines support and readiness. A physical PDF remains a file and is not parsed into a native document. Unsupported cohorts are rejected. These operations preserve the existing lifecycle, history and incoming-link handling; they expose no Undo or restore action.
 
 Start with a real Preview for the intended selection:
 
@@ -470,6 +518,7 @@ REST uses HTTP status codes and a bounded JSON body. Native read/search errors c
 | `DOCUMENT_TOO_LARGE` / search size errors | Reduce the request or selected scope where applicable; do not discard guards or truncate a mutation silently |
 | `PATH_PLAN_CHANGED` / `PATH_SCOPE_CHANGED` / `PATH_CONFLICT` | Preserve the original request; examine the actual plan/scope conflict before choosing a distinct intended operation |
 | `PATH_BUSY` | Stop this attempt and keep its identity; do not automatically submit another Apply |
+| `PATH_TIMEOUT` | A source read or server processing phase timed out (HTTP 503 for REST). A failed Preview issues no executable plan; request a fresh Preview when a retry hint permits it. For Apply/Recover, retain the caller ID and inspect Status before deciding any further write |
 | `PATH_OUTCOME_UNCONFIRMED` / `PATH_OUTPUT_TOO_LARGE` | Keep the caller ID and complete retained request; use permitted explicit Status/Recover instead of assuming no effect |
 | `PATH_STATUS_NOT_FOUND` / `PATH_OPERATION_NOT_FOUND` | Distinguish a missing status observation from an existing-only recovery miss; neither starts a replacement operation |
 | `PATH_TOO_LARGE` / `PATH_NATIVE_REQUIRED` / `PATH_UNAVAILABLE` | Respect the reported limit/cohort/availability boundary; never truncate or fall back to raw filesystem mutation |

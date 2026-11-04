@@ -3,6 +3,7 @@ import { applyRateLimit } from '@/app/lib/api/route-helpers';
 import { DocumentReadError } from '@/app/lib/documents/contracts';
 import { DocumentSearchError } from '@/app/lib/documents/search-contract';
 import { searchDocumentsForRequest } from '@/app/lib/documents/service';
+import { apiKeyDocumentErrorResponse } from '@/app/lib/api-keys/http';
 
 export const runtime = 'nodejs';
 const MAX_SELECTION_BYTES = 32 * 1024;
@@ -32,6 +33,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (limited) { for (const [key, value] of Object.entries(headers)) limited.headers.set(key, value); return limited; }
   try { return NextResponse.json(await searchDocumentsForRequest(original, await selection(request)), { headers }); }
   catch (error) {
+    const credentialFailure = apiKeyDocumentErrorResponse(error, headers);
+    if (credentialFailure) return credentialFailure;
     const failure = error instanceof DocumentSearchError || error instanceof DocumentReadError
       ? error : new DocumentReadError('DOCUMENT_READ_UNAVAILABLE');
     return NextResponse.json({ apiVersion: 1, success: false, code: failure.code }, { status: failure.status, headers });

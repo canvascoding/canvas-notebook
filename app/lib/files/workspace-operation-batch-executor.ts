@@ -12,8 +12,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual, types } from 'node:util';
-import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJobPrincipalCaptured,
-  type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobOptions, assertWorkspaceOperationProgrammaticJobPrincipalCaptured,
+  workspaceOperationProgrammaticJobOptions, type WorkspaceOperationProgrammaticJobOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
@@ -87,9 +87,10 @@ type ExecuteInput = { batchId: string; plan: WorkspaceOperationBatchPlan; scope:
   actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
   /** Private live worker provenance; never serialized into a recovery manifest. */
   jobClaim?: WorkspaceOperationBatchClaim;
-  /** Current MCP authority is separate from original actor/SID_A attribution. */
-  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
-  onProgress?: (progress: WorkspaceOperationBatchProgress) => void | Promise<void> };
+  /** Current programmatic authority is separate from original attribution.
+   * Key callers omit a Session; their stored Original retains explicit null. */
+  onProgress?: (progress: WorkspaceOperationBatchProgress) => void | Promise<void> }
+  & WorkspaceOperationProgrammaticJobOptions;
 type UndoInput = Omit<ExecuteInput, 'plan'>;
 
 type Dependencies = {
@@ -499,20 +500,21 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   const checkedNativeExecution = (input: UndoInput,
     original: WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan, undo: boolean) => {
     if (types.isProxy(input)) throw new Error('BATCH_SCOPE_CHANGED');
-    const mcpField = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
-    if (mcpField && (!mcpField.enumerable || !Object.hasOwn(mcpField, 'value'))) throw new Error('BATCH_SCOPE_CHANGED');
-    const mcpPrincipal = mcpField?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(mcpField.value);
+    const programmaticPrincipal = captureWorkspaceOperationProgrammaticJobOptions(input);
     assertAccess(input);
     const claim = input.jobClaim;
     if (!claim) throw new Error('BATCH_CLAIM_REQUIRED');
     const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization;
     const mode = undo ? 'undo' : 'apply';
-    if (auth.mode === 'direct-mcp') {
-      if (undo || !mcpPrincipal) throw new Error('BATCH_MCP_AUTHORIZATION_REQUIRED');
-      assertWorkspaceOperationMcpJobPrincipalCaptured(mcpPrincipal, binding);
-    } else if (mcpPrincipal !== undefined) throw new Error('BATCH_SCOPE_CHANGED');
+    if (auth.mode === 'direct-mcp' || auth.mode === 'api-key') {
+      if (undo || !programmaticPrincipal || (auth.mode === 'api-key'
+        ? !('transport' in programmaticPrincipal) : 'transport' in programmaticPrincipal)) {
+        throw new Error(auth.mode === 'api-key' ? 'BATCH_API_KEY_AUTHORIZATION_REQUIRED' : 'BATCH_MCP_AUTHORIZATION_REQUIRED');
+      }
+      assertWorkspaceOperationProgrammaticJobPrincipalCaptured(programmaticPrincipal, binding);
+    } else if (programmaticPrincipal !== undefined) throw new Error('BATCH_SCOPE_CHANGED');
     if (binding.batchId !== input.batchId || binding.planId !== original.planId || binding.workspaceId !== original.workspaceId
-      || binding.actionMode !== mode || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !isDeepStrictEqual(binding.plan, original)
+      || binding.actionMode !== mode || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key' || !isDeepStrictEqual(binding.plan, original)
       || !workspaceOperationJobScopeMatches(auth.jobScope, input.scope.workspace)
       || !input.scope.fileOptions.workspace || !workspaceOperationJobScopeMatches(auth.jobScope, input.scope.fileOptions.workspace)
       || input.scope.fileOptions.workspace.status !== 'active' || !input.scope.fileOptions.workspace.permissions.canRead
@@ -522,8 +524,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       || input.scope.fileOptions.workspace.actor?.userId !== auth.actorUserId
       || (input.actorId ?? input.actorUserId) !== (undo ? auth.actorUserId : auth.actorId)
       || (input.actorType ?? 'user') !== (undo ? 'user' : auth.actorType)
-      || input.actorSessionId !== (undo ? undefined : auth.actorSessionId)) throw new Error('BATCH_SCOPE_CHANGED');
-    return { claim, binding, mcpPrincipal };
+      || input.actorSessionId !== (undo || auth.mode === 'api-key' ? undefined : auth.actorSessionId)) throw new Error('BATCH_SCOPE_CHANGED');
+    return { claim, binding, programmaticPrincipal };
   };
   const executeNative = async (input: UndoInput, plan: WorkspaceOperationNativeDeleteBatchPlan,
     undo: boolean): Promise<WorkspaceOperationBatchExecutionResult> => {
@@ -532,14 +534,15 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
     readWorkspaceOperationBatchClaimBinding(input.jobClaim);
     const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
-    const { claim, binding, mcpPrincipal } = checkedNativeExecution(input, original, undo);
+    const { claim, binding, programmaticPrincipal } = checkedNativeExecution(input, original, undo);
+    const options = workspaceOperationProgrammaticJobOptions(programmaticPrincipal);
     await input.onProgress?.({ completedActions: 0, totalActions: workspaceOperationBatchTotalActions(original), phase: 'preparing' });
     // The original runner owns the outer lifecycle/kernel and all B phases.
     // In particular, no legacy path guard, manifest or independent Trash writer precedes it.
     if (undo) await undoWorkspaceOperationOriginalDelete(claim);
-    else await executeWorkspaceOperationOriginalDelete(claim, undefined, mcpPrincipal);
+    else await executeWorkspaceOperationOriginalDelete(claim, undefined, programmaticPrincipal);
     const status = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId: binding.batchId, scope: input.scope,
-      expectedPlan: original, mcpPrincipal });
+      expectedPlan: original, ...options });
     if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
     const outcome = workspaceOperationNativeDeleteExecutionResult(original, status.observation, undo);
     if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
@@ -548,10 +551,11 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   };
   const executeCohort=async(input:ExecuteInput&{plan:WorkspaceOperationCohortDeletePlan}):Promise<WorkspaceOperationBatchExecutionResult>=>{
     if(!input.jobClaim)throw new Error('BATCH_CLAIM_REQUIRED');readWorkspaceOperationBatchClaimBinding(input.jobClaim);
-    const original=decodeWorkspaceOperationCohortDeletePlan(input.plan),{claim,binding,mcpPrincipal}=checkedNativeExecution(input,original,false);
+    const original=decodeWorkspaceOperationCohortDeletePlan(input.plan),{claim,binding,programmaticPrincipal}=checkedNativeExecution(input,original,false);
+    const options=workspaceOperationProgrammaticJobOptions(programmaticPrincipal);
     await input.onProgress?.({completedActions:0,totalActions:workspaceOperationBatchTotalActions(original),phase:'preparing'});
-    await executeWorkspaceOperationCohortDelete({claim,workspace:input.scope.workspace,mcpPrincipal});
-    const status=await readWorkspaceOperationCohortDeleteStatus({batchId:binding.batchId,scope:input.scope,expectedPlan:original,mcpPrincipal});
+    await executeWorkspaceOperationCohortDelete({claim,workspace:input.scope.workspace,...options});
+    const status=await readWorkspaceOperationCohortDeleteStatus({batchId:binding.batchId,scope:input.scope,expectedPlan:original,...options});
     if(!status)throw new Error('BATCH_JOURNAL_UNAVAILABLE');const outcome=workspaceOperationCohortDeleteExecutionResult(original,status.observation);
     if(!outcome||outcome.status!=='applied')throw new Error('BATCH_JOURNAL_UNAVAILABLE');
     await input.onProgress?.({completedActions:outcome.completedActions,totalActions:outcome.totalActions,phase:'complete'});return outcome;
@@ -560,10 +564,11 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
     readWorkspaceOperationBatchClaimBinding(input.jobClaim);
     const original = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.plan);
-    const {claim,binding,mcpPrincipal} = checkedNativeExecution(input,original,false);
+    const {claim,binding,programmaticPrincipal} = checkedNativeExecution(input,original,false);
+    const options=workspaceOperationProgrammaticJobOptions(programmaticPrincipal);
     await input.onProgress?.({completedActions:0,totalActions:workspaceOperationBatchTotalActions(original),phase:'preparing'});
-    await executeWorkspaceOperationOriginalDelete(claim,undefined,mcpPrincipal);
-    const status = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({batchId:binding.batchId,scope:input.scope,expectedPlan:original,mcpPrincipal});
+    await executeWorkspaceOperationOriginalDelete(claim,undefined,programmaticPrincipal);
+    const status = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({batchId:binding.batchId,scope:input.scope,expectedPlan:original,...options});
     if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
     const outcome = workspaceOperationPhysicalDeleteExecutionResultV5(original,status.observation);
     if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
@@ -574,15 +579,16 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
     readWorkspaceOperationBatchClaimBinding(input.jobClaim);
     const original = decodeWorkspaceOperationNativeMoveBatchPlan(input.plan);
-    const { claim, binding, mcpPrincipal } = checkedNativeExecution(input, original, false);
+    const { claim, binding, programmaticPrincipal } = checkedNativeExecution(input, original, false);
+    const options = workspaceOperationProgrammaticJobOptions(programmaticPrincipal);
     const totalActions = workspaceOperationBatchTotalActions(original);
     await input.onProgress?.({ completedActions: 0, totalActions, phase: 'preparing' });
-    await executeWorkspaceOperationOriginalMove({ claim, workspace: input.scope.workspace, mcpPrincipal,
+    await executeWorkspaceOperationOriginalMove({ claim, workspace: input.scope.workspace, ...options,
       onPathCommitted: async completedActions => {
         await input.onProgress?.({ completedActions, totalActions, phase: 'paths' });
       } });
     const status = await readWorkspaceOperationNativeMoveBatchStatus({ batchId: binding.batchId, scope: input.scope,
-      expectedPlan: original, mcpPrincipal });
+      expectedPlan: original, ...options });
     if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
     const outcome = workspaceOperationNativeMoveExecutionResult(original, status.observation);
     if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
@@ -591,11 +597,16 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   };
 
   const execute = async (input: ExecuteInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    // Inspect both genuine transport fields before any native dispatch spread.
+    // No programmatic request can fall back to the physical legacy writer.
+    const programmaticPrincipal = captureWorkspaceOperationProgrammaticJobOptions(input);
+    if (input.plan.version === 1 && programmaticPrincipal !== undefined) {
+      throw new Error('transport' in programmaticPrincipal ? 'BATCH_API_KEY_NATIVE_PLAN_REQUIRED' : 'BATCH_MCP_NATIVE_PLAN_REQUIRED');
+    }
     if (input.plan.version === 6) return executeCohort({...input,plan:input.plan});
     if (input.plan.version === 5) return executePhysical({...input,plan:input.plan});
     if (input.plan.version === 2) return executeNative(input, input.plan, false);
     if (input.plan.version === 3) return executeMove({ ...input, plan: input.plan });
-    if (input.mcpPrincipal !== undefined) throw new Error('BATCH_MCP_NATIVE_PLAN_REQUIRED');
     if (input.jobClaim && readWorkspaceOperationBatchClaimBinding(input.jobClaim).plan.version !== 1
       || ((await readBatch(input.batchId))?.plan.version ?? 1) !== 1) throw new Error('BATCH_SCOPE_CHANGED');
     const legacyInput: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan } = { ...input, plan: input.plan };

@@ -58,6 +58,7 @@ export type SettingsTab =
   | 'integrations'
   | 'secrets'
   | 'mcp'
+  | 'api-access'
   | 'agent-settings'
   | 'browser'
   | 'workspace'
@@ -170,6 +171,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.mcp',
     group: 'connections',
     icon: Waypoints,
+  },
+  {
+    value: 'api-access',
+    labelKey: 'tabs.apiAccess',
+    descriptionKey: 'navigation.descriptions.apiAccess',
+    group: 'connections',
+    icon: KeyRound,
   },
   {
     value: 'ai-providers',

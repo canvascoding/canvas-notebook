@@ -34,6 +34,8 @@ async function main() {
   process.env.DATA = dataDir;
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.INTEGRATIONS_ENV_PATH = integrationsPath;
+  process.env.AGENTS_ENV_PATH = path.join(secretsDir, 'Canvas-Agents.env');
+  process.env.CANVAS_SECRETS_ENV_PATH = path.join(secretsDir, 'Canvas-Secrets.env');
   delete process.env.BRAVE_API_KEY;
   delete process.env.OLLAMA_API_KEY;
   delete process.env.WEB_SEARCH_PROVIDER;
@@ -49,6 +51,7 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   try {
+    const { patchUnifiedEnvEntries } = await import('../app/lib/integrations/env-config');
     const { formatWebSearchResults, searchWeb } = await import('../app/lib/integrations/brave-search-service');
     const { projectAgentMessageForLoadedContext } = await import('../app/lib/pi/message-projection');
 
@@ -59,7 +62,7 @@ async function main() {
       assert.equal(new Headers(init?.headers).get('X-Subscription-Token'), 'fixture-brave-key');
       return new Response(JSON.stringify(braveDirectPayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-    await fs.writeFile(integrationsPath, 'BRAVE_API_KEY=fixture-brave-key\n', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'BRAVE_API_KEY', value: 'fixture-brave-key' }]);
     const brave = await searchWeb({ query: 'grüße 東京', count: 4, country: 'de', includeContent: false });
     assert.equal(fetchCalls, 1, 'include_content=false must not fetch result pages');
     assert.equal(brave.provider, 'brave');
@@ -94,7 +97,7 @@ async function main() {
     process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
     process.env.CANVAS_CONTROL_PLANE_URL = 'https://control-plane.fixture.test/agent';
     process.env.CANVAS_INSTANCE_TOKEN = 'fixture-instance-token';
-    await fs.writeFile(integrationsPath, '', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'BRAVE_API_KEY', value: null }]);
     globalThis.fetch = async (input, init) => {
       fetchCalls += 1;
       assert.equal(String(input), 'https://control-plane.fixture.test/v1/managed/brave/search');
@@ -124,7 +127,7 @@ async function main() {
     delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
     delete process.env.CANVAS_CONTROL_PLANE_URL;
     delete process.env.CANVAS_INSTANCE_TOKEN;
-    await fs.writeFile(integrationsPath, 'OLLAMA_API_KEY=fixture-ollama-key\n', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'OLLAMA_API_KEY', value: 'fixture-ollama-key' }]);
     globalThis.fetch = async (input, init) => {
       fetchCalls += 1;
       assert.equal(String(input), 'https://ollama.com/api/web_search');
@@ -141,7 +144,7 @@ async function main() {
     assert.equal(ollama.results[1].url, unicodeUrl);
 
     delete process.env.WEB_SEARCH_PROVIDER;
-    await fs.writeFile(integrationsPath, 'BRAVE_API_KEY=fixture-brave-key\n', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'BRAVE_API_KEY', value: 'fixture-brave-key' }, { key: 'OLLAMA_API_KEY', value: null }]);
     globalThis.fetch = async () => new Response(JSON.stringify(braveErrorPayload), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },

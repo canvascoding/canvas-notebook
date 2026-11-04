@@ -3,7 +3,8 @@ import 'server-only';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
-import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobOptions,
+  type WorkspaceOperationProgrammaticJobOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import { withPreparedWorkspacePathMove, withRecoveredWorkspacePathMoves, readPreparedWorkspacePathMove,
   movePreparedWorkspacePath, bindPreparedWorkspacePathMoveSharedParent } from '../filesystem/prepared-workspace-path-move';
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt } from '../filesystem/prepared-workspace-path-move-contract';
@@ -24,18 +25,13 @@ import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOpera
 export async function executeWorkspaceOperationOriginalMove(input: {
   claim: WorkspaceOperationBatchClaim; workspace: WorkspaceContext;
   onPathCommitted?: (completed: number) => Promise<void>;
-  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
-}): Promise<WorkspaceOperationOriginalMoveCompletionData> {
+} & WorkspaceOperationProgrammaticJobOptions): Promise<WorkspaceOperationOriginalMoveCompletionData> {
   if (types.isProxy(input)) throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
-  const mcpField = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
-  if (mcpField && (!mcpField.enumerable || !Object.hasOwn(mcpField, 'value'))) {
-    throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
-  }
-  const mcpPrincipal = mcpField?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(mcpField.value);
+  const programmaticPrincipal = captureWorkspaceOperationProgrammaticJobOptions(input);
   const claim = input.claim, workspace = input.workspace, onPathCommitted = input.onPathCommitted;
   const binding = readWorkspaceOperationBatchClaimBinding(claim), plan = binding.plan;
   if (plan.version !== 3 || binding.actionMode !== 'apply'
-    || binding.authorization.mode !== 'direct' && binding.authorization.mode !== 'direct-mcp'
+    || binding.authorization.mode !== 'direct' && binding.authorization.mode !== 'direct-mcp' && binding.authorization.mode !== 'api-key'
     || !isDeepStrictEqual(captureWorkspaceOperationJobScope(workspace), plan.sourceEvidence.workspaceScope)) {
     throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
   }
@@ -44,9 +40,9 @@ export async function executeWorkspaceOperationOriginalMove(input: {
   // One existing admission budget covers fresh historical policy attempts and
   // room draining. It never retries an Owner phase or physical operation.
   const admissionDeadline = performance.now() + 10_000;
-  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, mcpPrincipal, admissionDeadline);
+  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, programmaticPrincipal, admissionDeadline);
   if (history?.completion) return history.completion;
-  await waitForWorkspaceOperationNativePathAdmission(claim, openDb, mcpPrincipal, admissionDeadline);
+  await waitForWorkspaceOperationNativePathAdmission(claim, openDb, programmaticPrincipal, admissionDeadline);
   return withWorkspaceOperationNativeMoveJobOwner(claim, async owner => {
     let rows = await readWorkspaceOperationOriginalMoveJobReceipts(owner);
     if (rows.completion) return rows.completion;
@@ -98,9 +94,9 @@ export async function executeWorkspaceOperationOriginalMove(input: {
       let completed=0;
       for (const step of order) {
         // A stored intent is no continuing permission for a physical effect.
-        // Re-enter the fixed actual MCP owner phase immediately before each
+        // Re-enter the fixed actual programmatic owner phase before each
         // move; revocation after that phase still follows original recovery.
-        if (mcpPrincipal) await readWorkspaceOperationOriginalMoveJobReceipts(owner);
+        if (programmaticPrincipal) await readWorkspaceOperationOriginalMoveJobReceipts(owner);
         const prior=rows.pathRows.find(row=>row.stepKey===step.stepKey);
         const births: Array<import('../filesystem/prepared-workspace-path-move-contract').PreparedWorkspacePathMoveParentReceipt> = [];
         const receipt=await movePreparedWorkspacePath(step.cap,async birth=>{
@@ -126,5 +122,5 @@ export async function executeWorkspaceOperationOriginalMove(input: {
       }
       return completeWorkspaceOperationOriginalMoveJob(owner,{preparedSteps:prepared.map(step=>({stepKey:step.stepKey,cap:step.cap,receipt:receipts.get(step.stepKey)!}))});
     });
-  }, undefined, mcpPrincipal);
+  }, undefined, programmaticPrincipal);
 }

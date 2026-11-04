@@ -43,6 +43,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!batch) return jsonError('File action not found', 404);
     if (batch.authorization.mode === 'direct-mcp') return jsonError('Use the originating MCP client for this file action.', 403,
       { code: 'BATCH_MCP_AUTHORIZATION_REQUIRED' });
+    if (batch.authorization.mode === 'api-key') return jsonError('Use the originating API integration for this file action.', 403,
+      { code: 'BATCH_API_KEY_AUTHORIZATION_REQUIRED' });
     const authorize = () => requireSessionWorkspace(session, { workspaceId: batch.workspaceId,
       permissions: ['canRead', 'canWrite', 'canDelete'] });
     const authorized = await authorize();
@@ -88,6 +90,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (!batch) return jsonError('File action not found', 404);
       if (batch.authorization.mode === 'direct-mcp') return jsonError('Use the originating MCP client for this file action.', 403,
         { code: 'BATCH_MCP_AUTHORIZATION_REQUIRED' });
+      if (batch.authorization.mode === 'api-key') return jsonError('Use the originating API integration for this file action.', 403,
+        { code: 'BATCH_API_KEY_AUTHORIZATION_REQUIRED' });
       const authorized = await requireSessionWorkspace(session, { workspaceId: batch.workspaceId, permissions: 'canRead' });
       if (authorized.response) return authorized.response;
       problemBatch = batch;

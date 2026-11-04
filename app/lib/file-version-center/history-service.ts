@@ -142,14 +142,19 @@ export function createFileVersionHistoryService(options: {
 
   const captureStandaloneAgentOperation = async (input: FileVersionCaptureInput, content: Buffer,
     format: 'markdown' | 'text' | 'binary', contentHash: string, capturedAt: number,
-    nativeTransaction?: FileVersionCenterTransaction): Promise<FileVersionCaptureResult> => {
+    nativeContext?: { transaction: FileVersionCenterTransaction;
+      origin: NativeAgentOperationHistoryCaptureInput['original']['origin'] }): Promise<FileVersionCaptureResult> => {
     const native = format === 'binary';
-    if (!input.agentOperationId || !input.actorUserId || !input.sourceSessionId
+    // Only the native entry supplies this context, after checking the stored
+    // original, actual After and exact bytes in readNativeAgentOperationHistoryOnConnection.
+    const keyHistory = native && nativeContext?.origin.transport === 'api_key'
+      && nativeContext.origin.userId === input.actorUserId && input.actorType === 'agent' && input.sourceSessionId === null;
+    if (!input.agentOperationId || !input.actorUserId || !input.sourceSessionId && !keyHistory
       || (native ? !['user', 'agent'].includes(input.actorType ?? '') : input.actorType !== 'agent')) {
       throw new Error('An operation snapshot requires its trusted agent, user and session.');
     }
     const actorUserId = input.actorUserId;
-    const sourceSessionId = input.sourceSessionId;
+    const sourceSessionId = input.sourceSessionId ?? null;
     const actorType = native && input.actorType === 'user' ? 'user' : 'agent';
     const source = native && actorType === 'user' ? 'manual' : 'agent_apply';
     const revisionId = `file-rev-op-${createHash('sha256')
@@ -203,7 +208,7 @@ export function createFileVersionHistoryService(options: {
       return { outcome: bound.outcome === 'created' ? 'captured' : 'already_captured',
         revision, binding: bound.binding };
     };
-    return nativeTransaction ? captureOnTransaction(nativeTransaction) : database.transaction(captureOnTransaction);
+    return nativeContext ? captureOnTransaction(nativeContext.transaction) : database.transaction(captureOnTransaction);
   };
 
   const capture = async (input: FileVersionCaptureInput): Promise<FileVersionCaptureResult> => {
@@ -318,7 +323,8 @@ export function createFileVersionHistoryService(options: {
             sourceSessionId: checked.original.actor.sessionId, agentOperationId: checked.operationId,
             historicalLineageId: checked.original.identity.lineageId,
             stateVector: checked.stateVector, agentCapturedAt: checked.after.appliedAt },
-          Buffer.from(checked.bytes), 'binary', checked.after.history.sha256, checked.after.appliedAt, tx);
+          Buffer.from(checked.bytes), 'binary', checked.after.history.sha256, checked.after.appliedAt,
+          { transaction: tx, origin: checked.original.origin });
           if (captured.outcome !== 'captured' && captured.outcome !== 'already_captured') {
             throw new Error('The exact native operation history was not captured.');
           }

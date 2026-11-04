@@ -13,10 +13,6 @@ const baseImageArgumentIndex = process.argv.indexOf('--base-image');
 const baseImage = baseImageArgumentIndex >= 0
   ? process.argv[baseImageArgumentIndex + 1]
   : 'unresolved';
-const debianSnapshotArgumentIndex = process.argv.indexOf('--debian-snapshot');
-const debianSnapshot = debianSnapshotArgumentIndex >= 0
-  ? process.argv[debianSnapshotArgumentIndex + 1]
-  : 'unresolved';
 const appRoot = process.env.CANVAS_APP_ROOT || '/app';
 const nativeDistributionPolicyPath = path.join(
   appRoot,
@@ -354,10 +350,13 @@ try {
 }
 
 const inventory = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   generatedBy: 'scripts/capture-runtime-component-inventory.mjs',
   baseImage,
-  debianSnapshot,
+  debianRepositories: {
+    ...nativeDistributionPolicy.debianRepositories,
+    installedLockSha256: sha256File('/usr/local/share/canvas-debian-repository-lock.json'),
+  },
   platform: process.argv.includes('--platform')
     ? process.argv[process.argv.indexOf('--platform') + 1]
     : `${process.platform}/${process.arch}`,

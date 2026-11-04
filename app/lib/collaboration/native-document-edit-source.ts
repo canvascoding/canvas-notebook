@@ -23,6 +23,8 @@ export async function prepareNativeDocumentEditSource(authority: NativeDocumentE
       if (access.workspace.workspaceId !== request.workspaceId) throw new DocumentEditError('DOCUMENT_SCOPE_CHANGED');
       const header = await readNativeDocumentHeaderByIdOnConnection(database,
         { workspace: access.workspace, documentId: request.documentId });
+      if (access.origin.transport === 'api_key' && access.origin.entryPoint === 'mcp'
+        && header.identity.path.split('/').some(segment => segment.startsWith('.'))) throw new DocumentEditError('ACCESS_DENIED');
       await access.assertCurrent();
       return Object.freeze({ header, workspace: structuredClone(access.workspace), origin: structuredClone(access.origin),
         userId: access.userId, actorType: access.actorType, actorId: access.actorId,

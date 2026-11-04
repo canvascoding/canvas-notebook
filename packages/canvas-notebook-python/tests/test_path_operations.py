@@ -17,6 +17,7 @@ from mcp_types import CallToolResult, TextContent
 
 from canvas_notebook import CanvasMutationOutcomeUnknown, CanvasNotebook, CanvasToolError
 from canvas_notebook.models import (
+    PublicWorkspacePathCode,
     WorkspaceDeleteHtmlLinkChanges,
     WorkspaceDeleteHtmlPreviewV3,
     WorkspaceDeleteHtmlImportPreviewV4,
@@ -199,6 +200,7 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn("batch_id", transport.calls[0][1])
 
     async def test_declared_path_types_include_import_union_and_optional_mapping(self) -> None:
+        self.assertIn("PATH_TIMEOUT", get_args(PublicWorkspacePathCode))
         self.assertEqual(set(get_args(get_type_hints(WorkspaceMovePreviewResult)["preview"])),
                          {WorkspaceMovePreview, WorkspaceMoveImportPreview, WorkspaceMoveHtmlImportPreviewV4})
         self.assertEqual(set(get_args(get_type_hints(WorkspaceDeletePreviewResult)["preview"])),
@@ -337,18 +339,27 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
     async def test_received_errors_keep_caller_operation_and_original_challenge_without_reclassifying(self) -> None:
         for kind in ("move", "delete"):
             for code, action in (("PATH_STATUS_NOT_FOUND", "status"), ("PATH_OPERATION_NOT_FOUND", "recover"),
-                                 ("PATH_OUTPUT_TOO_LARGE", "apply"), ("AUTHENTICATION_REQUIRED", "apply")):
-                raw = envelope({"apiVersion": 1, "success": False, "code": code, "operationId": OPERATION}, error=True)
+                                 ("PATH_OUTPUT_TOO_LARGE", "apply"), ("AUTHENTICATION_REQUIRED", "apply"),
+                                 ("PATH_TIMEOUT", "preview"), ("PATH_TIMEOUT", "apply"), ("PATH_TIMEOUT", "recover")):
+                payload = {"apiVersion": 1, "success": False, "code": code,
+                           **({} if action == "preview" else {"operationId": OPERATION})}
+                if code == "PATH_TIMEOUT":
+                    payload.update(phase=action, retryable=action == "preview",
+                                   storage_status="not_applicable" if action == "preview" else "unknown")
+                    if action == "preview":
+                        payload["retry_after_ms"] = 1000
+                raw = envelope(payload, error=True)
                 raw.meta = {"mcp/www_authenticate": ["Bearer realm=unit-private-challenge"]}
                 transport = RecordingTransport(raw)
                 notebook = CanvasNotebook(transport)
-                result = (await getattr(notebook, kind + "_status")("workspace", OPERATION) if action == "status"
+                result = (await getattr(notebook, kind + "_preview")("workspace", ROOTS if kind == "move" else "source.md") if action == "preview"
+                          else await getattr(notebook, kind + "_status")("workspace", OPERATION) if action == "status"
                           else await getattr(notebook, kind + "_" + action)(
                               "workspace", ROOTS if kind == "move" else "source.md", operation_id=OPERATION, plan_id=PLAN))
                 with self.assertRaises(CanvasToolError) as caught:
                     result.require_success()
                 self.assertEqual(caught.exception.code, code)
-                self.assertEqual(caught.exception.operation_id, OPERATION)
+                self.assertEqual(caught.exception.operation_id, None if action == "preview" else OPERATION)
                 self.assertIs(caught.exception.result, raw)
                 self.assertEqual(caught.exception.result.meta, raw.meta)
                 self.assertNotIn("unit-private-challenge", str(caught.exception))

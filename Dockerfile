@@ -2,25 +2,19 @@
 
 ARG NPM_VERSION=11.11.0
 ARG NODE_BASE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
-ARG DEBIAN_SNAPSHOT=20260716T000000Z
 ARG LIBVIPS_VERSION=8.18.7
 ARG LIBVIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 FROM rust:1.94.0-slim-bookworm@sha256:a86cada82e36ebd7a9bffed7548792c55a952fdb20718eea9278a936bcb76e62 AS svg-rust-toolchain
 
 FROM ${NODE_BASE_IMAGE} AS canvas-base
-ARG DEBIAN_SNAPSHOT
 
-# Every apt operation in Canvas-owned layers resolves against one immutable
-# Debian archive state. Bootstrap ca-certificates from the same signed snapshot
-# over HTTP because the slim base does not yet contain a CA store, then use
-# HTTPS for every later apt operation. The base-image packages themselves
-# remain bound by the immutable NODE_BASE_IMAGE digest.
+# APT verifies Debian signatures; the post-update hook rejects any index drift.
+# Bootstrap the CA store over signed HTTP, then use HTTPS in later stages.
+COPY docs/compliance/debian-repository-lock.json /usr/local/share/canvas-debian-repository-lock.json
+COPY scripts/debian-repository-lock.mjs /usr/local/libexec/canvas-debian-repository-lock.mjs
 RUN set -eux; \
-  printf 'Types: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian/%s/\nSuites: bookworm bookworm-updates\nComponents: main\nCheck-Valid-Until: no\n\nTypes: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian-security/%s/\nSuites: bookworm-security\nComponents: main\nCheck-Valid-Until: no\n' \
-    "${DEBIAN_SNAPSHOT}" "${DEBIAN_SNAPSHOT}" \
-    > /etc/apt/sources.list.d/debian.sources; \
-  rm -f /etc/apt/sources.list; \
+  node /usr/local/libexec/canvas-debian-repository-lock.mjs configure; \
   apt-get update; \
   apt-get install -y --no-install-recommends ca-certificates; \
   rm -rf /var/lib/apt/lists/*; \
@@ -212,7 +206,6 @@ FROM app-base AS runner
 WORKDIR /app
 ARG APP_USER=node
 ARG NODE_BASE_IMAGE
-ARG DEBIAN_SNAPSHOT
 ARG NPM_VERSION
 ARG POSTGRES_CLIENT_VERSION=18.4-1.pgdg12+1
 ARG POSTGRES_COMMON_VERSION=293.pgdg12+1
@@ -327,7 +320,6 @@ RUN python3 ./scripts/capture-dictation-cpp-evidence.py /app/native/dictation/ev
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
   --platform "${TARGETPLATFORM}" \
-  --debian-snapshot "${DEBIAN_SNAPSHOT}" \
   --output /app/docs/compliance/runtime-components.json
 RUN node ./scripts/runtime-component-inventory-test.mjs \
   /app/docs/compliance/runtime-components.json \

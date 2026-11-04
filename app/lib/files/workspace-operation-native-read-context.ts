@@ -7,7 +7,11 @@ import { openDb, type SqlConnection } from '../db';
 import { resolveWorkspaceActor } from '../workspaces/context';
 import { readPostgresWorkspaceForActorOnConnection } from '../workspaces/postgres-runtime';
 import type { WorkspaceContext } from '../workspaces/types';
-import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import type { WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import type { WorkspaceOperationApiKeyJobReadPrincipal } from '../workspaces/workspace-operation-api-key-job-principal';
+import { captureWorkspaceOperationProgrammaticJobReadOptions,
+  type WorkspaceOperationProgrammaticJobReadOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
+import { assertApiKeyWorkspacePathPrincipalCaptured, withApiKeyWorkspacePathPrincipalOnConnection } from '../api-keys/document-read-principal';
 import { assertDirectMcpWorkspaceMovePrincipalCaptured, assertDirectMcpWorkspaceDeletePrincipalCaptured,
   withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
@@ -19,6 +23,9 @@ import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNat
 import { captureWorkspaceOperationJobScope, workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { assertWorkspaceOperationMcpAuthorizationCurrent,
   type WorkspaceOperationMcpAuthorizationCurrent } from './workspace-operation-mcp-authorization';
+import { assertWorkspaceOperationApiKeyAuthorizationCurrent,
+  workspaceOperationApiKeyBatchId,
+  type WorkspaceOperationApiKeyAuthorization, type WorkspaceOperationApiKeyAuthorizationCurrent } from './workspace-operation-api-key-authorization';
 
 type NativePlan = WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan;
 const moveHistoryTables = Object.freeze(['collaboration_admission_requests', 'collaboration_admission_targets',
@@ -36,12 +43,20 @@ function changed():never{throw new WorkspaceOperationNativeReadError('BATCH_SCOP
 function freeze<T>(value:T):T{if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;}
 export type WorkspaceOperationNativeBatchReadContext=Readonly<{database:SqlConnection;schema:string;workspace:WorkspaceContext;
   batch:WorkspaceOperationBatchRecord;plan:NativePlan}>;
-type Input={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6;expectedPlan?:NativePlan;
-  mcpPrincipal?:WorkspaceOperationMcpJobPrincipal};
+type SnapshotInput={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6|'path';expectedPlan?:NativePlan};
+export type WorkspaceOperationNativePathReadInput=
+  |({batchId:string;scope:WorkspaceOperationBatchScope}&WorkspaceOperationProgrammaticJobReadOptions)
+  |{workspaceId:string;operationId:string;apiKeyPrincipal:WorkspaceOperationApiKeyJobReadPrincipal;mcpPrincipal?:never};
+type PathLookupInput=WorkspaceOperationNativePathReadInput&{planVersion:'path';expectedPlan?:never};
+export type WorkspaceOperationNativeBatchReadLookup<T>=Readonly<{value:T|null;scope:WorkspaceOperationBatchScope;batchId:string}>;
+type Input=({batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5|6;expectedPlan?:NativePlan}
+  |PathLookupInput)&WorkspaceOperationProgrammaticJobReadOptions;
 type McpRealm=Readonly<{schemaName:string;schemaOid:number;databaseOid:number;searchPath:string;tableOid:number}>;
 type McpAuthority=Readonly<{facts:WorkspaceOperationMcpAuthorizationCurrent;realm:McpRealm}>;
-type McpOriginal=Readonly<{authorization:WorkspaceOperationDirectMcpAuthorization;plan:NativePlan}>;
-type Snapshot<T>=Readonly<{value:T|null;original?:McpOriginal}>;
+type ApiKeyAuthority=Readonly<{transport:'api-key';facts:WorkspaceOperationApiKeyAuthorizationCurrent;realm:McpRealm}>;
+type ProgrammaticAuthority=McpAuthority|ApiKeyAuthority;
+type ProgrammaticOriginal=Readonly<{authorization:WorkspaceOperationDirectMcpAuthorization|WorkspaceOperationApiKeyAuthorization;plan:NativePlan}>;
+type Snapshot<T>=Readonly<{value:T|null;original?:ProgrammaticOriginal}>;
 const unavailable=(cause:unknown)=>new WorkspaceOperationNativeReadError('BATCH_JOURNAL_UNAVAILABLE',503,{cause});
 
 /** Fixed catalog facts only. Both unqualified and qualified batch names must
@@ -65,29 +80,13 @@ async function readMcpStatusRealm(database:SqlConnection):Promise<McpRealm>{
 
 /** One fixed authorization transaction, with no caller callback or history
  * query. COMMIT and checkout disposal must both finish before facts escape. */
-async function readMcpStatusAuthority(live:WorkspaceOperationMcpJobPrincipal,initial?:McpAuthority,
-  original?:McpOriginal):Promise<McpAuthority>{
+async function withStatusAuthorityConnection<T extends object>(operation:(database:SqlConnection)=>Promise<T>):Promise<T>{
   let database:SqlConnection;
   try{database=await openDb();}catch(error){throw unavailable(error);}
-  let began=false,commitAttempted=false,failure:unknown,result:McpAuthority|undefined;
+  let began=false,commitAttempted=false,failure:unknown,result:T|undefined;
   try{
     await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');began=true;
-    const inspect=async(current:DirectMcpWorkspaceMovePrincipalAccess|DirectMcpWorkspaceDeletePrincipalAccess):Promise<McpAuthority>=>{
-      const facts:WorkspaceOperationMcpAuthorizationCurrent=Object.freeze({userId:current.userId,clientId:current.clientId,
-        sessionId:current.sessionId,workspace:current.workspace,tool:current.tool});
-      const realm=await readMcpStatusRealm(database);
-      if(initial&&(facts.userId!==initial.facts.userId||facts.clientId!==initial.facts.clientId
-        ||facts.sessionId!==initial.facts.sessionId||facts.tool!==initial.facts.tool
-        ||!isDeepStrictEqual(captureWorkspaceOperationJobScope(facts.workspace),captureWorkspaceOperationJobScope(initial.facts.workspace))
-        ||!isDeepStrictEqual(realm,initial.realm)))changed();
-      if(original)assertWorkspaceOperationMcpAuthorizationCurrent(original.authorization,facts,original.plan);
-      await current.assertCurrent();
-      if(!isDeepStrictEqual(await readMcpStatusRealm(database),realm))changed();
-      return Object.freeze({facts,realm});
-    };
-    result=live.kind==='move'
-      ?await withDirectMcpWorkspaceMovePrincipalOnConnection(database,live.principal,inspect)
-      :await withDirectMcpWorkspaceDeletePrincipalOnConnection(database,live.principal,inspect);
+    result=await operation(database);
     commitAttempted=true;await database.run('COMMIT');began=false;
   }catch(error){failure=commitAttempted||!(error instanceof Error)?unavailable(error):error;
     if(began)try{await database.run('ROLLBACK');}catch(rollback){failure=unavailable(new AggregateError([failure,rollback],'Native status authorization rollback is unconfirmed.'));}}
@@ -96,11 +95,49 @@ async function readMcpStatusAuthority(live:WorkspaceOperationMcpJobPrincipal,ini
   if(!result)throw unavailable(new Error('Native status authorization result is absent.'));
   return result;
 }
+async function readMcpStatusAuthority(live:WorkspaceOperationMcpJobPrincipal,initial?:McpAuthority,
+  original?:ProgrammaticOriginal):Promise<McpAuthority>{
+  return withStatusAuthorityConnection(async database=>{
+    const inspect=async(current:DirectMcpWorkspaceMovePrincipalAccess|DirectMcpWorkspaceDeletePrincipalAccess):Promise<McpAuthority>=>{
+      const facts:WorkspaceOperationMcpAuthorizationCurrent=Object.freeze({userId:current.userId,clientId:current.clientId,
+        sessionId:current.sessionId,workspace:current.workspace,tool:current.tool});
+      const realm=await readMcpStatusRealm(database);
+      if(initial&&(facts.userId!==initial.facts.userId||facts.clientId!==initial.facts.clientId
+        ||facts.sessionId!==initial.facts.sessionId||facts.tool!==initial.facts.tool
+        ||!isDeepStrictEqual(captureWorkspaceOperationJobScope(facts.workspace),captureWorkspaceOperationJobScope(initial.facts.workspace))
+        ||!isDeepStrictEqual(realm,initial.realm)))changed();
+      if(original){if(original.authorization.mode!=='direct-mcp')changed();
+        assertWorkspaceOperationMcpAuthorizationCurrent(original.authorization,facts,original.plan);}
+      await current.assertCurrent();
+      if(!isDeepStrictEqual(await readMcpStatusRealm(database),realm))changed();
+      return Object.freeze({facts,realm});
+    };
+    return live.kind==='move'
+      ?await withDirectMcpWorkspaceMovePrincipalOnConnection(database,live.principal,inspect)
+      :await withDirectMcpWorkspaceDeletePrincipalOnConnection(database,live.principal,inspect);
+  });
+}
+async function readApiKeyStatusAuthority(live:WorkspaceOperationApiKeyJobReadPrincipal,initial?:ApiKeyAuthority,
+  original?:ProgrammaticOriginal):Promise<ApiKeyAuthority>{
+  return withStatusAuthorityConnection(database=>withApiKeyWorkspacePathPrincipalOnConnection(database,live.principal,live.purpose,async current=>{
+    const facts:WorkspaceOperationApiKeyAuthorizationCurrent=Object.freeze({userId:current.userId,integrationId:current.integrationId,
+      instanceId:current.instanceId,credentialId:current.credentialId,entryPoint:current.entryPoint,workspace:current.workspace,kind:live.kind});
+    const realm=await readMcpStatusRealm(database);
+    if(initial&&(facts.userId!==initial.facts.userId||facts.integrationId!==initial.facts.integrationId||facts.instanceId!==initial.facts.instanceId
+      ||facts.credentialId!==initial.facts.credentialId||facts.entryPoint!==initial.facts.entryPoint||facts.kind!==initial.facts.kind
+      ||!isDeepStrictEqual(captureWorkspaceOperationJobScope(facts.workspace),captureWorkspaceOperationJobScope(initial.facts.workspace))
+      ||!isDeepStrictEqual(realm,initial.realm)))changed();
+    if(original){if(original.authorization.mode!=='api-key')changed();
+      assertWorkspaceOperationApiKeyAuthorizationCurrent(original.authorization,facts,original.plan);}
+    await current.assertCurrent();if(!isDeepStrictEqual(await readMcpStatusRealm(database),realm))changed();
+    return Object.freeze({transport:'api-key' as const,facts,realm});
+  }));
+}
 
 /** Read-only current-ACL and immutable job binding shared by native status
  * consumers. This creates neither a claim nor owner/DA04 mutation authority. */
-async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
-  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>,mcp?:McpAuthority):Promise<Snapshot<T>>{
+async function readNativeBatchSnapshot<T>(input:SnapshotInput,
+  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>,mcp?:ProgrammaticAuthority):Promise<Snapshot<T>>{
   const workspace=input.scope.workspace,other=input.scope.fileOptions.workspace,userId=workspace.actor?.userId;
   if(!userId||!workspace.permissions.canRead||workspace.status!=='active'||!other||other.actor?.userId!==userId
     ||!other.permissions.canRead||other.status!=='active')throw new WorkspaceOperationNativeReadError('BATCH_ACCESS_DENIED',403);
@@ -108,7 +145,7 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
   const version=input.planVersion,batchId=input.batchId,expected=input.expectedPlan && (version===6 ?decodeWorkspaceOperationCohortDeletePlan(input.expectedPlan):version===5
     ?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.expectedPlan):version===2
     ?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
-  let original:McpOriginal|undefined;
+  let original:ProgrammaticOriginal|undefined;
   const database=await openDb();
   let began=false,committed=false,commitAttempted=false,failure:unknown,value:T|null=null;
   try{
@@ -130,16 +167,18 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
     const header=await database.get(`SELECT * FROM ${prefix}.workspace_file_operation_batches WHERE batch_id=$1`,[batchId]) as Record<string,unknown>|undefined;
     if(!header)return null;
     const batch=decodeWorkspaceOperationBatchRecord(header);
-    if(mcp?batch.authorization.mode!=='direct-mcp':batch.authorization.mode==='direct-mcp')changed();
+    if(mcp?batch.authorization.mode!==('transport' in mcp?'api-key':'direct-mcp'):
+      batch.authorization.mode==='direct-mcp'||batch.authorization.mode==='api-key')changed();
     if(mcp&&batch.actionMode!=='apply')changed();
-    if(batch.plan.version!==version)return null;
+    if(version!=='path'&&batch.plan.version!==version)return null;
+    if(![2,3,5,6].includes(batch.plan.version))changed();
     const plan=batch.plan.version===6?decodeWorkspaceOperationCohortDeletePlan(batch.plan):batch.plan.version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(batch.plan):batch.plan.version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(batch.plan):decodeWorkspaceOperationNativeMoveBatchPlan(batch.plan),auth=batch.authorization;
     if(mcp){
-      if(auth.mode!=='direct-mcp')changed();
-      assertWorkspaceOperationMcpAuthorizationCurrent(auth,mcp.facts,plan);
+      if('transport' in mcp){if(auth.mode!=='api-key')changed();assertWorkspaceOperationApiKeyAuthorizationCurrent(auth,mcp.facts,plan);}
+      else{if(auth.mode!=='direct-mcp')changed();assertWorkspaceOperationMcpAuthorizationCurrent(auth,mcp.facts,plan);}
       original=Object.freeze({authorization:auth,plan});
     }else if(auth.mode!=='direct')changed();
-    if(auth.mode!=='direct'&&auth.mode!=='direct-mcp'||!isDeepStrictEqual(auth.jobScope,namespace)||!isDeepStrictEqual(auth.jobScope,otherNamespace)
+    if(auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key'||!isDeepStrictEqual(auth.jobScope,namespace)||!isDeepStrictEqual(auth.jobScope,otherNamespace)
       ||!isDeepStrictEqual(plan.sourceEvidence.workspaceScope,auth.jobScope)||expected&&!isDeepStrictEqual(plan,expected))changed();
     freeze(batch);
     // Historical helper reads are facts, never mutation capabilities. Their
@@ -147,7 +186,7 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
     // stable search_path alone does not rule out a shadow history schema.
     let historyRelations: readonly Record<string,unknown>[] | undefined;
     const assertHistorySchema=async()=>{
-      if(version!==3)return;
+      if(plan.version!==3)return;
       const resolved=await database.all(`SELECT expected.name,expected.ordinality::integer AS ordinal,
         c.oid::bigint AS table_oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,
         pg_catalog.to_regclass(pg_catalog.quote_ident(expected.name))::oid::bigint AS resolved_oid,
@@ -194,28 +233,53 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
   if(failure!==undefined)throw failure;return Object.freeze({value,...(original?{original}:{})});
 }
 
-/** Legacy retains its READ policy and result shape. MCP results are private until C1, the
+/** Legacy retains its READ policy and result shape. Programmatic results are private until C1, the
  * actual historical snapshot/close and fresh C2 authorization all complete. */
 export async function withWorkspaceOperationNativeBatchReadContext<T>(input:Input,
   operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<T|null>{
+  return(await readNativeBatchWithScope(input,operation)).value;
+}
+
+/** Factual lookup metadata is available after C2 even when the job is absent.
+ * It creates neither a batch nor write authority. Existing numeric readers
+ * retain their nullable value through the wrapper above. */
+export async function withWorkspaceOperationNativePathReadLookup<T>(input:PathLookupInput,
+  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<WorkspaceOperationNativeBatchReadLookup<T>>{
+  return readNativeBatchWithScope(input,operation);
+}
+
+async function readNativeBatchWithScope<T>(input:Input,
+  operation:(context:WorkspaceOperationNativeBatchReadContext)=>Promise<T>):Promise<WorkspaceOperationNativeBatchReadLookup<T>>{
   if(types.isProxy(input))changed();
-  const field=Object.getOwnPropertyDescriptor(input,'mcpPrincipal');
-  if(field&&(!field.enumerable||!Object.hasOwn(field,'value')))changed();
-  if(field?.value===undefined)return(await readNativeBatchSnapshot(input,operation)).value;
-  const live=captureWorkspaceOperationMcpJobPrincipal(field.value),version=input.planVersion;
-  if((live.kind==='move'?version!==3:version!==2&&version!==5&&version!==6)||typeof operation!=='function')changed();
-  const batchId=input.batchId,workspace=input.scope.workspace,other=input.scope.fileOptions.workspace;
-  if(!other)changed();
-  const namespace=captureWorkspaceOperationJobScope(workspace),otherNamespace=captureWorkspaceOperationJobScope(other);
+  const live=captureWorkspaceOperationProgrammaticJobReadOptions(input),version=input.planVersion;
+  if(live===undefined){if(version==='path')changed();return Object.freeze({value:(await readNativeBatchSnapshot(input,operation)).value,
+    scope:input.scope,batchId:input.batchId});}
+  if((version!=='path'&&(live.kind==='move'?version!==3:version!==2&&version!==5&&version!==6))||typeof operation!=='function')changed();
+  if(version==='path'&&input.expectedPlan!==undefined)changed();
+  const keyLookup='operationId' in input;
+  if(keyLookup&&(version!=='path'||!('transport' in live)||Object.hasOwn(input,'scope')||Object.hasOwn(input,'batchId')
+    ||typeof input.workspaceId!=='string'||!input.workspaceId||input.workspaceId.length>256
+    ||typeof input.operationId!=='string'||!/^[A-Za-z0-9_-]{16,128}$/u.test(input.operationId)))changed();
+  const workspace=keyLookup?undefined:input.scope.workspace,other=keyLookup?undefined:input.scope.fileOptions.workspace;
+  if(!keyLookup&&!other)changed();
+  const namespace=workspace&&captureWorkspaceOperationJobScope(workspace),otherNamespace=other&&captureWorkspaceOperationJobScope(other);
   const expected=input.expectedPlan&&(version===6?decodeWorkspaceOperationCohortDeletePlan(input.expectedPlan):version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.expectedPlan):version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
-  const options={workspaceId:namespace.workspaceId};
-  if(live.kind==='move')assertDirectMcpWorkspaceMovePrincipalCaptured(live.principal,options);
+  const options={workspaceId:keyLookup?input.workspaceId:namespace!.workspaceId};
+  if('transport' in live)assertApiKeyWorkspacePathPrincipalCaptured(live.principal,{...options,purpose:live.purpose});
+  else if(live.kind==='move')assertDirectMcpWorkspaceMovePrincipalCaptured(live.principal,options);
   else assertDirectMcpWorkspaceDeletePrincipalCaptured(live.principal,options);
-  const first=await readMcpStatusAuthority(live);
+  const first='transport' in live?await readApiKeyStatusAuthority(live):await readMcpStatusAuthority(live);
   const currentNamespace=captureWorkspaceOperationJobScope(first.facts.workspace);
-  if(!isDeepStrictEqual(namespace,currentNamespace)||!isDeepStrictEqual(otherNamespace,currentNamespace))changed();
+  if(!keyLookup&&(!isDeepStrictEqual(namespace,currentNamespace)||!isDeepStrictEqual(otherNamespace,currentNamespace)))changed();
   const scope:WorkspaceOperationBatchScope={workspace:first.facts.workspace,fileOptions:{workspace:first.facts.workspace}};
+  let batchId:string;
+  if(keyLookup){if(!('transport' in first))changed();batchId=workspaceOperationApiKeyBatchId({userId:first.facts.userId,
+    integrationId:first.facts.integrationId,instanceId:first.facts.instanceId,workspaceId:currentNamespace.workspaceId,
+    kind:first.facts.kind,operationId:input.operationId});}else batchId=input.batchId;
   const snapshot=await readNativeBatchSnapshot({batchId,scope,planVersion:version,expectedPlan:expected},operation,first);
-  await readMcpStatusAuthority(live,first,snapshot.original);
-  return snapshot.value;
+  let final:ProgrammaticAuthority;
+  if('transport' in live){if(!('transport' in first))changed();final=await readApiKeyStatusAuthority(live,first,snapshot.original);}
+  else{if('transport' in first)changed();final=await readMcpStatusAuthority(live,first,snapshot.original);}
+  const current=final.facts.workspace;
+  return Object.freeze({value:snapshot.value,batchId,scope:Object.freeze({workspace:current,fileOptions:Object.freeze({workspace:current})})});
 }

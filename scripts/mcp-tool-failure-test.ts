@@ -7,6 +7,7 @@ import ts from 'typescript';
 import * as sdk from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import * as apiKeyToolContract from '../app/lib/mcp/server/api-key-tool-contract';
 
 const requireDependency = createRequire(import.meta.url);
 function load(file: string, dependencies: Record<string, unknown>) {
@@ -17,6 +18,11 @@ function load(file: string, dependencies: Record<string, unknown>) {
   new Function('require', 'module', 'exports', source)((name: string) =>
     Object.hasOwn(dependencies, name) ? dependencies[name] : requireDependency(name), evaluated, evaluated.exports);
   return evaluated.exports;
+}
+
+function structuredBody(value: unknown): Record<string, unknown> {
+  assert(value && typeof value === 'object' && !Array.isArray(value));
+  return value as Record<string, unknown>;
 }
 
 test('actual MCP SDK transports structured unexpected failures without exception contents', async () => {
@@ -37,6 +43,7 @@ test('actual MCP SDK transports structured unexpected failures without exception
       descriptor: { name: 'create_knowledge_source', inputSchema: { type: 'object', properties: {} } },
       execute: async () => { throw thrown; } }] },
     './excalidraw-tools': { getDirectMcpExcalidrawToolDefinitions: () => [] }, './tool-failure': failure,
+    './api-key-tool-contract': apiKeyToolContract,
   }) as unknown as typeof import('../app/lib/mcp/server/direct-server');
   const server = directServer.createDirectMcpServer(['create_knowledge_source']);
   const client = new Client({ name: 'failure-contract-test', version: '1' });
@@ -47,7 +54,7 @@ test('actual MCP SDK transports structured unexpected failures without exception
     await server.connect(serverTransport); await client.connect(clientTransport);
     const result = await client.callTool({ name: 'create_knowledge_source', arguments: {} });
     assert.equal(result.isError, true);
-    const body = result.structuredContent!;
+    const body = structuredBody(result.structuredContent);
     assert.equal(body.code, 'MCP_TOOL_FAILED'); assert.equal(body.storage_status, 'unknown');
     assert.equal(body.correlation_id, correlationId); assert.equal(body.phase, 'receipt_finalize');
     assert.equal(body.retryable, false); assert.equal(failed, 1);
@@ -55,7 +62,7 @@ test('actual MCP SDK transports structured unexpected failures without exception
     assert(JSON.stringify(warnings).includes(correlationId));
     thrown = new sdk.ProtocolError(sdk.ProtocolErrorCode.InternalError, 'private-token-and-document-content');
     const internal = await client.callTool({ name: 'create_knowledge_source', arguments: {} });
-    assert.equal(internal.isError, true); assert.equal(internal.structuredContent?.code, 'MCP_TOOL_FAILED');
+    assert.equal(internal.isError, true); assert.equal(structuredBody(internal.structuredContent).code, 'MCP_TOOL_FAILED');
     assert(!JSON.stringify([internal, warnings]).includes('private-token-and-document-content'));
     thrown = new sdk.ProtocolError(sdk.ProtocolErrorCode.InvalidParams, 'Valid parameter validation');
     await assert.rejects(client.callTool({ name: 'create_knowledge_source', arguments: {} }),

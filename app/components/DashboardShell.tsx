@@ -63,7 +63,8 @@ import {
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { requestWorkspaceFileLinkTarget } from '@/app/lib/files/file-link-request';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
-import { findOpenedLiveDocument, LiveDocumentNetworkError, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { CollaborationDocumentLocationRequestError } from '@/app/lib/collaboration/document-location-retry';
+import { findOpenedLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
 import { notebookUrlAfterDocumentMove } from '@/app/lib/notebook/document-location-url';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
@@ -837,7 +838,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             ? { ...current, path: normalizedPath } : current);
         } catch (error) {
           if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-          const local = error instanceof LiveDocumentNetworkError && !controller.signal.aborted
+          const local = error instanceof CollaborationDocumentLocationRequestError
+            && error.code === 'LOCATION_NETWORK_ERROR' && !controller.signal.aborted
             ? findOpenedLiveDocument(workspaceId, normalizedPath, expectedDocumentId, authScope) : null;
           if (!local) return { status: 'failed' as const, path: normalizedPath,
             error: error instanceof Error ? error.message : 'Document location lookup failed.' };
@@ -1479,34 +1481,37 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     ? documentTabs.documentIds?.[missingFilePath] : undefined;
   const missingDocumentGeneration = documentOpenGenerationRef.current;
   const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
-    {documentLoadingPath
-    ? <DocumentLoadingSkeleton path={documentLoadingPath} label={tNotebook('loadingPreview')} showHeader />
-    : currentFile || isLoadingFile || fileError || missingFilePath
-    ? <FileEditor
-        key={activeWorkspaceId}
-        onClosePreview={handleCloseDocument}
-        onRevealInExplorer={() => void handleRevealCurrentDocument()}
-        onRetryMissingFile={missingFilePath && missingDocumentId ? async () => {
-          const fileState = useFileStore.getState();
-          if (!activeWorkspaceId || !notebookMountedRef.current
-            || documentOpenGenerationRef.current !== missingDocumentGeneration
-            || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId
-            || documentTabsWorkspaceIdRef.current !== activeWorkspaceId
-            || fileState.currentFile || fileState.missingFilePath !== missingFilePath
-            || documentTabsRef.current.activePath !== missingFilePath
-            || documentTabsRef.current.documentIds?.[missingFilePath] !== missingDocumentId) return;
-          // Re-enter the same pinned-ID lookup, including its fresh auth fence.
-          await openNotebookEntry(missingFilePath);
-        } : undefined}
-      />
-    : (
-      <NotebookEmptyDocumentState
-        onOpenExplorer={() => layout.isMobile
-          ? setMobileExplorerOpen(true)
-          : dispatch({ type: 'SET_EXPLORER', open: true })}
-        onOpenChat={showChat}
-      />
-    )}
+    {documentLoadingPath && <DocumentLoadingSkeleton path={documentLoadingPath} label={tNotebook('loadingPreview')} showHeader />}
+    {/* A transition still owns the source editor while its recovery write is
+        pending. Hide and disable it without disposing its collaboration session. */}
+    <div className="h-full min-h-0" hidden={Boolean(documentLoadingPath)} inert={Boolean(documentLoadingPath)}>
+      {currentFile || (!documentLoadingPath && (isLoadingFile || fileError || missingFilePath))
+      ? <FileEditor
+          key={activeWorkspaceId}
+          onClosePreview={handleCloseDocument}
+          onRevealInExplorer={() => void handleRevealCurrentDocument()}
+          onRetryMissingFile={missingFilePath && missingDocumentId ? async () => {
+            const fileState = useFileStore.getState();
+            if (!activeWorkspaceId || !notebookMountedRef.current
+              || documentOpenGenerationRef.current !== missingDocumentGeneration
+              || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId
+              || documentTabsWorkspaceIdRef.current !== activeWorkspaceId
+              || fileState.currentFile || fileState.missingFilePath !== missingFilePath
+              || documentTabsRef.current.activePath !== missingFilePath
+              || documentTabsRef.current.documentIds?.[missingFilePath] !== missingDocumentId) return;
+            // Re-enter the same pinned-ID lookup, including its fresh auth fence.
+            await openNotebookEntry(missingFilePath);
+          } : undefined}
+        />
+      : !documentLoadingPath && (
+        <NotebookEmptyDocumentState
+          onOpenExplorer={() => layout.isMobile
+            ? setMobileExplorerOpen(true)
+            : dispatch({ type: 'SET_EXPLORER', open: true })}
+          onOpenChat={showChat}
+        />
+      )}
+    </div>
   </NotebookSurfaceMount>;
   const surfacePanelIds = {
     chat: layout.isMobile ? 'notebook-mobile-chat' : 'onboarding-notebook-chat',

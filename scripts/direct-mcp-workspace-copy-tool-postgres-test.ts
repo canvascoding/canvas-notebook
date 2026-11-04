@@ -34,7 +34,7 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
     const { WorkspaceOperationStaging } = await import('../app/lib/files/workspace-operation-staging');
     const { WorkspaceOperationJournal } = await import('../app/lib/files/workspace-operation-journal');
     const { importExcalidrawDocumentFile } = await import('../app/lib/excalidraw-collaboration/portable-import');
-    const { captureExcalidrawCopyIntent, captureExcalidrawCopyBirthReceipt } = await import('../app/lib/excalidraw-collaboration/copy-data');
+    const { captureExcalidrawCopyIntent, captureExcalidrawCopyBirthReceipt, captureExcalidrawCopyAssetOriginal } = await import('../app/lib/excalidraw-collaboration/copy-data');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { readPostgresWorkspaceForActorOnConnection } = await import('../app/lib/workspaces/postgres-runtime');
     const { loadCollaborationStateOnConnection: load } = await import('../app/lib/collaboration/persistence');
@@ -43,6 +43,8 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
     const { fileTreeCache, buildFileTreeCacheKey } = await import('../app/lib/utils/file-tree-cache');
     const { persistPristineOriginalWorkspaceFileForWrite } = await import('../app/lib/collaboration/markdown-file-import-persistence');
     const { filesystemFileVersion } = await import('../app/lib/filesystem/file-version');
+    const { Client } = await import('pg');
+    const { lockIdentity } = await import('../app/lib/collaboration/room-owner');
     const owner = await readPostgresWorkspaceForActorOnConnection(h.connection,
       resolveWorkspaceActor({ id: 'owner', role: 'admin', email: 'owner@principal.test' }), h.source.workspaceId); assert(owner);
     assert(h.source.permissions.canRead && !h.source.permissions.canWrite); assert(h.destination.permissions.canWrite);
@@ -287,6 +289,72 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
         await failure({ ...slots, action: 'preview', origin: {}, selections: [{ source_path: 'anything.md', destination_path: 'nothing.md' }] }, 'INVALID_REQUEST');
         assert.deepEqual(await domain(), before); assert.deepEqual(await filesystem(), filesBefore); assert.deepEqual(events, []);
       });
+      await group('actual room ownership returns COPY_BUSY without births; explicit recovery preserves the original request after unlock', async () => {
+        const job = await seed(); await preview(job); events.length = 0;
+        const before = await domain(), filesBefore = await filesystem(), stagesBefore = await stageNames();
+        const room = new Client({ connectionString: process.env.DATABASE_URL,
+          application_name: `${h.applicationName}-room-lock`, connectionTimeoutMillis: 5000 });
+        const key = lockIdentity(job.note.documentId).key;
+        let locked = false;
+        try {
+          await room.connect();
+          await room.query('SELECT pg_advisory_lock($1::bigint)', [key]); locked = true;
+          const blocked = await failure(argumentsFor(job, 'apply'), 'COPY_BUSY');
+          assert.equal(blocked.operationId, job.operationId, 'Busy response must retain the operation ID.');
+          const retained = await journal.get(job.operationId); assert(retained);
+          // B0 is durable, while the active room also prevents the separate
+          // status writer. A prepared header is no completed mutation.
+          assert.equal(retained.status, 'prepared', 'Busy Copy must retain its prepared header.');
+          assert.equal(retained.errorCode, null, 'Busy Copy must preserve its prepared error field.');
+          assert.equal(retained.planId, job.preview!.planId);
+          assert.deepEqual((await h.admin.query('SELECT step_key FROM workspace_file_operation_steps WHERE operation_id=$1', [job.operationId])).rows, []);
+          assert.equal(await receipt(job.operationId), undefined, 'Busy Copy must not create a native receipt.');
+          assert.equal(await sceneReceipt(job.operationId), undefined, 'Busy Copy must not create a Scene receipt.');
+          const original = await staging.loadManagedCopyByOperationId(job.operationId); assert(original);
+          assert.equal(original.identity.operationId, job.operationId); assert.equal(original.plan.planId, job.preview!.planId);
+          const after = await domain();
+          assert(Array.isArray(after.rows.workspace_file_operations));
+          after.rows.workspace_file_operations = after.rows.workspace_file_operations.filter(row =>
+            JSON.parse(row.body).operation_id !== job.operationId);
+          assert.deepEqual(after, before, 'Busy Copy must preserve domain rows/xmin.');
+          const physicalAfter = (await filesystem()).map(object), physicalBefore = filesBefore.map(object);
+          const destinationRoot = path.relative(h.dataRoot, h.destination.rootPath);
+          const privateStages = original.physical.flatMap(item => item.original.staging
+            ? [path.join(destinationRoot, item.original.staging.relativePath)] : []);
+          const assetWorkspace = path.join('collaboration-assets', 'excalidraw', sha(h.destination.workspaceId).slice(0, 32));
+          const manifests = physicalAfter.filter(item => typeof item.path === 'string'
+            && path.dirname(path.dirname(item.path)) === assetWorkspace && path.basename(item.path) === 'original.json');
+          assert.equal(manifests.length, 1); const manifest = manifests[0].path as string;
+          const assets = captureExcalidrawCopyAssetOriginal(JSON.parse(await fs.readFile(path.join(h.dataRoot, manifest), 'utf8')));
+          assert.equal(assets.operationId, job.operationId); assert.equal(assets.stageDigest, original.payloadSha256);
+          assert.equal(assets.destinationScope.workspaceId, h.destination.workspaceId);
+          const assetPrivate = path.dirname(manifest); assert.equal(path.basename(assetPrivate), assets.privateDirectory.name);
+          for (const prior of physicalBefore) {
+            const actual = physicalAfter.find(item => item.path === prior.path); assert(actual);
+            const expected = { ...prior }, observed = { ...actual };
+            if (prior.path === destinationRoot || prior.path === path.dirname(assetWorkspace)) {
+              // Only known parents gain the retained private recovery stage.
+              for (const field of ['ctimeNs', 'mtimeNs', 'size', 'nlink']) { delete expected[field]; delete observed[field]; }
+            }
+            assert.deepEqual(observed, expected, 'Busy Copy must preserve physical files.');
+          }
+          for (const item of physicalAfter.filter(item => !physicalBefore.some(prior => prior.path === item.path))) {
+            assert.equal(typeof item.path, 'string'); const named = item.path as string;
+            assert(privateStages.some(root => named === root || named.startsWith(root + path.sep))
+              || named === assetWorkspace || named === assetPrivate || named.startsWith(assetPrivate + path.sep));
+          }
+          assert.deepEqual(events, [], 'Busy Copy must not publish file events.');
+          assert.deepEqual(await job.sourceRows(), job.sourceBefore, 'Busy Copy must preserve source rows/xmin.');
+        } finally {
+          try { if (locked) assert.equal((await room.query('SELECT pg_advisory_unlock($1::bigint) AS released', [key])).rows[0].released, true); }
+          finally { await room.end(); }
+        }
+        // Continue the retained stage only through explicit Recover with the
+        // original operation, plan and selections, after verified lock release.
+        seedCaches();
+        await verifyComplete(job, await success(argumentsFor(job, 'recover')), true); assertBirths(job);
+        assert.deepEqual(await stageNames(), stagesBefore);
+      });
       await group('registered preview/apply publishes actual native/Scene/assets/link receipts and exactly one set of service birth events', async () => {
         baseline = await seed(); events.length = 0; const before = await domain(), filesBefore = await filesystem(); seedCaches();
         await preview(baseline); assert.deepEqual(await domain(), before); assert.deepEqual(await filesystem(), filesBefore); assert.deepEqual(events, []);
@@ -472,13 +540,15 @@ export async function directMcpWorkspaceCopyToolPostgresTest(): Promise<void> {
       unsubscribe(); watcher.stop(); assert.equal(watcherRuntime.__canvasFileWatcherService, watcher); delete watcherRuntime.__canvasFileWatcherService;
     }
   }); } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
-  assert.equal(groups, 6); completed = true;
-  console.log(`Direct MCP Copy tool: ${groups}/6 actual modern HTTP dispatcher/JWT/PG18/FD and service-event families; no TCP, OAuth approval, SDK or UI claim.`);
+  assert.equal(groups, 7); completed = true;
+  console.log(`Direct MCP Copy tool: ${groups}/7 actual modern HTTP dispatcher/JWT/PG18/FD and service-event families; no TCP, OAuth approval, SDK or UI claim.`);
 }
 
 void directMcpWorkspaceCopyToolPostgresTest().catch(error => {
   const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+  const assertion = error instanceof assert.AssertionError ? error.message.split('\n')[0] : '';
   console.error('MCP Copy dispatcher failure:', { currentCase, groups, name: error instanceof Error ? error.name : typeof error,
+    assertion: /^Busy (?:Copy|response) must [A-Za-z /.-]{1,100}\.$/u.test(assertion) ? assertion : undefined,
     code: typeof code === 'string' && /^[A-Za-z0-9_]{1,96}$/u.test(code) ? code : undefined,
     frames: error instanceof Error ? error.stack?.split('\n').slice(1).map(line => line.trim()).filter(line => line.startsWith('at ')).slice(0, 6) : undefined });
   process.exitCode = 1;

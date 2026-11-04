@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import stat
 import sys
 import uuid
@@ -54,8 +55,11 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+storage_device_mapper = str
+
+
 def identity(info):
-    return {"dev": str(info.st_dev), "ino": str(info.st_ino), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
+    return {"dev": storage_device_mapper(str(info.st_dev)), "ino": str(info.st_ino), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
 
 
 def profile(info):
@@ -147,7 +151,7 @@ def barrier(parent, name):
 
 def assert_root(root):
     current = directory(3, False)
-    if current["dev"] != root["dev"] or current["ino"] != root["ino"] or identity(os.stat(root["path"], follow_symlinks=False)) != current:
+    if str(os.fstat(3).st_dev) != root["dev"] or current["ino"] != root["ino"] or identity(os.stat(root["path"], follow_symlinks=False)) != current:
         fail("UPLOAD_STATE_UNCONFIRMED")
 
 
@@ -247,7 +251,7 @@ def initialize():
         os.fsync(control)
         os.fsync(3)
         named(3, CONTROL, control)
-        return {"control": directory(control)}
+        return {"control": {**directory(control), "dev": str(os.fstat(control).st_dev)}}
     finally:
         if control is not None:
             os.close(control)
@@ -419,6 +423,8 @@ def remove_session(selection, receipt):
 
 
 def main():
+    global storage_device_mapper
+    storage_device_mapper = str
     value = decode(sys.stdin.readline(RECORD_LIMIT))
     if not isinstance(value, dict) or set(value) - {"action", "root", "sessionId", "fileId", "userId", "workspaceId", "mode", "reason", "nowMs"}:
         fail("UPLOAD_STATE_UNCONFIRMED")
@@ -427,6 +433,14 @@ def main():
             or not isinstance(value.get("sessionId"), str) or not UUID.fullmatch(value["sessionId"]) \
             or value.get("fileId") is not None and (not isinstance(value["fileId"], str) or not UUID.fullmatch(value["fileId"])):
         fail("UPLOAD_NOT_FOUND")
+    if sys.platform == "linux":
+        try:
+            os.stat("canvas-native-storage-binding.json", dir_fd=3, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            module = runpy.run_path(os.path.join(os.path.dirname(__file__), "native-storage-witness.py"))
+            storage_device_mapper = module["storage_device_mapper"](3)
     assert_root(root)
     action = value.get("action")
     if action == "initialize":

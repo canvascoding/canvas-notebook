@@ -4,10 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  buildWorkspaceFileTreePrompt,
+  formatWorkspaceFileTreePrompt,
   replaceWorkspaceFileTreePromptBlock,
   WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES,
 } from '../app/lib/agents/workspace-file-tree-context';
+import { listVisibleWorkspaceTreeDirectory } from '../app/lib/files/workspace-tree';
+
+// Owned filesystem data for formatting only; genuine authorization and native
+// namespace acceptance live in agent-workspace-prompt-postgres-test.ts.
+async function physicalFormattingFixture(scope: { workspaceId: string; rootPath: string }) {
+  return formatWorkspaceFileTreePrompt(scope, directory => listVisibleWorkspaceTreeDirectory(scope, directory));
+}
 
 async function main() {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-tree-'));
@@ -39,7 +46,7 @@ async function main() {
     await fs.writeFile(path.join(workspaceRoot, 'unsafe<tree>.md'), 'escaped');
     await fs.symlink(os.tmpdir(), path.join(workspaceRoot, 'outside-link'));
 
-    const first = await buildWorkspaceFileTreePrompt({
+    const first = await physicalFormattingFixture({
       workspaceId: 'workspace-tree-test',
       rootPath: workspaceRoot,
     });
@@ -56,7 +63,7 @@ async function main() {
     assert.match(first.promptBlock, /unsafe\\u003ctree\\u003e\.md/);
 
     await fs.writeFile(path.join(workspaceRoot, 'latest-root-file.md'), 'latest');
-    const second = await buildWorkspaceFileTreePrompt({
+    const second = await physicalFormattingFixture({
       workspaceId: 'workspace-tree-test',
       rootPath: workspaceRoot,
     });
@@ -79,7 +86,7 @@ async function main() {
           { recursive: true },
         );
       }
-      const bounded = await buildWorkspaceFileTreePrompt({
+      const bounded = await physicalFormattingFixture({
         workspaceId: 'workspace-tree-bounded',
         rootPath: boundedDirectoryRoot,
       });
@@ -98,7 +105,7 @@ async function main() {
           { recursive: true },
         );
       }
-      const oversized = await buildWorkspaceFileTreePrompt({
+      const oversized = await physicalFormattingFixture({
         workspaceId: 'workspace-tree-large',
         rootPath: oversizedRoot,
       });

@@ -20,6 +20,7 @@ import { decodeWorkspaceOperationNativeSourceEvidence } from './workspace-operat
 import { decodeWorkspaceOperationNativeOriginalSourceWitness, decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-operation-native-original-source';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationMcpAuthorization } from './workspace-operation-mcp-authorization';
+import { decodeWorkspaceOperationApiKeyAuthorization } from './workspace-operation-api-key-authorization';
 import type { OriginalDeletePublicShare, OriginalDeletePublicShareResult } from './workspace-operation-original-delete-public';
 import type { WorkspaceOperationOriginalDeleteIntent, WorkspaceOperationOriginalDeleteReceipt } from './workspace-operation-original-delete-repository';
 import { decodeOriginalDeleteNativeLinkIntents, assertOriginalDeleteNativeLinkReceipts,
@@ -97,8 +98,9 @@ function object(value: unknown, keys: readonly string[]): Record<string, unknown
   return value as Record<string, unknown>;
 }
 function actor(context: WorkspaceOperationOriginalDeleteEvidenceContext): OriginalIntent['actor'] {
-  const auth = context.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp') fail('ORIGINAL_DELETE_INVALID');
+  const auth = context.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key') fail('ORIGINAL_DELETE_INVALID');
   if (auth.mode === 'direct-mcp' && decodeWorkspaceOperationMcpAuthorization(auth).tool !== 'delete_knowledge_source') fail('ORIGINAL_DELETE_INVALID');
+  if (auth.mode === 'api-key' && decodeWorkspaceOperationApiKeyAuthorization(auth).kind !== 'delete') fail('ORIGINAL_DELETE_INVALID');
   return Object.freeze({ userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null });
 }
 
@@ -120,7 +122,7 @@ export function captureOriginalDeleteAdmissionBinding(value: unknown): OriginalD
 // status readers. DATA is explicit so decoding performs no FS/ENV/SQL work.
 export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context: WorkspaceOperationOriginalDeleteEvidenceContext,
   workspace: WorkspaceContext, dataRoot: string): OriginalIntent {
-  const auth = context.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp') fail('ORIGINAL_DELETE_INVALID');
+  const auth = context.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key') fail('ORIGINAL_DELETE_INVALID');
   const parsed = JSON.parse(row.intentText);
   const value = object(parsed, ['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare',
     ...(parsed?.version === 2 || parsed?.version === 3 || parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 || parsed?.version === 7 ? ['nativeLinks'] : []),
@@ -136,7 +138,7 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
     || physical.workspace.workspaceId !== context.workspaceId || physical.workspace.rootPath !== workspace.rootPath
     || physical.workspace.dataRoot !== dataRoot || !/^trash-[0-9a-f-]{36}$/u.test(physical.trashEntryId)) fail('ORIGINAL_DELETE_UNPROVEN');
   const native = value.native as NativeFileArchiveExpected | null;
-  if (auth.mode === 'direct-mcp' && native === null && value.version !== 7) fail('ORIGINAL_DELETE_UNPROVEN');
+  if ((auth.mode === 'direct-mcp' || auth.mode === 'api-key') && native === null && value.version !== 7) fail('ORIGINAL_DELETE_UNPROVEN');
   if (native !== null && (native.workspaceId !== workspace.workspaceId || native.organizationId !== (workspace.organizationId ?? null)
     || native.path !== physical.canonicalPath)) fail('ORIGINAL_DELETE_UNPROVEN');
   if (physical.source.kind === 'projection_absent' && native === null) fail('ORIGINAL_DELETE_UNPROVEN');

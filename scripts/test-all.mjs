@@ -270,7 +270,7 @@ async function run() {
       server.child.stderr.on('data', chunk => process.stderr.write(chunk));
     }
     await waitForServer(baseUrl, server);
-    for (const script of ['test:smoke', 'test:integration', 'test:prompt-builder', 'test:integration:pi']) {
+    for (const script of ['test:smoke', 'test:integration', 'test:api-keys', 'test:prompt-builder', 'test:integration:pi']) {
       await runCommand('npm', ['run', script], { env }, server);
     }
     await runCommand('npx', ['--no-install', 'playwright', 'test', '--pass-with-no-tests', '--workers=1'], { env }, server);

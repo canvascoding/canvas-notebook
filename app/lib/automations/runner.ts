@@ -99,6 +99,7 @@ import {
   automationRunIntegrationTurnId,
 } from './store';
 import { resolveAutomationRunWorkspace } from './policy';
+import { readCurrentPromptWorkspaceForUser } from '@/app/lib/agents/workspace-file-tree-authorization';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { getWorkspaceEmailAttentionSummary } from '@/app/lib/email/workspace-inbox-outbox';
@@ -572,7 +573,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         ? await buildWorkspaceFileTreePrompt({
             workspaceId: automationWorkspace.workspaceId,
             rootPath: automationWorkspace.rootPath,
-          })
+          }, () => readCurrentPromptWorkspaceForUser(automationUserId, () => resolveAutomationRunWorkspace(job)))
         : { promptBlock: '' };
       const systemPrompt = replaceWorkspaceFileTreePromptBlock(
         effectiveBaseSystemPrompt,
@@ -936,7 +937,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               ? await buildWorkspaceFileTreePrompt({
                   workspaceId: automationWorkspace.workspaceId,
                   rootPath: automationWorkspace.rootPath,
-                })
+                }, () => readCurrentPromptWorkspaceForUser(automationUserId, () => resolveAutomationRunWorkspace(job)))
               : { promptBlock: '' };
             assertAutomationExecutionActive(executionSignal);
             currentSystemPrompt = replaceWorkspaceFileTreePromptBlock(

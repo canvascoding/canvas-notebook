@@ -21,12 +21,14 @@ import { decodeNativeFileOperationBundleText, stageNativeFileOperationBundleOnCo
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
 import { captureWorkspaceOperationJobPolicy, withWorkspaceOperationJobPolicyOnConnection,
   type WorkspaceOperationJobPolicyAccess } from '../workspaces/workspace-operation-job-principal';
-import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJobPrincipalCaptured,
-  withWorkspaceOperationMcpJobPolicyOnConnection, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
+import { captureWorkspaceOperationProgrammaticJobOptions, workspaceOperationProgrammaticJobOptions,
+  assertWorkspaceOperationProgrammaticJobPrincipalCaptured, withWorkspaceOperationProgrammaticJobPolicyOnConnection,
+  type WorkspaceOperationProgrammaticJobPrincipal, type WorkspaceOperationProgrammaticJobOptions } from '../workspaces/workspace-operation-programmatic-job-principal';
 import { WorkspaceOperationBatchError, readWorkspaceOperationBatchClaimBinding,
   type WorkspaceOperationBatchClaim, type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
 import type { WorkspaceOperationDirectAuthorization, WorkspaceOperationDirectMcpAuthorization,
   WorkspaceOperationJobScope, WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationApiKeyAuthorization } from './workspace-operation-api-key-authorization';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
 import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
@@ -54,7 +56,7 @@ import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './
 import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
 
 type NativePathBinding = Readonly<{
-  binding: WorkspaceOperationBatchClaimBinding; authorization: WorkspaceOperationDirectAuthorization | WorkspaceOperationDirectMcpAuthorization;
+  binding: WorkspaceOperationBatchClaimBinding; authorization: WorkspaceOperationDirectAuthorization | WorkspaceOperationDirectMcpAuthorization | WorkspaceOperationApiKeyAuthorization;
   scope: WorkspaceOperationJobScope; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan;
   kind: 'move' | 'delete';
 }>;
@@ -78,7 +80,7 @@ function nativePathBinding(claim: WorkspaceOperationBatchClaim): NativePathBindi
  * current authorization; its two callers retain their own genuine boundary. */
 function captureNativePathBindingFacts(binding: WorkspaceOperationBatchClaimBinding): NativePathBinding {
   const auth = binding.authorization;
-  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
+  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' && auth.mode !== 'api-key' || !auth.jobScope || auth.jobScope.legacy
     || binding.workspaceId !== auth.jobScope.workspaceId || binding.plan.workspaceId !== binding.workspaceId || binding.plan.planId !== binding.planId
     || binding.plan.readiness !== 'ready' || binding.plan.version !== 2 && binding.plan.version !== 3 && binding.plan.version !== 5 && binding.plan.version !== 6
     || typeof binding.source.schemaName !== 'string' || !binding.source.schemaName || Buffer.byteLength(binding.source.schemaName) > 63
@@ -197,27 +199,27 @@ export async function readWorkspaceOperationNativePathAdmissionOnConnection(data
 /** Capture the genuine live handle before any FS/pool await. The returned
  * status is published only after the complete original Claim phase settles. */
 export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOperationBatchClaim,
-  options: Readonly<{ mcpPrincipal?: WorkspaceOperationMcpJobPrincipal; openConnection?: () => Promise<SqlConnection> }> = {}
+  options: WorkspaceOperationProgrammaticJobOptions & Readonly<{ openConnection?: () => Promise<SqlConnection> }> = {}
 ): Promise<WorkspaceOperationNativePathAdmissionResult> {
   try {
     const original = nativePathBinding(claim);
     if (!options || typeof options !== 'object' || types.isProxy(options) || Object.getPrototypeOf(options) !== Object.prototype
-      || Reflect.ownKeys(options).some(key => typeof key !== 'string' || !['mcpPrincipal', 'openConnection'].includes(key))) {
+      || Reflect.ownKeys(options).some(key => typeof key !== 'string' || !['mcpPrincipal', 'apiKeyPrincipal', 'openConnection'].includes(key))) {
       throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'Native path admission options are invalid.');
     }
     const fields = Object.getOwnPropertyDescriptors(options);
     for (const key of Object.keys(fields)) if (!fields[key].enumerable || !Object.hasOwn(fields[key], 'value')) {
       throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'Native path admission options must be own data.');
     }
-    const value = fields.mcpPrincipal?.value;
-    const mcp = value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(value);
-    if (original.authorization.mode === 'direct-mcp') {
-      if (!mcp) throw new WorkspaceOperationBatchError('MCP_JOB_PRINCIPAL_REQUIRED', 401, 'The genuine live MCP principal is required.');
-      assertWorkspaceOperationMcpJobPrincipalCaptured(mcp, original.binding);
-    } else if (mcp) throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A legacy job cannot adopt an MCP handle.');
+    const mcp = captureWorkspaceOperationProgrammaticJobOptions(options);
+    if (original.authorization.mode === 'direct-mcp' || original.authorization.mode === 'api-key') {
+      if (!mcp) throw new WorkspaceOperationBatchError(original.authorization.mode === 'api-key'
+        ? 'API_KEY_JOB_PRINCIPAL_REQUIRED' : 'MCP_JOB_PRINCIPAL_REQUIRED', 401, 'The genuine live programmatic principal is required.');
+      assertWorkspaceOperationProgrammaticJobPrincipalCaptured(mcp, original.binding);
+    } else if (mcp) throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A Session job cannot adopt a programmatic handle.');
     const open = fields.openConnection?.value === undefined ? openDb : fields.openConnection.value;
     if (typeof open !== 'function') throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A real connection factory is required.');
-    return withWorkspaceMutationLock(original.binding.workspaceId, () => withNativePathClaimPhase(claim, original, mcp, open, async (database, access) => {
+    const advance = (preparedRequestId?: string) => withNativePathClaimPhase(claim, original, mcp, open, async (database, access) => {
       const startedAt = performance.now();
       type Stage = 'admission-read' | 'active-census' | 'request-prepare' | 'reserve' | 'targets' | 'ready';
       let stage: Stage = 'admission-read', finishedCallback = false;
@@ -227,6 +229,9 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
       };
       try {
         const existing = await readWorkspaceOperationNativePathAdmissionOnConnection(database, claim);
+        if (preparedRequestId && existing?.request.requestId !== preparedRequestId) {
+          throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+        }
         mark('admission-read'); stage = 'active-census';
         const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
         const active = await database.all(`SELECT DISTINCT CASE WHEN octet_length(r.request_id)=36 THEN r.request_id END AS request_id
@@ -263,6 +268,12 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
         }
         mark('reserve');
         if (!['reserved', 'draining'].includes(reserved.status)) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        if (!existing && original.kind === 'move' && original.authorization.mode === 'api-key') {
+          // The preparation and reservation are durable together. Resume from
+          // that exact header in a fresh, fully authorized claim transaction.
+          finishedCallback = true;
+          return Object.freeze({ status: 'prepared' as const, requestId: selected.request.requestId });
+        }
         stage = 'targets';
         const pending = await advanceNativePathTargets(database, original, selected.request, reserved, access);
         mark('targets'); stage = 'ready'; mark('ready'); finishedCallback = true;
@@ -273,7 +284,14 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
           elapsedMs: Math.round(performance.now() - startedAt), finishedCallback, milestones })); }
         catch { /* Preserve the original result or error. */ }
       }
-    }));
+    });
+    return withWorkspaceMutationLock(original.binding.workspaceId, async () => {
+      const first = await advance();
+      if (first.status !== 'prepared') return first;
+      const resumed = await advance(first.requestId);
+      if (resumed.status === 'prepared') throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+      return resumed;
+    });
   } catch (error) { return Promise.reject(error); }
 }
 
@@ -281,12 +299,11 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
  * guard or workspace mutation lock is retained while a real room drains.
  * A timeout leaves the original request available to explicit recovery. */
 export async function waitForWorkspaceOperationNativePathAdmission(claim: WorkspaceOperationBatchClaim,
-  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal,
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationProgrammaticJobPrincipal,
   admissionDeadline = performance.now() + 10_000): Promise<void> {
   const original = nativePathBinding(claim);
   const documentIds = workspaceOperationSourceNativeEvidence(original.plan.sourceEvidence).nativeBindings.map(item => item.expected.documentId);
-  const options = Object.freeze({ openConnection,
-    ...(mcp === undefined ? {} : { mcpPrincipal: captureWorkspaceOperationMcpJobPrincipal(mcp) }) });
+  const options = Object.freeze({ openConnection, ...workspaceOperationProgrammaticJobOptions(mcp) });
   const deadline = admissionDeadline;
   if (!Number.isFinite(deadline) || deadline > performance.now() + 10_000) {
     throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'The bounded native path admission deadline is required.');
@@ -313,7 +330,7 @@ export async function waitForWorkspaceOperationNativePathAdmission(claim: Worksp
 }
 
 async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, original: NativePathBinding,
-  mcp: WorkspaceOperationMcpJobPrincipal | undefined, openConnection: () => Promise<SqlConnection>,
+  mcp: WorkspaceOperationProgrammaticJobPrincipal | undefined, openConnection: () => Promise<SqlConnection>,
   operation: (database: SqlConnection, access: WorkspaceOperationJobPolicyAccess) => Promise<T>): Promise<T> {
   // Fixed editor grammar only, scoped through confirmed disposal of this one
   // attempt. No document facts or current authorization are cached.
@@ -338,7 +355,7 @@ async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, 
           await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
           await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='50ms'");
           const authorize = mcp
-            ? (run: (access: WorkspaceOperationJobPolicyAccess) => Promise<T>) => withWorkspaceOperationMcpJobPolicyOnConnection(database, { claim, principal: mcp }, run)
+            ? (run: (access: WorkspaceOperationJobPolicyAccess) => Promise<T>) => withWorkspaceOperationProgrammaticJobPolicyOnConnection(database, { claim, principal: mcp }, run)
             : (run: (access: WorkspaceOperationJobPolicyAccess) => Promise<T>) => withWorkspaceOperationJobPolicyOnConnection(database, { claim, policy: policy! }, run);
           return authorize(async access => {
             if (readWorkspaceOperationBatchClaimBinding(claim) !== original.binding || !workspaceOperationJobScopeMatches(original.scope, access.workspace)) {

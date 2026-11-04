@@ -6,7 +6,7 @@ export function installIngestCommitCloseFault() {
   const originalQuery = pg.Client.prototype.query;
   const receiptClients = new WeakSet<object>();
   let armed = true, fired = false;
-  pg.Client.prototype.query = function (...args: unknown[]) {
+  pg.Client.prototype.query = function (this: pg.Client | pg.PoolClient, ...args: unknown[]) {
     const text = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string })?.text ?? '';
     const pending = Reflect.apply(originalQuery, this, args);
     if (!pending || typeof pending.then !== 'function') return pending;

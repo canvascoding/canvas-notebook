@@ -13,6 +13,9 @@ import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnectio
 import type { WorkspaceContext } from './types';
 import { withDirectMcpWorkspaceCopyPrincipalOnConnection,
   type DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
+import { withApiKeyWorkspaceCopyPrincipalOnConnection,
+  type ApiKeyWorkspaceCopyPrincipal, type ApiKeyWorkspaceCopyPurpose } from '../api-keys/document-read-principal';
+import { captureWorkspaceOperationCopyApiKeyOrigin } from '../files/workspace-operation-copy-origin';
 
 /** Data valid inside the actual principal phase only. Neither an authorization
  * handle nor an assertion to retain across filesystem work or COMMIT. */
@@ -112,6 +115,27 @@ export async function withWorkspaceCopyMcpOnConnection<T>(database: SqlConnectio
   return withDirectMcpWorkspaceCopyPrincipalOnConnection(database, principal, async current => {
     const fresh = captureWorkspaceOperationCopyMcpOrigin({ userId: current.userId, clientId: current.clientId,
       sessionId: current.sessionId, sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace });
+    const originalOrigin = assertWorkspaceOperationCopyOriginCurrent(origin, fresh);
+    return operation(Object.freeze({ sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace,
+      currentActor: fresh.actor, originalOrigin }));
+  });
+}
+
+/** Current API-key Copy authority on the caller's actual B. The entry point
+ * supplies its fixed expected purpose; historical provenance never chooses an
+ * action or bypasses current source-read/destination-write checks. Rotation
+ * retains original attribution while the current credential is checked anew.
+ * The caller owns transaction, rollback, admission and filesystem lifecycle. */
+export async function withWorkspaceCopyApiKeyOnConnection<T>(database: SqlConnection,
+  principal: ApiKeyWorkspaceCopyPrincipal, purpose: ApiKeyWorkspaceCopyPurpose, original: WorkspaceOperationCopyOrigin,
+  operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
+  const origin = decodeWorkspaceOperationCopyOrigin(original);
+  if (origin.version !== 3) changed();
+  if (typeof operation !== 'function') throw new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID');
+  return withApiKeyWorkspaceCopyPrincipalOnConnection(database, principal, purpose, async current => {
+    const fresh = captureWorkspaceOperationCopyApiKeyOrigin({ userId: current.userId, integrationId: current.integrationId,
+      instanceId: current.instanceId, credentialId: current.credentialId, entryPoint: current.entryPoint,
+      sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace });
     const originalOrigin = assertWorkspaceOperationCopyOriginCurrent(origin, fresh);
     return operation(Object.freeze({ sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace,
       currentActor: fresh.actor, originalOrigin }));

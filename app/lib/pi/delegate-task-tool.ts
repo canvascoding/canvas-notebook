@@ -45,6 +45,7 @@ import {
   buildWorkspaceFileTreePrompt,
   replaceWorkspaceFileTreePromptBlock,
 } from '@/app/lib/agents/workspace-file-tree-context';
+import { readAgentWorkspaceForPrompt } from '@/app/lib/agents/workspace-file-tree-authorization';
 import {
   resolveAgentExecutionContextForSession,
   resolveAgentSessionWorkspaceForUser,
@@ -758,7 +759,9 @@ export async function runEphemeralWorker(params: {
         const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
           workspaceId: params.executionContext.workspaceId,
           rootPath: params.executionContext.workspaceRoot,
-        });
+        }, () => readAgentWorkspaceForPrompt({ userId: params.request.userId,
+          sessionId: params.request.sourceSessionId, agentId: params.request.sourceAgentId,
+          workspaceId: params.executionContext.workspaceId, legacy: params.executionContext.legacy }));
         throwIfDelegationAborted(params.signal);
         effectiveSystemPrompt = replaceWorkspaceFileTreePromptBlock(params.baseSystemPrompt, nextWorkspaceFileTree.promptBlock);
         return replaceNextTurnContext(turnContext.context, {
@@ -1043,7 +1046,8 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         const workspaceFileTree = await buildWorkspaceFileTreePrompt({
           workspaceId: childExecutionContext.workspaceId,
           rootPath: childExecutionContext.workspaceRoot,
-        });
+        }, () => readAgentWorkspaceForPrompt({ userId: request.userId, sessionId: request.sourceSessionId,
+          agentId: request.sourceAgentId, workspaceId: childExecutionContext.workspaceId, legacy: childExecutionContext.legacy }));
         let systemPrompt = replaceWorkspaceFileTreePromptBlock(
           baseSystemPrompt,
           workspaceFileTree.promptBlock,

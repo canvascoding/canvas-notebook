@@ -4,9 +4,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual as equal, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { assertDirectMcpWorkspaceCopyPrincipalCaptured, type DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
-import { withWorkspaceCopyMcpOnConnection } from '../workspaces/copy-principal';
+import { assertApiKeyWorkspaceCopyPrincipalCaptured, type ApiKeyWorkspaceCopyPrincipal } from '../api-keys/document-read-principal';
+import { withWorkspaceCopyMcpOnConnection, withWorkspaceCopyApiKeyOnConnection, type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
 import { assertWorkspaceOperationCopyOriginCurrent, decodeWorkspaceOperationCopyOrigin,
-  type WorkspaceOperationCopyMcpOrigin, type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
+  type WorkspaceOperationCopyMcpOrigin, type WorkspaceOperationCopyApiKeyOrigin, type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
 import { serializeWorkspaceOperationRequest, type WorkspaceOperationRequest,
   type WorkspaceOperationStatus, type WorkspaceOperationPhase } from './workspace-operation-journal';
 import { readCompletedMcpNativeCopyHistoryOnConnection } from './workspace-operation-native-copy-phase-read';
@@ -38,15 +39,19 @@ export type McpWorkspaceNativeCopyOperationStatus = Readonly<{
   completion: Readonly<{ status: 'confirmed'; historical: true; copiedPaths: readonly string[] }>
     | Readonly<{ status: 'not_confirmed' }>;
 }>;
-type Input = Readonly<{ origin: WorkspaceOperationCopyMcpOrigin; mcpPrincipal: DirectMcpWorkspaceCopyPrincipal; operationId: string }>;
+export type ApiKeyWorkspaceNativeCopyOperationStatus = McpWorkspaceNativeCopyOperationStatus;
+type McpInput = Readonly<{ origin: WorkspaceOperationCopyMcpOrigin; mcpPrincipal: DirectMcpWorkspaceCopyPrincipal; operationId: string }>;
+type ApiKeyInput = Readonly<{ origin: WorkspaceOperationCopyApiKeyOrigin; apiKeyPrincipal: ApiKeyWorkspaceCopyPrincipal; operationId: string }>;
+type Input = McpInput | ApiKeyInput;
+type StatusOrigin = WorkspaceOperationCopyMcpOrigin | WorkspaceOperationCopyApiKeyOrigin;
 type Row = Record<string, unknown>;
 type Identity = Readonly<{ backend: number; start: string; databaseOid: number; schema: string; schemaOid: number; searchPath: string }>;
 type Witness = Readonly<{ identity: Identity; isolation: string; readOnly: string; xid: string | null; virtual: string }>;
 type Header = Readonly<{ operationId: string; planId: string; requestHash: string; requestJson: string;
-  original: WorkspaceOperationCopyMcpOrigin; copiedPaths: readonly string[]; revision: number;
+  original: StatusOrigin; copiedPaths: readonly string[]; revision: number;
   status: WorkspaceOperationStatus; phase: WorkspaceOperationPhase; expected: number; createdAt: number; updatedAt: number; errorCode: string | null }>;
 type Frame = { database: SqlConnection; active: boolean; phase: 'idle' | 'authorization' | 'history'; checking: boolean;
-  failure?: Error; identity?: Identity; relations?: string; original?: WorkspaceOperationCopyMcpOrigin; history?: Witness };
+  failure?: Error; identity?: Identity; relations?: string; original?: StatusOrigin; history?: Witness };
 const context = new AsyncLocalStorage<Frame>(), frames = new WeakMap<SqlConnection, Frame>();
 const MAX_REQUEST_BYTES = 65536, MAX_HEADER_BYTES = 16384, MAX_STEPS = 10000;
 const statuses: readonly WorkspaceOperationStatus[] = ['prepared', 'running', 'completed', 'failed', 'recovery_required'];
@@ -70,13 +75,20 @@ function record(value: unknown, keys: readonly string[], code: StatusCode = 'NAT
     })) fail(code);
   return value as Row;
 }
-function captureInput(value: Input): Input {
-  const input = record(value, ['origin', 'mcpPrincipal', 'operationId'], 'NATIVE_COPY_STATUS_INVALID');
+function captureInput(value: Input, transport: 'direct-mcp' | 'api-key'): Input {
+  const input = record(value, ['origin', transport === 'api-key' ? 'apiKeyPrincipal' : 'mcpPrincipal', 'operationId'], 'NATIVE_COPY_STATUS_INVALID');
   let origin: WorkspaceOperationCopyOrigin;
   try { origin = decodeWorkspaceOperationCopyOrigin(input.origin); } catch { return fail('NATIVE_COPY_STATUS_INVALID'); }
-  if (origin.version !== 2 || typeof input.operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(input.operationId)) {
+  if (origin.version !== (transport === 'api-key' ? 3 : 2) || typeof input.operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(input.operationId)) {
     fail('NATIVE_COPY_STATUS_INVALID');
   }
+  if (origin.version === 3) {
+    const apiKeyPrincipal = input.apiKeyPrincipal as ApiKeyWorkspaceCopyPrincipal;
+    assertApiKeyWorkspaceCopyPrincipalCaptured(apiKeyPrincipal, { sourceWorkspaceId: origin.sourceScope.workspaceId,
+      destinationWorkspaceId: origin.destinationScope.workspaceId, purpose: 'copy_status' });
+    return Object.freeze({ origin, apiKeyPrincipal, operationId: input.operationId });
+  }
+  if (origin.version !== 2) fail('NATIVE_COPY_STATUS_INVALID');
   const principal = input.mcpPrincipal as DirectMcpWorkspaceCopyPrincipal;
   assertDirectMcpWorkspaceCopyPrincipalCaptured(principal,
     { sourceWorkspaceId: origin.sourceScope.workspaceId, destinationWorkspaceId: origin.destinationScope.workspaceId });
@@ -161,8 +173,8 @@ async function readHeader(frame: Frame, operationId: string): Promise<Header> {
   const request = boundedJson(row.request_json, row.request_bytes, MAX_REQUEST_BYTES) as WorkspaceOperationRequest;
   let serialized: ReturnType<typeof serializeWorkspaceOperationRequest>;
   try { serialized = serializeWorkspaceOperationRequest(request); } catch { return fail(); }
-  if (request.kind !== 'copy' || !request.origin || request.origin.version !== 2) throw new NativeCopyStatusNotFoundError();
-  const original = decodeWorkspaceOperationCopyOrigin(request.origin); if (original.version !== 2) throw new NativeCopyStatusNotFoundError();
+  if (request.kind !== 'copy' || !request.origin || ![2, 3].includes(request.origin.version)) throw new NativeCopyStatusNotFoundError();
+  const original = decodeWorkspaceOperationCopyOrigin(request.origin); if (original.version !== 2 && original.version !== 3) throw new NativeCopyStatusNotFoundError();
   if (h.operation_id !== operationId || !hash(h.plan_id) || !hash(h.request_hash) || serialized.requestJson !== row.request_json
     || serialized.requestHash !== h.request_hash || h.actor_type !== original.actor.type || h.actor_id !== original.actor.userId
     || h.source_workspace_id !== original.sourceScope.workspaceId || h.destination_workspace_id !== original.destinationScope.workspaceId
@@ -231,10 +243,28 @@ async function transaction<T>(frame: Frame, kind: 'authorization' | 'history', o
 
 /** Fixed current-MCP status observation only. No Stage, file, view, lease,
  * publication or recovery access. Results escape only after C2 and close. */
-export async function readMcpWorkspaceNativeCopyOperationStatus(supplied: Input): Promise<McpWorkspaceNativeCopyOperationStatus> {
+export function readMcpWorkspaceNativeCopyOperationStatus(supplied: McpInput): Promise<McpWorkspaceNativeCopyOperationStatus> {
+  return readNativeCopyStatus(supplied, 'direct-mcp');
+}
+
+/** A key must explicitly hold Copy+Status and current rights to both scopes.
+ * This entry creates only the same bounded C1/RR-RO/C2 historical read frame;
+ * it never enters the Copy owner or publishes/recovers files. */
+export function readApiKeyWorkspaceNativeCopyOperationStatus(supplied: ApiKeyInput): Promise<ApiKeyWorkspaceNativeCopyOperationStatus> {
+  return readNativeCopyStatus(supplied, 'api-key');
+}
+
+function authorize<T>(database: SqlConnection, input: Input, origin: StatusOrigin,
+  operation: (access: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
+  return 'apiKeyPrincipal' in input
+    ? withWorkspaceCopyApiKeyOnConnection(database, input.apiKeyPrincipal, 'copy_status', origin, operation)
+    : withWorkspaceCopyMcpOnConnection(database, input.mcpPrincipal, origin, operation);
+}
+
+async function readNativeCopyStatus(supplied: Input, transport: 'direct-mcp' | 'api-key'): Promise<McpWorkspaceNativeCopyOperationStatus> {
   const inherited = context.getStore();
   if (inherited?.active) { inherited.failure ??= new NativeCopyStatusError('NATIVE_COPY_STATUS_REQUIRED'); throw inherited.failure; }
-  const input = captureInput(supplied);
+  const input = captureInput(supplied, transport);
   // openDb uses the existing monitored runtime-pool checkout. Its current
   // implementation creates no schema, migration, backfill or domain rows.
   let database: SqlConnection;
@@ -244,7 +274,7 @@ export async function readMcpWorkspaceNativeCopyOperationStatus(supplied: Input)
   let result: McpWorkspaceNativeCopyOperationStatus | undefined, failed = false, failure: unknown;
   try {
     result = await context.run(frame, async () => {
-      const initial = await transaction(frame, 'authorization', () => withWorkspaceCopyMcpOnConnection(database, input.mcpPrincipal, input.origin, async access => {
+      const initial = await transaction(frame, 'authorization', () => authorize(database, input, input.origin, async access => {
         const current = await witness(database);
         if (current.isolation !== 'read committed' || current.readOnly !== 'off' || current.xid === null) fail();
         frame.identity = current.identity; frame.relations = await relations(frame);
@@ -262,7 +292,7 @@ export async function readMcpWorkspaceNativeCopyOperationStatus(supplied: Input)
         return { header, storage, sceneStorage };
       }));
       const snapshot = await transaction(frame, 'history', () => readSnapshot(frame, initial.header, initial.storage, initial.sceneStorage));
-      await transaction(frame, 'authorization', () => withWorkspaceCopyMcpOnConnection(database, input.mcpPrincipal, initial.header.original, async () => {
+      await transaction(frame, 'authorization', () => authorize(database, input, initial.header.original, async () => {
         const actual = await assertIdentity(frame);
         if (actual.isolation !== 'read committed' || actual.readOnly !== 'off' || actual.xid === null) fail();
         sameOriginal(await readHeader(frame, input.operationId), initial.header);

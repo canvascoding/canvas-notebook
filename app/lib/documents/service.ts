@@ -4,6 +4,11 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import { authenticateApiKeyRequest, hasApiKeyCredential, type ApiKeyCredential } from '../api-keys/authentication';
+import { ApiKeyAccessError } from '../api-keys/contracts';
+import { withApiKeyDocumentReadPrincipal, withApiKeyDocumentReadPrincipalOnConnection,
+  withApiKeyWorkspaceBrowsePrincipal, withApiKeyWorkspaceBrowsePrincipalOnConnection,
+  withApiKeyWorkspaceListPrincipal, withApiKeyWorkspaceListPrincipalOnConnection, type ApiKeyDocumentReadOrigin } from '../api-keys/document-read-principal';
 import { openDb, type SqlConnection } from '../db';
 import { measureDocumentOperation } from '../observability/document-operation-metrics';
 import { readNativeDocumentByIdOnConnection, type NativeDocumentReadObservation } from '../collaboration/native-document-read';
@@ -13,7 +18,7 @@ import { AgentToolInvocationError } from '../pi/agent-tool-invocation';
 import { DirectMcpAuthorizationError } from '../mcp/server/access-token-verifier';
 import { withDirectMcpDocumentReadPrincipal, withDirectMcpDocumentReadPrincipalOnConnection,
   DirectMcpDocumentReadPrincipalError, type DirectMcpDocumentReadHistoricalOrigin } from '../mcp/server/document-read-principal';
-import { withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
+import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
   withWorkspaceDocumentReadRequestPrincipalOriginalOrigin,
   withWorkspaceAgentToolPrincipalOriginalOrigin, withWorkspaceAgentToolPrincipalOnConnection,
   WorkspaceRequestPrincipalError, type WorkspaceRequestHistoricalOrigin,
@@ -29,6 +34,9 @@ import { prepareNativeDocumentSearchOnConnection } from '../collaboration/native
 import { withPreparedDocumentSearchToolPolicy, PublicShareToolPolicyError } from '../public-sharing/tool-policy';
 import { decodeDocumentSearchRequestV1, DocumentSearchError, type DecodedDocumentSearchRequestV1,
   type DocumentSearchPageV1 } from './search-contract';
+import { WorkspaceTreeError } from '../files/workspace-tree';
+import { readWorkspaceOverviewContents, readWorkspaceTreeWithLinks, readWorkspaceManifest } from './workspace-browse';
+import { decodeWorkspaceBrowseRequestV1, WorkspaceBrowseError, type DecodedWorkspaceBrowseRequestV1 } from './browse-contract';
 
 type HistoricalScope = Pick<WorkspaceRequestHistoricalOrigin, 'workspaceId' | 'workspaceType' | 'organizationId'
   | 'customerId' | 'projectId' | 'ownerUserId' | 'rootPath' | 'rootRelativePath' | 'legacy' | 'status'
@@ -223,8 +231,8 @@ async function readPage(phase: ReadPhase, selection: DecodedDocumentReadRequestV
 }
 
 function normalizeError(error: unknown): Error {
-  if (error instanceof DocumentReadError || error instanceof DocumentSearchError
-    || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError) return error;
+  if (error instanceof DocumentReadError || error instanceof DocumentSearchError || error instanceof WorkspaceBrowseError
+    || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError || error instanceof ApiKeyAccessError) return error;
   if (error instanceof SeatLimitGuardError) return new DocumentReadError('ACCESS_DENIED');
   if (error instanceof AgentToolInvocationError) return new DocumentReadError(error.code === 'AGENT_TOOL_INVOCATION_ABORTED'
     || error.code === 'AGENT_TOOL_INVOCATION_ORIGIN_CHANGED' ? 'DOCUMENT_SCOPE_CHANGED' : 'AUTHENTICATION_REQUIRED');
@@ -252,6 +260,61 @@ function normalizeError(error: unknown): Error {
  * can be supplied. Successful output waits for both COMMIT and disposal. */
 async function transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
   return transactionOnConnection(await openDb(), operation);
+}
+
+/** Current explicit key workspaces only. Metadata neither grants writes nor
+ * publishes private roots or an OAuth/session identity. COMMIT owns the reply. */
+export async function listWorkspacesForApiKey(credential: ApiKeyCredential, source: 'request' | 'mcp') {
+  try {
+    return await withApiKeyWorkspaceListPrincipal(credential, source, principal => transaction(connection =>
+      withApiKeyWorkspaceListPrincipalOnConnection(connection, principal, async access => {
+        return Object.freeze(access.workspaces.map(workspace => Object.freeze({ id: workspace.workspaceId,
+          name: workspace.displayName || 'Workspace', description: workspace.description || null,
+          type: workspace.workspaceType, is_default: Boolean(workspace.isDefault) })));
+      })));
+  } catch (error) { throw normalizeError(error); }
+}
+
+/** Data readers shared with OAuth. No root, credential or simulated OAuth scope is public. */
+async function browsePage(workspace: WorkspaceContext, selection: DecodedWorkspaceBrowseRequestV1, method: 'api_key' | 'session') {
+  try {
+    if (selection.purpose === 'tree') return (await readWorkspaceTreeWithLinks(workspace, selection)).value;
+    if (selection.purpose === 'manifest') return (await readWorkspaceManifest(workspace, selection)).value;
+    const overview = await readWorkspaceOverviewContents(workspace);
+    return { workspace: { id: workspace.workspaceId, name: workspace.displayName || 'Workspace',
+      description: workspace.description || null, type: workspace.workspaceType, is_default: Boolean(workspace.isDefault) },
+    contents: overview.contents,
+    capabilities: { authentication_method: method, read: true, operations: ['overview', 'tree', 'manifest'],
+      consistency: 'Each operation checks current access. File listings and hashes are bounded, non-atomic observations.' },
+    limits: { tree_max_entries: 500, manifest_max_entries: 20, max_depth: 6 } };
+  } catch (error) {
+    if (error instanceof WorkspaceTreeError) throw new WorkspaceBrowseError(error.code);
+    throw error;
+  }
+}
+
+async function browseWithApiKey(credential: ApiKeyCredential, selection: DecodedWorkspaceBrowseRequestV1, source: 'request' | 'mcp') {
+  return withApiKeyWorkspaceBrowsePrincipal(credential, { workspaceId: selection.workspaceId, purpose: selection.purpose, source },
+    principal => transaction(connection => withApiKeyWorkspaceBrowsePrincipalOnConnection(connection, principal, selection.purpose,
+      access => browsePage(access.workspace, selection, 'api_key'))));
+}
+
+export async function browseWorkspaceForApiKeyMcp(credential: ApiKeyCredential, input: unknown) {
+  try { return await browseWithApiKey(credential, decodeWorkspaceBrowseRequestV1(input), 'mcp'); }
+  catch (error) { throw normalizeError(error); }
+}
+
+/** Explicit key or original genuine member request; the service owns actual B and COMMIT. */
+export async function browseWorkspaceForRequest(request: Request, input: unknown) {
+  const selection = decodeWorkspaceBrowseRequestV1(input);
+  if (!(request instanceof Request)) throw new WorkspaceBrowseError('INVALID_BROWSE_REQUEST');
+  const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  try {
+    if (hasApiKeyCredential(captured)) return await browseWithApiKey(await authenticateApiKeyRequest(captured), selection, 'request');
+    return await withWorkspaceRequestPrincipal(captured, { workspaceId: selection.workspaceId, permission: 'canRead' },
+      principal => transaction(connection => withWorkspaceRequestPrincipalOnConnection(connection, principal,
+        access => browsePage(access.workspace, selection, 'session'))));
+  } catch (error) { throw normalizeError(error); }
 }
 
 /** Takes ownership of an actual connection, including all disposal failures. */
@@ -297,7 +360,25 @@ async function finish(held: { phase: ReadPhase; page: DocumentReadPageV1 }): Pro
   finally { held.phase.active = false; }
 }
 
-/** Genuine Better Auth request; selectors and continuation evidence grant no rights. */
+async function readWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentReadRequestV1, mcp = false): Promise<DocumentReadPageV1> {
+  const historical: { value?: ApiKeyDocumentReadOrigin } = {};
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'read', ...(mcp ? { mcp: true } : {}) },
+    value => observe(historical, value), principal => transaction(async connection => {
+      const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, access => consume(historical,
+        connection, access.workspace, value => origin(value, ['api_key', value.userId, value.integrationId, value.instanceId]), selection));
+      return finish(held);
+    }));
+}
+
+/** Genuine key proof from /mcp, with fresh MCP tool switches on actual B. */
+export async function readDocumentForApiKeyMcp(credential: ApiKeyCredential, input: unknown): Promise<DocumentReadPageV1> {
+  return measureDocumentOperation('read', 'mcp', async () => {
+    try { return await readWithApiKey(credential, decodeDocumentReadRequestV1(input), true); }
+    catch (error) { throw normalizeError(error); }
+  });
+}
+
+/** Explicit API key or genuine Better Auth request; selectors grant no rights. */
 export async function readDocumentForRequest(request: Request, input: unknown): Promise<DocumentReadPageV1> {
   return measureDocumentOperation('read', 'request', async () => {
     const selection = decodeDocumentReadRequestV1(input);
@@ -306,7 +387,9 @@ export async function readDocumentForRequest(request: Request, input: unknown): 
     if (!(request instanceof Request)) throw new DocumentReadError('INVALID_REQUEST');
     const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
     const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-    try { return await withWorkspaceDocumentReadRequestPrincipalOriginalOrigin(captured, selection.workspaceId,
+    try {
+      if (hasApiKeyCredential(captured)) return await readWithApiKey(await authenticateApiKeyRequest(captured), selection);
+      return await withWorkspaceDocumentReadRequestPrincipalOriginalOrigin(captured, selection.workspaceId,
       value => observe(historical, value), (principal, sourceConnection) => transactionOnConnection(sourceConnection, async connection => {
         const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => consume(historical,
           connection, access.workspace, value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection));
@@ -375,13 +458,35 @@ function normalizeSearchError(error: unknown): Error {
   return normalizeError(error);
 }
 
-/** Genuine original request only; a cursor, scope or hit never grants access. */
+async function searchWithApiKey(credential: ApiKeyCredential, selection: DecodedDocumentSearchRequestV1, mcp = false): Promise<DocumentSearchPageV1> {
+  const historical: { value?: ApiKeyDocumentReadOrigin } = {};
+  return withApiKeyDocumentReadPrincipal(credential, { workspaceId: selection.workspaceId, purpose: 'search', ...(mcp ? { mcp: true } : {}) },
+    value => observe(historical, value), principal => transaction(async connection => {
+      const held = await withApiKeyDocumentReadPrincipalOnConnection(connection, principal, async access => {
+        const prepared = await consumeSearch(historical, connection, access.workspace,
+          value => origin(value, ['api_key', value.userId, value.integrationId, value.instanceId]), selection);
+        try { await access.assertCurrent(); return prepared; }
+        catch (error) { prepared.phase.active = false; throw error; }
+      });
+      return finishSearch(held);
+    }));
+}
+
+/** Same search kernel and key identity, with current MCP feature/tool policy. */
+export async function searchDocumentsForApiKeyMcp(credential: ApiKeyCredential, input: unknown): Promise<DocumentSearchPageV1> {
+  try { return await searchWithApiKey(credential, decodeDocumentSearchRequestV1(input), true); }
+  catch (error) { throw normalizeSearchError(error); }
+}
+
+/** Explicit API key or genuine original request; a cursor or hit grants no access. */
 export async function searchDocumentsForRequest(request: Request, input: unknown): Promise<DocumentSearchPageV1> {
   const selection = decodeDocumentSearchRequestV1(input);
   if (!(request instanceof Request)) throw new DocumentSearchError('INVALID_SEARCH_REQUEST');
   const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
-  try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured,
+  try {
+    if (hasApiKeyCredential(captured)) return await searchWithApiKey(await authenticateApiKeyRequest(captured), selection);
+    return await withWorkspaceRequestPrincipalOriginalOrigin(captured,
     { workspaceId: selection.workspaceId, permission: 'canRead' }, value => observe(historical, value),
     principal => transaction(async connection => {
       const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {

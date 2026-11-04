@@ -26,14 +26,17 @@ function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-assert.equal(inventory.schemaVersion, 4);
+assert.equal(inventory.schemaVersion, 5);
 assert.match(
   inventory.baseImage,
   /^node:24-bookworm-slim@sha256:[a-f0-9]{64}$/u,
   'Docker runtime inventory must identify an immutable multi-architecture base-image digest',
 );
 assert.match(inventory.platform, /^(?:linux\/)?(?:amd64|arm64|ppc64le)(?:\/v8)?$/u);
-assert.equal(inventory.debianSnapshot, nativePolicy.debianSnapshot.timestamp);
+assert.deepEqual(inventory.debianRepositories, {
+  ...nativePolicy.debianRepositories,
+  installedLockSha256: nativePolicy.debianRepositories.lockSha256,
+});
 assert.match(inventory.evidence.dockerfileSha256, /^[a-f0-9]{64}$/u);
 assert.match(inventory.evidence.nativeDistributionPolicySha256, /^[a-f0-9]{64}$/u);
 assert.match(inventory.evidence.pythonRequirementsSha256, /^[a-f0-9]{64}$/u);

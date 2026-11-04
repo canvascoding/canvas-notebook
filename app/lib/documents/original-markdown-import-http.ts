@@ -3,8 +3,11 @@ import 'server-only';
 import { types } from 'node:util';
 import { NextRequest, NextResponse } from 'next/server';
 import { applyRateLimit } from '../api/route-helpers';
+import { authenticateApiKeyRequest, hasApiKeyCredential } from '../api-keys/authentication';
+import { apiKeyDocumentFailureV1 } from '../api-keys/error-result';
 import { MarkdownFileImportError } from '../collaboration/markdown-file-import';
 import { persistExplicitOriginalMarkdownFileForWrite, readExplicitOriginalMarkdownImportStatusForWrite,
+  persistApiKeyOriginalMarkdownFileForWrite, readApiKeyOriginalMarkdownImportStatusForWrite,
   type MarkdownFileImportReceipt } from '../collaboration/markdown-file-import-persistence';
 import { decodeMarkdownOriginalImportSelectionV1 } from '../collaboration/markdown-original-import-contract';
 import { LicenseEntitlementError } from '../license/entitlements';
@@ -90,8 +93,10 @@ async function readMarkdownOriginalImportJsonBody(request: NextRequest): Promise
 /** Known failures expose a stable code only. No SQL, filesystem path, native
  * payload, stored principal, credential or error message is serialized. */
 export function markdownOriginalImportFailureV1(error: unknown): Readonly<{
-  body: Readonly<{ apiVersion: 1; success: false; code: string }>; status: number;
+  body: Readonly<{ apiVersion: 1; success: false; code: string }>; status: number; retryAfter?: string;
 }> {
+  const keyFailure = apiKeyDocumentFailureV1(error);
+  if (keyFailure) return keyFailure;
   let code = 'IMPORT_UNAVAILABLE', status = 503;
   if (error && typeof error === 'object' && types.isProxy(error)) {
     return Object.freeze({ body: Object.freeze({ apiVersion: 1, success: false, code }), status });
@@ -120,28 +125,41 @@ export function markdownOriginalImportFailureV1(error: unknown): Readonly<{
  * Status reads stored receipts and cannot reconcile, checkpoint or import. */
 export async function handleMarkdownOriginalImportHttp(request: NextRequest, action: 'import' | 'status'): Promise<NextResponse> {
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const keyRequest = hasApiKeyCredential(original);
   const limited = applyRateLimit(request, { limit: action === 'import' ? 60 : 120, windowMs: 60_000,
     keyPrefix: `documents-import-existing-${action}-v1` });
   if (limited) {
+    if (keyRequest) {
+      const raw = Number(limited.headers.get('retry-after'));
+      const retryAfter = Number.isFinite(raw) && raw > 0 ? String(Math.min(60, Math.max(1, Math.ceil(raw)))) : '60';
+      return NextResponse.json({ apiVersion: 1, success: false, code: 'API_KEY_RATE_LIMITED' },
+        { status: 429, headers: { ...responseHeaders, 'Retry-After': retryAfter } });
+    }
     for (const [name, value] of Object.entries(responseHeaders)) limited.headers.set(name, value);
     return limited;
   }
   try {
+    // Header presence selects key authentication, including an empty/invalid
+    // key. A cookie or bearer credential cannot become a fallback grant.
+    const credential = keyRequest ? await authenticateApiKeyRequest(original) : null;
     const value = await readMarkdownOriginalImportJsonBody(request);
     let result: MarkdownOriginalImportResultV1;
     if (action === 'import') {
       const selection = decodeMarkdownOriginalImportSelectionV1(value);
-      const imported = await persistExplicitOriginalMarkdownFileForWrite(original, selection);
+      const imported = credential ? await persistApiKeyOriginalMarkdownFileForWrite(credential, selection, 'request')
+        : await persistExplicitOriginalMarkdownFileForWrite(original, selection);
       result = encodeMarkdownOriginalImportResultV1(selection.operationId, imported.receipt,
         imported.disposition === 'applied' ? 'imported' : 'already_imported');
     } else {
       const selection = decodeMarkdownOriginalImportStatusV1(value);
-      const receipt = await readExplicitOriginalMarkdownImportStatusForWrite(original, selection);
+      const receipt = credential ? await readApiKeyOriginalMarkdownImportStatusForWrite(credential, selection, 'request')
+        : await readExplicitOriginalMarkdownImportStatusForWrite(original, selection);
       result = encodeMarkdownOriginalImportResultV1(selection.operationId, receipt);
     }
     return NextResponse.json(result, { headers: responseHeaders });
   } catch (error) {
     const failure = markdownOriginalImportFailureV1(error);
-    return NextResponse.json(failure.body, { status: failure.status, headers: responseHeaders });
+    return NextResponse.json(failure.body, { status: failure.status,
+      headers: { ...responseHeaders, ...(failure.retryAfter ? { 'Retry-After': failure.retryAfter } : {}) } });
   }
 }

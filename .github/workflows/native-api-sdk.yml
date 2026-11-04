@@ -1,0 +1,141 @@
+name: Native API and SDK
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'server/**'
+      - 'scripts/**'
+      - 'packages/canvas-notebook-python/**'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/native-api-sdk.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-api-sdk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native-api-sdk:
+    name: Native API and installed SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NODE_ENV: test
+      CANVAS_POSTGRES_VECTOR_ENABLED: 'false'
+      CANVAS_NATIVE_TEST_ADMIN_URL: postgresql://canvas_ci@127.0.0.1:55433/postgres
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: canvas_ci
+          POSTGRES_DB: postgres
+          # Disposable fixture service, bound only to this runner's loopback.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:55433:5432'
+        options: >-
+          --health-cmd "pg_isready -U canvas_ci -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build:decision-models
+      - name: Build and verify native filesystem helper
+        run: |
+          npm run build:fd-publication
+          npm run verify:fd-publication
+      - name: Test fixture configuration contract
+        run: npm run test:api-keys:ci-config
+      - name: Allocate owned PostgreSQL 18 fixture database
+        run: npm run test:api-keys:ci-database -- create
+      - name: Source observation and projection process coordination
+        run: |
+          set -euo pipefail
+          node --import tsx --conditions react-server --test scripts/workspace-source-authority-projection-lock-test.ts 2>&1 | tee "$RUNNER_TEMP/source-projection-lock.log"
+      - name: API contracts and UI component tests
+        run: |
+          set -euo pipefail
+          npm run test:api-keys 2>&1 | tee "$RUNNER_TEMP/api-contracts.log"
+      - name: File preview contention and transaction cleanup
+        run: |
+          set -euo pipefail
+          npm run test:files:preview-busy 2>&1 | tee "$RUNNER_TEMP/preview-busy-contracts.log"
+          npm run test:files:preview-busy:native 2>&1 | tee "$RUNNER_TEMP/preview-busy-native.log"
+      - name: Genuine native API and agent tools
+        run: |
+          set -euo pipefail
+          npm run test:api-keys:native 2>&1 | tee "$RUNNER_TEMP/native-api.log"
+          npm run test:mcp:path-tools:native 2>&1 | tee "$RUNNER_TEMP/native-mcp-paths.log"
+          npm run test:pi:workspace-tree:native 2>&1 | tee "$RUNNER_TEMP/native-agent-list.log"
+          npm run test:pi:read:native 2>&1 | tee "$RUNNER_TEMP/native-agent-read.log"
+          npm run test:pi:workspace-tree:prompt:native 2>&1 | tee "$RUNNER_TEMP/native-agent-prompt.log"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.10'
+      - name: Build wheel and source distribution from this checkout
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python -m build packages/canvas-notebook-python --outdir "$RUNNER_TEMP/canvas-sdk-dist"
+      - name: Fresh Python 3.10 artifact and dependency profiles
+        run: >-
+          python scripts/api-key-sdk-install-matrix.py
+          --dist-dir "$RUNNER_TEMP/canvas-sdk-dist"
+          --output "$RUNNER_TEMP/sdk-matrix-3.10"
+          --github-env "$GITHUB_ENV"
+      - name: Installed Python 3.10 SDK over actual HTTP and PostgreSQL
+        run: |
+          set -euo pipefail
+          npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.10.log"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15'
+      - name: Fresh Python 3.15 artifact and dependency profiles
+        run: >-
+          python scripts/api-key-sdk-install-matrix.py
+          --dist-dir "$RUNNER_TEMP/canvas-sdk-dist"
+          --output "$RUNNER_TEMP/sdk-matrix-3.15"
+          --github-env "$GITHUB_ENV"
+      - name: Installed Python 3.15 SDK over actual HTTP and PostgreSQL
+        run: |
+          set -euo pipefail
+          npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.15.log"
+      - name: Verify resource closure and remove only owned test databases
+        if: always()
+        run: npm run test:api-keys:ci-database -- cleanup
+      - name: Retain test evidence and SDK artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-api-sdk-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/source-projection-lock.log
+            ${{ runner.temp }}/api-contracts.log
+            ${{ runner.temp }}/preview-busy-*.log
+            ${{ runner.temp }}/native-api.log
+            ${{ runner.temp }}/native-mcp-paths.log
+            ${{ runner.temp }}/native-agent-*.log
+            ${{ runner.temp }}/native-sdk-*.log
+            ${{ runner.temp }}/sdk-matrix-*/*.log
+            ${{ runner.temp }}/sdk-matrix-*/report.json
+            ${{ runner.temp }}/canvas-sdk-dist/*

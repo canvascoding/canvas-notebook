@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import stat
 import sys
 import uuid
@@ -53,8 +54,11 @@ def decode(data):
     return json.loads(data, object_pairs_hook=unique)
 
 
+storage_device_mapper = str
+
+
 def identity(info):
-    return {"dev": str(info.st_dev), "ino": str(info.st_ino), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
+    return {"dev": storage_device_mapper(str(info.st_dev)), "ino": str(info.st_ino), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
 
 
 def profile(info):
@@ -249,11 +253,14 @@ def origin(selection):
 
 def assert_root(root):
     info = os.fstat(3)
-    if private_directory(3, False)["dev"] != root["dev"] or str(info.st_ino) != root["ino"] or identity(os.stat(root["path"], follow_symlinks=False)) != identity(info):
+    private_directory(3, False)
+    if str(info.st_dev) != root["dev"] or str(info.st_ino) != root["ino"] or identity(os.stat(root["path"], follow_symlinks=False)) != identity(info):
         fail("NAMESPACE_CHANGED")
 
 
 def main():
+    global storage_device_mapper
+    storage_device_mapper = str
     value = decode(sys.stdin.readline(RECORD_LIMIT))
     if set(value) != {"action", "selection", "key", "root"}:
         fail("INVALID_INPUT")
@@ -264,6 +271,14 @@ def main():
         fail("INVALID_INPUT")
     if not isinstance(root, dict) or set(root) != {"path", "dev", "ino"} or not isinstance(root["path"], str) or not os.path.isabs(root["path"]):
         fail("INVALID_INPUT")
+    if sys.platform == "linux":
+        try:
+            os.stat("canvas-native-storage-binding.json", dir_fd=3, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            module = runpy.run_path(os.path.join(os.path.dirname(__file__), "native-storage-witness.py"))
+            storage_device_mapper = module["storage_device_mapper"](3)
     assert_root(root)
     store = entry = None
     try:

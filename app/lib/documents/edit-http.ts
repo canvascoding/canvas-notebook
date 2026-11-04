@@ -48,6 +48,7 @@ export async function handleDocumentEditHttp(request: NextRequest, action: 'edit
     return NextResponse.json(result, { headers: responseHeaders });
   } catch (error) {
     const failure = documentEditFailureV1(error);
-    return NextResponse.json(failure.body, { status: failure.status, headers: responseHeaders });
+    return NextResponse.json(failure.body, { status: failure.status, headers: {
+      ...responseHeaders, ...(failure.retryAfter ? { 'Retry-After': failure.retryAfter } : {}) } });
   }
 }

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import type { BrowserContextOptions } from '@playwright/test';
+import { request as playwrightRequest, type APIRequestContext, type BrowserContextOptions } from '@playwright/test';
 
 import {
   authenticateManagedTestPage,
@@ -123,6 +124,60 @@ async function preflightCases(): Promise<void> {
     await rejectsMessage(() => requestManagedTestSession(boundedRequest, { requestTimeoutMs }), /between 1 and 15000ms/);
   }
   assert.equal(boundedRequests, 1, 'invalid request bounds must fail before transport');
+}
+
+async function sessionTransportResetCases(): Promise<void> {
+  const sessionRead = 'GET /api/auth/get-session';
+  const attempts: string[] = [];
+  let replies: Array<'reset' | 200 | 401> = [];
+  const server = createServer((request, reply) => {
+    attempts.push(`${request.method} ${request.url}`);
+    const status = replies.shift();
+    if (status === 'reset') {
+      request.socket.destroy();
+      return;
+    }
+    reply.writeHead(status ?? 500, { 'Content-Type': 'application/json' });
+    reply.end(JSON.stringify({ user: status === 200 ? { id: 'loopback-session-fixture' } : null }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  let api: APIRequestContext | undefined;
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const context = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${address.port}` });
+    api = context;
+
+    replies = ['reset', 200];
+    const recovered = await requestManagedTestSession(context, { requestTimeoutMs: 5_000 });
+    assert.equal(recovered.status(), 200);
+    assert.deepEqual(await recovered.json(), { user: { id: 'loopback-session-fixture' } });
+    assert.deepEqual(attempts.splice(0), [sessionRead, sessionRead]);
+
+    replies = ['reset', 'reset', 200];
+    await rejectsMessage(() => requestManagedTestSession(context, { requestTimeoutMs: 5_000 }),
+      /session check failed before receiving an HTTP response/);
+    assert.deepEqual(attempts.splice(0), [sessionRead, sessionRead]);
+    assert.deepEqual(replies, [200], 'a persistent reset must stop after one retry');
+
+    replies = [401, 200];
+    assert.equal((await requestManagedTestSession(context, { requestTimeoutMs: 5_000 })).status(), 401);
+    assert.deepEqual(attempts, [sessionRead]);
+    assert.deepEqual(replies, [200], 'an HTTP denial must not retry or sign in');
+  } finally {
+    try {
+      await api?.dispose();
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  }
 }
 
 async function authCacheRenewalCase(): Promise<void> {
@@ -251,7 +306,7 @@ async function authCacheRenewalCase(): Promise<void> {
     await assert.rejects(() => createAuthenticatedContext(browser, {}, { email, password }),
       (error: unknown) => error instanceof Error && /session check failed before receiving an HTTP response/.test(error.message)
         && !error.message.includes('Synthetic secret'));
-    assert.equal(sessionReads, beforeSessionReads + 1, 'transport failures must never retry');
+    assert.equal(sessionReads, beforeSessionReads + 1, 'an unexpected transport failure must not trigger another session request');
     assert.equal(signIns, beforeSignIns, 'transport failures must not trigger sign-in');
     assert.equal(closedContexts, beforeTransportClose + 1);
     assert.equal(await fs.readFile(cachePath, 'utf8'), savedCache);
@@ -387,6 +442,7 @@ async function authCacheRenewalCase(): Promise<void> {
 
 async function main(): Promise<void> {
   await preflightCases();
+  await sessionTransportResetCases();
   await authCacheRenewalCase();
   console.log('managed-test-context-contract-test: ok');
 }

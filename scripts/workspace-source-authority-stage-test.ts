@@ -11,7 +11,7 @@ import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { originalPhysicalByteHash, previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
-import { stageWorkspaceLinkSourceAuthority } from '../app/lib/markdown/workspace-source-authority-stage';
+import { stageWorkspaceLinkSourceAuthority, stageWorkspaceLinkSourceAuthorityObservation } from '../app/lib/markdown/workspace-source-authority-stage';
 
 const workspaceId = 'source-authority-workspace';
 // SQL-trace/FS fixture only, not a PG concurrency or authority proof.
@@ -244,6 +244,38 @@ test('missing-state, legacy-unknown and history evidence prohibit disk fallback 
   assert.equal(stage.coverage.gaps.filter((gap) => gap.code === 'missing-native-state').length, 3);
 }));
 
+test('standalone infrastructure failures retain their identity through rollback and connection cleanup', async () => {
+  for (const phase of ['read', 'rollback', 'close'] as const) await fixture(async (root, workspace) => {
+    await fs.writeFile(path.join(root, 'note.md'), '[Target](target.md)');
+    const db = database([]), read = db.connection.all, run = db.connection.run, close = db.connection.close;
+    const failure = Object.assign(new Error('Declared private infrastructure failure'), {
+      code: phase === 'read' ? '57014' : phase === 'rollback' ? '55P03' : 'ECONNRESET',
+    });
+    let injected = false, closed = false, discarded: Error | undefined;
+    const connection: SqlConnection = { ...db.connection,
+      all: async (sql, values) => {
+        if (phase === 'read') { injected = true; throw failure; }
+        if (phase === 'rollback') throw new Error('Declared unavailable catalogue');
+        return read(sql, values);
+      },
+      run: async sql => {
+        await run(sql);
+        if (sql === 'ROLLBACK' && phase === 'rollback') { injected = true; throw failure; }
+      },
+      close: async error => {
+        discarded = error; await close(); closed = true;
+        if (phase === 'close') { injected = true; throw failure; }
+        if (phase === 'read') throw Object.assign(new Error('Declared secondary cleanup failure'), { code: 'ECONNRESET' });
+      },
+    };
+    await assert.rejects(stageWorkspaceLinkSourceAuthorityObservation(workspace, { openConnection: async () => connection }), error => error === failure);
+    assert(injected && closed); assert.equal(db.trace.at(-1), 'close');
+    assert(db.trace.includes(phase === 'close' ? 'COMMIT' : 'ROLLBACK'));
+    assert.equal(discarded instanceof Error, phase === 'rollback');
+    assert.equal(await fs.readFile(path.join(root, 'note.md'), 'utf8'), '[Target](target.md)');
+  });
+});
+
 test('database/lock/scope failures fail closed before any physical source is read', async () => {
   for (const failure of ['lock', 'catalogue'] as const) await fixture(async (root, workspace) => {
     await fs.writeFile(path.join(root, 'note.md'), '[Target](target.md)'); const db = database([], { fail: failure }); let reads = 0;
@@ -404,7 +436,7 @@ test('a native peer edit during staged physical reads invalidates the native pro
         readWorkspaceLinkSourceAuthorityOnConnection: async (...args: Parameters<typeof sourceModule.readWorkspaceLinkSourceAuthorityOnConnection>) => {
           observation = await sourceModule.readWorkspaceLinkSourceAuthorityOnConnection(...args); return observation;
         } },
-      '../workspaces/request-principal': { withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
+      '../workspaces/request-principal': { WorkspaceRequestPrincipalError: class extends Error {}, withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
         supplied: object, read: (access: { workspace: WorkspaceContext; assertCurrent: () => Promise<void> }) => Promise<unknown>) => {
         assert.equal(typeof actual.get, 'function'); assert.equal(supplied, principal);
         assert.deepEqual(traced.trace.slice(0, 2), ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE']);
@@ -438,11 +470,15 @@ test('a native peer edit during staged physical reads invalidates the native pro
       selections: [{ sourcePath: 'native.bin', destinationPath: 'renamed.bin' }] }); }
     catch (error) { received = error; }
     finally { if (mode === 'unrelated-gap') await fs.unlink(invalidPath); }
-    assert(observation, `Collector was not reached: ${received instanceof Error ? `${received.name}: ${received.message}` : String(received)}`);
+    if (mode === 'sql') assert.equal(observation, undefined, 'A transient SQL failure must escape without a completed observation.');
+    else assert(observation, `Collector was not reached: ${received instanceof Error ? `${received.name}: ${received.message}` : String(received)}`);
     assert.equal(principalDepth, 0); assert.equal(traced.trace.at(-1), 'close');
-    assert(!traced.trace.includes('COMMIT')); assert.equal(observation.stage.sources.length, 0);
-    assert.equal(observation.privateCatalogue, undefined); assert.equal(observation.stage.coverage.complete, false);
-    assert.equal(observation.stage.executionReady, false);
+    assert(!traced.trace.includes('COMMIT'));
+    if (observation) {
+      assert.equal(observation.stage.sources.length, 0);
+      assert.equal(observation.privateCatalogue, undefined); assert.equal(observation.stage.coverage.complete, false);
+      assert.equal(observation.stage.executionReady, false);
+    }
     assert.equal(await fs.readFile(path.join(root, 'native.bin'), 'utf8'), 'Stale projection');
     assert.equal(await fs.readFile(path.join(root, 'incoming.md'), 'utf8'), '[Native](native.bin)');
     return { received, observation, traced, currentChecks, htmlCalls, currentFailure, cleanupFailure };
@@ -451,6 +487,7 @@ test('a native peer edit during staged physical reads invalidates the native pro
   // NATIVE_SOURCE_EVIDENCE_INVALID here, not a missing new export at startup.
   for (const mode of ['native', 'catalogue'] as const) {
     const result = await runPreview(mode);
+    assert(result.observation);
     assert.equal(result.received instanceof Stale, true,
       `Expected PREVIEW_STALE for two valid differing reads; got ${(result.received as { code?: string })?.code}`);
     const failure = result.received as { status?: number; code?: string };
@@ -462,11 +499,20 @@ test('a native peer edit during staged physical reads invalidates the native pro
     assert.equal(changed({ ...result.observation }), false);
     assert.equal(changed(new Proxy(result.observation, {})), false);
   }
-  for (const mode of ['sql', 'corrupt', 'unrelated-gap', 'catalogue-missing'] as const) {
+  const sqlFailure = await runPreview('sql');
+  assert.equal(sqlFailure.received, sqlFailure.currentFailure);
+  assert.equal(sqlFailure.currentChecks, 1); assert.equal(sqlFailure.htmlCalls, 0);
+  assert(sqlFailure.traced.trace.includes('ROLLBACK'));
+  for (const mode of ['corrupt', 'unrelated-gap', 'catalogue-missing'] as const) {
     const result = await runPreview(mode);
-    assert.equal(result.received instanceof Stale, false); assert.equal(changed(result.observation), false);
-    assert.equal((result.received as { code?: string }).code, 'NATIVE_SOURCE_EVIDENCE_INVALID');
-    assert.equal(result.currentChecks, 1); assert.equal(result.htmlCalls, 1); assert(result.traced.trace.includes('ROLLBACK'));
+    const observation = result.observation; assert(observation);
+    assert.equal(result.received instanceof Stale, false); assert.equal(changed(observation), false);
+    const failure = result.received as { code?: string; status?: number; issues?: readonly { code: string; path: string }[] };
+    assert.equal(failure.code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(failure.status, 409);
+    assert(failure.issues?.length);
+    assert(failure.issues.every(issue => observation.stage.coverage.gaps.some(gap =>
+      gap.code === issue.code && gap.path === issue.path)));
+    assert.equal(result.currentChecks, 2); assert.equal(result.htmlCalls, 0); assert(result.traced.trace.includes('ROLLBACK'));
   }
   for (const mode of ['auth', 'current-sql', 'close', 'rollback'] as const) {
     const result = await runPreview(mode);

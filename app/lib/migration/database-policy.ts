@@ -76,6 +76,7 @@ export const PORTABLE_DATABASE_TABLES = new Set([
   "collaboration_native_link_mutation_receipts",
   "collaboration_native_restore_intents",
   "collaboration_native_restore_receipts",
+  "collaboration_original_markdown_import_api_keys",
   "collaboration_original_markdown_imports",
   "collaboration_recovery_state_mutations",
   "collaboration_room_release_receipts",
@@ -242,8 +243,11 @@ export const PORTABLE_DATABASE_TABLES = new Set([
 ]);
 
 export function preserveMigrationTable(name: string): boolean {
+  // Incoming credentials belong to the target instance. Portable data imports
+  // retain them; source keys must never become credentials on another instance.
   return /^(?:license_|team_)/u.test(name) || ['canvas_organization_settings', 'canvas_data_migrations',
-    'managed_team_pending_identities', 'canvas_migration_restore_receipts'].includes(name);
+    'managed_team_pending_identities', 'canvas_migration_restore_receipts',
+    'canvas_api_integrations', 'canvas_api_keys'].includes(name);
 }
 
 export function resetMigrationTable(name: string): boolean {
@@ -256,6 +260,7 @@ export function resetMigrationTable(name: string): boolean {
     || ['session', 'verification', 'jwks', 'public_file_shares', 'file_locks', 'security_public_rate_limits',
       'mcp_revoked_access_token', 'mcp_direct_grant_revocation', 'mcp_direct_workspace_grant',
       'pi_message_delivery_receipts', 'memory_review_jobs', 'file_version_restore_receipts',
-      'collaboration_original_markdown_imports', 'collaboration_excalidraw_copy_receipts',
+      'collaboration_original_markdown_imports', 'collaboration_original_markdown_import_api_keys',
+      'collaboration_excalidraw_copy_receipts',
       'workspace_path_import_preparations', 'telegram_active_session', 'session_channel_links'].includes(name);
 }

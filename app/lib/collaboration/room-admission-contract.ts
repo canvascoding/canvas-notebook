@@ -104,8 +104,21 @@ export function collaborationAdmissionLockKey(workspaceId: string): string {
   return BigInt.asIntN(64, BigInt(`0x${hex}`)).toString();
 }
 
+type CapturedAdmissionRequest = Readonly<{
+  request: CollaborationAdmissionRequest;
+  intentText: string;
+  requestDigest: string;
+  workspaceIds: readonly string[];
+}>;
+
+// Only canonical requests minted here are keys. Caller-owned inputs are
+// validated on each call, even when the caller has frozen the outer object.
+const canonicalAdmissionRequests = new WeakMap<CollaborationAdmissionRequest, CapturedAdmissionRequest>();
+
 /** Capture and canonicalize before any asynchronous work; never retain caller arrays. */
-export function captureCollaborationAdmissionRequest(input: CollaborationAdmissionRequest) {
+export function captureCollaborationAdmissionRequest(input: CollaborationAdmissionRequest): CapturedAdmissionRequest {
+  const existing = canonicalAdmissionRequests.get(input);
+  if (existing) return existing;
   if (!input || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(input.requestId)
     || !validId(input.actorId) || !/^[0-9a-f]{64}$/u.test(input.actionDigest)
     || !['rename', 'move', 'archive', 'restore', 'copy_replace', 'representation_change', 'compact'].includes(input.action)
@@ -146,5 +159,7 @@ export function captureCollaborationAdmissionRequest(input: CollaborationAdmissi
     ...(actionPayloadText === undefined ? {} : { actionPayloadText }) });
   const intentText = JSON.stringify(request);
   const requestDigest = createHash('sha256').update(`canvas.collaboration.admission-request.v1\0${intentText}`).digest('hex');
-  return Object.freeze({ request, intentText, requestDigest, workspaceIds: Object.freeze(workspaceIds) });
+  const captured = Object.freeze({ request, intentText, requestDigest, workspaceIds: Object.freeze(workspaceIds) });
+  canonicalAdmissionRequests.set(request, captured);
+  return captured;
 }

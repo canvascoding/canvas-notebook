@@ -1,15 +1,11 @@
 import { expect, test } from '@playwright/test';
 import de from '../messages/de.json';
 import en from '../messages/en.json';
+import { authenticateManagedTestPage } from './helpers/managed-test-context';
 
 test.beforeEach(async ({ page }) => {
   test.setTimeout(180_000);
-  const login = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
-    timeout: 90_000,
-  });
-  expect(login.ok()).toBe(true);
+  await authenticateManagedTestPage(page);
 });
 
 const configResponse = (available = false) => ({ success: true, config: {
@@ -60,17 +56,29 @@ for (const [locale, messages, width] of [['de', de, 390], ['en', en, 1280]] as c
 test('Studio failed provider check offers retry and retains the correct access state', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  let available = false;
+  await page.addInitScript(({ title, retry }) => {
+    document.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('button') : null;
+      const notice = button?.closest('[data-slot="alert"]');
+      if (button?.textContent?.trim() === retry && notice?.textContent?.includes(title)) {
+        document.documentElement.dataset.studioProviderRetryClicked = 'true';
+      }
+    }, { capture: true });
+  }, { title: de.studio.providerRequirements.checkFailedTitle, retry: de.studio.providerRequirements.retry });
   await page.route('**/api/studio/config', async (route) => {
-    await route.fulfill(available ? { json: configResponse(true) } : { status: 503, json: { success: false } });
+    const retryClicked = await page.evaluate(() => document.documentElement.dataset.studioProviderRetryClicked === 'true');
+    await route.fulfill(retryClicked ? { json: configResponse(true) } : { status: 503, json: { success: false } });
   });
   await page.goto('/de/studio', { waitUntil: 'domcontentloaded' });
   const failed = page.locator('[data-slot="alert"]').filter({ has: page.getByText(de.studio.providerRequirements.checkFailedTitle, { exact: true }) });
   await expect(failed).toBeVisible({ timeout: 90_000 });
   await expect(failed).toHaveAttribute('role', 'alert');
   await expect(page.getByText(de.studio.providerRequirements.gemini.title, { exact: true })).toHaveCount(0);
-  available = true;
+  expect(await page.evaluate(() => document.documentElement.dataset.studioProviderRetryClicked === 'true')).toBe(false);
+  const retried = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/studio/config' && response.status() === 200);
   await failed.getByRole('button', { name: de.studio.providerRequirements.retry, exact: true }).click();
+  await retried;
+  expect(await page.evaluate(() => document.documentElement.dataset.studioProviderRetryClicked === 'true')).toBe(true);
   await expect(failed).toHaveCount(0);
   await expect(page.getByText(de.studio.providerRequirements.gemini.title, { exact: true })).toHaveCount(0);
   expect(pageErrors).toEqual([]);

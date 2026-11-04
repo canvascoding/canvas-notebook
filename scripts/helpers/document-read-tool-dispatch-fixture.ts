@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parse } from 'dotenv';
 import { Client, type Pool } from 'pg';
+import { readNativeTestDatabaseConfig, assertNativeTestDatabaseTarget } from './native-test-database-config';
 import type { TextCollaborationRepresentation } from '../../app/lib/collaboration/types';
 
 // Setup is adapted from the existing service21/MCP20 owned PG fixtures. The
 // locally signed license and explicitly seeded seats are test data, not a
 // claim of real Control Plane issuance or a completed browser OAuth flow.
-const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 const organizationId = 'tool-dispatch-org';
 export type DispatchDocument = Readonly<{ documentId: string; lineageId: string; filePath: string;
   representation: TextCollaborationRepresentation; text: string }>;
@@ -38,17 +37,10 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
-  assert.equal((await stat(privateEnvironment)).mode & 0o077, 0);
-  const connectionString = parse(await readFile(privateEnvironment, 'utf8')).DATABASE_URL;
-  assert(connectionString);
-  const databaseUrl = new URL(connectionString);
-  assert(['postgres:', 'postgresql:'].includes(databaseUrl.protocol));
-  assert(['localhost', '127.0.0.1'].includes(databaseUrl.hostname));
-  assert.equal(databaseUrl.port, '55433'); assert.equal(databaseUrl.pathname, '/canvas_notebook');
-  assert.equal(databaseUrl.search, '');
+  const databaseConfig = await readNativeTestDatabaseConfig(), { connectionString } = databaseConfig;
   const nonce = crypto.randomUUID().replaceAll('-', ''), schema = `document_tool_dispatch_${nonce}`;
   const applicationName = `document-tool-dispatch-${nonce}`;
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-document-tool-dispatch-'));
+  const dataRoot = await mkdtemp(path.join(await realpath(tmpdir()), 'canvas-document-tool-dispatch-'));
   await chmod(dataRoot, 0o700);
   const dataIdentity = await lstat(dataRoot), canonicalDataRoot = await realpath(dataRoot);
   assert(dataIdentity.isDirectory() && !dataIdentity.isSymbolicLink());
@@ -63,6 +55,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   const cleanupErrors: unknown[] = [];
   try {
     await control.connect(); controlConnected = true;
+    await assertNativeTestDatabaseTarget(control, databaseConfig);
     assert.equal(Math.floor(Number((await control.query("SELECT current_setting('server_version_num') AS version")).rows[0].version) / 10000), 18);
     await control.query(`CREATE SCHEMA "${schema}"`); schemaCreated = true;
     schemaOid = (await control.query('SELECT to_regnamespace($1)::oid::text AS oid', [schema])).rows[0].oid;

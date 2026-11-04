@@ -1,6 +1,5 @@
 import { execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
-import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
@@ -97,7 +96,8 @@ import { addAgentFileLinkDiagnostics } from '@/app/lib/pi/agent-file-link-diagno
 import { parseExcalidrawCreateInput, parseExcalidrawGetInput, parseExcalidrawEditInput,
   excalidrawOperationFeedback } from '@/app/lib/excalidraw-collaboration/api-contract';
 import { ExcalidrawDocumentError } from '@/app/lib/excalidraw-collaboration/scene-service';
-import { formatWorkspaceTreePage, readWorkspaceTreePage } from '@/app/lib/files/workspace-tree';
+import { createWorkspaceListTool } from '@/app/lib/pi/workspace-list-tool';
+import { readExistingAgentNativeFile } from '@/app/lib/pi/native-file-read';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 },
@@ -161,68 +161,11 @@ export const piTools: AgentTool[] = [
   createDocumentSearchTool(),
   ...createPdfTools(),
   ...createOfficeDocumentTools(),
-  {
-    name: 'ls',
-    label: 'Listing directory',
-    description: 'Lists files and directories in the active workspace. Supply max_depth for a bounded tree preview (0 lists direct children), max_entries for page size, and cursor to continue with the same path and depth. Set path to a child folder to explore deeper. Unloaded folders are not empty.',
-    parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: 'The path to list. Workspace-relative. Defaults to the active workspace root.' })),
-      max_depth: Type.Optional(Type.Integer({ minimum: 0, maximum: 6 })),
-      max_entries: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
-      cursor: Type.Optional(Type.String({ maxLength: 20000 })),
-    }),
-    execute: async (toolCallId, params) => {
-      try {
-        const { path: dirPath, max_depth, max_entries, cursor } = params as {
-          path?: string; max_depth?: number; max_entries?: number; cursor?: string;
-        };
-        const effectiveDir = dirPath || '.';
-        const fullPath = resolveAgentPath(effectiveDir);
-        await assertAgentPathAllowed(fullPath);
-        if (max_depth !== undefined || max_entries !== undefined || cursor !== undefined) {
-          const context = getAgentExecutionContext();
-          if (!context) throw new Error('Workspace tree browsing requires an active agent workspace.');
-          const tree = await readWorkspaceTreePage({ workspaceId: context.workspaceId, rootPath: context.workspaceRoot,
-            path: path.relative(context.workspaceRoot, fullPath).split(path.sep).join('/') || '.',
-            maxDepth: max_depth, maxEntries: max_entries, cursor });
-          return { content: [{ type: 'text', text: formatWorkspaceTreePage(tree) }], details: tree };
-        }
-        const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
-        const files = await Promise.all(
-          entries.map(async (entry) => {
-            // Keep dynamic directory listings out of Turbopack's file tracing. `readdir`
-            // guarantees that entry names are a single path segment.
-            const entryFullPath = `${fullPath}${fullPath.endsWith(path.sep) ? '' : path.sep}${entry.name}`;
-            const stats = await fsPromises.stat(entryFullPath);
-            return {
-              name: entry.name,
-              path: effectiveDir === '.'
-                ? entry.name
-                : `${effectiveDir}${effectiveDir.endsWith(path.sep) ? '' : path.sep}${entry.name}`,
-              type: entry.isDirectory() ? 'directory' : 'file',
-              size: stats.size,
-              modified: Math.floor(stats.mtimeMs / 1000),
-            };
-          })
-        );
-        const content = files.map(f => `${f.type === 'directory' ? '[DIR] ' : ''}${f.path}`).join('\n');
-        return {
-          content: [{ type: 'text', text: content || '(empty)' }],
-          details: { files },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
+  createWorkspaceListTool(),
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For explicit proposal work, supply proposal with contractVersion 1 and the exact proposalId (null reads the authoritative source); copy the returned complete proposal.source into the next proposal edit, never infer a parent from chat. For Markdown, set source to markdown for the current canonical Markdown source or blocks for bounded live block metadata; blocks replaces includeStructure and paginates with structure.nextOffset. Active Markdown/text and Excalidraw collaboration documents return their authoritative live state instead of an older file checkpoint. Block reads include document identity, stable block IDs, hierarchy, attributes, text, and local hashes required only by low-level structured edit_file operations. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads workspace documents or files. Existing native documents are read by path without requiring a physical checkpoint; reading ordinary files does not initialize native state. Use the returned collaboration.documentId with read_document to obtain the full version token required by native edit_file V1. For explicit proposal work, supply proposal with contractVersion 1 and the exact proposalId (null reads the authoritative source); copy the returned complete proposal.source into the next proposal edit, never infer a parent from chat. For Markdown, set source to markdown for the current canonical Markdown source or blocks for bounded live block metadata; blocks replaces includeStructure and paginates with structure.nextOffset. Active native text and Excalidraw documents return their authoritative state instead of an older file checkpoint. Native text currency reports whether the observed state is persisted or still live. Block reads include document identity, stable block IDs, hierarchy, attributes, text, and local hashes required only by low-level structured edit_file operations. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path, workspace-relative path, or tool-output:// reference returned by a tool.' }),
       proposal: Type.Optional(ProposalToolReadRequestSchemaV1),
@@ -293,9 +236,13 @@ export const piTools: AgentTool[] = [
           : clampReadTextLimit(maxChars);
         const collaborativeScene = !proposal && !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
           ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
-        const stats = collaborativeScene ? null : await fsPromises.stat(fullPath);
+        const native = !proposal && !isStoredOutput && !collaborativeScene
+          ? await readExistingAgentNativeFile(fullPath, { includeStructure: structureRequested ? true : includeStructure,
+              structureOffset, structureLimit }) : { handled: false as const, snapshot: null };
+        const stats = collaborativeScene || native.snapshot ? null : await fsPromises.stat(fullPath);
         if (!proposal && isPdfPath(fullPath) && stats && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
           return {
+            isError: true,
             content: [{
               type: 'text',
               text: `Error: PDF is too large for the read tool's in-memory parser (${stats.size} bytes, limit ${PDF_MAX_IN_MEMORY_BYTES}). Use a targeted PDF workflow, split the PDF, or inspect selected pages with an external PDF utility.`,
@@ -303,7 +250,7 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: stats.size, type: 'pdf', error: 'pdf_too_large' },
           };
         }
-        const collaborative = !isStoredOutput && !collaborativeScene && (proposal || /\.(?:md|markdown|txt)$/iu.test(fullPath))
+        const collaborative: Awaited<ReturnType<typeof readAgentCollaborativeTextFile>> = native.handled ? native.snapshot : !isStoredOutput && !collaborativeScene && (proposal || /\.(?:md|markdown|txt)$/iu.test(fullPath))
           ? await readAgentCollaborativeTextFile(fullPath, undefined, {
               includeStructure: structureRequested ? true : includeStructure,
               structureOffset,
@@ -334,7 +281,8 @@ export const piTools: AgentTool[] = [
             collaboration: { documentId: collaborative.documentId, lifecycleGeneration: collaborative.lifecycleGeneration,
               schemaVersion: collaborative.schemaVersion, representation: collaborative.representation,
               documentSequence: collaborative.documentSequence, checkpointSequence: collaborative.checkpointSequence,
-              stateVector: collaborative.stateVector, source: proposal ? 'proposal_source' : 'live_yjs' },
+              stateVector: collaborative.stateVector, source: proposal ? 'proposal_source' : collaborative.currency?.source ?? 'live_yjs',
+              ...(collaborative.currency ? { currency: collaborative.currency } : {}) },
           };
           // Keep both JSON content and details below the existing generic output
           // threshold, which would otherwise replace this page with an excerpt.
@@ -401,6 +349,7 @@ export const piTools: AgentTool[] = [
         }
         if (liveContent === undefined && bufferLooksBinary(buffer)) {
           return {
+            isError: true,
             content: [{ type: 'text', text: 'Error: Unsupported binary file. The read tool can return text files, images, and PDFs with extractable text.' }],
             details: { filePath, size: buffer.length, type: 'binary' },
           };
@@ -419,7 +368,9 @@ export const piTools: AgentTool[] = [
         const sourceLabel = proposal ? proposalNote : collaborativeScene
           ? '\nSource: live Excalidraw collaboration scene'
           : collaborative
-            ? requestedSource === 'markdown' ? '\nSource: live canonical Markdown collaboration state' : '\nSource: live Yjs collaboration state'
+            ? collaborative.currency?.source === 'persisted_yjs'
+              ? requestedSource === 'markdown' ? '\nSource: persisted canonical Markdown collaboration state' : '\nSource: persisted Yjs collaboration state'
+              : requestedSource === 'markdown' ? '\nSource: live canonical Markdown collaboration state' : '\nSource: live Yjs collaboration state'
             : requestedSource === 'markdown' ? '\nSource: Markdown file' : '';
         const formatted = formatTextReadResult(window.text, window, textSha256, sourceLabel);
         return {
@@ -462,7 +413,8 @@ export const piTools: AgentTool[] = [
                   documentSequence: collaborative.documentSequence,
                   checkpointSequence: collaborative.checkpointSequence,
                   stateVector: collaborative.stateVector,
-                  source: proposal ? 'proposal_source' : 'live_yjs',
+                  source: proposal ? 'proposal_source' : collaborative.currency?.source ?? 'live_yjs',
+                  ...(collaborative.currency ? { currency: collaborative.currency } : {}),
                 }
               : undefined,
           },
@@ -475,8 +427,7 @@ export const piTools: AgentTool[] = [
             contractVersion: 1, kind: 'proposal_read_error', code: error.code, outcome: 'blocked',
             recommendedAction: 'read_then_retry', safeToAutoRetry: false,
           } : {}), ...(error instanceof ExcalidrawDocumentError ? { code: error.code, status: error.status } : {}) },
-          ...(error instanceof ProposalGraphContractError || error instanceof ExcalidrawDocumentError
-            || /\.excalidraw$/iu.test(filePath) ? { isError: true } : {}),
+          isError: true,
         };
       }
     },

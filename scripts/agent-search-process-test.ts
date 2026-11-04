@@ -30,10 +30,18 @@ async function main() {
     await fs.chmod(fixture, 0o700);
     await fs.mkdir(workspace, { mode: 0o700 });
     await fs.mkdir(data, { mode: 0o700 });
+    // tsx loads this application graph as CJS. Bridge the actual ESM-only
+    // SDK namespaces, as the native workspace-tree test does; no SDK/tool
+    // implementations or process results are replaced.
+    const actualEsm = new Map<string, unknown>();
+    for (const name of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-ai/compat', '@earendil-works/pi-ai/oauth']) {
+      actualEsm.set(name, await import(name));
+    }
     database = await createPiTestDatabase();
     // Only isolate the configured DB. Tools, path policy and execFile are real;
     // no child argv, cwd, environment, output or process execution is replaced.
     internals._load = (request, parent, isMain) => {
+      if (actualEsm.has(request)) return actualEsm.get(request);
       if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request)
         || /^(?:\.\.\/)+db$/u.test(request)) return database;
       return originalLoad(request, parent, isMain);

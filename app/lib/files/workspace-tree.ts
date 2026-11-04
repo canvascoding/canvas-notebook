@@ -79,7 +79,7 @@ function parseCursor(value: string, scope: string, maxDepth: number): Cursor {
 
 export async function readWorkspaceTreePage(input: WorkspaceTreeScope & {
   path?: string; maxDepth?: number; maxEntries?: number; cursor?: string | null;
-}): Promise<WorkspaceTreePage> {
+}, namespace: Readonly<{ readDirectory?: (directory: string) => Promise<FileNode[]>; version?: string }> = {}): Promise<WorkspaceTreePage> {
   const path = normalizeVisibleWorkspaceTreePath(input.path ?? '.');
   const maxDepth = input.maxDepth ?? 2;
   const maxEntries = input.maxEntries ?? 200;
@@ -94,9 +94,13 @@ export async function readWorkspaceTreePage(input: WorkspaceTreeScope & {
   let depthLimited = previous?.depthLimited ?? false;
   let unavailable = false;
   const loadFrame = async (directory: string, index = 0): Promise<Frame> => {
-    const children = await listVisibleWorkspaceTreeDirectory(input, directory);
+    const children = namespace.readDirectory ? (await namespace.readDirectory(directory))
+      .filter(entry => !entry.name.startsWith('.') && entry.name !== 'Thumbs.db')
+      .sort((left, right) => left.type === right.type ? left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+        : left.type === 'directory' ? -1 : 1) : await listVisibleWorkspaceTreeDirectory(input, directory);
+    const entries = children.map(child => [child.path, child.type, child.size, child.modified]);
     return { path: directory, index, children,
-      signature: digest(children.map(child => [child.path, child.type, child.size, child.modified])) };
+      signature: digest(namespace.version === undefined ? entries : [namespace.version, entries]) };
   };
   for (const saved of previous?.frames ?? [{ index: 0, signature: '' }]) {
     const parent = frames.at(-1);

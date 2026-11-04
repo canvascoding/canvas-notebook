@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { runWithAgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 
-test('the real native ls tool exposes the same bounded tree and continuation contract', async () => {
+test('an ambient execution context alone cannot authorize native ls; genuine positive coverage runs on owned PostgreSQL', async () => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-tree-native-'));
   const loader = Module as typeof Module & {
     _load: (name: string, parent: NodeModule | null, main: boolean) => unknown;
@@ -31,13 +31,13 @@ test('the real native ls tool exposes the same bounded tree and continuation con
       organizationId: null, customerId: null, projectId: null, workspaceRoot: rootPath,
       workspaceRootRelativePath: null, canWrite: false, canDelete: false, canShare: false, legacy: false,
     }, () => ls.execute('native-tree', args));
-    const first = await run({ path: '.', max_depth: 0, max_entries: 1 });
-    const data = first.details as { entries: Array<{ path: string }>; next_cursor: string };
-    assert.equal(data.entries[0].path, 'a.md');
-    assert.ok(data.next_cursor);
-    const second = await run({ path: '.', max_depth: 0, max_entries: 1, cursor: data.next_cursor });
-    assert.equal((second.details as { entries: Array<{ path: string }> }).entries[0].path, 'b.md');
-    assert.ok(second.content.some(part => part.type === 'text' && part.text.includes('b.md')));
+    for (const args of [{}, { path: '.', max_depth: 0, max_entries: 1 }]) {
+      const denied = await run(args);
+      assert.equal(Reflect.get(denied, 'isError'), true);
+      assert.equal(Reflect.get(denied.details as object, 'entries'), undefined);
+      assert.equal(Reflect.get(denied.details as object, 'files'), undefined);
+      assert.ok(!(denied.content ?? []).some(part => part.type === 'text' && /a\.md|b\.md/u.test(part.text)));
+    }
     const outside = await run({ path: '..', max_depth: 0 });
     assert.ok((outside.details as { error?: string }).error);
   } finally {

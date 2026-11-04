@@ -53,6 +53,8 @@ function installMocks() {
       : { content: [{ type: 'text', text: 'ok' }] },
   };
   if (request.includes('mcp/server/workspace-tools')) return { getDirectMcpWorkspaceToolDefinitions: () => [] };
+  if (request.endsWith('/ingest-tools') || request.includes('mcp/server/ingest-tools')) return { getDirectMcpIngestToolDefinitions: () => [] };
+  if (request.endsWith('/excalidraw-tools') || request.includes('mcp/server/excalidraw-tools')) return { getDirectMcpExcalidrawToolDefinitions: () => [] };
   if (request.includes('security/trusted-origins')) return { isConfiguredTrustedOrigin: () => false };
     return originalLoad(request, parent, isMain);
   };

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
 import { DocumentReadError, type DocumentReadErrorV1 } from '@/app/lib/documents/contracts';
 import { readDocumentForRequest } from '@/app/lib/documents/service';
+import { apiKeyDocumentErrorResponse } from '@/app/lib/api-keys/http';
 
 export const runtime = 'nodejs';
 const MAX_SELECTION_BYTES = 32 * 1024;
@@ -41,6 +42,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const page = await readDocumentForRequest(original, await selection(request));
     return NextResponse.json(page, { headers: responseHeaders });
   } catch (error) {
+    const credentialFailure = apiKeyDocumentErrorResponse(error, responseHeaders);
+    if (credentialFailure) return credentialFailure;
     const failure = error instanceof DocumentReadError ? error : new DocumentReadError('DOCUMENT_READ_UNAVAILABLE');
     const body: DocumentReadErrorV1 = { apiVersion: 1, success: false, code: failure.code };
     return NextResponse.json(body, { status: failure.status, headers: responseHeaders });

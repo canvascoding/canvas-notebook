@@ -10,7 +10,7 @@ import { captureOriginalDeleteAdmissionBinding } from './workspace-operation-ori
 import { cohortDeleteActor, type CohortDeleteIntent, type CohortDeleteResult, type CohortDeleteEvidenceBinding } from './workspace-operation-cohort-delete-evidence';
 import { decodeWorkspaceOperationCohortDeletePlan, failCohortDelete } from './workspace-operation-cohort-delete-plan';
 export function createCohortDeleteAdmissionRequest(binding:CohortDeleteEvidenceBinding){
-  const auth=binding.authorization;if(binding.actionMode!=='apply'||binding.plan.version!==6||auth.mode!=='direct'&&auth.mode!=='direct-mcp'||!auth.jobScope)return failCohortDelete();
+  const auth=binding.authorization;if(binding.actionMode!=='apply'||binding.plan.version!==6||auth.mode!=='direct'&&auth.mode!=='direct-mcp'&&auth.mode!=='api-key'||!auth.jobScope)return failCohortDelete();
   const plan=decodeWorkspaceOperationCohortDeletePlan(binding.plan);
   if(!equal(plan.sourceEvidence.workspaceScope,auth.jobScope)||plan.planId!==binding.planId||plan.workspaceId!==binding.workspaceId)return failCohortDelete();
   const hex=createHash('sha256').update(`canvas.original-delete.admission.v1\0${binding.batchId}\0${auth.requestHash}\0${binding.planId}`).digest('hex');

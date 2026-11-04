@@ -599,6 +599,9 @@ jobs:
           cp -R runtime-compliance/amd64/dictation "dist-native-compliance/${asset}/linux-amd64/"
           cp -R runtime-compliance/arm64/dictation "dist-native-compliance/${asset}/linux-arm64/"
           cp docs/compliance/dictation-cpp-policy.json docs/compliance/container-local-dictation-review-2026-10-04.md "dist-native-compliance/${asset}/"
+          mkdir -p "dist-native-compliance/${asset}/docs/compliance" "dist-native-compliance/${asset}/scripts"
+          cp docs/compliance/debian-repository-lock.json "dist-native-compliance/${asset}/docs/compliance/"
+          cp scripts/debian-repository-lock.mjs "dist-native-compliance/${asset}/scripts/"
           cp Dockerfile requirements/runtime-python.txt requirements/dictation-python.txt THIRD_PARTY_NOTICES.md "dist-native-compliance/${asset}/"
           cp docs/compliance/third-party-components.json \
              docs/compliance/docker-native-distribution-policy.json \
@@ -813,6 +816,20 @@ jobs:
             dist-release/canvas-notebook-release-metadata.json
             dist-release/canvas-notebook-update-stable.json
 
+      - name: Set up Python for the SDK release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.10'
+
+      - name: Package Python SDK and checksums
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python -m build packages/canvas-notebook-python --outdir dist-python-sdk
+          (cd dist-python-sdk && sha256sum *.whl *.tar.gz > canvas-python-sdk.sha256)
+
       - name: Upload gated release bundle
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -821,6 +838,9 @@ jobs:
           if-no-files-found: error
           retention-days: 90
           path: |
+            dist-python-sdk/*.whl
+            dist-python-sdk/*.tar.gz
+            dist-python-sdk/canvas-python-sdk.sha256
             dist-portable-cli/canvas-notebook-cli.tar.gz
             dist-portable-cli/canvas-notebook-cli.sha256
             dist-host-cli/canvas-notebook-host-cli.tar.gz

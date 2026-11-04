@@ -88,7 +88,7 @@ export async function waitForAuthRetry(response: APIResponse, deadline: number, 
   await sleep(waitMs);
 }
 
-/** Retry only throttled session transport; callers still verify the returned identity. */
+/** Read the session within its deadline; callers still verify the returned identity. */
 export async function requestManagedTestSession(request: APIRequestContext, options: {
   url?: string;
   deadline?: number;
@@ -105,6 +105,8 @@ export async function requestManagedTestSession(request: APIRequestContext, opti
   while (true) {
     const response = await request.get(options.url ?? '/api/auth/get-session', {
       timeout: Math.min(requestTimeoutMs, authRequestTimeout(deadline, phase)),
+      // Playwright retries only ECONNRESET here, within this GET's existing timeout.
+      maxRetries: 1,
     }).catch(() => { throw new Error(`${phase} session check failed before receiving an HTTP response.`); });
     if (response.status() !== 429) return response;
     if (retries >= 2) throw new Error(`${phase} session check failed (429).`);

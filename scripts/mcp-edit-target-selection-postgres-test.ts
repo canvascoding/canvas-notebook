@@ -47,7 +47,7 @@ await withDocumentReadToolDispatchFixture(async fixture => {
   const first = await read({ ...selected(ids[0]), max_bytes: 32 }); assert(first.nextCursor);
   const changedSelection = await call({ ...selected(ids[1]), max_bytes: 32, cursor: first.nextCursor });
   assert.equal(changedSelection.isError, true); assert.equal(changedSelection.structuredContent.code, 'DOCUMENT_VERSION_CONFLICT');
-  let fragments = first.fragment, cursor = first.nextCursor;
+  let fragments = first.fragment, cursor: string | null = first.nextCursor;
   while (cursor) { const page = await read({ ...selected(ids[0]), max_bytes: 32, cursor }); fragments += page.fragment; cursor = page.nextCursor; }
   assert.equal(JSON.parse(fragments).editTargets[0].id, ids[0]);
   await fixture.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND workspace_id=$2', [fixture.clientId, fixture.workspaceId]);

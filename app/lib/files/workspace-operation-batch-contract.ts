@@ -8,6 +8,7 @@ import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3, NativeMixedHtmlB
 import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import type { WorkspaceOperationApiKeyAuthorization } from './workspace-operation-api-key-authorization';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
 /** Literal namespace snapshot only; this grants no authority or filesystem identity. */
@@ -44,7 +45,7 @@ export type WorkspaceOperationDirectMcpAuthorization = Readonly<{
   actorSessionId: string; requestHash: string; jobScope: WorkspaceOperationJobScope;
 }>;
 export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization
-  | WorkspaceOperationDirectMcpAuthorization;
+  | WorkspaceOperationDirectMcpAuthorization | WorkspaceOperationApiKeyAuthorization;
 export type WorkspaceOperationBatchAction = {
   /** Stable action identity. Direct jobs have no associated review row. */
   reviewId: string;

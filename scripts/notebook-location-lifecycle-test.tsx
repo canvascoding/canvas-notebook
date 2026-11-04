@@ -58,15 +58,18 @@ async function main() {
   const searches: string[] = [];
   const reads: string[] = [];
   let holdLocation: ((documentId: string) => Promise<Response> | null) | null = null;
+  let holdPreparation: (() => Promise<void>) | null = null;
+  let editorUnmounts = 0;
   let holdRead: ((path: string) => Promise<Response> | null) | null = null;
   let useLocation!: typeof import('../app/lib/collaboration/document-location-client').useCollaborationDocumentLocation;
   function EditorStandIn({ onRetryMissingFile }: { onRetryMissingFile?: () => Promise<void> }) {
+    useEffect(() => () => { editorUnmounts++; }, []);
     const current = useFileStore(state => state.currentFile);
     const missingFilePath = useFileStore(state => state.missingFilePath);
     useEffect(() => {
       if (!current) return;
       useEditorStore.getState().setActiveFile(current.path, current.content);
-      return registerDocumentTransitionGuard('workspace', current.path, { prepare: async () => {}, hasPendingChanges: () => false });
+      return registerDocumentTransitionGuard('workspace', current.path, { prepare: async () => { await holdPreparation?.(); }, hasPendingChanges: () => Boolean(holdPreparation) });
     }, [current]);
     useLocation({ workspaceId: 'workspace', documentId: current?.collaboration?.document?.id ?? null,
       documentKey: current?.editorIdentity, path: current?.path ?? null, lifecycleGeneration: 1, representation: 'tiptap_blocks', connection: 'live' });
@@ -151,6 +154,42 @@ async function main() {
     assert.equal(tabs().documentIds?.['folder/b.md'], 'doc-b');
     assert.equal(watcher.owners, 3, 'provider, active location hook and inactive-tab watcher each own one connection under StrictMode');
 
+    let releasePreparation!: () => void;
+    const preparing = new Promise<void>(resolve => { releasePreparation = resolve; });
+    holdPreparation = () => preparing;
+    const mountedEditor = document.querySelector('[data-editor-path="folder/a.md"]');
+    const unmountsBeforePreparation = editorUnmounts;
+    let linkOpen!: Promise<OpenWorkspaceFileResult>;
+    await act(async () => {
+      linkOpen = useFileStore.getState().revealAndLoadFile('folder/b.md', { revealInTree: false });
+    });
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'));
+    assert.equal(editorUnmounts, unmountsBeforePreparation, 'a pending recovery write must retain its editor owner');
+    assert.equal(document.querySelector('[data-editor-path="folder/a.md"]'), mountedEditor);
+    assert.ok(mountedEditor?.closest('[hidden][inert]'), 'the retained source cannot be viewed or edited under the target skeleton');
+    await act(async () => { releasePreparation(); assert.equal((await linkOpen).status, 'opened'); });
+    holdPreparation = null;
+    await settle();
+    assert.equal(useFileStore.getState().currentFile?.path, 'folder/b.md');
+    await select(0);
+
+    let rejectPreparation!: (error: Error) => void;
+    holdPreparation = () => new Promise<void>((_resolve, reject) => { rejectPreparation = reject; });
+    const editorBeforeRefusal = document.querySelector('[data-editor-path="folder/a.md"]');
+    await act(async () => {
+      linkOpen = useFileStore.getState().revealAndLoadFile('folder/b.md', { revealInTree: false });
+    });
+    await act(async () => {
+      rejectPreparation(new Error('Recovery storage unavailable'));
+      assert.equal((await linkOpen).status, 'failed');
+    });
+    holdPreparation = null;
+    assert.equal(useFileStore.getState().currentFile?.path, 'folder/a.md');
+    assert.equal(document.querySelector('[data-editor-path="folder/a.md"]'), editorBeforeRefusal,
+      'a refused transition reveals the same source editor with its local state intact');
+    assert.equal(editorBeforeRefusal?.closest('[hidden]'), null);
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null);
+
     const activeIdentity = useFileStore.getState().currentFile?.editorIdentity;
     locations.set('doc-a', 'renamed/a.md'); files.delete('folder/a.md'); files.set('renamed/a.md', file('renamed/a.md', 'doc-a'));
     locations.set('doc-b', 'renamed/b.md'); files.delete('folder/b.md'); files.set('renamed/b.md', file('renamed/b.md', 'doc-b'));
@@ -186,7 +225,7 @@ async function main() {
     holdRead = path => path === 'renamed/b.md' ? new Promise(resolve => { lateRead = resolve; }) : null;
     await select(1); assert(lateRead, 'the location resolved and the file body is still pending');
     assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'a pending read keeps the document skeleton visible');
-    assert.equal(document.querySelector('[data-editor-path="renamed/a.md"]'), null, 'a new document never shows the previous editor behind its skeleton');
+    assert.ok(document.querySelector('[data-editor-path="renamed/a.md"]')?.closest('[hidden][inert]'), 'a new document hides and disables the retained previous editor behind its skeleton');
     const bButton = document.querySelector<HTMLButtonElement>('[data-testid="notebook-document-1"]')!;
     await act(async () => bButton.parentElement!.querySelectorAll<HTMLButtonElement>('button')[1].click());
     assert.equal(tabs().openPaths.includes('renamed/b.md'), false);
@@ -206,7 +245,7 @@ async function main() {
     await select(1);
     assert(searches.length > before && pending.length);
     assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'identity lookup displays the same document skeleton before the read starts');
-    assert.equal(document.querySelector('[data-editor-path="renamed/a.md"]'), null, 'identity lookup hides the previous document');
+    assert.ok(document.querySelector('[data-editor-path="renamed/a.md"]')?.closest('[hidden][inert]'), 'identity lookup hides and disables the previous document');
     await select(0);
     assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'a newer selection settles the old lookup skeleton');
     await act(async () => { for (const resolve of pending.splice(0)) resolve(locationResponse('doc-b')); });

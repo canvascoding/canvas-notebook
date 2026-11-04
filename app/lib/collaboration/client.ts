@@ -81,6 +81,7 @@ type RegistryEntry = {
   clientState: TextCollaborationClientState;
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
+  parkedAt?: number;
   cleanupPromise?: Promise<void>;
   startPromise: Promise<void>;
   startProvider?: () => void;
@@ -118,6 +119,9 @@ export type CollaborationDocument = {
 };
 
 const registry = new Map<string, RegistryEntry>();
+const PARKED_TEXT_LIMIT = 3;
+const PARKED_TEXT_BYTES = 1024 * 1024;
+const PARKED_TEXT_MS = 15_000;
 const guestSessionAuthorizations = new WeakMap<CollaborationSessionResponse,
   { workspaceId: string; path: string; invitationId: string; revision: number }>();
 const guestAuthorizationRevisions = new Map<string, number>();
@@ -280,6 +284,36 @@ function disposeEntry(entry: RegistryEntry): void {
   });
   entry.cleanupPromise = cleanup;
 }
+
+function parkTextEntry(entry: RegistryEntry): boolean {
+  const session = entry.session;
+  if (!session || session.guestAccess || !isRichTextCollaborationRepresentation(session.representation)
+    || session.degraded || session.projectionError?.permanent
+    || !isOpenedDocumentAuthCurrent(entry.authScope) || !entry.persistence?.synced
+    || entry.clientState.admissionBusy || entry.clientState.failure
+    || Y.encodeStateAsUpdate(entry.doc).byteLength > PARKED_TEXT_BYTES) return false;
+
+  // Starting a provider sets its unsynced counter even without a local edit.
+  // An exact session snapshot can remain in RAM while that handshake is pending.
+  // This does not confirm saving or sync: adoption still requires fresh HTTP
+  // authorization and a new full-state comparison before exposing local content.
+  if (!hasCurrentPersistedSnapshot(entry) && (!isCollaborationStateProof(session.stateProof)
+    || session.stateProof !== collaborationStateProof(entry.doc, Y))) return false;
+
+  entry.parkedAt = Date.now();
+  entry.requests.abort();
+  if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+  entry.provider?.destroy();
+  entry.provider = null;
+
+  const parked = [...registry.values()].filter(candidate => candidate.parkedAt !== undefined && candidate !== entry)
+    .sort((a, b) => a.parkedAt! - b.parkedAt!);
+  for (const candidate of parked.slice(0, Math.max(0, parked.length - PARKED_TEXT_LIMIT + 1))) {
+    disposeEntry(candidate);
+  }
+  return true;
+}
+
 
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
@@ -626,7 +660,8 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
     sequence: session.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
   // Reusing the same open path must still observe a server permission downgrade.
   // An old view snapshot can never restore write access after a denial.
-  if (!revalidate && entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
+  if (!revalidate && entry.parkedAt === undefined && entry.path === path
+    && !(previous.permission === 'write' && session.permission === 'read')) return;
   if (entry.clientState.admissionBusy) {
     // Location metadata may advance, but cannot restart this exhausted join.
     // Retain the disconnected provider so local update counts keep observing
@@ -638,6 +673,12 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
     return;
   }
   const fresh = hasFreshLocationSession(entry, path, session);
+  const wasParked = entry.parkedAt !== undefined;
+  if (wasParked && !fresh) throw new Error('The parked document requires current authorization.');
+  const parkedStateIsCurrent = wasParked && !session.degraded && !session.projectionError?.permanent
+    && isCollaborationStateProof(session.stateProof)
+    && session.stateProof === collaborationStateProof(entry.doc, Y);
+  entry.parkedAt = undefined;
   const candidate = entry.path !== path && !fresh && hasHistoricalLocationSession(entry, path, session);
   entry.requests.abort();
   entry.requests = new AbortController();
@@ -654,12 +695,14 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
   const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
+    locallyUsable: wasParked ? false : entry.clientState.locallyUsable,
     checkpointStateVector: null, checkpointStateProof: null, persistedStateProof: null,
     connection: session.permission === 'read' ? 'read_only' : 'reconnecting',
     error: locationRecovered ? null : entry.clientState.error,
     failure: locationRecovered ? null : entry.clientState.failure,
     durability: entry.clientState.durability === 'degraded' && !locationRecovered ? 'degraded'
       : entry.clientState.unsyncedChanges > 0 ? 'local_pending' : 'server_received' };
+  if (parkedStateIsCurrent) transition(entry, { type: 'local_document_restored' });
   entry.startProvider?.();
   emit(entry);
 }
@@ -1271,11 +1314,12 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
   };
 }
 
-function takeRetainedEntry(key: string, workspaceId: string, session: CollaborationSessionResponse): RegistryEntry | undefined {
+function takeRetainedEntry(key: string, workspaceId: string, path: string, session: CollaborationSessionResponse): RegistryEntry | undefined {
   const entry = [...registry.values()].find((candidate) => {
     const previous = candidate.session;
     return candidate.refs === 0 && !candidate.lifecycle.signal.aborted && !candidate.doc.isDestroyed
       && candidate.key.split('\0')[0] === workspaceId && previous
+      && (candidate.parkedAt === undefined || hasFreshLocationSession(candidate, path, session))
       && previous.user.id === session.user.id
       && (previous.guestAccess?.invitationId ?? null) === (session.guestAccess?.invitationId ?? null)
       && (previous.guestAccess?.workspaceId ?? null) === (session.guestAccess?.workspaceId ?? null)
@@ -1319,8 +1363,12 @@ export function useCollaborationDocument(input: {
     if (!key || !input.path || !input.workspaceId) {
       return;
     }
-    let entry = registry.get(key) ?? (input.session
-      ? takeRetainedEntry(key, input.workspaceId, input.session) : undefined);
+    let entry = registry.get(key);
+    if (entry?.parkedAt !== undefined && (!input.session || !hasFreshLocationSession(entry, input.path, input.session))) {
+      disposeEntry(entry);
+      entry = undefined;
+    }
+    entry ??= input.session ? takeRetainedEntry(key, input.workspaceId, input.path, input.session) : undefined;
     if (!entry) {
       entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);
@@ -1331,6 +1379,7 @@ export function useCollaborationDocument(input: {
         message: error instanceof Error ? error.message : 'Collaboration location changed.' }); }
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
+    entry.cleanupTimer = undefined;
     entry.refs += 1;
     const update = () => setState({ owner, key, path: entry.path, document: entry.doc ? snapshot(entry) : null });
     entry.listeners.add(update);
@@ -1339,10 +1388,16 @@ export function useCollaborationDocument(input: {
       entry.listeners.delete(update);
       entry.refs -= 1;
       if (entry.refs === 0) {
-        entry.cleanupTimer = setTimeout(() => {
-          if (entry.refs !== 0) return;
-          disposeEntry(entry);
-        }, 1_000);
+        // A React effect refresh can release and immediately reacquire the
+        // same entry. Wait until its replacement has had a chance to attach.
+        queueMicrotask(() => {
+          if (entry.refs !== 0 || entry.lifecycle.signal.aborted || entry.cleanupTimer) return;
+          const delay = parkTextEntry(entry) ? PARKED_TEXT_MS : 1_000;
+          entry.cleanupTimer = setTimeout(() => {
+            entry.cleanupTimer = undefined;
+            if (entry.refs === 0) disposeEntry(entry);
+          }, delay);
+        });
       }
     };
   }, [input.path, input.representation, input.session, input.workspaceId, key, owner]);
