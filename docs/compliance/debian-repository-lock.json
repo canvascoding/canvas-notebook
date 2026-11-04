@@ -33,12 +33,12 @@
       "uri": "https://deb.debian.org/debian-security",
       "suite": "bookworm-security",
       "indexSha256": {
-        "main/binary-amd64/Packages": "2394608932f9ddd111062fa7035355e49c1ecf35a6ffd93c0ebdfdab98bd6e9e",
-        "main/binary-amd64/Packages.xz": "e50b9986e392f4aabdd02adeb806fca1cab2e8f60ef7ba12dc42c66817558f8e",
-        "main/binary-arm64/Packages": "6fde4c14e0dcaef0d560898ace946dd4f903a7e2a86fc272c82d52dca75dbf9a",
-        "main/binary-arm64/Packages.xz": "472d28fe49d3b51afa3af309a9279808c8c6a8f5c0c52e84b70ac3c3353a8834",
-        "main/source/Sources": "9d4aea270d64bbfb6e165aaad9c2dff90de0203faccf759dbdb2451ff36af2f0",
-        "main/source/Sources.xz": "db29a9b1b8182ee78953b2ed61f69c0ec9a614733020f3402888eec66a6f62a5"
+        "main/binary-amd64/Packages": "499028cee277a5266afbfd6024f8a3f7cd8b749ca01051306532144bfaf4e009",
+        "main/binary-amd64/Packages.xz": "534a3b90c58607868048f443240fe1d64341b7697a1e483876089108c579b734",
+        "main/binary-arm64/Packages": "b2f4faf5811ee95fa1b67831786e181bcbc0f5b1d452fbc3711c31b09fef57ff",
+        "main/binary-arm64/Packages.xz": "f8c9cc246a207b65aa26dfb35a34cacf0f78d4fbaab69b4e05c857139998a293",
+        "main/source/Sources": "aceb0f6eaf7e60aaabaf6c2da60fb35f66a231258cc7e79dc084f77f0f913f2d",
+        "main/source/Sources.xz": "00c07ffb2123b7f8055ba6c8aa3d883491b962fa2b3d471fd869878c313255ca"
       }
     }
   ]
