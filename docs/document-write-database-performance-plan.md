@@ -1,9 +1,46 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 02.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 04.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
+
+## Aktueller Abnahmestand vom 04.11.2026
+
+Produktstand `2f85bb3c7de36deab07afe81d785ac3fe01a5be2` enthält `main`
+`3ec143a25` einschließlich PR #201. PR #198 bleibt Entwurf; ein Release dieses
+Gesamtplans ist noch nicht veröffentlicht. Die folgenden älteren Abschnitte sind
+historische Teilnachweise und ersetzen diesen aktuellen Status nicht.
+
+- Host- und Linux-Build sowie alle 13 CI-Prüfungen bestanden am Produktstand.
+- Die frische kompilierte 200-Dokumente-Matrix bestand alle sechs REST-/SDK-
+  Copy-/Move-/Delete-Gruppen einschließlich ursprünglicher Operationsbelege,
+  Status, expliziter Recovery, sofortigem Lesen, eingehenden Links und Rotation.
+  Beleg: `compiled-api-sdk-operations-1793755216082-result.json`.
+- Die reguläre Gesamtsuite bestand auf demselben Build: **331 bestanden,
+  0 fehlgeschlagen, 269 bedingte Skips**, 39,3 Minuten. Skips gelten nicht als
+  getestetes Verhalten. Der Runner endete erfolgreich und bestätigte unveränderte
+  Originaldaten sowie die Wiederherstellung des vorherigen lokalen Laufzeitstands.
+  Beleg: `compiled-test-all-2f85b-1793787570061-result.json`.
+- Die Browser-Cache-Abnahme ist offen. Die Diagnose mit zehn Dokumenten zeigt
+  weiter etwa 815–851 ms für warme Wechsel und wiederholtes Öffnen der IndexedDB.
+  Der Hocuspocus-Verbindungsstart setzt `unsyncedChanges` auch ohne Texteingabe
+  auf eins; dieser Zähler allein belegt keine lokale Inhaltsänderung. Die aktuelle
+  Aufbewahrungsentscheidung schließt solche noch unbestätigten Verbindungen aus.
+- Ein Timeout der ersten Neuladeprobe ist als falsche Testannahme eingegrenzt:
+  Die URL forderte B, während die Probe auf A wartete. Die Browseraufnahme zeigt
+  B mit korrektem Inhalt, `checkpointed_file`, null ausstehenden Änderungen und
+  ohne Fehler. Expliziter Dokumentlink und Wiederherstellung des aktiven Tabs
+  werden in der korrigierten Probe getrennt geprüft; deren Erfolg ist noch offen.
+  Beleg: `tab-retention-diagnostic-2f85b-20261104-reload-triage.json`.
+
+Die lokalen Ergebnisdateien liegen unter
+`~/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/`.
+Offen bleiben die unten geforderte vollständige Abnahmematrix am endgültigen
+Produktstand, Cache-/Datenbankleistungsnachweise und Budgets sowie PR-Abschluss,
+Release und Prüfung der fünf produktiven Workspaces. Review Center und Undo
+werden dafür nicht erweitert.
+
 
 Ergänzung vom 31.10.2026: Programmatischer Zugriff über REST und das installierte
 Python-SDK gehört ausdrücklich zum Ziel. Die neuen, noch offenen Pakete 4a und
@@ -258,7 +295,7 @@ abgenommen. Bereits laufende API-/SDK-Arbeit wird durch die Ergänzung nicht
 verworfen. Erforderliche Prüfungen folgen den tatsächlich geänderten Abläufen;
 Review Center und Undo werden weiterhin nicht ausgebaut.
 
-Arbeitsstand am 02.11.2026; die jeweils geprüften Produktstände und Teilbelege
+Historische Paketübersicht vom 02.11.2026; aktueller Status siehe oben. Die jeweils geprüften Produktstände und Teilbelege
 stehen in den zugehörigen Abschnitten:
 
 | Paket | Status | Nächster konkreter Nachweis |
@@ -2480,7 +2517,7 @@ verwendet ausschließlich ausdrücklich bestimmte Testdokumente.
 
 ### 5c. Browser-Dokumentcache und Wechsel zwischen Dokument-Tabs
 
-**Status: geplant, noch nicht umgesetzt oder abschließend gemessen.** Gemeint sind
+**Status am 04.11.2026: teilweise umgesetzt und gemessen; Abnahme offen.** Die begrenzte Aufbewahrung ist implementiert (drei Dokumente, 15 Sekunden, 1 MiB je Dokument), vermeidet aber bei schnellen Wechseln noch nicht alle Neuinitialisierungen. Gemeint sind
 die Dokument-Tabs innerhalb des Notebooks; zusätzliche Browser-Tabs und Browser-
 Neustarts werden als getrennte Lebensdauern geprüft. Kein zusätzlicher laufender
 Dienst und kein vollständiges Vorladen aller Workspace-Dokumente sind vorgesehen.

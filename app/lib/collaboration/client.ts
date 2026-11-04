@@ -288,9 +288,17 @@ function disposeEntry(entry: RegistryEntry): void {
 function parkTextEntry(entry: RegistryEntry): boolean {
   const session = entry.session;
   if (!session || session.guestAccess || !isRichTextCollaborationRepresentation(session.representation)
+    || session.degraded || session.projectionError?.permanent
     || !isOpenedDocumentAuthCurrent(entry.authScope) || !entry.persistence?.synced
-    || entry.clientState.admissionBusy || entry.clientState.failure || !hasCurrentPersistedSnapshot(entry)
+    || entry.clientState.admissionBusy || entry.clientState.failure
     || Y.encodeStateAsUpdate(entry.doc).byteLength > PARKED_TEXT_BYTES) return false;
+
+  // Starting a provider sets its unsynced counter even without a local edit.
+  // An exact session snapshot can remain in RAM while that handshake is pending.
+  // This does not confirm saving or sync: adoption still requires fresh HTTP
+  // authorization and a new full-state comparison before exposing local content.
+  if (!hasCurrentPersistedSnapshot(entry) && (!isCollaborationStateProof(session.stateProof)
+    || session.stateProof !== collaborationStateProof(entry.doc, Y))) return false;
 
   entry.parkedAt = Date.now();
   entry.requests.abort();
