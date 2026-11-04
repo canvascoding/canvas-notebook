@@ -61,6 +61,18 @@ function assertAdmissionError(action: () => unknown, code: CollaborationAdmissio
   });
 }
 
+test('only internally canonicalized admission requests reuse their capture', () => {
+  const documents = [document()];
+  const input = Object.freeze(request({ expectedDocuments: documents }));
+  const captured = captureCollaborationAdmissionRequest(input);
+  assert.equal(captureCollaborationAdmissionRequest(captured.request), captured);
+  assert.notEqual(captureCollaborationAdmissionRequest(input), captured);
+
+  documents[0] = document({ path: 'outside/file.txt' });
+  assertAdmissionError(() => captureCollaborationAdmissionRequest(input), 'ADMISSION_INVALID_REQUEST');
+  assert.equal(captureCollaborationAdmissionRequest(captured.request), captured);
+});
+
 test('request capture canonicalizes scope/document/workspace ordering and digest', () => {
   const aScope = scope({ workspaceId: 'workspace-z', organizationId: null, path: 'z', kind: 'exact' });
   const bScope = scope({ workspaceId: 'workspace-a', organizationId: 'org-a', path: 'b', kind: 'subtree' });
