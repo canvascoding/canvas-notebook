@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import unittest
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from unittest.mock import patch
 
 from mcp.client.auth import OAuthFlowError
@@ -50,6 +50,39 @@ class StorageAndConfigurationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(CredentialStorageError):
             async with oauth.open_provider("https://other.example/mcp"):
                 self.fail("Cross-resource storage must fail before authorization")
+
+    async def test_oauth_discovery_cannot_expand_the_consent_url(self):
+        redirect_uri = "http://127.0.0.1:8765/oauth/callback"
+        store = MemoryTokenStorage(ENDPOINT)
+        await store.set_client_info(OAuthClientInformationFull.model_validate({
+            "client_id": "test-client", "redirect_uris": [redirect_uri],
+            "token_endpoint_auth_method": "none",
+        }))
+        class ConsentObserved(Exception):
+            pass
+
+        async def inspect_consent(url):
+            query = parse_qs(urlsplit(url).query)
+            self.assertEqual(query["scope"], ["workspace:list knowledge:tree"])
+            self.assertNotIn("prompt", query)
+            raise ConsentObserved
+
+        oauth = CanvasOAuth(("workspace:list", "knowledge:tree"), store, redirect_uri, inspect_consent)
+        async with oauth.open_provider(ENDPOINT) as provider:
+            await provider._initialize()
+            provider.context.redirect_handler = inspect_consent
+            provider.context.client_metadata.scope = "workspace:list knowledge:tree knowledge:write offline_access"
+            with self.assertRaises(ConsentObserved):
+                await provider._perform_authorization_code_grant()
+
+    async def test_oauth_rejects_a_stored_token_with_broader_scopes(self):
+        store = MemoryTokenStorage(ENDPOINT)
+        await store.set_tokens(OAuthToken(access_token="test-token", token_type="Bearer",
+                                          scope="workspace:list knowledge:write"))
+        oauth = CanvasOAuth(("workspace:list",), store, "http://127.0.0.1:8765/oauth/callback")
+        async with oauth.open_provider(ENDPOINT) as provider:
+            with self.assertRaisesRegex(OAuthFlowError, "token scope"):
+                await provider._initialize()
 
     def test_invalid_endpoint_and_credential_combinations_reject(self):
         for endpoint in ("http://remote.example/mcp", "https://u:p@example/mcp", "https://canvas.example/mcp?q=1",

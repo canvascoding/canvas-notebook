@@ -11,6 +11,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlsplit
 
+from httpx2 import Request
 from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.shared.auth import OAuthClientMetadata
 
@@ -158,6 +159,35 @@ class _CallbackReceiver:
                     pass
 
 
+class _ScopedOAuthProvider(OAuthClientProvider):
+    """Keep explicit Canvas scopes when MCP 2.3.0 discovers server capabilities."""
+
+    def __init__(self, scopes: tuple[str, ...], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._canvas_scopes = scopes
+
+    def _validate_current_token_scope(self) -> None:
+        token = self.context.current_tokens
+        if token is not None and (not token.scope or not set(token.scope.split()).issubset(self._canvas_scopes)):
+            raise OAuthFlowError(
+                "OAuth token scope exceeds or cannot be verified against the requested Canvas scopes. "
+                "Use a fresh credential profile."
+            )
+
+    async def _initialize(self) -> None:
+        await super()._initialize()
+        self._validate_current_token_scope()
+
+    async def _perform_authorization_code_grant(self) -> tuple[str, str]:
+        # Discovery advertises capabilities, including rights the caller did not request.
+        self.context.client_metadata.scope = " ".join(self._canvas_scopes)
+        return await super()._perform_authorization_code_grant()
+
+    def _add_auth_header(self, request: Request) -> None:
+        self._validate_current_token_scope()
+        super()._add_auth_header(request)
+
+
 @dataclass(frozen=True)
 class CanvasOAuth:
     scopes: tuple[str, ...]
@@ -199,7 +229,7 @@ class CanvasOAuth:
                     raise OAuthFlowError("No OAuth authorization is waiting for a callback.")
                 return await receiver.callback()
 
-            yield OAuthClientProvider(server_url=endpoint,
+            yield _ScopedOAuthProvider(self.scopes, server_url=endpoint,
                 client_metadata=OAuthClientMetadata.model_validate({"client_name": "Canvas Notebook Python",
                     "redirect_uris": [self.redirect_uri], "application_type": "native", "token_endpoint_auth_method": "none",
                     "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": " ".join(self.scopes)}),
