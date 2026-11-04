@@ -219,7 +219,7 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
     } else if (mcp) throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A Session job cannot adopt a programmatic handle.');
     const open = fields.openConnection?.value === undefined ? openDb : fields.openConnection.value;
     if (typeof open !== 'function') throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A real connection factory is required.');
-    return withWorkspaceMutationLock(original.binding.workspaceId, () => withNativePathClaimPhase(claim, original, mcp, open, async (database, access) => {
+    const advance = (preparedRequestId?: string) => withNativePathClaimPhase(claim, original, mcp, open, async (database, access) => {
       const startedAt = performance.now();
       type Stage = 'admission-read' | 'active-census' | 'request-prepare' | 'reserve' | 'targets' | 'ready';
       let stage: Stage = 'admission-read', finishedCallback = false;
@@ -229,6 +229,9 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
       };
       try {
         const existing = await readWorkspaceOperationNativePathAdmissionOnConnection(database, claim);
+        if (preparedRequestId && existing?.request.requestId !== preparedRequestId) {
+          throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+        }
         mark('admission-read'); stage = 'active-census';
         const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
         const active = await database.all(`SELECT DISTINCT CASE WHEN octet_length(r.request_id)=36 THEN r.request_id END AS request_id
@@ -265,6 +268,12 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
         }
         mark('reserve');
         if (!['reserved', 'draining'].includes(reserved.status)) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        if (!existing && original.kind === 'move' && original.authorization.mode === 'api-key') {
+          // The preparation and reservation are durable together. Resume from
+          // that exact header in a fresh, fully authorized claim transaction.
+          finishedCallback = true;
+          return Object.freeze({ status: 'prepared' as const, requestId: selected.request.requestId });
+        }
         stage = 'targets';
         const pending = await advanceNativePathTargets(database, original, selected.request, reserved, access);
         mark('targets'); stage = 'ready'; mark('ready'); finishedCallback = true;
@@ -275,7 +284,14 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
           elapsedMs: Math.round(performance.now() - startedAt), finishedCallback, milestones })); }
         catch { /* Preserve the original result or error. */ }
       }
-    }));
+    });
+    return withWorkspaceMutationLock(original.binding.workspaceId, async () => {
+      const first = await advance();
+      if (first.status !== 'prepared') return first;
+      const resumed = await advance(first.requestId);
+      if (resumed.status === 'prepared') throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+      return resumed;
+    });
   } catch (error) { return Promise.reject(error); }
 }
 
