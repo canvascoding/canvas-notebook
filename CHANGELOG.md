@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.4.1] - 2026-11-04
+
+### Added
+
+- Manage workspace-scoped API keys with expiration, rotation, and revocation under Settings → Connections → API access.
+- Use the document API and Python SDK for native document reads, edits, imports, and file operations. The release includes the SDK 0.1.0 wheel, source package, and SHA-256 checksums.
+
+### Fixed
+
+- Recover document tabs when location lookup fails offline and retain a bounded amount of collaborative document state across tab switches.
+- Keep the editor available until its local backup completes during a document switch.
+- Retry read-only file previews after temporary authorization contention.
+- Build Linux images from signed Debian mirrors with verified package indexes.
+
+### Verification
+
+- The compiled-product `test:all` run passed 331 browser cases with 269 conditional skips. The ten supplemental collaboration and recovery cases passed across the initial run and focused rerun.
+- API and SDK CI exercises actual HTTP and PostgreSQL, and installs the wheel and source package under Python 3.10 and 3.15.
+- Tab-switch measurements completed with 10 and 200 documents on desktop and with 10 documents in a mobile viewport.
+
 ## [2026.11.1.3] - 2026-11-01
 
 ### Fixed
