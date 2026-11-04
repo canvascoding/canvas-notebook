@@ -34,10 +34,33 @@ fehl; mit der Korrektur bestehen Client-/Transaktionsprüfungen, die echte
 PostgreSQL-Sperrprobe, angrenzende Dateioperations-/Quelltests und Lint.
 Die neuen Regressionen sind in die Native-API-/SDK-CI aufgenommen.
 
-Host-/Linux-Build und vollständige Browser-Abnahme dieser letzten Korrektur,
-die noch offenen Cache-/API-/SDK-Abnahmen, PR-Abschluss und Release stehen aus.
-PR #198 bleibt Entwurf. Die folgenden Abschnitte dokumentieren ältere
-Teilnachweise und ersetzen den aktuellen Abnahmestand nicht.
+Produktstand `56c964131` besteht Host- und Linux-Build, alle 13 CI-Prüfungen
+und sechs kompilierte Bulk-Move-Browserfälle. Das CI-Wheel und die Source-
+Distribution bestehen zwölf frische Installationsprofile unter Python 3.10.22
+und 3.15.2; je Runtime bestehen zusätzlich 53 echte SDK-/HTTP-Testgruppen.
+Die lokale Installation desselben CI-Wheels ist bytegleich zum Quellstand und
+verwendet macOS Keychain; eine aktuelle OAuth-/Keychain-Gesamtabnahme steht aus.
+
+Der vollständige reguläre Lauf auf diesem Produktstand endet mit **330 bestanden,
+1 fehlgeschlagen, 269 bedingten Skips** (39,1 Minuten). Bulk Move besteht darin
+auf Desktop und Mobil. Der einzelne Fehler ist die Cursorpositionierung im
+Concurrent-Rich-Move-Test: `End` platziert die Eingabe nicht zuverlässig am
+Absatzende. Der Marker wurde in „Peer: Anfang“ eingefügt; die spätere Erwartung
+dieser unveränderten zusammenhängenden Zeichenfolge war deshalb falsch.
+Verschiebung, Persistenz, Dokumentidentität und Peer-Konvergenz bestanden davor.
+Der Test setzt und prüft jetzt die tatsächliche Browser-Auswahl am Absatzende
+und prüft zusätzlich den erwarteten Absatztext nach der Eingabe. Alle drei
+gezielten Gegenproben bestehen ohne Retry oder Skip, einschließlich erneuter
+Bearbeitung nach der Verschiebung. Produktlogik bleibt unverändert.
+Belege: `compiled-test-all-56c964131-1793814312397-result.json` und
+`compiled-rich-caret-56c964131-1793816942742-result.json`.
+Beide Läufe bestätigen unveränderte Originaldaten und Wiederherstellung des
+vorherigen lokalen Laufzeitstands.
+
+Der erneute vollständige reguläre Lauf, die offenen Cache-/API-/SDK-Abnahmen,
+PR-Abschluss und Release stehen aus. PR #198 bleibt Entwurf. Die folgenden
+Abschnitte dokumentieren ältere Teilnachweise und ersetzen den aktuellen
+Abnahmestand nicht.
 
 Produktstand `2f85bb3c7de36deab07afe81d785ac3fe01a5be2` enthält `main`
 `3ec143a25` einschließlich PR #201. PR #198 bleibt Entwurf; ein Release dieses

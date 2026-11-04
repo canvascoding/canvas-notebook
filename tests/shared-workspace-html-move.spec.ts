@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type Request as PlaywrightRequest, type Response } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page, type Request as PlaywrightRequest, type Response } from '@playwright/test';
 import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import {
@@ -655,6 +655,29 @@ test.describe('shared workspace HTML move safety', () => {
     });
   });
 
+  async function placeCaretAtParagraphEnd(paragraph: Locator) {
+    await paragraph.evaluate((element) => {
+      const editor = element.closest<HTMLElement>('[contenteditable="true"]');
+      if (!editor) throw new Error('Paragraph is not in the editable document.');
+      editor.focus();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      const selection = window.getSelection();
+      if (!selection) throw new Error('Browser selection is unavailable.');
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await expect.poll(() => paragraph.evaluate((element) => {
+      const selection = window.getSelection();
+      if (!selection?.isCollapsed || !selection.anchorNode || !element.contains(selection.anchorNode)) return false;
+      const prefix = document.createRange();
+      prefix.selectNodeContents(element);
+      prefix.setEnd(selection.anchorNode, selection.anchorOffset);
+      return prefix.toString() === element.textContent;
+    })).toBe(true);
+  }
+
   test('accepted concurrent rich insertions and a deletion survive a move without reloading either editor', async ({ browser }, info) => {
     await withSharedFixture(browser, async (fixture) => {
       const filePath = 'gemeinsam.md';
@@ -671,13 +694,13 @@ test.describe('shared workspace HTML move safety', () => {
         .getByText('Peer: Anfang', { exact: true }).getAttribute('data-id');
       expect(peerParagraphId, 'Bind continued editing to the original Peer paragraph').toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu);
       for (const [page, paragraph] of [[fixture.adminPage, 'Admin: Anfang'], [fixture.peerPage, 'Peer: Anfang']] as const) {
-        await page.locator('.tiptap-editor-shell .ProseMirror').getByText(paragraph, { exact: true }).click({ position: { x: 12, y: 8 } });
-        await page.keyboard.press('End');
+        await placeCaretAtParagraphEnd(page.locator('.tiptap-editor-shell .ProseMirror').getByText(paragraph, { exact: true }));
       }
       await Promise.all([fixture.adminPage.keyboard.insertText(adminMarker), fixture.peerPage.keyboard.insertText(peerMarker)]);
       // Only text observed in the actual editable DOM is counted as accepted input.
       await expect(fixture.adminPage.locator('.tiptap-editor-shell .ProseMirror')).toContainText(adminMarker.trim());
       await expect(fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')).toContainText(peerMarker.trim());
+      await expect(fixture.peerPage.locator(`p[data-id="${peerParagraphId}"]`)).toHaveText('Peer: Anfang' + peerMarker);
       const removed = fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror').getByText(deleted, { exact: true });
       await removed.click({ position: { x: 12, y: 8 } });
       await removed.evaluate((element) => {
@@ -710,8 +733,7 @@ test.describe('shared workspace HTML move safety', () => {
       const continuedPeerParagraph = fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')
         .locator(`p[data-id="${peerParagraphId}"]`);
       await expect(continuedPeerParagraph).toContainText('Peer: Anfang');
-      await continuedPeerParagraph.click({ position: { x: 12, y: 8 } });
-      await fixture.peerPage.keyboard.press('End');
+      await placeCaretAtParagraphEnd(continuedPeerParagraph);
       await fixture.peerPage.keyboard.insertText(resumed);
       await expect(fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')).toContainText(resumed.trim());
       const final = await waitDurableContent(fixture, `Ziel/${filePath}`, [adminMarker, peerMarker, resumed], deleted);
