@@ -11,20 +11,18 @@ updatedAt: 2026-11-01
 
 # Python SDK
 
-**Development preview.** `canvas-notebook-python` is currently an unpublished `0.1.0.dev0` package in the Notebook repository. These instructions use a locally built wheel, not a PyPI release. They require a compatible development Notebook with the native document tools enabled; they do not imply that a public deployment already provides this API.
+The Python SDK is distributed with compatible Canvas Notebook releases. Use a Notebook instance that exposes the native document tools.
 
 The SDK calls Canvas's central document services. Canvas owns Yjs state, document identities, versions and authorized mutations. Do not write `.md` projections directly or construct raw Yjs updates in your script. The [Document API reference](/docs/developers/document-api) describes the underlying requests and results.
 
-## Install a development wheel
+## Install the SDK
 
-Use Python 3.10 or later. From the matching Notebook repository checkout:
+Use Python 3.10 or later. Download `canvas_notebook_python-0.1.0-py3-none-any.whl` and `canvas-python-sdk.sha256` from the matching [Canvas Notebook release](https://github.com/canvascoding/canvas-notebook/releases). Compare the wheel's SHA-256 digest with the entry in the checksum file, then install it:
 
 ```sh
 python -m venv .venv-sdk
 . .venv-sdk/bin/activate
-python -m pip install build
-python -m build --wheel --outdir sdk-dist packages/canvas-notebook-python
-python -m pip install './sdk-dist/canvas_notebook_python-0.1.0.dev0-py3-none-any.whl[mcp,keyring]'
+python -m pip install './canvas_notebook_python-0.1.0-py3-none-any.whl[mcp,keyring]'
 ```
 
 The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.0` and matching MCP types. `keyring` adds supported OS credential storage. The core `CanvasNotebook` facade and DTO/error types have no runtime MCP dependency; a controlled agent-runtime adapter is a separate, currently unimplemented connection.

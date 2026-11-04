@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0.dev0 — unreleased
+## 0.1.0
 
 - Separately installable native-document facade over official MCP 2.3.0 Streamable HTTP, with optional external dependencies.
 - OAuth authorization-code/PKCE callback lifetime and separate memory/OS-keyring storage for tokens and client registration.

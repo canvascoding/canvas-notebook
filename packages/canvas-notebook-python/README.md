@@ -1,6 +1,6 @@
 # Canvas Notebook Python
 
-Unreleased `0.1.0.dev0` development SDK. This package is not published. It targets the native document and explicit Copy/Move/Delete tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
+SDK version `0.1.0` targets the native document tools of compatible Canvas Notebook releases. Download the wheel and its checksum from the matching [Notebook release](https://github.com/canvascoding/canvas-notebook/releases). The repository’s Sustainable Use License is included in `LICENSE`.
 
 The package delegates document identity, versions, permissions, Yjs edits, history and link handling to Canvas. It never edits a workspace `.md` projection or constructs Yjs updates.
 
