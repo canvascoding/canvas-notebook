@@ -313,7 +313,8 @@ if "$cli" env --sync --timeout 0 --json --no-banner > "$TMP_DIR/env-invalid-time
   exit 1
 fi
 jq -e '.success == false and .phase == "arguments"' "$TMP_DIR/env-invalid-timeout.json" >/dev/null
-if CANVAS_TEST_CURL_FAIL=true "$cli" env --sync --timeout 1 --json --no-banner > "$TMP_DIR/env-health-timeout.json" 2>&1; then
+# Give the mocked PostgreSQL checks time to finish before exercising the app health deadline.
+if CANVAS_TEST_CURL_FAIL=true "$cli" env --sync --timeout 10 --json --no-banner > "$TMP_DIR/env-health-timeout.json" 2>&1; then
   echo "env --sync succeeded without a healthy app" >&2
   exit 1
 fi
