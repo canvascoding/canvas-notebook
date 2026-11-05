@@ -164,7 +164,33 @@ Private Belege: `debian-snapshot-20261105-real-download-proof.json` und
 `release-2026.11.5.3-ci-setup-failure-audit.json`. Der alte Tag wird nicht
 ueberschrieben; die korrigierte Freigabe verwendet `2026.11.5.4`.
 
-**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.4` nach vollständiger
+Der Tag `v2026.11.5.4` (`c5139a218`) bleibt ebenfalls unveraendert und
+unveroeffentlicht. Seine PR- und main-Pruefungen einschliesslich API/SDK und CodeQL
+bestehen. Im Tag-Build scheiterte amd64 vor der Indexpruefung an HTTP 503 vom
+Snapshot-Dienst. arm64 blieb 91 Minuten im allerersten HTTP-APT-Metadatenabruf;
+der Lauf wurde zur Diagnose abgebrochen. Die archivierten Logs zeigen keinen
+Fortschritt zur nativen oder Anwendungskompilierung. Private Belege:
+`release-2026.11.5.4-amd64-attempt1-failed.log` und
+`release-2026.11.5.4-arm64-cancelled-diagnostic.log`.
+
+Die Korrektur fuer `2026.11.5.5` verwendet HTTPS schon beim Bootstrap mit den
+Root-Zertifikaten des digestgepinnten Node-Binaries. APT-Updates und Installationen
+haben harte Zeitgrenzen. Eine fruehe, begrenzte HTTPS-/Indexhash-Vorpruefung
+laeuft vor dem Compiler; Debian-Signaturen und Ablauf werden weiterhin von APT
+geprueft. Elf Quellen-/Deadline-Vertraege und drei echte HTTPS-Metadatenabrufe
+bestehen; die vollstaendige Release- und Image-Abnahme bleibt offen.
+
+PR #216 (`397834d3f`) ergaenzt begrenzte Wiederholungen ausschliesslich fuer
+Apple-Ticket-Transportfehler und quellengebundene Desktop-Wiederaufbauten.
+25 Shell-Vertraege bestehen lokal und in der PR-CI. Der echte Mac-Lauf
+`42110921405` bestand Signatur-, Notarisierungs-, Mikrofonpaket- und Gatekeeper-
+Pruefungen am Originalquellstand `c5139a218`. Sein Upload legte wegen der neu
+hinzugefuegten Herkunftsdatei die Binaerdateien samt Updatemanifest in einen
+Unterordner; die Publisher-Pruefung blieb rot. Die Herkunftsdatei wird fuer das
+naechste Release im selben Ausgabeordner wie die Artefakte abgelegt. Kein
+Desktop- oder Serverrelease `.4` wurde dadurch publiziert.
+
+**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.5` nach vollständiger
 Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
 „Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
 Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale

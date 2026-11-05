@@ -286,10 +286,16 @@ erfolgreich verglichen wurden. Die Evidenzen werden als
 `canvas-native-compliance-<version>.tar.gz` aufbewahrt. Exakte Parameter und
 Hashes stehen in `docker-native-distribution-policy.json`.
 
-Das minimale Node-Basisimage besitzt anfangs keinen CA-Store. Deshalb wird
-`ca-certificates` einmal ueber HTTP aus genau demselben, APT-signierten
-Snapshot installiert; danach werden die unveraenderten Snapshot-Quellen auf
-HTTPS umgestellt. Der libvips-Laufzeitstage installiert nur die expliziten
+Das minimale Node-Basisimage besitzt anfangs keinen CA-Store. Fuer den ersten
+HTTPS-Abruf werden daher die eingebauten oeffentlichen Root-Zertifikate des
+digestgepinnten Node-Binaries temporaer exportiert und explizit als APT-CA-Datei
+verwendet. Nach Installation von `ca-certificates` wird diese Datei entfernt.
+Alle Abrufe verwenden HTTPS; Debian-Signaturen, gueltige Release-Metadaten und
+die gesperrten Indexhashes bleiben verpflichtend. APT-Updates haben eine harte
+Fuenf-Minuten-Grenze, Installationen 15 Minuten. Die fruehe Repository-Vorpruefung
+prueft Erreichbarkeit und Indexhash-Metadaten vor dem Compiler; APT fuehrt die
+kryptographische Signatur- und Ablaufpruefung weiterhin selbst aus.
+Der libvips-Laufzeitstage installiert nur die expliziten
 Codec-/GLib-/Pango-Laufzeitbibliotheken. Das Debian-Paket `libvips42` wird
 nicht zusaetzlich ausgeliefert, sodass `/usr/local/lib/libvips*.so*` eindeutig
 aus dem gehashten Canvas-Source-Build stammt. Die korrespondierenden
