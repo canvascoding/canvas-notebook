@@ -388,14 +388,15 @@ test('a native peer edit during staged physical reads invalidates the native pro
     const getter: unknown = Reflect.get(sourceModule, 'requiresWorkspaceLinkSourceAuthorityRevalidation');
     return typeof getter === 'function' && getter(value) === true;
   };
-  type Mode = 'native' | 'catalogue' | 'catalogue-missing' | 'sql' | 'corrupt' | 'unrelated-gap' | 'auth' | 'current-sql' | 'close' | 'rollback';
+  type Mode = 'native' | 'catalogue' | 'catalogue-missing' | 'missing-initial' | 'sql' | 'corrupt' | 'unrelated-gap' | 'auth' | 'current-sql' | 'close' | 'rollback';
   const runPreview = async (mode: Mode) => {
     const states = [initial];
-    const traced = database([record('native.bin', 'initialized')], { states,
+    const traced = database([record('native.bin', mode === 'missing-initial' ? 'missing-state' : 'initialized')], { states,
       ...(mode === 'catalogue' ? { after: [{ ...record('native.bin', 'initialized'), state_version: 8 }] }
         : mode === 'catalogue-missing' ? { after: [record('native.bin', 'missing-state')] } : {}) });
     const realAll = traced.connection.all, realGet = traced.connection.get, realRun = traced.connection.run;
     let binaryReads = 0, headerReads = 0, currentChecks = 0, principalDepth = 0, htmlCalls = 0;
+    const phaseChecks: { count: number; succeeded: boolean }[] = [];
     let observation: import('../app/lib/markdown/workspace-source-authority-stage').WorkspaceLinkSourceAuthorityObservation | undefined;
     const currentFailure = Object.assign(new Error('Declared fresh current failure.'), { status: mode === 'auth' ? 403 : 503,
       code: mode === 'auth' ? 'PRINCIPAL_AUTH_REVOKED' : '55P03' });
@@ -418,10 +419,10 @@ test('a native peer edit during staged physical reads invalidates the native pro
         return rows;
       },
       run: async (sql, values) => {
-        if (sql === 'ROLLBACK' && mode === 'rollback') throw cleanupFailure;
+        if (sql === 'ROLLBACK' && mode === 'rollback') { traced.trace.push(sql); throw cleanupFailure; }
         return realRun(sql, values);
       },
-      close: async error => { await traced.connection.close(error); if (mode === 'close') throw cleanupFailure; },
+      close: async error => { await traced.connection.close(error); if (mode === 'close' && observation) throw cleanupFailure; },
     };
     const principal = Object.freeze({ fixture: 'declared-current-principal' }) as unknown as
       import('../app/lib/workspaces/request-principal').WorkspaceRequestPrincipal;
@@ -429,21 +430,24 @@ test('a native peer edit during staged physical reads invalidates the native pro
     const mocks: Record<string, unknown> = {
       'server-only': {}, 'node:util': await import('node:util'), '../db': { openDb: async () => databaseConnection },
       '../collaboration/lifecycle-transaction': transaction,
+      '../observability/workspace-source-scan': await import('../app/lib/observability/workspace-source-scan'),
+      '../mcp/server/diagnostics': { directMcpCorrelationId: () => undefined },
       '../collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => true },
       '../collaboration/room-admission-contract': admission,
       '../markdown/workspace-file-operation-preview': staleExports,
       '../markdown/workspace-source-authority-stage': { ...sourceModule,
-        readWorkspaceLinkSourceAuthorityOnConnection: async (...args: Parameters<typeof sourceModule.readWorkspaceLinkSourceAuthorityOnConnection>) => {
-          observation = await sourceModule.readWorkspaceLinkSourceAuthorityOnConnection(...args); return observation;
+        readWorkspaceLinkSourcePreviewObservation: async (...args: Parameters<typeof sourceModule.readWorkspaceLinkSourcePreviewObservation>) => {
+          observation = await sourceModule.readWorkspaceLinkSourcePreviewObservation(...args); return observation;
         } },
       '../workspaces/request-principal': { WorkspaceRequestPrincipalError: class extends Error {}, withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
         supplied: object, read: (access: { workspace: WorkspaceContext; assertCurrent: () => Promise<void> }) => Promise<unknown>) => {
         assert.equal(typeof actual.get, 'function'); assert.equal(supplied, principal);
-        assert.deepEqual(traced.trace.slice(0, 2), ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE']);
+        assert.deepEqual(traced.trace.slice(-2), ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE']);
         principalDepth++;
-        try { return await read({ workspace, assertCurrent: async () => {
-          currentChecks++; if (currentChecks === 2 && (mode === 'auth' || mode === 'current-sql')) throw currentFailure;
-        } }); } finally { principalDepth--; }
+        const phase = { count: 0, succeeded: false }; phaseChecks.push(phase);
+        try { const value = await read({ workspace, assertCurrent: async () => {
+          phase.count++; currentChecks++; if (observation && (mode === 'auth' || mode === 'current-sql' || mode === 'rollback')) throw currentFailure;
+        } }); phase.succeeded = true; return value; } finally { principalDepth--; }
       } },
       '../mcp/server/document-read-principal': { withDirectMcpWorkspaceMovePrincipalOnConnection: unexpected,
         withDirectMcpWorkspaceDeletePrincipalOnConnection: unexpected },
@@ -470,13 +474,26 @@ test('a native peer edit during staged physical reads invalidates the native pro
       selections: [{ sourcePath: 'native.bin', destinationPath: 'renamed.bin' }] }); }
     catch (error) { received = error; }
     finally { if (mode === 'unrelated-gap') await fs.unlink(invalidPath); }
-    if (mode === 'sql') assert.equal(observation, undefined, 'A transient SQL failure must escape without a completed observation.');
+    if (mode === 'sql') assert.equal(observation, undefined, 'A failed SQL phase must not produce a completed observation.');
     else assert(observation, `Collector was not reached: ${received instanceof Error ? `${received.name}: ${received.message}` : String(received)}`);
     assert.equal(principalDepth, 0); assert.equal(traced.trace.at(-1), 'close');
-    assert(!traced.trace.includes('COMMIT'));
+    const phases = traced.trace.filter(sql => sql === 'BEGIN').length;
+    assert(phases > 1, 'Observations use multiple independently disposed phases.');
+    assert.equal(traced.trace.filter(sql => sql === 'close').length, phases);
+    assert.equal(traced.trace.filter(sql => sql === 'COMMIT' || sql === 'ROLLBACK').length, phases);
+    assert.equal(phaseChecks.length, phases);
+    assert.equal(currentChecks, phaseChecks.reduce((sum, phase) => sum + phase.count, 0));
+    for (const phase of phaseChecks) {
+      if (phase.succeeded) assert.equal(phase.count, 2, 'Every successful phase checks authority before and after its query.');
+      else assert(phase.count >= 1 && phase.count <= 2);
+    }
     if (observation) {
-      assert.equal(observation.stage.sources.length, 0);
-      assert.equal(observation.privateCatalogue, undefined); assert.equal(observation.stage.coverage.complete, false);
+      if (mode === 'missing-initial') {
+        assert.deepEqual(observation.stage.sources.map(source => source.inventory.path), ['incoming.md']);
+      } else assert.equal(observation.stage.sources.length, 0);
+      assert(!observation.stage.sources.some(source => source.inventory.path === 'native.bin'), 'Missing native evidence never falls back to stale disk bytes.');
+      if (mode !== 'missing-initial') assert.equal(observation.privateCatalogue, undefined);
+      assert.equal(observation.stage.coverage.complete, false);
       assert.equal(observation.stage.executionReady, false);
     }
     assert.equal(await fs.readFile(path.join(root, 'native.bin'), 'utf8'), 'Stale projection');
@@ -485,7 +502,9 @@ test('a native peer edit during staged physical reads invalidates the native pro
   };
   // This is the first new oracle: old public preview reports the actual E5
   // NATIVE_SOURCE_EVIDENCE_INVALID here, not a missing new export at startup.
-  for (const mode of ['native', 'catalogue'] as const) {
+  // A catalogue that changes after the initial snapshot is retried; malformed
+  // existing evidence and stable physical gaps below must remain blocked.
+  for (const mode of ['native', 'catalogue', 'catalogue-missing'] as const) {
     const result = await runPreview(mode);
     assert(result.observation);
     assert.equal(result.received instanceof Stale, true,
@@ -493,27 +512,35 @@ test('a native peer edit during staged physical reads invalidates the native pro
     const failure = result.received as { status?: number; code?: string };
     assert.equal(failure.status, 409); assert.equal(failure.code, 'PREVIEW_STALE');
     assert.equal(pathContract.normalizePublicWorkspacePathErrorCode(failure.code), 'PATH_PLAN_CHANGED');
-    assert.equal(result.currentChecks, 2); assert.equal(result.htmlCalls, 0);
-    assert(result.traced.trace.includes('ROLLBACK')); assert.equal(changed(result.observation), true);
+    assert(result.currentChecks > 2, 'Every source query must recheck current authority.'); assert.equal(result.htmlCalls, 0);
+    assert(!result.traced.trace.includes('ROLLBACK'), 'A stale historical observation fails after clean read-phase disposal.'); assert.equal(changed(result.observation), true);
     assert.equal(changed(structuredClone(result.observation)), false);
     assert.equal(changed({ ...result.observation }), false);
     assert.equal(changed(new Proxy(result.observation, {})), false);
   }
   const sqlFailure = await runPreview('sql');
   assert.equal(sqlFailure.received, sqlFailure.currentFailure);
-  assert.equal(sqlFailure.currentChecks, 1); assert.equal(sqlFailure.htmlCalls, 0);
+  assert(sqlFailure.currentChecks > 2); assert.equal(sqlFailure.htmlCalls, 0);
   assert(sqlFailure.traced.trace.includes('ROLLBACK'));
-  for (const mode of ['corrupt', 'unrelated-gap', 'catalogue-missing'] as const) {
+  for (const mode of ['corrupt', 'unrelated-gap'] as const) {
     const result = await runPreview(mode);
     const observation = result.observation; assert(observation);
-    assert.equal(result.received instanceof Stale, false); assert.equal(changed(observation), false);
+    assert.equal(result.received instanceof Stale, false, `${mode}: ${JSON.stringify(observation.stage.coverage.gaps)}`); assert.equal(changed(observation), false);
     const failure = result.received as { code?: string; status?: number; issues?: readonly { code: string; path: string }[] };
     assert.equal(failure.code, 'PATH_SOURCE_INCOMPLETE'); assert.equal(failure.status, 409);
     assert(failure.issues?.length);
     assert(failure.issues.every(issue => observation.stage.coverage.gaps.some(gap =>
       gap.code === issue.code && gap.path === issue.path)));
-    assert.equal(result.currentChecks, 2); assert.equal(result.htmlCalls, 0); assert(result.traced.trace.includes('ROLLBACK'));
+    assert(result.currentChecks > 2, 'Every source query must recheck current authority.'); assert.equal(result.htmlCalls, 0); assert(!result.traced.trace.includes('ROLLBACK'));
   }
+  // This declared SQL fixture claims missing state while retaining an existing
+  // Yjs tuple: contradictory initial evidence must fail strict capture, never
+  // become an executable HTML/import plan or stale-disk native fallback.
+  const inconsistentInitial = await runPreview('missing-initial');
+  assert.equal(inconsistentInitial.received instanceof Stale, false);
+  assert.equal(changed(inconsistentInitial.observation!), false);
+  assert.equal((inconsistentInitial.received as { code?: string }).code, 'NATIVE_SOURCE_EVIDENCE_INVALID');
+  assert.equal(inconsistentInitial.htmlCalls, 1);
   for (const mode of ['auth', 'current-sql', 'close', 'rollback'] as const) {
     const result = await runPreview(mode);
     if (mode === 'auth' || mode === 'current-sql') assert.equal(result.received, result.currentFailure);
@@ -523,7 +550,7 @@ test('a native peer edit during staged physical reads invalidates the native pro
       assert.equal(failure.cause, result.cleanupFailure);
     }
     else { assert(result.received instanceof AggregateError); assert(result.received.errors.includes(result.cleanupFailure)); }
-    assert.equal(result.htmlCalls, 0); assert.equal(result.currentChecks, 2);
+    assert.equal(result.htmlCalls, 0); assert(result.currentChecks > 2, 'Every source query must recheck current authority.');
   }
 }));
 

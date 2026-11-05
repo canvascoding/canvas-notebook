@@ -38,6 +38,11 @@ rights, grants, tokens or native sources during the read fails closed.
 Completed targeted suites: 26 real HTTP/PostgreSQL groups; nine authenticated
 web-route groups; ten Copy-owner groups; 66 source-collector tests; three
 telemetry tests; four edit-schema tests; nine real edit-dispatch groups.
+The preview contention/cleanup contract suite and all 41 original-source
+regressions also passed after updating their isolated SQL/import fixtures to
+model separate read phases. These tests retain per-phase before/after authority
+checks, exact transaction/close accounting and fail-closed stale/incomplete
+evidence, revoked authority and unconfirmed rollback/disposal oracles.
 Targeted ESLint, full production `npm run build`, and Docker production build
 passed. The built image's four changed application files were independently
 hashed against the worktree. Private `artifacts` are excluded from all image
