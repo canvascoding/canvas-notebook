@@ -95,11 +95,16 @@ try {
   assert.equal(readSchema.oneOf, undefined);
   const editSchema = catalog.edit_knowledge_source.inputSchema;
   assert.equal(editSchema.oneOf, undefined);
-  assert.equal(editSchema.properties.patch.anyOf.length, 2);
-  for (const variant of editSchema.properties.patch.anyOf) {
-    assert.equal(variant.type, 'object'); assert.equal(variant.properties.kind.type, 'string');
-    assert(variant.required.includes('kind'));
-  }
+  const patch = editSchema.properties.patch;
+  assert.equal(patch.type, 'object'); assert.equal(patch.anyOf, undefined);
+  assert.deepEqual(patch.properties.kind.enum, ['native_text_replace', 'native_blocks']);
+  assert.equal(patch.properties.edits.type, 'array');
+  assert.deepEqual(patch.properties.edits.items.required, ['oldText', 'newText']);
+  assert.equal(patch.properties.edits.items.properties.expectedOccurrences.type, 'integer');
+  assert.equal(patch.properties.operations.type, 'array');
+  assert.equal(patch.properties.operations.items.type, 'object');
+  assert.equal(patch.properties.operations.items.properties.kind.enum.length, 6);
+  assert.match(patch.properties.operations.items.description, /delete_block requires kind, blockId, subtreeHash/);
   const call = (tool, args) => rpc('mcpServer/tool/call', { threadId, server: serverName, tool,
     arguments: { workspace_id: fixture.workspaceId, ...args } });
   await verifyCapabilitiesAcceptance(call);

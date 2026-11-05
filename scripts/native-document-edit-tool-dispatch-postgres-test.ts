@@ -203,11 +203,16 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         const input = object(edit.inputSchema), output = object(edit.outputSchema); assert.equal(input.type, 'object'); assert.equal(output.type, 'object');
         assert.equal(input.oneOf, undefined); assert(Array.isArray(output.oneOf) && output.oneOf.length === 3);
         const patch = object(object(input.properties).patch);
-        assert(Array.isArray(patch.anyOf) && patch.anyOf.length === 2);
-        for (const branch of patch.anyOf) {
-          assert.equal(object(branch).type, 'object');
-          assert.equal(object(object(object(branch).properties).kind).type, 'string');
-        }
+        assert.equal(patch.type, 'object'); assert.equal(patch.anyOf, undefined);
+        const fields = object(patch.properties);
+        assert.deepEqual(object(fields.kind).enum, ['native_text_replace', 'native_blocks']);
+        assert.equal(object(fields.edits).type, 'array');
+        assert.deepEqual(object(object(fields.edits).items).required, ['oldText', 'newText']);
+        assert.equal(object(fields.operations).type, 'array');
+        const operation = object(object(fields.operations).items);
+        assert.equal(operation.type, 'object');
+        assert.equal((object(object(operation.properties).kind).enum as string[]).length, 6);
+        assert.match(String(operation.description), /delete_block requires kind, blockId, subtreeHash/);
         assert.equal(JSON.stringify(input).includes('\"oneOf\"'), false);
         assert.deepEqual(output.oneOf[1], DIRECT_MCP_NATIVE_EDIT_RESULT_JSON_SCHEMA); assert.deepEqual(output.oneOf[2], DOCUMENT_EDIT_FAILURE_JSON_SCHEMA_V1);
         assert(object(input.properties).path); assert(object(object(output.oneOf[0]).properties).path);

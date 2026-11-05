@@ -127,13 +127,37 @@ export const DOCUMENT_EDIT_PATCH_JSON_SCHEMA_V1 = { oneOf: [
     operations: { type: 'array', minItems: 1, maxItems: 32, items: structuredOperation } }, required: ['kind', 'operations'] },
 ] } as const;
 
-/** MCP adapters commonly understand anyOf but drop oneOf-only objects and
- * untyped constants. Only transform our static declaration; runtime decoding
- * remains the strict discriminated contract above. */
+/** Keep nested array/item fields directly visible to MCP adapters. This static
+ * declaration describes per-kind requirements; the original discriminated
+ * decoder remains strict, including conditional and unexpected-field checks. */
 function mcpEditSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(mcpEditSchema);
   if (!value || typeof value !== 'object') return value;
   const source = value as Record<string, unknown>;
+  if (Array.isArray(source.oneOf) && source.oneOf.every(branch => branch && typeof branch === 'object'
+    && branch.type === 'object' && branch.properties && typeof branch.properties === 'object')) {
+    const branches = source.oneOf.map(branch => mcpEditSchema(branch) as Record<string, unknown>);
+    const fields = branches.map(branch => branch.properties as Record<string, Record<string, unknown>>);
+    const properties = Object.fromEntries([...new Set(fields.flatMap(field => Object.keys(field)))].map(key => {
+      const choices = fields.map(field => field[key]).filter(Boolean);
+      if (choices.every(choice => typeof choice.const === 'string')) {
+        return [key, { type: 'string', enum: [...new Set(choices.map(choice => choice.const))] }];
+      }
+      return [key, choices.every(choice => JSON.stringify(choice) === JSON.stringify(choices[0]))
+        ? choices[0] : { anyOf: choices }];
+    }));
+    const required = ((branches[0].required ?? []) as string[]).filter(key =>
+      branches.every(branch => (branch.required as string[] | undefined)?.includes(key)));
+    const descriptions = branches.map((branch, index) => {
+      const kind = fields[index].kind?.const ?? `alternative ${index + 1}`;
+      return `${kind} requires ${(branch.required as string[] | undefined)?.join(', ') ?? 'its listed fields'}`;
+    });
+    return { type: 'object', additionalProperties: false, properties, ...(required.length ? { required } : {}),
+      description: `Choose one variant without mixing fields. ${descriptions.join('; ')}. The server enforces these per-variant requirements.`
+        + (fields.some(field => field.kind?.const === 'format_text')
+          ? ' For format_text, href is required only when enabling a link. For format_block, beforeAttrs and afterAttrs must contain the same single editable attribute.' : ''),
+    };
+  }
   const result = Object.fromEntries(Object.entries(source).map(([key, item]) =>
     [key === 'oneOf' ? 'anyOf' : key, mcpEditSchema(item)]));
   if (!result.type && typeof result.const === 'string') result.type = 'string';
