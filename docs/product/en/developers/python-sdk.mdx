@@ -67,8 +67,7 @@ async def read_first_hit(notebook, workspace_id, query):
 async def main(endpoint, workspace_id, query):
     oauth = CanvasOAuth(
         scopes=("openid", "offline_access", "workspace:list",
-                "knowledge:tree", "knowledge:search", "knowledge:read",
-                "knowledge:write"),
+                "knowledge:search", "knowledge:read"),
         storage=KeyringTokenStorage(endpoint, profile="document-script"),
         redirect_uri="http://127.0.0.1:8765/oauth/callback",
     )
@@ -96,7 +95,7 @@ if __name__ == "__main__":
 
 Choose a free explicit loopback callback port. Keep the same endpoint, credential profile and redirect URI when reauthorizing. The callback listener starts only when interactive authorization is needed and closes with the connection lifetime. Tokens and client registration are stored together in the supported OS credential system; no plaintext fallback is selected. Use one active client per profile.
 
-Tool-catalog discovery is public. For a connection without valid tokens, the first protected operation, such as `list_workspaces`, triggers the actual HTTP OAuth challenge. The official MCP provider selects effective scopes from the challenge or published server metadata; constructor scopes are initial client metadata, not a maximum grant. Review the actual consent permissions. Server-side tool and workspace grants still limit every operation.
+Tool-catalog discovery is public. For a connection without valid tokens, the first protected operation, such as `list_workspaces`, triggers the actual HTTP OAuth challenge. Canvas SDK 0.1.1 preserves the explicitly requested scopes during discovery and authorization. It rejects stored or refreshed tokens whose scopes are missing or exceed that requested set. The read-only example requests no write or tree permission. Review the actual consent permissions; a later write example requires a separate explicit `knowledge:write` grant and an appropriate credential profile. Server-side tool and workspace grants still limit every operation.
 
 For a temporary in-process session, use `MemoryTokenStorage(endpoint)` instead. Restarting loses its tokens and client registration; a new client identity cannot automatically resume operations owned by the previous client. The OS store preserves registration across restarts. `clear_tokens()` removes local tokens while retaining registration; it does not revoke the server grant.
 

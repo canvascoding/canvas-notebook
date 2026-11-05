@@ -89,3 +89,25 @@ replace compiled desktop/mobile UI, genuine OAuth issuance/refresh, regular
 `test:all`, whole-flow performance/cache acceptance or release/deployment
 verification. Review Center, Undo and the separately gated private model,
 plugin and Electron specialty environments remain outside this work.
+
+## Published read-example acceptance
+
+`scripts/helpers/python_sdk_documentation_probe.py` is a compiled-product probe,
+separate from the ephemeral handler CI. A controller must first verify its owned
+fixture and runtime, issue a read key, enable the required MCP tools, and preserve
+the prior configuration. It supplies one bounded JSON line on stdin with `origin`,
+`key`, `workspaceId`, `document` (`documentId`, `path`), `sourceCount`, `nonce`,
+`wheel` and `wheelSha256`. The current probe requires the managed loopback origin
+`http://127.0.0.1:3100` and the installed published SDK 0.1.1. Credentials must not
+be passed as command-line arguments. The controller owns key revocation, session
+cleanup, settings restoration and the independent preservation checks.
+
+The probe runs the REST search JSON and Python `read_first_hit` function extracted
+from the public MDX pages, without replacing the SDK or responses. It checks native
+ID/version/content parity and the no-hit continuation path on a fixture with more
+than eight initialized native candidates. It records documentation and wheel
+hashes with bounded HTTP metadata; it emits neither credentials nor document
+content. The OAuth entry point is not executed by this key-only probe. Its static
+check of the read example's minimal scopes does not establish interactive consent
+or refresh acceptance. Execution requires a real compiled fixture; a syntax check
+alone is not a passing acceptance result.
