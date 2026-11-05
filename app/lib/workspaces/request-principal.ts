@@ -583,7 +583,10 @@ async function readMemberScopeSnapshot(phase: Phase): Promise<MemberScopeSnapsho
   const relations = tables.map(name => `${quote(name)} AS NOT MATERIALIZED (SELECT * FROM ${table(phase,name)})`).join(',');
   let row: MemberScopeSnapshot['row'] | undefined;
   try {
-    row = await phase.database.get(`WITH ${relations}
+    // PostgreSQL can reuse the plan on this backend. Every fence still reads current rows.
+    const prepared = Object.getOwnPropertyDescriptor(phase.database, 'getPrepared');
+    const read = prepared && typeof prepared.value === 'function' ? prepared.value as SqlConnection['get'] : phase.database.get;
+    row = await read.call(phase.database, `WITH ${relations}
       SELECT header.*,account.*,
         (SELECT w.facts FROM (${workspacePermissionSnapshotJsonSql}) w) AS workspace,
         (SELECT seat.facts FROM (${postgresScalarSnapshotSql(userSeatAccessSnapshotSql(2,4),
