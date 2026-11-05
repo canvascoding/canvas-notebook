@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: electron-desktop-${{ inputs.release_tag || github.ref_name }}
+  group: electron-desktop-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
   cancel-in-progress: true
 
 jobs:
