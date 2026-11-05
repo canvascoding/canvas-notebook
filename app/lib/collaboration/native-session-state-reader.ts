@@ -13,8 +13,8 @@ import { isCollaborationStateQuarantined } from './failure';
 import { richMarkdownSchemaExtensions } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
-import { assertCollaborationAdmissionOpen } from './room-admission';
-import { CollaborationAdmissionError, collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
+import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
+import { collaborationAdmissionReadPredicates } from './room-admission-predicates';
 import { COLLABORATION_SCHEMA_VERSION, type TextCollaborationRepresentation } from './types';
 import { Y } from './server-runtime';
 
@@ -258,7 +258,13 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     d.status,d.state_version,d.yjs_state_lifecycle,l.workspace_id AS lineage_workspace_id,l.workspace_type AS lineage_workspace_type,
     l.organization_id AS lineage_organization_id,l.path AS lineage_path,l.status AS lineage_status,
     s.document_id AS state_document_id,s.workspace_id AS state_workspace_id,s.organization_id AS state_organization_id,
-    s.path AS state_path,s.status AS state_status,octet_length(s.yjs_state) AS state_bytes,octet_length(s.state_vector) AS vector_bytes
+    s.path AS state_path,s.status AS state_status,octet_length(s.yjs_state) AS state_bytes,octet_length(s.state_vector) AS vector_bytes,
+    EXISTS(SELECT 1 FROM ${schema}.collaboration_admission_scopes s
+      JOIN ${schema}.collaboration_admission_requests r ON r.request_id=s.request_id
+      WHERE s.workspace_id=$1 AND ${collaborationAdmissionReadPredicates.activeRequest}
+        AND ${collaborationAdmissionReadPredicates.parameterPath}) AS reserved_scope,
+    EXISTS(SELECT 1 FROM ${schema}.collaboration_admission_targets
+      WHERE document_id=d.id AND active) AS reserved_document
     FROM ${schema}.collaboration_documents d FULL JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
       LEFT JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
     WHERE ((d.workspace_id=$1 AND d.path=$2) OR (s.workspace_id=$1 AND s.path=$2))
@@ -279,10 +285,8 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
   }
   if (!safeNumber(metadata.state_bytes, 1) || Number(metadata.state_bytes) > MAX_STATE_BYTES
     || !safeNumber(metadata.vector_bytes, 1) || Number(metadata.vector_bytes) > MAX_VECTOR_BYTES) fail('NATIVE_SESSION_TOO_LARGE');
-  try { await assertCollaborationAdmissionOpen((sql, values) => captured.connection.all(sql, values) as Promise<Row[]>,
-    { documentId: metadata.id, workspaceId: captured.workspaceId, path: captured.path }); }
-  catch (error) { if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') fail('NATIVE_SESSION_BUSY'); throw error; }
-  assertActive(captured);
+  // The admission lock above protects both reservation observations.
+  if (metadata.reserved_scope !== false || metadata.reserved_document !== false) fail('NATIVE_SESSION_BUSY');
   // SQL bounds also cover growth by an ordinary peer between the metadata and binary reads.
   const raw = await captured.connection.get(`SELECT * FROM ${schema}.collaboration_yjs_states WHERE document_id=$1
     AND octet_length(yjs_state)<=$2 AND octet_length(state_vector)<=$3 LIMIT 1`,

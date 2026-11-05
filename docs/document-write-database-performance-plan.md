@@ -41,6 +41,20 @@ finales SQL-Budget noch alle API-/SDK-Latenzfälle. Rohbelege:
 `compiled-tab-sql-b4120c62d-10-1793838900736-result.json` und
 `compiled-tab-sql-b4120c62d-200-fixture-budget-1793839191749-result.json`.
 
+Ein instrumentierter Aufruf der Web-Session-Route mit echtem Cookie und bereits
+initialisiertem Blockdokument in PostgreSQL 18 zeigte 362 Treiberaufrufe. In der
+letzten Transaktion lagen 170 davon, darunter 52 Berechtigungssnapshots, 36
+Verbindungsprüfungen aus dem nativen Leser und 24 Reservierungsabfragen. Die
+Reservierungsabfragen teilen jetzt den Snapshot der ohnehin erforderlichen
+Dokumentmetadaten unter derselben Workspace-Sperre. Derselbe isolierte Aufruf
+kam damit auf 338 Treiberaufrufe insgesamt und 146 in der letzten Transaktion.
+Bei vier gleichartigen Web-Session-Aufrufen pro Variante mit zusätzlich 3 ms
+pro Richtung über einen TCP-Proxy vor derselben lokalen PostgreSQL-18-Instanz
+lag der Median bei 3.309 ms vorher und 3.104 ms nachher. Die Einzelwerte waren
+3.527/3.328/3.248/3.290 ms und 3.304/3.032/3.101/3.106 ms. Die Messung erfasst
+die Route mit einem nativen Blockdokument im Testdatensatz. Der kompilierte
+Browservergleich bei 10 und 200 Quellen steht für diese Änderung aus.
+
 ## Aktueller Abnahmestand vom 04.11.2026
 
 Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
