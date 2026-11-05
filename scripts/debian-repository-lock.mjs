@@ -3,12 +3,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function verifyRepositoryLists(lock, listsDirectory) {
+function lockedRepositories(lock) {
   assert.equal(lock.schemaVersion, 1);
-  assert.equal(lock.repositories.length, 3);
+  assert.deepEqual(lock.repositories.map(repository => repository.suite),
+    ['bookworm', 'bookworm-updates', 'bookworm-security']);
+  const cutoffs = new Set();
   for (const repository of lock.repositories) {
-    assert.match(repository.uri, /^https:\/\/deb\.debian\.org\/debian(?:-security)?$/u);
-    assert.match(repository.suite, /^bookworm(?:-updates|-security)?$/u);
+    const match = /^https:\/\/snapshot\.debian\.org\/archive\/(debian(?:-security)?)\/(\d{8}(?:T\d{6}Z)?)$/u.exec(repository.uri);
+    assert(match, 'Repository must use an exact official Debian snapshot cutoff');
+    assert.equal(match[1], repository.suite === 'bookworm-security' ? 'debian-security' : 'debian');
+    const cutoff = match[2];
+    const date = `${cutoff.slice(0, 4)}-${cutoff.slice(4, 6)}-${cutoff.slice(6, 8)}`;
+    const time = cutoff.length === 8 ? '00:00:00' : `${cutoff.slice(9, 11)}:${cutoff.slice(11, 13)}:${cutoff.slice(13, 15)}`;
+    const timestamp = new Date(`${date}T${time}Z`);
+    assert.equal(timestamp.toISOString(), `${date}T${time}.000Z`, 'Snapshot cutoff must be a valid UTC date');
+    assert(timestamp.getTime() <= Date.now(), 'Snapshot cutoff must not be in the future');
+    cutoffs.add(cutoff);
+  }
+  assert.equal(cutoffs.size, 1, 'All repository suites must share one frozen cutoff');
+  return lock.repositories;
+}
+
+export function verifyRepositoryLists(lock, listsDirectory) {
+  for (const repository of lockedRepositories(lock)) {
     const prefix = `${new URL(repository.uri).host}${new URL(repository.uri).pathname}/dists/${repository.suite}`.replaceAll('/', '_');
     const release = fs.readFileSync(path.join(listsDirectory, `${prefix}_InRelease`), 'utf8');
     assert(release.startsWith('-----BEGIN PGP SIGNED MESSAGE-----\n'), 'APT must retain signed InRelease metadata');
@@ -30,10 +47,7 @@ export function verifyRepositoryLists(lock, listsDirectory) {
 }
 
 export function configureRepositories(lock, aptDirectory) {
-  assert.equal(lock.schemaVersion, 1);
-  const sources = lock.repositories.map(repository => {
-    assert.match(repository.uri, /^https:\/\/deb\.debian\.org\/debian(?:-security)?$/u);
-    assert.match(repository.suite, /^bookworm(?:-updates|-security)?$/u);
+  const sources = lockedRepositories(lock).map(repository => {
     return `Types: deb deb-src\nURIs: ${repository.uri.replace('https:', 'http:')}\nSuites: ${repository.suite}\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n`;
   }).join('\n');
   fs.writeFileSync(path.join(aptDirectory, 'sources.list.d/debian.sources'), sources);

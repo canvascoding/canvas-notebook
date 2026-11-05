@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-11-04",
+  "capturedAt": "2026-11-05",
   "repositories": [
     {
-      "uri": "https://deb.debian.org/debian",
+      "uri": "https://snapshot.debian.org/archive/debian/20261105",
       "suite": "bookworm",
       "indexSha256": {
         "main/binary-amd64/Packages": "515e692f2c4121c6fcec444ef100cc18f79a991910615f3a88c8b7becfc94d2f",
@@ -18,7 +18,7 @@
       }
     },
     {
-      "uri": "https://deb.debian.org/debian",
+      "uri": "https://snapshot.debian.org/archive/debian/20261105",
       "suite": "bookworm-updates",
       "indexSha256": {
         "main/binary-amd64/Packages": "80a1f6ee524222c49f230fc5700d00f946d0a47eb5258180106dd03df126e16a",
@@ -30,7 +30,7 @@
       }
     },
     {
-      "uri": "https://deb.debian.org/debian-security",
+      "uri": "https://snapshot.debian.org/archive/debian-security/20261105",
       "suite": "bookworm-security",
       "indexSha256": {
         "main/binary-amd64/Packages": "499028cee277a5266afbfd6024f8a3f7cd8b749ca01051306532144bfaf4e009",

@@ -15,6 +15,37 @@ test('repository policy identifies the exact checked-in lock', () => {
   assert.deepEqual(lock.repositories.map(entry => entry.suite), ['bookworm', 'bookworm-updates', 'bookworm-security']);
 });
 
+test('sources reject live mirrors, invalid cutoffs and mixed archive states before writing configuration', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-apt-invalid-'));
+  try {
+    fs.mkdirSync(path.join(directory, 'sources.list.d'));
+    fs.mkdirSync(path.join(directory, 'apt.conf.d'));
+    const changed = callback => { const candidate = structuredClone(lock); callback(candidate); return candidate; };
+    const future = new Date(Date.now() + 2 * 86400_000).toISOString().slice(0, 10).replaceAll('-', '');
+    const invalid = [
+      changed(value => { value.repositories[0].uri = 'https://deb.debian.org/debian'; }),
+      changed(value => { value.repositories[0].uri = 'http://snapshot.debian.org/archive/debian/20261105'; }),
+      changed(value => { value.repositories[0].uri = 'https://snapshot.debian.org.evil/archive/debian/20261105'; }),
+      changed(value => { value.repositories[0].uri += '?mirror=live'; }),
+      changed(value => { value.repositories[2].uri = value.repositories[0].uri; }),
+      changed(value => { value.repositories[0].uri = 'https://snapshot.debian.org/archive/debian/20260230'; }),
+      changed(value => { value.repositories[0].uri = `https://snapshot.debian.org/archive/debian/${future}`; }),
+      changed(value => { value.repositories[1].uri = 'https://snapshot.debian.org/archive/debian/20261104'; }),
+      changed(value => { value.repositories[2].suite = 'bookworm'; }),
+      changed(value => { value.repositories.pop(); }),
+    ];
+    for (const candidate of invalid) {
+      assert.throws(() => configureRepositories(candidate, directory));
+      assert.throws(() => verifyRepositoryLists(candidate, directory));
+      assert(!fs.existsSync(path.join(directory, 'sources.list.d/debian.sources')));
+    }
+    const precise = structuredClone(lock);
+    for (const repository of precise.repositories) repository.uri += 'T000000Z';
+    configureRepositories(precise, directory);
+    assert.match(fs.readFileSync(path.join(directory, 'sources.list.d/debian.sources'), 'utf8'), /20261105T000000Z/u);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('locked metadata accepts unchanged lists and rejects drift, missing data and unsigned metadata', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-debian-lock-'));
   try {

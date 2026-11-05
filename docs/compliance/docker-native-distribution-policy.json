@@ -98,6 +98,6 @@
   },
   "debianRepositories": {
     "lockFile": "docs/compliance/debian-repository-lock.json",
-    "lockSha256": "0d4ec1280e6b53ee3a5ff8a83d1874474e0080d73a67d795f6746d5a6af9b576"
+    "lockSha256": "bf4acccc6096138a3ea7a2fad64cb6ab11af4db7ace8caf358a913fb424f23b6"
   }
 }
