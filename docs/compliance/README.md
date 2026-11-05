@@ -106,9 +106,17 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   Ablaufpruefungen bleiben aktiv; abgelaufene Snapshots muessen kontrolliert
   erneuert werden. Die Stichtagsadressierung folgt der [Debian-Dokumentation](https://snapshot.debian.org/). PostgreSQL-Binaerpakete
   und die 45 pip-Pakete sind versions- und hashgebunden.
-- Der CA-Store wird aus denselben signierten und geprueften Listen ueber einen einmaligen
-  HTTP-Bootstrap bezogen; alle folgenden APT-Zugriffe verwenden HTTPS. Eine
-  zweite Debian-libvips-Binaerinstallation wird nicht ausgeliefert.
+- Alle APT-Zugriffe verwenden ab dem ersten Abruf HTTPS. Fuer den initialen
+  CA-Store werden die eingebauten oeffentlichen Root-Zertifikate des bereits
+  digestgepinnten Node-Binaries temporaer exportiert. Debian-Signaturen werden
+  weiterhin gegen den unveraenderten Debian-Archivschluesselbund geprueft.
+  Nach Installation von `ca-certificates` wird die temporaere Datei entfernt.
+  Updates sind auf fuenf Minuten, Installationen auf 15 Minuten begrenzt;
+  Zeitueberschreitungen bleiben Build-Fehler. Eine fruehe HTTPS-/Indexhash-Vorpruefung
+  laeuft vor dem Produktionscompiler und ersetzt keine APT-Signatur-/Ablaufpruefung.
+  Grundlagen: [Node-Root-Zertifikate](https://nodejs.org/docs/latest-v24.x/api/tls.html#tlsrootcertificates)
+  und [APT-HTTPS/CAInfo](https://manpages.debian.org/bookworm/apt/apt-transport-https.1.de.html).
+  Eine zweite Debian-libvips-Binaerinstallation wird nicht ausgeliefert.
 - Die vollstaendigen libvips-Development-Header stehen nur im isolierten
   `deps`-Stage zum lokalen Build beider Sharp-Versionen bereit und werden
   nicht in das Runtime-Image kopiert.

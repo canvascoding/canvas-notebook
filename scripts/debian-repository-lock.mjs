@@ -24,10 +24,14 @@ function lockedRepositories(lock) {
   return lock.repositories;
 }
 
+export function repositoryReleaseFilename(repository) {
+  const uri = new URL(repository.uri);
+  return `${uri.host}${uri.pathname}/dists/${repository.suite}/InRelease`.replaceAll('/', '_');
+}
+
 export function verifyRepositoryLists(lock, listsDirectory) {
   for (const repository of lockedRepositories(lock)) {
-    const prefix = `${new URL(repository.uri).host}${new URL(repository.uri).pathname}/dists/${repository.suite}`.replaceAll('/', '_');
-    const release = fs.readFileSync(path.join(listsDirectory, `${prefix}_InRelease`), 'utf8');
+    const release = fs.readFileSync(path.join(listsDirectory, repositoryReleaseFilename(repository)), 'utf8');
     assert(release.startsWith('-----BEGIN PGP SIGNED MESSAGE-----\n'), 'APT must retain signed InRelease metadata');
     const section = release.match(/^SHA256:\n((?:[ \t]+[^\n]+\n)+)/mu)?.[1];
     assert(section, `Missing SHA256 metadata for ${repository.suite}`);
@@ -48,7 +52,7 @@ export function verifyRepositoryLists(lock, listsDirectory) {
 
 export function configureRepositories(lock, aptDirectory) {
   const sources = lockedRepositories(lock).map(repository => {
-    return `Types: deb deb-src\nURIs: ${repository.uri.replace('https:', 'http:')}\nSuites: ${repository.suite}\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n`;
+    return `Types: deb deb-src\nURIs: ${repository.uri}\nSuites: ${repository.suite}\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n`;
   }).join('\n');
   fs.writeFileSync(path.join(aptDirectory, 'sources.list.d/debian.sources'), sources);
   fs.rmSync(path.join(aptDirectory, 'sources.list'), { force: true });

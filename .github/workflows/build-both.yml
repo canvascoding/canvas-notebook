@@ -135,6 +135,11 @@ jobs:
         with:
           node-version: 26
 
+      - name: Check frozen Debian metadata before compilation
+        run: |
+          node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs
+          node scripts/debian-repository-preflight.mjs
+
       - name: Install dependencies
         run: npm ci
 
@@ -218,6 +223,7 @@ jobs:
         run: npm run verify:release:safety
 
   build-amd64:
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -368,6 +374,7 @@ jobs:
           retention-days: 90
 
   build-arm64:
+    timeout-minutes: 60
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read

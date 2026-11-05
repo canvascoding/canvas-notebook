@@ -84,6 +84,8 @@ test('APT configuration retains signature verification, expiry checks and a mand
     configureRepositories(lock, directory);
     const sources = fs.readFileSync(path.join(directory, 'sources.list.d/debian.sources'), 'utf8');
     const configuration = fs.readFileSync(path.join(directory, 'apt.conf.d/99canvas-repository-lock'), 'utf8');
+    assert.equal((sources.match(/URIs: https:\/\/snapshot\.debian\.org\//gu) || []).length, 3);
+    assert.doesNotMatch(sources, /URIs: http:/u);
     assert.equal((sources.match(/Signed-By: \/usr\/share\/keyrings\/debian-archive-keyring.gpg/gu) || []).length, 3);
     assert.doesNotMatch(sources + configuration, /trusted=yes|Check-Valid-Until|AllowInsecure|AllowUnauthenticated/iu);
     assert.match(configuration, /Post-Invoke-Success.*canvas-debian-repository-lock.mjs verify/u);
