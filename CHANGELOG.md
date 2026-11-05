@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.5.4] - 2026-11-05
+## [2026.11.5.5] - 2026-11-05
 
 ### Fixed
 
@@ -20,16 +20,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
 - Publish typed nested edit and operation arguments through MCP schema adapters.
 - Resolve Debian packages from one fixed signed snapshot, preventing live security-index changes from interrupting image builds while retaining signature, expiry and index-hash checks.
+- Use verified HTTPS for the first Debian request with temporary public roots from the pinned Node binary. Bound APT execution and check frozen metadata before production compilation.
+- Retry transient Apple ticket-lookup failures against the same signed artifact and bind desktop rebuilds to an approved immutable release source. Preserve the flat artifact layout used by the updater publisher.
 
 ### Changed
 
-- Co-read native document metadata and transport binding while retaining current authorization checks. The compiled collaboration-session comparison uses 274 SQL calls instead of the previous release's 322, at both ten and 200 uploaded documents.
+- Co-read native document metadata and transport binding while retaining current authorization checks. At measured transport-change revision `9f109fe5e`, the compiled collaboration-session comparison used 274 SQL calls instead of the prior release's 322, at both ten and 200 uploaded documents; later shared-source changes require separate final performance measurements.
 
 ### Verification
 
 - Native API and installed Python SDK CI passed under Python 3.10 and 3.15.
 - Desktop and mobile mailto migration/reload acceptance passed with two cases, no skips and no retries.
-- Actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts.
+- At product revision `b7501031f`, actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts; exact-image acceptance after later shared-source changes remains required.
 - `npm run verify:release` is required before the release commit; final regular `test:all` on the release image is required before publication and deployment.
 
 ## [2026.11.5.2] - 2026-11-05
