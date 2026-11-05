@@ -1,0 +1,48 @@
+name: Debian snapshot network diagnostics
+on:
+  push:
+    branches: [codex/diagnose-debian-snapshot]
+permissions:
+  contents: read
+jobs:
+  probe:
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26
+      - name: Probe public archive routes and immutable metadata bytes
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto';
+          const suites=[
+            ['debian','bookworm','736a99b8b096598d48c438eb356bd074fecfbf23','77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa'],
+            ['debian','bookworm-updates','3ad936b0c3d3e1df2a530c4f753a76360fd1e65f','42cb0bdd2b7b27f81f25976b9c0052ac0f499675fbbb538e56c2bfa70ed9a2f3'],
+            ['debian-security','bookworm-security','926eb6bcb474be14d9fdbc89c4a2edd95754eaea','3928c61d792381356871c4168b1c1be6aed0732ac91b4e2555b80919b4640504'],
+          ];
+          const targets=suites.flatMap(([archive,suite,file,sha256])=>[
+            ...['snapshot.debian.org','snapshot-fastly.debian.org','snapshot-cloudflare.debian.org'].map(host=>({url:`https://${host}/archive/${archive}/20261105/dists/${suite}/InRelease`,sha256})),
+            {url:`https://snapshot.debian.org/archive/${archive}/20261105T000000Z/dists/${suite}/InRelease`,sha256},
+            ...['snapshot.debian.org','snapshot-fastly.debian.org','snapshot-cloudflare.debian.org'].map(host=>({url:`https://${host}/file/${file}/InRelease`,sha256})),
+          ]);
+          async function probe({url,sha256}){
+            const started=Date.now();
+            try {
+              const response=await fetch(url,{signal:AbortSignal.timeout(20000)});
+              const chunks=[];let bytes=0;
+              for await(const chunk of response.body){bytes+=chunk.length;if(bytes>2*1024*1024)throw Error('Response bound exceeded');chunks.push(Buffer.from(chunk));}
+              const body=Buffer.concat(chunks),actual=createHash('sha256').update(body).digest('hex');
+              console.log(JSON.stringify({url,status:response.status,finalUrl:response.url,bytes,sameReviewedBytes:response.status===200&&actual===sha256,elapsedMs:Date.now()-started,server:response.headers.get('server'),via:response.headers.get('via'),cache:response.headers.get('x-cache'),errorBody:response.status===200?undefined:body.toString('utf8').replace(/\s+/g,' ').slice(0,350)}));
+            }catch(error){console.log(JSON.stringify({url,error:error.message,elapsedMs:Date.now()-started}));}
+          }
+          for(let i=0;i<targets.length;i+=4)await Promise.all(targets.slice(i,i+4).map(probe));
+          NODE
