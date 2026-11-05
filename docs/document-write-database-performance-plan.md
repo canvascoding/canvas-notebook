@@ -146,7 +146,25 @@ frühere Messwert von 35 SQL-Aufrufen stammt vom Produktstand vor PR #214.
 Der externe gehostete Adapter bleibt eine gesonderte Nachprüfung nach Deployment;
 kein Knowledge-Sync und keine Löschung produktiver Testdaten sind freigegeben.
 
-**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.3` nach vollständiger
+Der Tag `v2026.11.5.3` (`60ad40da6`) wurde erstellt, aber nicht als GitHub Release
+veroeffentlicht oder produktiv ausgerollt: Beide Image-Builds stoppten an einem
+geaenderten Live-Debian-Sicherheitsindex. Der Anwendungsbuild, die Release-Gates
+und die API-/SDK-CI dieses Commits bestehen; ein erster Create-Fixture-Setupfehler
+blieb lokal nicht reproduzierbar (acht unveraenderte Gruppen bestanden) und der
+gezielt wiederholte CI-Job bestand vollstaendig. Die genaue Ursache dieses
+Setup-Aussetzers ist nicht belegt; der fehlgeschlagene Lauf bleibt erhalten.
+
+Die Build-Korrektur bindet alle drei Debian-Suites an den gemeinsamen offiziellen
+Snapshot-Stichtag `20261105`. Alle bisherigen amd64-/arm64-/Quellen-Indexhashes
+bleiben unveraendert. Neun echte komprimierte und dekomprimierte Indizes und zwei
+Architektur-Binaerpakete bestehen die SHA-256-Pruefung; Quellen-/Stichtags-, Drift-
+und Manipulationspruefungen sowie das Lizenzgate bestehen. Signaturen, gueltige
+Release-Metadaten und die Nachpruefung nach jedem APT-Update bleiben Pflicht.
+Private Belege: `debian-snapshot-20261105-real-download-proof.json` und
+`release-2026.11.5.3-ci-setup-failure-audit.json`. Der alte Tag wird nicht
+ueberschrieben; die korrigierte Freigabe verwendet `2026.11.5.4`.
+
+**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.4` nach vollständiger
 Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
 „Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
 Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale
