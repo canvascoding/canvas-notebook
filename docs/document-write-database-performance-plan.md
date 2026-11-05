@@ -1,14 +1,31 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 04.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 05.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
 ## Release und offene Abnahme vom 05.11.2026
 
-Notebook [2026.11.4.3](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.4.3)
-ist produktiv. PR #198 bestand 13 CI-Checks. Der kompilierte reguläre Lauf
+Notebook [2026.11.5.1](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.5.1)
+ist auf Canvas Holdings produktiv. Der verifizierte Rollout für Release-Commit
+`555fd7d58` endete am 05.11.2026 um 04:23 UTC. Der Healthcheck meldete
+`healthy` und keine PostgreSQL-Blocker. Je ein Dateibaum und ein begrenzter
+Markdown-Read waren in allen fünf freigegebenen Workspaces per MCP erfolgreich.
+Der Release enthält den HTTP-409-Fix aus PR #203. Auf dem exakten Release-Image
+bestanden `test:all` mit 331 Fällen und 269 bedingten Skips sowie die vier
+API-Key-Browserfälle ohne Skip oder Wiederholung. Der lokale Ausgangsstand und
+seine geschützten Daten wurden nach der Abnahme überprüft.
+
+Die [CI auf dem Release-Tag](https://github.com/canvascoding/canvas-notebook/actions/runs/41954528858)
+bestand zwölf SDK-Installationsprofile und je 53 HTTP-/PostgreSQL-Testgruppen
+unter Python 3.10 und 3.15. Wheel und Quellpaket sind bytegleich mit den
+getesteten Artefakten. Die [Build- und Paketprüfung](https://github.com/canvascoding/canvas-notebook/actions/runs/41953551535)
+bestand für beide Architekturen. Sieben Paketprüfsummen und das signierte
+Update-Manifest wurden vor der Veröffentlichung verifiziert.
+
+Im vorherigen Release [2026.11.4.3](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.4.3)
+bestand PR #198 13 CI-Checks. Der kompilierte reguläre Lauf
 bestand 331 Browserfälle bei 269 bedingten Skips, die ergänzenden zehn
 Recovery-/Kollaborationsfälle bestanden über Hauptlauf und gezielten Nachlauf.
 Dateibaum und je ein Markdown-Read wurden in allen fünf Produktions-Workspaces
@@ -52,8 +69,36 @@ Bei vier gleichartigen Web-Session-Aufrufen pro Variante mit zusätzlich 3 ms
 pro Richtung über einen TCP-Proxy vor derselben lokalen PostgreSQL-18-Instanz
 lag der Median bei 3.309 ms vorher und 3.104 ms nachher. Die Einzelwerte waren
 3.527/3.328/3.248/3.290 ms und 3.304/3.032/3.101/3.106 ms. Die Messung erfasst
-die Route mit einem nativen Blockdokument im Testdatensatz. Der kompilierte
-Browservergleich bei 10 und 200 Quellen steht für diese Änderung aus.
+die Route mit einem nativen Blockdokument im Testdatensatz.
+
+Der kompilierte Vergleich aus [PR #204](https://github.com/canvascoding/canvas-notebook/pull/204)
+bestätigte bei 10 und 200 Quellen jeweils 322 statt 346 Aufrufe pro Session bei
+acht warmen Wechseln. Das beobachtete HTTP-SQL insgesamt sank bei 10 Quellen
+von 543–564 auf 519–561 und bei 200 Quellen von 543–585 auf 519–561. Sichtbare
+Ladezeiten lagen danach bei 815–866 ms beziehungsweise 838–1.391 ms. Die
+SQL-Änderung ist auf `main` und folgt nach 2026.11.5.1. Der vollständige
+Browservergleich belegt noch kein endgültiges SQL- oder Latenzbudget. Die
+nächste Bündelung setzt bei den verschachtelten Berechtigungs- und
+Verbindungsprüfungen innerhalb der letzten Session-Transaktion an.
+
+`EXPLAIN (ANALYZE, BUFFERS)` auf vier tatsächlich erfassten SELECT-Familien
+einer isolierten PostgreSQL-18-Web-Session bestätigte den nächsten Ansatz.
+Je Familie wurde der erste Lauf getrennt behandelt. Die folgenden Spannen
+stammen aus fünf Wiederholungen auf der kleinen Fixture:
+
+| Abfrage | Aufrufe pro Session | Planungszeit je Aufruf | Ausführung je Aufruf |
+| --- | ---: | ---: | ---: |
+| Berechtigungssnapshot | 76 | 1,274–1,371 ms | 0,277–0,392 ms |
+| Native Verbindung und Schema | 37 | 0,094–0,155 ms | 0,141–0,212 ms |
+| Native Metadaten mit Reservierungen | 12 | 0,123–0,151 ms | 0,028–0,039 ms |
+| Begrenzter Binärzustand | 12 | 0,020–0,048 ms | 0,009–0,022 ms |
+
+Alle beobachteten Blöcke kamen aus dem PostgreSQL-Cache. Diese Probe gibt
+keinen Anlass für einen zusätzlichen Index und erfasst keine Netzlaufzeit.
+Sie priorisiert die wiederholten Berechtigungssnapshots vor weiteren
+Optimierungen des Binärlesers. Bei einer Bündelung bleiben insbesondere
+Prüfungen vor und nach einem Callback oder einer unabhängigen SQL-Beobachtung
+separat nachzuweisen.
 
 ## Aktueller Abnahmestand vom 04.11.2026
 
@@ -831,7 +876,7 @@ Keine neue Review-Center- oder Undo-Implementierung als Voraussetzung.
 
 ### 5a. API-Key-Verwaltung für programmatischen Zugriff
 
-**Status: in Umsetzung, noch nicht veröffentlicht.** Das Verwaltungs-Backend
+**Status am 05.11.2026: veröffentlicht.** Das Verwaltungs-Backend
 mit additiven Auth-Tabellen und Session-geschützten Routen unter
 `/api/api-access/integrations` ist implementiert. `npm run test:api-keys` prüft
 den Lebenszyklus mit echten Auth-Sitzungen in PGlite sowie die Settings-Oberfläche
@@ -2570,8 +2615,9 @@ bleiben in diesem isolierten Budgettest ausdrücklich Testersatz; daraus folgt
 keine OAuth-, Modell- oder kompilierte UI-Abnahme. Keine neue Review-Center-
 oder Undo-Funktion wird eingeführt. Die reguläre `test:all`-Abnahme bleibt offen.
 
-**Status: offen; vor dem Release verpflichtend.** Der Umfang umfasst alle in API
-und SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
+**Status am 05.11.2026: reguläre Suite, Tag-CI und API-Key-Browserabnahme
+bestanden. Die Gesamtmatrix ist offen.** Der Umfang umfasst alle in API und
+SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
 Versions-/Fähigkeitsmatrix benennt unterstützte Typen, Schalter und bewusste
 Grenzen. Nicht unterstützte Funktionen werden explizit abgewiesen und nicht als
 erfolgreich getestet gezählt. Review Center, Undo und zusätzliche Modell-/Plugin-
