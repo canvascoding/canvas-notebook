@@ -422,6 +422,7 @@
     "test:notebook:open-identity": "tsx scripts/notebook-document-open-identity-test.ts",
     "test:files:links": "tsx --test scripts/file-links-test.ts",
     "test:notebook:location-lifecycle": "tsx scripts/notebook-document-location-url-test.ts && tsx scripts/notebook-location-watcher-test.ts && tsx scripts/notebook-location-lifecycle-test.tsx",
+    "test:notebook:delete-events": "tsx scripts/notebook-delete-notification-test.ts",
     "test:notebook:responsive-lifecycle": "tsx scripts/notebook-responsive-surface-lifecycle-test.tsx",
     "test:notebook:editor-bubble-focus": "tsx scripts/notebook-editor-bubble-focus-test.tsx",
     "test:collaboration:location": "tsx --conditions react-server scripts/collaboration-document-location-route-test.ts",
@@ -1089,7 +1090,7 @@
     "test:api-keys:proxy": "NODE_ENV=test tsx --conditions react-server scripts/api-key-workspace-proxy-test.ts",
     "test:api-keys:errors": "NODE_ENV=test tsx --conditions react-server scripts/api-key-error-result-test.ts",
     "test:all:runner": "node --test scripts/test-all-orchestration-test.mjs",
-    "test:collaboration:regular:contracts": "node --test scripts/regular-collaboration-profile-test.mjs scripts/owned-fixture-files-test.mjs",
+    "test:collaboration:regular:contracts": "node --test scripts/regular-collaboration-profile-test.mjs scripts/owned-fixture-files-test.mjs scripts/recovered-room-read-test.mjs",
     "test:e2e:collaboration:regular": "E2E_EXTERNAL_SERVER=1 COLLABORATION_E2E=1 CANVAS_REGULAR_COLLABORATION_E2E=1 playwright test --config tests/playwright/playwright.regular-collaboration.config.ts --workers=1 --max-failures=0"
   },
   "dependencies": {

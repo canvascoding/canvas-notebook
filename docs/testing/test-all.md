@@ -54,7 +54,7 @@ and [JSON reporter](https://playwright.dev/docs/test-reporters#json-reporter).
 
 `test:all` also runs the `playwright-collaboration` stage. The ordinary discovery
 moves sixteen editor/collaboration files into this fixture-backed profile, so each
-file runs once. The profile currently discovers thirty-nine cases, including formatting,
+file runs once. The profile currently discovers forty cases, including formatting,
 tables/images, mobile block moves, peer edits, interrupted first opens, offline
 persistence, reconnect, file-event cache invalidation and multiple browser tabs.
 Existing local editor Ctrl-Z checks are ordinary editing coverage; no file-operation
@@ -79,6 +79,25 @@ prepares the Team users/workspace/provider. Missing inputs fail the prerequisite
 check. `npm run test:collaboration:regular:contracts` verifies selection and admission
 contracts without an application server. Discovery checks separately prove that
 Review activation fixtures and sealed specialty cases cannot leak into this profile.
+
+The native viewport tests exercise focus changes and actual document tabs rather
+than removed Read/Edit controls. Source peers compare the exact editor model and
+persisted Markdown; presence labels in the DOM are not document content. The
+move/reopen case also reuses the old path with a different native identity and
+checks both retained tabs after reload. A watcher unlink preserves known native
+identities until their existing location lookup resolves them; a confirmed local
+delete still closes its tabs.
+
+Known `ROOM_OWNER_BUSY` metadata-read retries are recorded separately and qualify
+only after a bounded successful read of the same request and native identity.
+Unknown errors, missing recovery, changed identities and retry storms remain
+failures. Fixture cleanup closes its pages first, deletes only exact owned paths,
+and retains data after ambiguous or unconfirmed operations.
+
+The Node 24/26 CI contract jobs run independent steps after sibling failures and
+cover orchestration, fixture admission, discovery, tab identity, location lookup
+and deletion notifications. Real browser acceptance still requires the managed
+local target above; discovery or contract CI alone is not that acceptance.
 
 Special native-operation/backup/restore/restart, agent-tool-host, guest-mail and
 OAuth suites retain their own supervisors or fixtures. Their results must be

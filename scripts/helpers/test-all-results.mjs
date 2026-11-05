@@ -16,6 +16,7 @@ export const independentTestScripts = [
   'test:api-keys:ui', 'test:api-keys:proxy', 'test:api-keys:errors',
   'test:collaboration:diagnostic-cause', 'test:api-keys:compiled:harness:node',
   'test:api-keys:compiled:harness:journal', 'test:prompt-builder', 'test:collaboration:regular:contracts',
+  'test:notebook:tabs', 'test:notebook:location-lifecycle', 'test:notebook:delete-events',
 ];
 export const serverTestScripts = ['test:smoke', 'test:integration', 'test:integration:pi'];
 export const testAllPhaseIds = ['configuration', ...independentTestScripts, 'build', 'server-start',
