@@ -154,7 +154,8 @@ async function verifyEditor(page, cycle, phase, expected, previous) {
   await ok(await context.request.post('/api/auth/sign-in/email', { headers: { Origin: origin }, data: { email: env.BOOTSTRAP_ADMIN_EMAIL, password: env.BOOTSTRAP_ADMIN_PASSWORD } }), 'Bootstrap sign-in');
   const session = await ok(await context.request.get('/api/auth/get-session'), 'Session identity');
   assert.equal(session.user.email, env.BOOTSTRAP_ADMIN_EMAIL); ownerUserId = session.user.id;
-  const settings = (await ok(await context.request.get('/api/server-settings'), 'Review setting')).data; assert.equal(settings.documentReviewEnabled, false);
+  const availability = (await ok(await context.request.get('/api/document-review/availability'), 'Review availability')).data;
+  assert.equal(availability.documentReviewEnabled, false);
   const current = (await ok(await context.request.get('/api/integrations/mcp-server'), 'MCP settings')).data;
   restore = { enabled: current.desiredEnabled === true, tools: current.capabilities.filter(value => value.enabled).map(value => value.id) };
   const tools = [...new Set([...restore.tools, 'auth_probe', 'list_workspaces', 'get_knowledge_manifest', 'search_knowledge',
@@ -204,7 +205,7 @@ async function verifyEditor(page, cycle, phase, expected, previous) {
     nonce, editorCycles: proof.editorCycles, requestsFile: proof.requestsFile,
     operationJournalHelper: operationHelper, operationJournalHelperSha256: proof.operationHelperSha256,
     runtimeSourceHashes, wheelUri: pathToFileURL(wheel).href, wheelSha256: crypto.createHash('sha256').update(fs.readFileSync(wheel)).digest('hex'),
-    effectiveScopes: [...new Set([...resource.scopes_supported, ...(metadata.scopes_supported.includes('offline_access') ? ['offline_access'] : [])])] };
+    effectiveScopes: ['openid', 'offline_access', 'workspace:list', 'knowledge:search', 'knowledge:read', 'knowledge:write'] };
   stage('genuine-browser-oauth-current-installed-wheel-and-macos-keychain');
   const childEnv = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ'].flatMap(name => process.env[name] ? [[name, process.env[name]]] : []));
   child = spawn(python, ['-I', '-B', helper], { cwd: root, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] }); proof.childPid = child.pid; save();
