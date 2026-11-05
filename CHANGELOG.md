@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.5.1] - 2026-11-05
+
+### Fixed
+
+- Return a conflict response when a PostgreSQL lock conflict interrupts authorization revalidation during collaborative document startup on web or mobile. A failed attempt issues no session ticket and does not replay a terminal phase.
+
+### Documentation
+
+- Point the document API guides to Python SDK 0.1.1, which preserves the OAuth scopes explicitly requested by the caller.
+
+### Verification
+
+- PR #203 passed seven GitHub checks, including the native HTTP and installed SDK matrix with Python 3.10 and 3.15.
+- Local PostgreSQL suites passed 36 authenticated session contention cases and 66 workspace authorization and metadata transaction cases.
+
 ## [2026.11.4.3] - 2026-11-04
 
 ### Added
