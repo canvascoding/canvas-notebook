@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.5.3] - 2026-11-05
+
+### Fixed
+
+- Allow supported Markdown containing email autolinks and mixed task/plain lists to enter formatted editing through the existing guarded rich upgrade. Preserve full mailto targets, labels, titles and checkbox states.
+- Correct the published Python SDK read example to request only its required OAuth scopes.
+- Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
+- Publish typed nested edit and operation arguments through MCP schema adapters.
+
+### Changed
+
+- Co-read native document metadata and transport binding while retaining current authorization checks. The compiled collaboration-session comparison uses 274 SQL calls instead of the previous release's 322, at both ten and 200 uploaded documents.
+
+### Verification
+
+- Native API and installed Python SDK CI passed under Python 3.10 and 3.15.
+- Desktop and mobile mailto migration/reload acceptance passed with two cases, no skips and no retries.
+- Actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts.
+- `npm run verify:release` is required before the release commit; final regular `test:all` on the release image is required before publication and deployment.
+
 ## [2026.11.5.2] - 2026-11-05
 
 ### Changed

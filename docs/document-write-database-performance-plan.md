@@ -111,13 +111,43 @@ nur der Ausgangspunkt; der neue verbindliche Plan steht in Abschnitt 5c.
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
 | 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Schreib-/Recovery-, Kaltstart- und Beispielnachweise; begrenzte REST-/SDK-Lesemessung bei 10/200 Quellen einschließlich echter Latenz bestanden. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
 | 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Begrenzt live verbundene offene Tabs gemäß erweitertem Abschnitt 5c umsetzen; lokale Speicher-/Verbindungsgrenzen und große/mobile, Rechte- sowie Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
-| 4d. Mailto und Quelltextmodus | Fix, Host-/Linux-Build und CI grün; Browserabnahme offen | Sichere Mailto-Normalisierung und gemischte Checkbox-/Aufzählungslisten im tatsächlichen Editor samt freigegebenem Rich-Upgrade abnehmen; Original bis zur bestätigten Umstellung erhalten. |
+| 4d. Mailto und Quelltextmodus | abgenommen, PR #213 auf main; Release offen | Desktop-/Mobilabnahme des echten Rich-Upgrades samt Speicherung, Reload und unveränderter Dokument-ID bestanden; keine neue Review-Center-/Undo-Abhängigkeit. |
 | 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
 
-**Nächster Arbeitsschritt:** Den Mailto-/Quelltext-Fix aus Abschnitt 5d gezielt
-im Editor und in der bestehenden Migration abnehmen, die noch fehlenden Linkindex-
-Nachweise vervollständigen und die fertigen Fixes nach den vorgeschriebenen
-Abschlussprüfungen veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
+PR #213 ist mit sieben grünen Prüfungen und ohne offene Review-Kommentare auf
+`main` gemergt (`350fb294a`). Die echte Desktop-/Mobilabnahme des Mailto-Upgrades
+bestand am geprüften Produktimage `b7501031f` mit dem produktgleichen Teststand
+`498f94351`: zwei Fälle, kein Fehler/Skip/Retry, erfolgreiche Checkpoint-/
+Migrationsbelege und persistentes Rich-Editing nach Reload. Originaldaten und
+lokaler Ausgangscontainer sind vollständig und gesund wiederhergestellt.
+
+Die zusätzliche Linkindex-Abnahme schließt die frühere mobile Ladebeobachtung:
+Bei zehn und 200 regulär hochgeladenen Quellen enthält der Index 11 bzw. 201
+Dokumente einschließlich Startdokument, vollständige native Quellenabdeckung,
+keine Quelle-/Metadatenlücke und keine Unvollständigkeitswarnung. Je ein echter
+Browserabruf und drei warme Abrufe je Größe benötigen konstant 35 SQL-Aufrufe
+und sieben Pool-Ausleihen, ohne Fehler oder ausstehende Abfragen an der
+HTTP-Antwortgrenze. Diese Datensätze enthalten keine Links; vorhandene
+Linkmutations-/Paritätsbelege bleiben daher separat erforderlich. Kein Latenz-
+SLA-Nachweis bei fremder Hostlast. Private Belege: `compiled-mailto-rich-upgrade-1793896400550-result.json` und `compiled-link-index-focused-v2-1793896958160-result.json` samt Browser-/SQL-Berichten und visuell geprüften Screenshots.
+Ein vorheriger Linkindex-Instrumentierungslauf scheiterte vor den Browserfällen
+an einem Syntaxfehler im privaten Messhook und bleibt als fehlgeschlagen erhalten;
+der korrigierte Filter wurde vor dem erfolgreichen Lauf separat geprüft.
+
+Auf `main` ist zusätzlich PR #214 gemergt (`637dfc7ba`): begrenzte MCP-Vorschauen
+lesen Datei-/Parserdaten außerhalb der kurzen Autorisierungstransaktionen;
+verschachtelte Edit-/Operationsargumente werden im veröffentlichten MCP-Schema
+typisiert. Seine nativen, Browser-/OAuth- und großen lokalen Codex-Client-Prüfungen
+sind in `docs/testing/mcp-bounded-preview-acceptance.md` dokumentiert. Die
+GitNexus-Wirkungsanalyse der gemeinsamen Quellenbeobachtung ist kritisch
+(21 direkte Aufrufer). Das endgültige Release-Image muss daher den gezielten
+Linkindex-Nachweis zusätzlich zur regulären Gesamtsuite erneut bestehen. Der
+frühere Messwert von 35 SQL-Aufrufen stammt vom Produktstand vor PR #214.
+Der externe gehostete Adapter bleibt eine gesonderte Nachprüfung nach Deployment;
+kein Knowledge-Sync und keine Löschung produktiver Testdaten sind freigegeben.
+
+**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.3` nach vollständiger
+Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
 „Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
 Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale
 Rechte- oder Dokumentzustandskopie ersetzt eine erforderliche aktuelle Beobachtung.
@@ -3036,16 +3066,18 @@ und Checkboxen. Das ist noch keine bestandene Browserabnahme. Die korrigierte
 Prüfung verlangt den echten erfolgreichen Migrationsbeleg einschließlich Request-ID,
 Dokument-ID und Checkpoint-Proof sowie das persistente Ergebnis nach Reload.
 Der folgende Lauf wurde vor seinen Browserfällen durch einen externen Neustart
-des gesamten gemeinsamen Stacks unterbrochen; auch die Wiederherstellung
-kollidierte mit einer gleichzeitigen Container-Neuanlage. Die vier geschützten
-Originalzeilen samt xmin sind danach lesend unverändert nachgewiesen;
-Datei-/Ankerprüfung und aktueller Original-Runtime-Beleg bleiben offen, bis der
-Stack wieder exklusiv nutzbar ist. Die gescheiterten Läufe bleiben als solche
-dokumentiert. Host- und Linux-Produktionsbuild sowie alle sieben PR-Prüfungen des
-Produktcommits sind bestanden; zusätzlich besteht `test:editor:core`.
+des gemeinsamen Stacks unterbrochen. Ein anschließender exklusiver Lauf stellte
+den exakten ursprünglichen Container einschließlich geschützter Zeilen/xmins,
+Dateien und Speicheranker wieder her und bestand beide korrigierten Browserfälle
+ohne Skip/Retry. Nach den Tests wurden Originalzustand und alle anderen Container
+erneut unverändert nachgewiesen. Beide Geräte behalten das bearbeitbare native
+Rich-Dokument nach Reload; vollständige Mailto-Ziele, sichtbare Texte,
+Checkbox-Werte, exakter Markdown-Export und Dokument-ID stimmen. Host-/Linux-Build,
+Editor-Kernprüfungen und alle sieben PR-Prüfungen am aktuellen Testcommit bestehen.
+PR #213 ist auf main; Produktionsveröffentlichung ist der nächste getrennte Schritt.
 Das angehängte Beispieldokument wird offline als `normalizable` mit
 `list_formatting` und `email_link_formatting` erkannt; seine Originaldatei wurde
-nicht verändert. Browser-/Migrationsabnahme ist noch offen. GitNexus bewertet die
+nicht verändert. Browser-/Migrationsabnahme ist bestanden. GitNexus bewertet die
 gemeinsame Äquivalenzprüfung aufgrund ihrer vielen Editor-/Import-/Kollaborations-
 Aufrufer als kritisch; deshalb sind die negativen Inhaltsverlust-Prüfungen Teil
 der Freigabe und keine bloße Erleichterung des Guards.
