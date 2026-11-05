@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 
 async function login(page: Page, peer = false) {
   if (peer) {
@@ -27,7 +27,7 @@ async function upload(page: Page, headers: Record<string, string>, path: string,
 }
 
 async function editMode(page: Page) {
-  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await enterMarkdownEditMode(page);
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
 }
 

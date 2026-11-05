@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 
 test('URL paste offers link, explicit preview and supported document embed without changing code paste', async ({ page, context }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires managed local PostgreSQL.');
@@ -15,7 +15,7 @@ test('URL paste offers link, explicit preview and supported document embed witho
   const target = `editor-embed-${randomUUID()}.md`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
   for (const [file, content] of [[path, 'First slot\n\nSecond slot\n\nEmbed slot\n\n```text\ncode\n```'], [target, '# Embedded heading\n\nEmbedded content.']]) {
-    await page.request.post('/api/files/create', { headers, data: { path: file, type: 'file' } });
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: file });
     const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${file}`, { headers })).json();
     expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: { path: file, content, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId } })).ok()).toBe(true);
   }

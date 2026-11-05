@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 
 test.use({ hasTouch: true });
 
@@ -21,7 +22,7 @@ test('selection formatting preserves its range through pointer, keyboard and lin
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, workspace.id);
-  await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');

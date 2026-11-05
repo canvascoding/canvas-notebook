@@ -1,3 +1,4 @@
+import { assertRegularCollaborationEnvironment } from '../scripts/lib/regular-collaboration-target.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -163,6 +164,7 @@ test.describe('formatting preserves Markdown meaning', () => {
   test.beforeEach(async () => {
     if (process.env.CANVAS_YJS_AUTHORITY_E2E === '1') await requireOwnedYjsQaTarget();
     else if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
     else expect(new URL(BASE_URL).origin).toBe('http://127.0.0.1:3100');
   });
   test.setTimeout(180_000);

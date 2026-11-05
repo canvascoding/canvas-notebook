@@ -4,6 +4,7 @@ import { regularCollaborationFiles, deferredReviewAndUndoFiles } from '../helper
 
 export default defineConfig({
   ...ordinary, testDir: '..',
+  use: { ...ordinary.use, actionTimeout: 15_000, navigationTimeout: 45_000 },
   testMatch: regularCollaborationFiles.map(file => '**/' + file),
   testIgnore: deferredReviewAndUndoFiles,
   grepInvert: /@owned-yjs|@experimental-review|@experimental-undo|@live-model/u,

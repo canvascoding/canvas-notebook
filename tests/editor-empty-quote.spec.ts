@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import corpus from '../app/lib/markdown/core/fixtures.json';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 
 test.beforeEach(async () => {
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
@@ -22,7 +22,7 @@ test('empty slash quote checkpoints and survives editing, undo, and reload', asy
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, workspace.id);
-  expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   const readContent = async () => {
     const result = await page.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, { headers });
     return (await result.json()).data?.content as string;
@@ -79,7 +79,7 @@ test('shared Markdown structures render, edit, and checkpoint without losing cel
   const path = `editor-core-${randomUUID()}.md`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
   const content = serializeRichMarkdownBody(corpus.fixtures.map((fixture) => fixture.normalized.trimEnd()).join('\n\n') + '\n');
-  expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${encodeURIComponent(path)}`, { headers })).json();
   const write = await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
     path, content, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,

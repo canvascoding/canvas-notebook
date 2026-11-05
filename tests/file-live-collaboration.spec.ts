@@ -8,7 +8,7 @@ import type { JSONContent } from '@tiptap/core';
 import enMessages from '../messages/en.json';
 import deMessages from '../messages/de.json';
 
-import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { createAuthenticatedContext, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
@@ -106,8 +106,7 @@ async function useWorkspace(context: BrowserContext, workspaceId: string): Promi
 
 async function openCollaborativeMarkdown(page: Page, filePath: string): Promise<void> {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: /Document view|Dokumentansicht/u })
-    .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+  await enterMarkdownEditMode(page);
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
@@ -244,13 +243,8 @@ test.describe('Markdown live collaboration', () => {
       await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
       workspaceId = await organizationWorkspace(page.request);
       await useWorkspace(context, workspaceId);
-      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
       for (const filePath of [joiningPath, readyPath]) {
-        const created = await page.request.post('/api/files/create', {
-          headers,
-          data: { path: filePath, type: 'file' },
-        });
-        expect(created.ok(), await created.text()).toBe(true);
+        await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId, filePath });
       }
 
       await page.route('**/api/files/collaboration/session', async (route) => {
@@ -511,11 +505,7 @@ test.describe('Markdown live collaboration', () => {
       await useWorkspace(adminContext, workspaceId);
       await useWorkspace(memberContext, memberWorkspaceId);
 
-      const createFileResponse = await adminPage.request.post('/api/files/create', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: { path: filePath, type: 'file' },
-      });
-      expect(createFileResponse.ok(), await createFileResponse.text()).toBeTruthy();
+      await createCompletedWorkspaceMarkdownFile({ request: adminPage.request, workspaceId, filePath });
 
       await Promise.all([
         openCollaborativeMarkdown(adminPage, filePath),
