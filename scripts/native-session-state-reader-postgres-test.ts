@@ -356,14 +356,23 @@ async function main() {
       } finally { await owner.close(); clients.delete(client); }
     });
     await fixture('real persisted admission reservation blocks the native session reader', async () => {
-      const seeded = await seed('reserved.md'); const admission = createCollaborationAdmissionService({ openConnection });
+      const seeded = await seed('reserved/note.md'); const admission = createCollaborationAdmissionService({ openConnection });
       const { lineageId: _lineageId, ...target } = seeded.identity;
       const actionPayloadText = JSON.stringify({ targetPath: 'reserved-renamed.md' });
-      await admission.reserve({ requestId: randomUUID(), actorId: 'fixture-owner', action: 'rename', actionPayloadText,
+      const requestId = randomUUID();
+      await admission.reserve({ requestId, actorId: 'fixture-owner', action: 'rename', actionPayloadText,
         actionDigest: collaborationAdmissionActionDigest('rename', actionPayloadText),
         scopes: [{ workspaceId: workspace.workspaceId, organizationId: null, path: seeded.identity.path, kind: 'exact' }],
         expectedDocuments: [{ ...target, status: 'active' }] });
       await assert.rejects(transaction(db => readSession(db, inputFor(seeded.identity), async () => undefined)), code('NATIVE_SESSION_BUSY'));
+      // Vary the two persisted selectors independently in the isolated schema.
+      await pool!.query("UPDATE collaboration_admission_scopes SET path='elsewhere' WHERE request_id=$1", [requestId]);
+      await assert.rejects(transaction(db => readSession(db, inputFor(seeded.identity), async () => undefined)), code('NATIVE_SESSION_BUSY'));
+      await pool!.query("UPDATE collaboration_admission_targets SET active=false WHERE request_id=$1", [requestId]);
+      await pool!.query("UPDATE collaboration_admission_scopes SET path='reserved',kind='subtree' WHERE request_id=$1", [requestId]);
+      await assert.rejects(transaction(db => readSession(db, inputFor(seeded.identity), async () => undefined)), code('NATIVE_SESSION_BUSY'));
+      const neighbor = await seed('reserved-other/note.md');
+      await transaction(db => readSession(db, inputFor(neighbor.identity), async () => undefined));
     });
     await fixture('SQL length bound rejects oversized native state before selecting binary', async () => {
       const seeded = await seed('oversized.md');
