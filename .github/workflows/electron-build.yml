@@ -5,18 +5,45 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing calendar release tag to rebuild
+        type: string
+        required: false
+      source_sha:
+        description: Full approved commit SHA, required with release_tag
+        type: string
+        required: false
+  pull_request:
+    paths:
+      - .github/workflows/electron-build.yml
+      - .github/tests/electron-release-workflow.test.mjs
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: electron-desktop-${{ github.ref }}
+  group: electron-desktop-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  workflow-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - run: node --test .github/tests/electron-release-workflow.test.mjs
+
   desktop:
     name: Build ${{ matrix.platform }}
+    if: github.event_name != 'pull_request'
+    needs: workflow-contract
     runs-on: ${{ matrix.os }}
+    outputs:
+      source_sha: ${{ steps.source.outputs.commit_sha }}
+      release_tag: ${{ steps.source.outputs.release_tag }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     strategy:
@@ -29,12 +56,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 26
           cache: npm
+
+      - name: Verify desktop release source
+        id: source
+        shell: bash
+        env:
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == canvascoding/canvas-notebook ]] || exit 1
+          task_sha="$(git rev-parse HEAD)"
+          [[ "$task_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          task_tag="${REQUESTED_RELEASE_TAG:-}"
+          task_expected_sha="${REQUESTED_SOURCE_SHA:-}"
+          if [[ -n "$task_tag" || -n "$task_expected_sha" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && -n "$task_tag" && "$task_expected_sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+            [[ "$task_sha" == "$task_expected_sha" ]] || exit 1
+          else
+            [[ "$task_sha" == "$GITHUB_SHA" ]] || exit 1
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              task_tag="${GITHUB_REF#refs/tags/}"
+            fi
+          fi
+          if [[ -n "$task_tag" ]]; then
+            [[ "$task_tag" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.[1-9][0-9]*$ ]] || exit 1
+            [[ "$(git rev-parse "refs/tags/$task_tag^{commit}")" == "$task_sha" ]] || exit 1
+            git merge-base --is-ancestor "$task_sha" refs/remotes/origin/main || exit 1
+            [[ "$task_tag" == "v$(node -p "require('./package.json').version")" ]] || exit 1
+          fi
+          printf 'commit_sha=%s\nrelease_tag=%s\n' "$task_sha" "$task_tag" >> "$GITHUB_OUTPUT"
+          printf '{"schemaVersion":1,"commitSha":"%s","tag":"%s"}\n' "$task_sha" "$task_tag" > desktop-release-source.json
 
       - name: Prepare macOS signing credentials
         if: matrix.platform == 'macos'
@@ -120,7 +181,8 @@ jobs:
         run: |
           npm run electron:package
 
-      - name: Verify macOS signing and notarization
+      - name: Verify macOS signing and packaged permissions
+        id: signed-app
         if: matrix.platform == 'macos'
         shell: bash
         run: |
@@ -136,8 +198,44 @@ jobs:
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
           CANVAS_ELECTRON_MAC_TEST_BUNDLE="$app_path" node --test electron/main/microphone-packaging.test.mjs
-          xcrun stapler validate "$app_path"
-          spctl --assess --type execute --verbose=4 "$app_path"
+          printf 'app_path=%s\n' "$app_path" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Apple notarization ticket
+        if: matrix.platform == 'macos'
+        timeout-minutes: 5
+        shell: bash
+        env:
+          APP_PATH: ${{ steps.signed-app.outputs.app_path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          task_log="$(mktemp "$RUNNER_TEMP/canvas-notary-validation.XXXXXX")"
+          trap 'rm -f "$task_log"' EXIT
+          for task_attempt in 1 2 3 4; do
+            if xcrun stapler validate "$APP_PATH" > "$task_log" 2>&1; then
+              cat "$task_log"
+              exit 0
+            else
+              task_status=$?
+            fi
+            cat "$task_log"
+            if (( task_status != 68 || task_attempt == 4 )); then
+              exit "$task_status"
+            fi
+            if ! grep -Eq 'NSURLErrorDomain Code=-(1001|1003|1004|1005|1009)([[:space:]]|$)' "$task_log"; then
+              exit "$task_status"
+            fi
+            task_delay=$((task_attempt * 15))
+            printf 'Apple ticket lookup transport failure; retry %s/4 in %ss.\n' "$((task_attempt + 1))" "$task_delay"
+            sleep "$task_delay"
+          done
+
+      - name: Assess macOS Gatekeeper policy
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          APP_PATH: ${{ steps.signed-app.outputs.app_path }}
+        run: spctl --assess --type execute --verbose=4 "$APP_PATH"
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v7
@@ -150,17 +248,23 @@ jobs:
             dist-electron/*.dmg
             dist-electron/*.zip
             dist-electron/latest-mac.yml
+            desktop-release-source.json
 
   release:
     name: Publish desktop release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.desktop.outputs.release_tag != ''
     needs: desktop
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.desktop.outputs.release_tag }}
+      RELEASE_SOURCE_SHA: ${{ needs.desktop.outputs.source_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.desktop.outputs.source_sha }}
 
       - name: Download desktop artifacts
         uses: actions/download-artifact@v8
@@ -174,6 +278,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SOURCE_SHA" ]]
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source = JSON.parse(fs.readFileSync('release-artifacts/desktop-release-source.json', 'utf8'));
+          assert.equal(source.schemaVersion, 1);
+          assert.equal(source.commitSha, process.env.RELEASE_SOURCE_SHA);
+          assert.equal(source.tag, process.env.RELEASE_TAG);
+          NODE
           node scripts/sync-electron-version.mjs
           expected_version="$(node -p "require('./electron/package.json').version")"
           manifest_version="$(awk '/^version: / { print $2; exit }' release-artifacts/latest-mac.yml)"
@@ -208,11 +321,11 @@ jobs:
           fi
 
           for _ in {1..120}; do
-            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
               break
             fi
             sleep 15
           done
-          gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release view "$RELEASE_TAG" >/dev/null
 
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
