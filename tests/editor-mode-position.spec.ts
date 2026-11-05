@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
 type Mode = 'Read' | 'Edit' | 'Source';
@@ -67,18 +68,10 @@ async function upload(page: Page, headers: Record<string, string>, path: string,
   return { path, content, headers };
 }
 
-async function selectMode(page: Page, mode: Mode) {
-  const button = page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: mode, exact: true });
-  await button.click();
-  if (mode === 'Read') {
-    await expect(button).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.markdown-read-viewport')).toBeVisible();
-  } else if (mode === 'Edit') {
-    await expect(page.locator(richEditor)).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
-  } else {
-    await expect(button).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.markdown-source-shell .cm-content')).toBeVisible({ timeout: 30_000 });
-  }
+async function focusRoundtrip(page: Page) {
+  await page.getByRole('button', { name: 'Focus document', exact: true }).click();
+  await page.getByRole('button', { name: 'Exit focus', exact: true }).click();
+  await enterMarkdownEditMode(page);
 }
 
 function viewport(page: Page, mode: Mode) {
@@ -229,22 +222,19 @@ async function read(page: Page, fixture: Fixture) {
 async function cleanup(page: Page, fixtures: Fixture[]) {
   await page.goto('about:blank');
   for (const fixture of fixtures) {
-    expect((await page.request.delete('/api/files/delete', { headers: fixture.headers, data: { path: fixture.path } })).ok()).toBe(true);
+    await deleteOwnedFixtureFiles(page.request, fixture.headers['x-canvas-workspace-id'], [fixture.path]);
   }
 }
 
 async function jumpToEarlyHeading(page: Page) {
-  await page.locator('.markdown-read-viewport button[data-canvas-wiki-status]')
-    .filter({ hasText: 'Jump to early heading' }).click();
-  const preview = page.getByRole('dialog');
-  await expect(preview).toBeVisible();
-  await preview.getByRole('button', { name: 'Open in editor', exact: true }).click();
-  await expect(preview).toBeHidden();
-  await expect(landmark(page, 'Read', 3)).toBeInViewport();
-  await settleFixtureLayout(page, 'Read');
+  await page.locator(richEditor).locator('button[data-canvas-wiki-status], a')
+    .filter({ hasText: 'Jump to early heading' }).click({ modifiers: ['ControlOrMeta'] });
+  // Native Markdown links navigate directly; embedded wiki links use previews.
+  await expect(landmark(page, 'Edit', 3)).toBeInViewport();
+  await settleFixtureLayout(page, 'Edit');
 }
 
-test.describe('Markdown modes preserve the visible document location', () => {
+test.describe('Native document viewport and identity', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(150_000);
 
@@ -254,182 +244,121 @@ test.describe('Markdown modes preserve the visible document location', () => {
         ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
         : { viewport: { width: 1440, height: 1000 } });
 
-      test('repeated Read/Edit switches keep the same landmark and live document session', async ({ page }, info) => {
-        page.setDefaultTimeout(10_000);
-        page.setDefaultNavigationTimeout(45_000);
-        const errors: string[] = [];
-        page.on('pageerror', error => errors.push(error.message));
-        const headers = await login(page);
-        const path = `editor-mode-position-${randomUUID()}.md`;
+      test('focus round trips retain landmarks and the same live native editor', async ({ page }, info) => {
+        const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+        const headers = await login(page), path = `editor-position-${randomUUID()}.md`;
         const fixture = await upload(page, headers, path, longMarkdown(path));
         const observed = observeReloads(page);
         try {
           await page.goto(`/notebook?path=${path}`, { waitUntil: 'domcontentloaded' });
-          await selectMode(page, 'Edit');
-          await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-          await selectMode(page, 'Read');
-          const expectedOffset = await positionLandmark(page, 'Read', 25);
+          await enterMarkdownEditMode(page);
+          await expect(page.getByRole('button', { name: /^(Read|Edit|Source)$/u })).toHaveCount(0);
+          const node = await page.locator(richEditor).elementHandle();
+          const expectedOffset = await positionLandmark(page, 'Edit', 25);
           const baseline = { requests: observed.requests.length, sockets: observed.sockets.length };
-          for (const destination of ['Edit', 'Read', 'Edit', 'Read', 'Edit', 'Read'] as const) {
-            await selectMode(page, destination);
-            await expectLandmark(page, destination, 25, expectedOffset);
-            await page.screenshot({ path: info.outputPath(`${device}-${destination.toLowerCase()}-position.png`) });
+          for (let index = 0; index < 3; index++) {
+            await focusRoundtrip(page);
+            await expectLandmark(page, 'Edit', 25, expectedOffset);
+            expect(await page.locator(richEditor).evaluate((current, before) => current === before, node)).toBe(true);
+          }
+          const paragraphOffset = await positionWrappedParagraph(page, 'Edit', 31);
+          for (let index = 0; index < 3; index++) {
+            await focusRoundtrip(page);
+            await expectWrappedParagraph(page, 'Edit', 31, paragraphOffset);
           }
           expect(observed.requests.slice(baseline.requests)).toEqual([]);
           expect(observed.sockets.slice(baseline.sockets)).toEqual([]);
-
-          // Exercise an interior line of a long paragraph, not only easy heading boundaries.
-          const paragraphOffset = await positionWrappedParagraph(page, 'Read', 31);
-          for (const destination of ['Edit', 'Read', 'Edit', 'Read', 'Edit', 'Read'] as const) {
-            await selectMode(page, destination);
-            await expectWrappedParagraph(page, destination, 31, paragraphOffset);
-          }
-
-          // A rapid sequence must consume one position transfer, never a stale intermediate restore.
-          await page.getByRole('group', { name: 'Document view' }).evaluate(element => {
-            for (const name of ['Edit', 'Read', 'Edit', 'Read', 'Edit']) {
-              [...element.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === name)?.click();
-            }
-          });
-          await expect(page.locator(richEditor)).toBeVisible();
-          await expectWrappedParagraph(page, 'Edit', 31, paragraphOffset);
-          await selectMode(page, 'Read');
-          await expectWrappedParagraph(page, 'Read', 31, paragraphOffset);
-          expect(observed.requests.slice(baseline.requests)).toEqual([]);
-          expect(observed.sockets.slice(baseline.sockets)).toEqual([]);
+          expect(await read(page, fixture)).toBe(fixture.content);
           expect(errors).toEqual([]);
-          if (device === 'mobile') {
-            expect(await page.evaluate(() => document.activeElement?.matches('[contenteditable="true"], input, textarea'))).toBe(false);
-            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-          }
+          if (device === 'mobile') expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await page.screenshot({ path: info.outputPath(`${device}-native-position.png`) });
         } finally { await cleanup(page, [fixture]); }
       });
     });
   }
 
-  test('edits and undo survive mode round trips without replaying an old heading jump', async ({ page }, info) => {
-    const headers = await login(page);
-    const path = `editor-mode-position-undo-${randomUUID()}.md`;
+  test('edits and editor history survive focus changes without replaying a heading jump', async ({ page }, info) => {
+    const headers = await login(page), path = `editor-position-history-${randomUUID()}.md`;
     const fixture = await upload(page, headers, path, longMarkdown(path));
     try {
       await page.goto(`/notebook?path=${path}`, { waitUntil: 'domcontentloaded' });
-      await selectMode(page, 'Edit');
-      await selectMode(page, 'Read');
+      await enterMarkdownEditMode(page);
       await jumpToEarlyHeading(page);
-      const expectedOffset = await positionLandmark(page, 'Read', 29);
-      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-      await selectMode(page, 'Edit');
+      const expectedOffset = await positionLandmark(page, 'Edit', 29);
+      await focusRoundtrip(page);
       await expectLandmark(page, 'Edit', 29, expectedOffset);
       const paragraph = page.locator(richEditor).locator('p').filter({ hasText: /^Section 29 has a uniquely identifiable paragraph/u });
       await paragraph.click();
       await paragraph.evaluate(element => {
-        const selection = getSelection();
-        const range = document.createRange();
+        const selection = getSelection(), range = document.createRange();
         range.selectNodeContents(element); range.collapse(false);
         selection?.removeAllRanges(); selection?.addRange(range);
       });
       await page.keyboard.insertText(' Roundtrip edit marker.');
       await expect.poll(() => read(page, fixture), { timeout: 20_000 }).toContain('Roundtrip edit marker.');
       const afterEditOffset = await positionLandmark(page, 'Edit', 29);
-      await selectMode(page, 'Read');
-      await expectLandmark(page, 'Read', 29, afterEditOffset);
-      await expect(page.locator('.markdown-read-viewport')).toContainText('Roundtrip edit marker.');
-      await selectMode(page, 'Edit');
+      await focusRoundtrip(page);
       await expectLandmark(page, 'Edit', 29, afterEditOffset);
-      await paragraph.click();
-      await page.keyboard.press('ControlOrMeta+z');
-      await expect.poll(() => read(page, fixture), { timeout: 20_000 }).not.toContain('Roundtrip edit marker.');
+      await expect(page.locator(richEditor)).toContainText('Roundtrip edit marker.');
+      await paragraph.click(); await page.keyboard.press('ControlOrMeta+z');
+      await expect.poll(() => read(page, fixture)).not.toContain('Roundtrip edit marker.');
       await page.keyboard.press('ControlOrMeta+Shift+z');
-      await expect.poll(() => read(page, fixture), { timeout: 20_000 }).toContain('Roundtrip edit marker.');
-      await page.screenshot({ path: info.outputPath('edited-document-after-mode-roundtrip.png') });
-      await selectMode(page, 'Read');
-      // New navigation is intentional and still overrides the saved document viewport.
+      await expect.poll(() => read(page, fixture)).toContain('Roundtrip edit marker.');
       await jumpToEarlyHeading(page);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    } catch (error) {
-      await info.attach('failed-document-geometry', { contentType: 'application/json', body: JSON.stringify({
-        markdown: await read(page, fixture),
-        viewport: await page.evaluate(() => {
-          const editor = document.querySelector('.ProseMirror') as (HTMLElement & {
-            editor?: { getJSON: () => unknown; state: { selection: { from: number; to: number } } };
-          }) | null;
-          const view = document.querySelector('[data-testid="markdown-scroll-container"]');
-          const top = view?.getBoundingClientRect().top ?? 0;
-          return { scrollTop: view?.scrollTop, active: document.activeElement?.outerHTML.slice(0, 600),
-            headings: [...(editor?.querySelectorAll('h2') ?? [])].filter(node => node.textContent === 'Landmark 29')
-              .map(node => ({ text: node.textContent, y: node.getBoundingClientRect().top - top })),
-            rich: editor?.editor?.getJSON(), selection: editor?.editor ? {
-              from: editor.editor.state.selection.from, to: editor.editor.state.selection.to,
-            } : null };
-        }),
-      }) });
-      await page.screenshot({ path: info.outputPath('edited-document-mode-failure.png') });
-      throw error;
+      await page.screenshot({ path: info.outputPath('native-history-and-heading-navigation.png') });
     } finally { await cleanup(page, [fixture]); }
   });
 
-  test('unsupported source documents keep their location and edits through Read and Source', async ({ page }, info) => {
-    const headers = await login(page);
-    const path = `editor-mode-position-source-${randomUUID()}.md`;
+  test('source-only documents keep exact edits and their viewport through focus changes', async ({ page }, info) => {
+    const headers = await login(page), path = `editor-position-source-${randomUUID()}.md`;
     const content = `${longMarkdown(path)}\n\n<!-- paginate: true -->\n`;
     expect(analyzeMarkdownRichMode(content).mode).toBe('source');
     const fixture = await upload(page, headers, path, content);
     try {
       await page.goto(`/notebook?path=${path}`, { waitUntil: 'domcontentloaded' });
-      await selectMode(page, 'Read');
-      const expectedOffset = await positionLandmark(page, 'Read', 33);
+      const source = page.locator('.markdown-source-shell .cm-content');
+      await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      const expectedOffset = await positionLandmark(page, 'Source', 33);
       const observed = observeReloads(page);
-      await selectMode(page, 'Source');
-      await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true');
+      await focusRoundtrip(page);
       await expectLandmark(page, 'Source', 33, expectedOffset);
-      await page.locator('.cm-line').filter({ hasText: /^## Landmark 33$/u }).click();
-      await page.keyboard.press('End');
+      await landmark(page, 'Source', 33).click(); await page.keyboard.press('End');
       await page.keyboard.insertText(' Source edit marker');
       await expect.poll(() => read(page, fixture), { timeout: 20_000 }).toContain('Landmark 33 Source edit marker');
-      await selectMode(page, 'Read');
-      await expect(page.getByRole('heading', { name: 'Landmark 33 Source edit marker', exact: true })).toBeInViewport();
-      await selectMode(page, 'Source');
-      const editedHeading = page.locator('.cm-line').filter({ hasText: /^## Landmark 33 Source edit marker$/u });
-      await expect(editedHeading).toBeInViewport();
-      await editedHeading.click();
-      await page.keyboard.press('ControlOrMeta+z');
+      const edited = page.locator('.cm-line').filter({ hasText: /^## Landmark 33 Source edit marker$/u });
+      await focusRoundtrip(page);
+      await expect(edited).toBeInViewport();
+      await edited.click(); await page.keyboard.press('ControlOrMeta+z');
       await expect.poll(() => read(page, fixture), { timeout: 20_000 }).toBe(content);
-      const sourceOffset = await positionLandmark(page, 'Source', 33);
-      await selectMode(page, 'Read');
-      await expectLandmark(page, 'Read', 33, sourceOffset);
-      expect(observed.requests).toEqual([]);
-      expect(observed.sockets).toEqual([]);
-      await page.screenshot({ path: info.outputPath('source-only-document-position.png') });
+      expect(observed.requests).toEqual([]); expect(observed.sockets).toEqual([]);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      expect(await read(page, fixture)).toBe(content);
+      await page.screenshot({ path: info.outputPath('source-only-native-position.png') });
     } finally { await cleanup(page, [fixture]); }
   });
 
-  test('positions are scoped to the opened document instead of leaking into another tab', async ({ page }) => {
-    const headers = await login(page);
-    const path = `editor-mode-position-isolation-${randomUUID()}.md`;
+  test('viewport positions are scoped to the document when switching actual tabs', async ({ page }) => {
+    const headers = await login(page), path = `editor-position-isolation-${randomUUID()}.md`;
     const fixture = await upload(page, headers, path, longMarkdown(path));
-    const shortPath = `editor-mode-position-short-${randomUUID()}.md`;
+    const shortPath = `editor-position-short-${randomUUID()}.md`;
     const short = await upload(page, headers, shortPath, '# A separate short document\n\nVisible at the beginning.\n');
     try {
       await page.goto(`/notebook?path=${path}`, { waitUntil: 'domcontentloaded' });
-      await selectMode(page, 'Edit');
-      await selectMode(page, 'Read');
-      await positionLandmark(page, 'Read', 37);
-      await page.goto(`/notebook?path=${shortPath}`, { waitUntil: 'domcontentloaded' });
-      await selectMode(page, 'Read');
-      // Both files are open now. Exercise an actual tab switch in the same app instance.
-      await page.getByRole('tab', { name: path, exact: true }).click();
-      await selectMode(page, 'Read');
-      await positionLandmark(page, 'Read', 37);
-      await page.getByRole('tab', { name: shortPath, exact: true }).click();
-      await selectMode(page, 'Read');
+      await enterMarkdownEditMode(page);
+      await positionLandmark(page, 'Edit', 37);
+      await page.getByRole('button', { name: 'Show sidebar', exact: true }).click();
+      await page.getByRole('treeitem', { name: shortPath.replace(/\.md$/u, ''), exact: true }).click();
+      await enterMarkdownEditMode(page);
       await expect(page.getByRole('heading', { name: 'A separate short document', exact: true })).toBeInViewport();
-      expect(await viewport(page, 'Read').evaluate(element => element.scrollTop)).toBe(0);
-      await selectMode(page, 'Edit');
+      expect(await viewport(page, 'Edit').evaluate(element => element.scrollTop)).toBe(0);
+      await page.getByRole('tab', { name: path, exact: true }).click();
+      await enterMarkdownEditMode(page); await positionLandmark(page, 'Edit', 37);
+      await page.getByRole('tab', { name: shortPath, exact: true }).click();
+      await enterMarkdownEditMode(page);
       await expect(page.locator(richEditor).getByText('Visible at the beginning.', { exact: true })).toBeInViewport();
-      await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-      await selectMode(page, 'Read');
-      await expect(page.locator('.markdown-read-viewport')).toContainText('Visible at the beginning.');
-      expect(await viewport(page, 'Read').evaluate(element => element.scrollTop)).toBe(0);
+      expect(await viewport(page, 'Edit').evaluate(element => element.scrollTop)).toBe(0);
     } finally { await cleanup(page, [fixture, short]); }
   });
 });

@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { setTimeout as wait } from 'node:timers/promises';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 
 async function login(page: Page, peer = false) {
   if (peer) {
@@ -96,8 +98,24 @@ test.describe('Block and document identity through browser lifecycles', () => {
     });
   }
 
-  test('a moved document deep link reopens its identity after the old path is reused', async ({ page }) => {
+  test('a moved document deep link reopens its identity after the old path is reused', async ({ page }, info) => {
     const headers = await login(page);
+    const readNativeFile = async (path: string) => {
+      const deadline = Date.now() + 5_000;
+      for (let attempt = 0; ; attempt++) {
+        const response = await page.request.get('/api/files/read', { headers, params: { path },
+          timeout: Math.max(1, deadline - Date.now()) });
+        const payload = await response.json();
+        if (response.status() === 503 && payload.code === 'ROOM_OWNER_BUSY' && attempt < 2 && Date.now() + 250 < deadline) {
+          info.annotations.push({ type: 'room-owner-busy-read-retry', description: `${path}: attempt ${attempt + 1}` });
+          await wait(250);
+          continue;
+        }
+        expect(response.status(), `Native read (${String(payload.code ?? 'unknown')})`).toBe(200);
+        expect(payload.success).toBe(true);
+        return payload.data;
+      }
+    };
     const oldFolder = `editor-url-lifecycle-${randomUUID()}`;
     const newFolder = `${oldFolder}-moved`;
     expect((await page.request.post('/api/files/create', { headers, data: { path: oldFolder, type: 'directory' } })).ok()).toBe(true);
@@ -106,9 +124,17 @@ test.describe('Block and document identity through browser lifecycles', () => {
     try {
       await page.goto(`/notebook?path=${oldFolder}/a.md`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByText('Original A.', { exact: true })).toBeVisible({ timeout: 30_000 });
+      await editMode(page);
+      await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toHaveAttribute('aria-selected', 'true');
+      // The URL is an explicit deep-link intent, independent of manual tab
+      // selection. Fully admit A before navigating to B's deep link.
       await page.goto(`/notebook?path=${oldFolder}/b.md`, { waitUntil: 'domcontentloaded' });
       await editMode(page);
+      await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toBeVisible();
+      await expect(page.getByRole('tabpanel', { name: 'b.md', exact: true })).toContainText('Original B.');
       await expect(page.getByText('Original B.', { exact: true })).toBeVisible({ timeout: 30_000 });
+      const original = await readNativeFile(`${oldFolder}/b.md`);
+      const documentId = original.collaboration.document.id;
       const before = await tree(page);
       expect((await page.request.post('/api/files/rename', { headers, data: {
         oldPath: oldFolder, newPath: newFolder, updateLinks: false,
@@ -116,17 +142,36 @@ test.describe('Block and document identity through browser lifecycles', () => {
       await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe(`${newFolder}/b.md`);
       expect(await tree(page)).toEqual(before);
       expect((await page.request.post('/api/files/create', { headers, data: { path: oldFolder, type: 'directory' } })).ok()).toBe(true);
-      await upload(page, headers, oldFolder, 'b.md', 'Replacement at the old path.');
+      await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: `${oldFolder}/b.md` });
+      const replacement = (await (await page.request.get('/api/mobile/v1/notebook/document', { headers, params: { path: `${oldFolder}/b.md` } })).json()).document;
+      expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
+        path: `${oldFolder}/b.md`, content: 'Replacement at the old path.', expectedSha256: replacement.sha256, baseRevisionId: replacement.revisionId,
+      } })).ok()).toBe(true);
+      const replaced = await readNativeFile(`${oldFolder}/b.md`);
+      expect(replaced.collaboration.document.id).not.toBe(documentId);
+      expect(replaced.content).toBe('Replacement at the old path.');
+      await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toBeVisible();
+      await page.getByRole('tab', { name: 'a.md', exact: true }).click();
+      await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
+      await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('tab', { name: 'a.md', exact: true }).locator('..')).toHaveAttribute('title', `${newFolder}/a.md`);
+      await expect(page.getByRole('tabpanel', { name: 'a.md', exact: true })).toContainText('Original A.');
+      // Manual tab selection preserves the explicit, already relocated B deep link.
+      expect(new URL(page.url()).searchParams.get('path')).toBe(`${newFolder}/b.md`);
+      await page.getByRole('tab', { name: 'b.md', exact: true }).click();
+      await expect(page.getByText('Original B.', { exact: true })).toBeVisible();
       await page.reload({ waitUntil: 'domcontentloaded' });
       await editMode(page);
       await expect(page.getByText('Original B.', { exact: true })).toBeVisible();
       expect(await tree(page)).toEqual(before);
+      const reopened = await readNativeFile(`${newFolder}/b.md`);
+      expect(reopened.collaboration.document.id).toBe(documentId);
       await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toBeVisible();
       await page.getByRole('tab', { name: 'a.md', exact: true }).click();
       await expect(page.getByText('Original A.', { exact: true })).toBeVisible();
     } finally {
       await page.close();
-      await page.request.delete('/api/files/delete', { headers, data: { path: [oldFolder, newFolder] } });
+      await deleteOwnedFixtureFiles(page.request, headers['x-canvas-workspace-id'], [oldFolder, newFolder]);
     }
   });
 });

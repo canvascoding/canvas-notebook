@@ -1,9 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import corpus from '../app/lib/markdown/core/fixtures.json';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
-import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
+
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 
 test.beforeEach(async () => {
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
@@ -65,7 +69,7 @@ test('empty slash quote checkpoints and survives editing, undo, and reload', asy
     await page.screenshot({ path: info.outputPath('empty-quote-reopened.png') });
   } finally {
     await page.goto('about:blank');
-    await page.request.delete('/api/files/delete', { headers, data: { path } });
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path]);
   }
 });
 
@@ -104,142 +108,121 @@ test('shared Markdown structures render, edit, and checkpoint without losing cel
     await expect(editor).toHaveAttribute('contenteditable', 'true');
   } finally {
     await page.goto('about:blank');
-    await page.request.delete('/api/files/delete', { headers, data: { path } });
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path]);
   }
 });
 
-test('reading observes live source without rewriting it and migration waits for other editors', async ({ page }, info) => {
+test('native source peers preserve exact Markdown through edits and reopen', async ({ page }) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(120_000);
   await authenticateManagedTestPage(page);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
-  const path = `editor-modes-${randomUUID()}.md`;
-  const content = '# Live preview\n\n| Code | Value |\n|---|---|\n| `a\\|b` | Original |\n\n';
-  const liveSource = `${content}\n\nLive addition`;
-  const supportedSource = `${content}Live addition\n`;
-  expect(analyzeMarkdownRichMode(liveSource)).toMatchObject({ mode: 'source', reason: 'roundtrip_changed' });
-  expect(analyzeMarkdownRichMode(supportedSource).mode).toBe('normalizable');
-  await page.addInitScript((id) => { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); }, workspace.id);
-  const readContent = async () => (await (await page.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, { headers })).json()).data?.content as string;
-  const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: { name: path, mimeType: 'text/markdown', buffer: Buffer.from(content) } } });
+  const path = `native-source-peers-${randomUUID()}.md`;
+  const content = '# Live source\n\n<!-- paginate: true -->\n\n| Code | Value |\n|---|---|\n| `a\\|b` | Original |\n\n';
+  expect(analyzeMarkdownRichMode(content).mode).toBe('source');
+  await page.addInitScript(id => { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); }, workspace.id);
+  const read = async () => (await (await page.request.get('/api/files/read', { headers, params: { path } })).json()).data.content as string;
+  const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+    name: path, mimeType: 'text/markdown', buffer: Buffer.from(content),
+  } } });
   expect(uploaded.ok(), await uploaded.text()).toBe(true);
-  const second = await page.context().newPage();
+  const peer = await page.context().newPage();
+  const sourceText = (target: typeof page) => target.locator('.cm-content').evaluate(element => (
+    element as HTMLElement & { cmTile: { root: { view: { state: { doc: { toString(): string } } } } } }
+  ).cmTile.root.view.state.doc.toString());
+  let migrations = 0;
+  for (const target of [page, peer]) target.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/files/collaboration/session'
+      && request.postDataJSON()?.migration) migrations++;
+  });
+  try {
+    for (const target of [page, peer]) {
+      await target.goto(`/notebook?path=${encodeURIComponent(path)}`);
+      await expect(target.locator('.markdown-source-shell .cm-content')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+    }
+    expect(await read()).toBe(content);
+    const source = peer.locator('.cm-content');
+    await source.click(); await peer.keyboard.press('ControlOrMeta+End');
+    await expect.poll(() => source.evaluate(element => {
+      const view = (element as HTMLElement & { cmTile: { root: { view: {
+        state: { doc: { length: number }; selection: { main: { head: number } } } } } } }).cmTile.root.view;
+      return view.state.selection.main.head === view.state.doc.length;
+    })).toBe(true);
+    await peer.keyboard.press('Enter'); await peer.keyboard.press('Enter');
+    await peer.keyboard.insertText('Live addition: * _ # > ` \\ |');
+    const changed = content + '\n\nLive addition: * _ # > ` \\ |';
+    await expect.poll(read, { timeout: 20_000 }).toBe(changed);
+    await expect.poll(() => sourceText(page)).toBe(changed);
+    await page.reload();
+    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+    await expect.poll(() => sourceText(page)).toBe(changed);
+    const session = await page.request.post('/api/files/collaboration/session', { headers,
+      data: { path, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES } });
+    expect(session.ok()).toBe(true);
+    expect((await session.json()).representation).toBe('plain_text');
+    expect(await read()).toBe(changed);
+    expect(migrations, 'Unsupported source must not be silently converted to rich Markdown.').toBe(0);
+  } finally {
+    await peer.close(); await page.goto('about:blank');
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path]);
+  }
+});
+
+test('native checkpoint recovery distinguishes export errors from access failure and preserves backups', async ({ page }, info) => {
+  test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
+  test.setTimeout(120_000);
+  await authenticateManagedTestPage(page);
+  const { workspaces } = await (await page.request.get('/api/workspaces')).json();
+  const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
+  const headers = { 'x-canvas-workspace-id': workspace.id }, path = `native-checkpoint-${randomUUID()}.md`;
+  await page.addInitScript(id => { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); }, workspace.id);
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   const checkpointRoute = '**/api/files/collaboration/checkpoint';
-  let checkpointMocked = false;
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
-    // Establish this scenario's mode explicitly; opening defaults/preferences
-    // are not the behavior under test here.
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
-    expect(await readContent()).toBe(content);
-    await second.goto(`/notebook?path=${encodeURIComponent(path)}`);
-    await second.getByRole('button', { name: 'Source', exact: true }).click();
-    const source = second.locator('.cm-content');
-    await expect(source).toHaveAttribute('contenteditable', 'true');
-    await source.click();
-    await second.keyboard.press('ControlOrMeta+End');
-    await second.keyboard.type('\n\nLive addition');
-    await expect.poll(readContent).toBe(liveSource);
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
-    expect(await readContent()).toBe(liveSource);
-    await page.getByRole('button', { name: 'Source', exact: true }).click();
-    await expect(page.getByText('This document stays in source mode so its Markdown is preserved exactly.')).toBeVisible();
-    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true');
-    expect(await readContent()).toBe(liveSource);
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    // The source contains two extra blank lines that cannot be normalized
-    // silently. Explicit user input removes them before requesting rich editing.
-    await source.click();
-    await second.keyboard.press('ControlOrMeta+a');
-    await second.keyboard.insertText(supportedSource);
-    await expect.poll(readContent).toBe(supportedSource);
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    // Edit itself starts the migration. An active source peer must block it.
-    await expect(page.getByText(/Other editors or pending changes prevent/)).toBeVisible({ timeout: 20_000 });
-    await expect(source).toHaveAttribute('contenteditable', 'true');
-    await second.close();
-    await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
-    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-    await expect(page.locator('.cm-content')).toHaveCount(0);
-    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath('migrated-rich-modes.png') });
-    checkpointMocked = true;
-    await page.route(checkpointRoute, (route) => route.fulfill({ status: 422,
-      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE',
-        error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' }),
-    }));
-    const projectionFailure = page.waitForResponse((response) => response.url().endsWith('/api/files/collaboration/checkpoint')
-      && response.request().method() === 'POST');
+    await enterMarkdownEditMode(page);
+    const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+    await editor.click(); await page.keyboard.insertText('Live addition');
+    const read = async () => (await (await page.request.get('/api/files/read', { headers, params: { path } })).json()).data.content as string;
+    await expect.poll(read, { timeout: 20_000 }).toContain('Live addition');
+    await page.route(checkpointRoute, route => route.fulfill({ status: 422, contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE', error: 'Test export-only validation failure.' }) }));
+    const exportFailure = page.waitForResponse(response => response.url().endsWith('/api/files/collaboration/checkpoint') && response.request().method() === 'POST');
     await page.keyboard.press('ControlOrMeta+s');
-    expect((await projectionFailure).status()).toBe(422);
+    expect((await exportFailure).status()).toBe(422);
+    await expect(editor).toHaveAttribute('contenteditable', 'true');
+    await expect(editor).toContainText('Live addition');
     await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
-    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.locator('.markdown-read-viewport')).toContainText('Live addition');
     await page.unroute(checkpointRoute);
-    // A real access failure requires action; an export-only error no longer
-    // interrupts a healthy Yjs document. Keep this recovery case actionable.
-    await page.route(checkpointRoute, (route) => route.fulfill({ status: 403,
-      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_AUTHENTICATION_FAILED', error: 'Test access expired.' }),
-    }));
+    await page.route(checkpointRoute, route => route.fulfill({ status: 403, contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'COLLABORATION_AUTHENTICATION_FAILED', error: 'Test access expired.' }) }));
+    const accessFailure = page.waitForResponse(response => response.url().endsWith('/api/files/collaboration/checkpoint') && response.request().method() === 'POST');
     await page.keyboard.press('ControlOrMeta+s');
+    expect((await accessFailure).status()).toBe(403);
     const recovery = page.getByTestId('markdown-save-state');
     await expect(recovery.getByRole('alert')).toContainText('Your access to this document cannot currently be confirmed');
-    await expect(recovery).toHaveCSS('position', 'relative');
-    const reader = page.locator('.markdown-read-viewport');
-    await expect(reader.getByText('Live addition', { exact: true })).toBeVisible();
-    await expect.poll(async () => {
-      const [recoveryBounds, readingBounds] = await Promise.all([recovery.boundingBox(), reader.boundingBox()]);
-      return Boolean(recoveryBounds && readingBounds && readingBounds.height > 0
-        && readingBounds.y >= recoveryBounds.y + recoveryBounds.height);
-    }, { message: 'Recovery actions stay above the readable document without covering it.' }).toBe(true);
     await expect(recovery).not.toContainText('COLLABORATION_AUTHENTICATION_FAILED');
     await expect(recovery.getByRole('button', { name: 'Open again', exact: true })).toBeVisible();
+    await expect(editor).toContainText('Live addition');
     const download = page.waitForEvent('download');
     await recovery.getByRole('button', { name: 'Download text copy', exact: true }).click();
-    expect((await download).suggestedFilename()).toBe(path);
-    const fullBackup = page.waitForEvent('download');
+    const text = await download;
+    expect(text.suggestedFilename()).toBe(path);
+    expect(await readFile((await text.path())!, 'utf8')).toContain('Live addition');
+    const backup = page.waitForEvent('download');
     await recovery.getByRole('button', { name: 'Back up complete document', exact: true }).click();
-    expect((await fullBackup).suggestedFilename()).toBe('canvas-recovery.yjs');
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
-    await page.screenshot({ path: info.outputPath('checkpoint-recovery.png') });
-    await page.unroute(checkpointRoute);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Read', exact: true })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    const full = await backup;
+    expect(full.suggestedFilename()).toBe('canvas-recovery.yjs');
+    expect((await readFile((await full.path())!)).length).toBeGreaterThan(0);
+    await page.screenshot({ path: info.outputPath('native-checkpoint-recovery.png') });
+    await page.unroute(checkpointRoute); await page.reload();
+    await enterMarkdownEditMode(page);
+    await expect(editor).toContainText('Live addition');
     await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-    checkpointMocked = false;
-
   } finally {
-    // A timed-out test may already have closed its pages. Cleanup must not mask
-    // the first failed UI assertion with a secondary navigation error.
-    if (!second.isClosed()) await second.close().catch(() => undefined);
-    if (!page.isClosed()) {
-      await page.unroute(checkpointRoute).catch(() => undefined);
-      if (checkpointMocked) await page.reload({ waitUntil: 'domcontentloaded', timeout: 5_000 }).catch(() => undefined);
-      await page.goto('about:blank', { timeout: 5_000 }).catch(() => undefined);
-    }
-    await page.request.delete('/api/files/delete', { headers, data: { path } }).catch(() => undefined);
+    await page.unroute(checkpointRoute); await page.goto('about:blank');
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path]);
   }
 });
