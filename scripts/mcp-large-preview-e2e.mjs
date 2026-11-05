@@ -39,7 +39,7 @@ const browser = await chromium.launch({ headless: true });
 const owner = await browser.newContext({ baseURL });
 let mcp;
 const success = response => {
-  assert.notEqual(response.isError, true, JSON.stringify(response.structuredContent));
+  assert.notEqual(response.isError, true, JSON.stringify(response));
   assert(response.structuredContent); return response.structuredContent;
 };
 try {

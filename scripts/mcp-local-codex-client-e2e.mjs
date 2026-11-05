@@ -66,7 +66,7 @@ try {
     capabilities: { experimentalApi: true } });
   app.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
   const login = await rpc('mcpServer/oauth/login', { name: serverName, clientRegistration: 'dcr', timeoutSecs: 180,
-    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search', 'knowledge:write'] });
+    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search', 'knowledge:write', 'knowledge:assets'] });
   const authorization = new URL(login.authorizationUrl);
   assert.equal(authorization.origin, baseURL);
   const page = await owner.newPage();
@@ -178,8 +178,15 @@ try {
     assert.notEqual(after.isError, true); assert.equal(after.structuredContent.sha256, document.sha256);
     largePreviews.push({ workspaceId: largeFixture.workspaceId, path: document.path, outcome: expectedPreview, durationMs, retries, unchanged: true });
   }
+  const mixedPhysicalReads = [];
+  for (const largeFixture of largeFixtures) for (const document of largeFixture.physicalSources ?? []) {
+    const result = await call('read_knowledge_source', { workspace_id: largeFixture.workspaceId, path: document.path });
+    assert.notEqual(result.isError, true);
+    assert.equal(result.structuredContent.sha256, document.sha256);
+    mixedPhysicalReads.push({ workspaceId: largeFixture.workspaceId, path: document.path, sha256: document.sha256 });
+  }
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
-    reliability, sourceCoverage, replacementCompletion, largePreviews, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
+    reliability, sourceCoverage, replacementCompletion, largePreviews, mixedPhysicalReads, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
       'native read continuation', 'wrong version conflict', 'native search continuation',
       'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation', 'upload retries/status/checksum'],
