@@ -203,7 +203,7 @@ async function main(): Promise<void> {
     const text = (args: unknown[]) => typeof args[0] === 'string' ? args[0] : String(Reflect.get(args[0] as object, 'text'));
     const ownRuntime = (client: Client) => client !== admin && client !== control && String(Reflect.get(Reflect.get(client, 'connectionParameters'), 'options')).includes(schema);
     const schemaShare = (sql: string) => sql.startsWith('LOCK TABLE ') && sql.includes('canvas_organization_settings')
-      && sql.includes('organization_user_permissions') && sql.endsWith('IN SHARE MODE NOWAIT');
+      && sql.includes('organization_user_permissions') && sql.endsWith(' IN SHARE MODE');
     const schemaConflict = () => new Set<number>();
     const finalReceiptQuery = (sql: string) => sql.includes('d.state_version>=y.checkpoint_sequence');
     const authCurrentQuery = (sql: string) => sql.includes("encode(sha256(convert_to(s.token,'UTF8'))");
