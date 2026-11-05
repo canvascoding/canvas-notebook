@@ -54,45 +54,70 @@ Lokale Belege im unten benannten privaten Artefaktverzeichnis:
 
 ### Aktueller Paketstatus und nächster konkreter Abschluss
 
-Nach dem Release ist [PR #210](https://github.com/canvascoding/canvas-notebook/pull/210)
-mit sieben grünen PR-Checks auf `main` gemergt (`6853659dd`). Auf dem kompilierten
-Produkt benötigen acht warme Session-Aufrufe bei zehn und bei 200 regulär
-angelegten Dokumenten jeweils **310 statt 322 SQL-Aufrufe**, weiterhin 48
-Pool-Ausleihen. Explizites Neuladen, Wiederherstellung des aktiven Tabs und der
-Test mit zwei bearbeitbaren Rich-Editoren samt Verschiebung und Backlinks bestehen.
-Der 200-Dokumente-Lauf bestätigt zusätzlich die automatische Wiederherstellung
-des gesunden lokalen Ausgangsstands und unveränderte geschützte Daten.
-Beim 10-Dokumente-Lauf blockierte die globale Container-Prüfung zunächst die
-Wiederherstellung, nachdem zwei fremde Testcontainer entfernt worden waren.
-Die separat geprüfte Wiederherstellung ist dokumentiert; der ursprüngliche
-Runner bleibt als fehlgeschlagen erfasst. PR #210 ist noch kein neues Release.
+Nach dem Release ist [PR #211](https://github.com/canvascoding/canvas-notebook/pull/211)
+auf `main` gemergt (`a00f600b5`, Produktstand `9f109fe5e`). Seine PR-Prüfungen und
+auch die anschließende API-/SDK-, Sandbox- und CodeQL-CI auf `main` bestehen.
+Auf dem kompilierten Produkt benötigen acht warme Session-Aufrufe bei zehn und
+200 regulär angelegten Quellen jeweils **274 statt ursprünglich 346 SQL-Aufrufe**,
+weiterhin 48 Pool-Ausleihen. Neuladen, Wiederherstellung des aktiven Tabs und zwei
+bearbeitbare Rich-Editoren samt Verschiebung und Backlinks bestehen. Der lokale
+Ausgangsstand und seine geschützten Daten wurden gesund wiederhergestellt.
+Dieser Stand ist noch kein neues Produktionsrelease.
 
-Die nächste lokale Bündelung betrifft den tatsächlich verschachtelten Aufrufer:
-Transport-Bindung und native Metadaten werden unter der bereits authentifizierten
-nativen Fähigkeit gemeinsam gelesen. Der isolierte echte Web-POST benötigt
-damit 290 statt 326 SQL-Aufrufe und acht statt zwölf Binärlesungen. Das sind
-andere Messgrenzen als die kompilierten 310 Aufrufe oben. Frische Principal-,
-Binär-, Verbindungs- und Abschlussprüfungen bleiben erhalten; es wird keine
-frühere Berechtigung zwischengespeichert. Die kompilierten Browser-/Leistungs-
-Nachweise und der vollständige Release-Abschluss dieser neuen Bündelung sind offen.
+Die gemeinsame native Transport-Beobachtung bündelt Transport-Bindung und native
+Metadaten unter der tatsächlich authentifizierten Fähigkeit. Der isolierte echte
+Web-POST benötigt 290 statt 326 SQL-Aufrufe und acht statt zwölf Binärlesungen.
+Diese Messgrenze unterscheidet sich von der kompilierten Session oben. Frische
+Principal-, Binär-, Verbindungs- und Abschlussprüfungen bleiben erhalten.
+
+Die kompilierte REST-/SDK-Lesemessung besteht bei zehn und 200 hochgeladenen
+Quellen, jeweils plus einem automatisch angelegten Startdokument. Session,
+API-Key ohne Session und installiertes SDK 0.1.1 bestehen je einen ersten und drei
+warme Aufrufe für Liste, Baumseite, begrenztes natives Suchfenster und nativen Read.
+Zusammen mit SDK-Verbindungsaufbau sind es 49 Phasen je Datensatz und Variante,
+also **196 vollständig erfasste Phasen** einschließlich echter PostgreSQL-Latenz.
+Alle SQL-/Pool-Aufrufe sind an den HTTP-Antwortgrenzen abgeschlossen, ohne Fehler.
+Eigene Schlüssel sind widerrufen, MCP-Einstellungen und lokaler Laufzeitstand
+wiederhergestellt; fremde Container und geschützte Daten bleiben erhalten.
+
+| Warmer Methodenaufruf | REST Session: SQL | REST API-Key: SQL | SDK API-Key: SQL |
+| --- | ---: | ---: | ---: |
+| Workspace-Liste | 24 | 15 | 18 |
+| Begrenzte Baumseite | 51 | 28 | 31 |
+| Natives Suchfenster | 134 | 109 | 112 |
+| Nativer Text-Read | 55 | 35 | 38 |
+
+Diese Zahlen sind in beiden Datensatzgrößen gleich. Die Latenzvariante verzögert
+reale TCP-Datenpakete nominell um drei Millisekunden je Richtung; zusätzlich
+ändert sich der Transportweg über den Host. Sie ist kein isolierter Nachweis von
+exakt sechs Millisekunden je SQL-Anweisung. Ein erster Methodenaufruf ist kein
+vollständiger Kaltstart des Servers. Die Messung deckt Lesen ab, keine vollständige
+Schreib-/Recovery-Leistungsmatrix oder Browser-WebSocket-Arbeit.
+Private Belege: `api-sdk-performance-baseline-9f109fe5e-summary.json` und
+`api-sdk-performance-latency-9f109fe5e-summary.json` samt gebundenen Rohberichten.
+
+Die Benutzeranforderung vom 05.11.2026 erweitert Paket 4c ausdrücklich:
+**Eine begrenzte Anzahl offener Tabs soll live mit ihrem Yjs-Dokument verbunden
+bleiben.** Die bisherige reine RAM-Vorhaltung mit sofortigem Provider-Abbau ist
+nur der Ausgangspunkt; der neue verbindliche Plan steht in Abschnitt 5c.
 
 | Paket | Status | Noch erforderlicher Abschluss |
 | --- | --- | --- |
 | 0. Quellenfehler | in Umsetzung; Fix und gezielte Recovery-Belege vorhanden | Vorhandene Quellenfehler-Belege der finalen Transport-/Linkmatrix zuordnen; keine neue Datenreparatur allein aufgrund historischer Offen-Markierungen. |
 | 1. Messbasis | in Umsetzung; 10-/200-Quellen-Berichte vorhanden | Verbleibende REST-/SDK- und Browser-Leistungsfälle mit denselben Messgrenzen vervollständigen. |
-| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht, PR #210 auf main | Verbleibende verschachtelte Beobachtungen pro erforderlicher Phase bündeln und endgültige Budgets festlegen. Ein kompilierter Session-Aufruf benötigt auf main 310 statt ursprünglich 346 Treiberaufrufen; produktiv ist noch der vorherige Stand mit 322. Planwiederverwendung reduziert deren Anzahl nicht. |
+| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht, PR #211 auf main | Endgültige Budgets anhand vollständiger Abläufe festlegen. Ein kompilierter Session-Aufruf benötigt auf main 274 statt ursprünglich 346 Treiberaufrufen; produktiv ist der Stand mit 322. Planwiederverwendung reduziert deren Anzahl nicht. |
 | 3. Inkrementelle Links | in Umsetzung; gezielte Vergleichsbelege vorhanden | Tatsächlich umgestellte Aufrufer gegen vollständigen Neuaufbau und finale Leistungsbudgets abnehmen. |
 | 4. Gemeinsame Schreibwege | in Umsetzung; native API-/SDK-CI und kompilierte Operationsfälle grün | Speicher-/Linkparität über die ausgewiesenen Transporte abschließend zuordnen und verbleibende Matrixlücken gezielt schließen. |
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
-| 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Leistungs-/Beispielnachweise. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
-| 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Speicher-/Verbindungsgrenzen sowie noch offene große/mobile, Rechte- und Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
+| 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Schreib-/Recovery-, Kaltstart- und Beispielnachweise; begrenzte REST-/SDK-Lesemessung bei 10/200 Quellen einschließlich echter Latenz bestanden. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
+| 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Begrenzt live verbundene offene Tabs gemäß erweitertem Abschnitt 5c umsetzen; lokale Speicher-/Verbindungsgrenzen und große/mobile, Rechte- sowie Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
 | 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
 
-**Nächster Arbeitsschritt:** Die gemeinsame native Transport-Beobachtung auf dem
-neu gebauten Produkt gezielt abnehmen. Die vorhandenen 10-/200-Dokumente-Fixtures
-bleiben regulär erzeugte, isolierte Testdaten; ein neuer Testlauf verwendet einen
-mit aktuellem Stand neu erstellten Container. Danach verbleibende REST-/SDK-
-Messungen und endgültige Budgets abschließen. Eine globale Rechte- oder
+**Nächster Arbeitsschritt:** Den erweiterten Live-Tab-Plan aus Abschnitt 5c
+prüfen und nach Freigabe umsetzen. Die bestandenen Lese-/Transportmessungen
+bleiben Belege; verbleibende Matrixlücken und endgültige Budgets werden gezielt
+abgeschlossen. Ein neuer Lauf verwendet ausschließlich den einzigen verwalteten,
+mit aktuellem Stand neu erstellten Testcontainer. Eine globale Rechte- oder
 Dokumentzustandskopie ersetzt keine erforderliche aktuelle Beobachtung.
 
 Prüfungen folgen geänderten Abläufen und konkreten Fehlern. Bereits grüne Fälle
@@ -2823,56 +2848,105 @@ Gruppe. Die Instrumentierung zählt Aufrufe des PostgreSQL-Treibers bis zum
 Abschluss der jeweiligen HTTP-Antwort. WebSocket- und Hintergrundarbeit
 sind in diesen Zahlen nicht enthalten.
 
-#### Umsetzung in überprüfbaren Schritten
+#### Erweiterter Plan: begrenzt live verbundene Tabs, 05.11.2026
 
-1. **Istzustand messen:** Zwei regulär angelegte Testdokumente bei insgesamt 10
-   und 200 Quellen verwenden. Kaltes Öffnen, erneuten Klick auf den aktiven Tab,
-   A→B→A vor und nach der bisherigen Freigabefrist sowie Browser-Neuladen getrennt
-   erfassen. Pro Phase HTTP-/WebSocket-Aufrufe, Inhalts- und Delta-Bytes,
-   IndexedDB-Hydration, Editor-Initialisierungen, SQL/Ausleihen, sichtbare Ladezeit
-   und gehaltene Dokumente/Verbindungen messen. Messungen nicht mit fremden
-   Build-/Lastläufen vermischen. Wiederholte vergleichbare Wechsel liefern
-   belastbare Latenzwerte statt einer einzelnen lokalen Momentaufnahme.
-2. **Lebensdauer festlegen:** Aktiven Editor, lokalen Dokumentzustand, aktuelle
-   Serverautorisierung und Transport getrennt behandeln. Eine kleine gemeinsame
-   Dokumentverwaltung soll bereits geöffnete native Zustände innerhalb expliziter
-   Grenzen wiederverwenden können. Vor dem Umbau Anzahl, Speicherbudget und
-   Freigaberegel anhand der Messung festlegen. Inaktive Tabs benötigen nicht
-   jeweils einen dauerhaft gemounteten Editor oder eine aktive WebSocket-Verbindung.
-   Ungesicherte Änderungen dürfen durch Verdrängung nicht verloren gehen.
-3. **Warme Wechsel verbessern:** Bereits gültigen lokalen Inhalt wiederverwenden;
-   benötigte aktuelle Autorisierung und Versionsabgleich über die gemeinsamen
-   vorhandenen Leser ausführen. Doppelte gleichzeitige Bootstrap-/Session-Aufrufe
-   zusammenführen, ohne spätere echte Prüfgrenzen zu überspringen. Geänderte
-   Inhalte werden mit dem aktuellen nativen Stand zusammengeführt; ein älterer
-   Cache darf keinen neueren Server- oder lokalen Stand überschreiben.
-4. **Grenzen und Wiederherstellung erhalten:** Cache nach Benutzer-/Anmeldekontext,
-   Workspace, Dokument-ID, Generation und Repräsentation eindeutig zuordnen.
-   Rename/Move aktualisiert die Zuordnung unter derselben gültigen Identität;
-   Löschen und Wiederanlage am selben Pfad sind verschiedene Dokumente.
-   Logout, Benutzer-/Workspace-Wechsel und Rechteentzug dürfen aus Cache-Daten
-   keine neue Lese- oder Schreibberechtigung erzeugen. Vorhandene Offline-/
-   Recovery-Fälle mit unbestätigten Änderungen erhalten; Browser-Neuladen,
-   fehlende oder nicht verfügbare IndexedDB und lokales Speicherlimit liefern
-   nachvollziehbare Zustände. Bestätigtes Speichern bleibt an den tatsächlichen
-   Server-/Persistenzbeleg gebunden.
-5. **Gezielt abnehmen:** Desktop und Mobil, schnelle und verzögerte Tabwechsel,
-   erzwungene Cache-Verdrängung, Browser-Neuladen, zweite Browsersitzung mit
-   tatsächlicher Peer-Änderung, Rechteentzug und Pfad-/Generationswechsel prüfen.
-   Normale nicht kollaborative Dateien sowie bestehende Office-/Szenenwege auf
-   unbeabsichtigte Änderungen prüfen, soweit der Umbau sie berührt. Keine neue
-   Review-Center- oder Undo-Logik als Voraussetzung einführen.
+**Status: geplant, noch nicht implementiert.** Diese Benutzeranforderung ersetzt
+das bisherige Ziel, jeden inaktiven Transport sofort abzubauen. Der aktuelle
+Client hält höchstens drei geeignete inaktive Yjs-Dokumente für 15 Sekunden und
+höchstens ein MiB je Dokument im RAM; `parkTextEntry` zerstört dabei sofort den
+Provider. Auch Rejoin-/Admission-Pfade setzen bislang einen gemounteten Verbraucher
+(`refs > 0`) voraus. Nur den Timer zu verlängern erfüllt die neue Anforderung nicht.
 
-**Fertig:** Die Vorher-/Nachher-Berichte trennen kaltes Öffnen und warme Wechsel.
-Solange der lokale native Zustand gültig und vorgehalten ist, entsteht beim
-Wechsel kein unnötiger vollständiger Inhaltsdownload und keine doppelte native
-Initialisierung. Notwendige aktuelle Rechte- und Versionsprüfungen bleiben
-nachgewiesen. RAM, gehaltene Dokumente und Verbindungen bleiben innerhalb der
-festgelegten Grenzen; Verdrängung und Wiederöffnung verlieren keine Änderungen.
-Inhalt, Links und Speicherstatus bleiben nach Peer-Änderung, Neustart und Recovery
-korrekt. Die reguläre Gesamtsuite und die tatsächlich betroffenen UI-/Recovery-
-Fälle bestehen am freizugebenden Produktstand. Eine reine Verlängerung der
-Freigabefrist oder ein höherer Cache-Grenzwert gilt nicht allein als Abnahme.
+**Ziel:** Ein Wechsel zwischen wenigen zuletzt verwendeten, noch geöffneten
+Dokumenten verwendet dasselbe bereits synchronisierte Yjs-Dokument samt gültigem
+Provider. Der sichtbare Editor wird weiterhin nur für den aktiven Tab gemountet.
+Weitere Dokumente verwenden den lokalen Arbeitsspeicher und die vorhandene
+IndexedDB-Ablage. Der Server bleibt für Rechte, Synchronisierung, Persistenz und
+gemeinsamen Linkindex zuständig. Mehr Live-Abonnements können auch Serverlast
+verursachen; lokale RAM-Nutzung allein entlastet diese Teile nicht automatisch.
+
+Vorgeschlagene Startgrenzen, vor dem endgültigen Einschalten zu messen:
+
+| Stufe | Desktop | Mobil / sparsamer Modus | Verhalten |
+| --- | --- | --- | --- |
+| Live | höchstens 5 Dokumente einschließlich aktivem Tab | höchstens 2 einschließlich aktivem Tab | Yjs-Dokument und Provider bleiben verbunden; nur tatsächliche Änderungen synchronisieren. |
+| Lokal warm | höchstens 10 weitere Dokumente | höchstens 5 weitere Dokumente | Yjs im RAM, Transport geschlossen; neue Verbindung nur bei tatsächlichem Öffnen. |
+| Lokales Größenbudget | höchstens 1 MiB kodierter Zustand je inaktivem Dokument, insgesamt 8 MiB für Live-Hintergrund und warme Dokumente | je 1 MiB, insgesamt 4 MiB | Zusätzlich echte Heap-/CPU-Entwicklung messen; kodierte Zustandsgröße ist kein Maß für den gesamten RAM-Verbrauch. |
+| Ausgelagert | übrige offene Tabs | übrige offene Tabs | Tab-Metadaten und bestätigte lokale Wiederherstellungsdaten; Laden und Delta-Abgleich bei Bedarf. |
+
+Das aktive Dokument bleibt bedienbar, auch wenn es die Hintergrundgrenze
+überschreitet. Große Dokumente werden dann nicht zusätzlich im Hintergrund live
+gehalten. Anzahl und Bytes gelten gemeinsam pro Browser-App und aktuellem
+Anmeldekontext, nicht je Workspace. Es wird kein gesamter Workspace vorgeladen.
+Die Zahlen sind überprüfbare Startvorschläge und noch keine belegten Leistungszusagen.
+
+1. **Lebensdauern sauber trennen.** Eine gemeinsame Verwaltung bekommt explizite
+   Besitzer für offene Tabs, den aktiven Editor und laufende Speicherung/Recovery.
+   React-Unmount bedeutet nicht länger automatisch Dokument schließen. Vorhandene
+   Yjs-/Persistenz-/Provider-Einträge werden weiterverwendet; keine zweite konkurrierende
+   Dokumentverwaltung. Der Zusammenhang Benutzer/Session, Workspace, Dokument-ID,
+   Generation und Repräsentation bleibt eindeutig. Admission, Rejoin, Tokenablauf,
+   Move und Disposal müssen die neue Tab-Lebensdauer ausdrücklich berücksichtigen.
+2. **Kleine Live-Menge umsetzen.** Aktiver Tab und zuletzt aktivierte offene Tabs
+   erhalten die Live-Plätze nach LRU. Ein Wechsel innerhalb dieser Menge beendet
+   weder Provider noch Yjs-Dokument und verursacht keinen erneuten vollständigen
+   Session-Bootstrap oder Inhaltsdownload allein wegen des Wechsels. Laufende
+   Rechte-/Versionsprüfungen bleiben wirksam. Inaktive Tabs rendern keinen Editor,
+   führen keine Vorschau-/Link-Neuberechnungsschleife aus und senden keine aktiven
+   Cursor-/Selection-Signale. Peer-Änderungen gelangen in das gehaltene Yjs-Dokument
+   und die lokale Persistenz; Zurückwechseln zeigt den aktualisierten Stand.
+3. **Lokale Ressourcen begrenzen.** Beim Überschreiten eines Live-Limits den ältesten
+   geeigneten Hintergrund-Tab in die warme Stufe absenken; bei weiterem Druck lokal
+   auslagern. Keine unbestätigten Änderungen aufgrund einer LRU- oder Byte-Grenze
+   vernichten. Vor Freigabe muss eine bestätigte Serverpersistenz oder die bestehende
+   bestätigte Recovery-Ablage vorliegen. Fehlende IndexedDB, Speicherquote und
+   Schreibfehler liefern einen erklärten Recovery-Zustand. Keine neue Undo-Logik.
+   Hintergrundhaltung zunächst auf fünf Minuten begrenzen; vollständig ausgeblendete
+   Apps nach zwei Minuten auf lokal warm absenken. Auf Mobil-/Browser-Suspend jederzeit
+   vorbereiten; Timer garantieren dort weder Laufzeit noch dauerhafte Verbindung.
+4. **Transport und Serverlast prüfen.** Zunächst mit festen Dokument-Limits messen.
+   Danach prüfen, ob die installierte Hocuspocus-Client-/Server-Kombination mehrere
+   Dokument-Abonnements sicher über einen geteilten WebSocket tragen kann. Erst nach
+   Nachweis von dokumentgetrennter Authentifizierung, Close, Retry, Awareness und
+   Fehlerisolation bündeln. Kein pauschales Disconnect darf die anderen Dokumente
+   schließen. Mehrere Browserfenster teilen vorerst keine neue gemeinsame Verbindung;
+   diese zusätzliche Koordination ist keine Voraussetzung. Keine periodischen
+   HTTP-Reloads je offenem Tab und keine erneuten Datenbankscans allein durch Leerlauf.
+   Server-RAM, Rooms, Sockets und SQL im Leerlauf sowie bei echten Änderungen messen.
+5. **Rechte und Wiederaufnahme erhalten.** Logout, Benutzerwechsel, Sperre, Seat- oder
+   Workspace-Entzug schließen betroffene Live-Abonnements zeitnah über den bestehenden
+   serverseitigen Entzugspfad. Bestehende Freigaben dürfen wegen der Tab-Haltung weder
+   verlängert noch aus einem Cache neu abgeleitet werden. Nach Verbindungsabbruch oder
+   Ablauf neu authentifizieren; lokale Daten sind keine neue Berechtigung. Rename/Move
+   übernimmt dieselbe gültige Identität; Delete/Recreate und neue Generation dürfen
+   keinen alten Zustand übernehmen. Ein Warm-Reconnect gleicht Deltas ab und überschreibt
+   weder neuere Serverstände noch lokale unbestätigte Änderungen. UI-Speicherstatus
+   bleibt an tatsächliche Persistenzbelege gebunden.
+6. **Gezielte Abnahme und Einführung.** Dieselben 10-/200-Quellen-Fixtures vor und
+   nach dem Umbau verwenden. Desktop und Mobil: innerhalb und oberhalb des Limits,
+   A→B→A, rasches Wechseln, mehrere Minuten Inaktivität, App im Hintergrund und
+   tatsächlich getrennte zweite Browsersitzung mit Peer-Änderungen prüfen. Zusätzlich
+   Offline-Edit/Reconnect, unbestätigte Änderungen, IndexedDB-Ausfall/Quota, Rechteentzug,
+   Tokenablauf, Reload, Rename/Move und Delete/Recreate. Erzwungene LRU-/Byte-Verdrängung
+   und große Dokumente prüfen. Pro Phase DOM-Ladezeit, Provider-/Yjs-Identität,
+   Verbindungen, Delta-/Gesamtbytes, SQL, Heap-/CPU- und serverseitige Room-Entwicklung
+   erfassen. Normale Dateien und andere Editoren nur bei tatsächlich berührtem Ablauf
+   regressieren. Einführung über einen rückschaltbaren internen Modus; Rückschalten
+   darf keine lokalen Änderungen verwerfen. Danach reguläres `test:all`, betroffene
+   UI-/Recovery-Abnahme, PR/CI/Review und kontrolliertes Release.
+
+**Abnahmeziele:** Innerhalb des Live-Limits kein Provider-Neuaufbau, kein neuer
+Yjs-Dokumentzustand und kein zusätzlicher Collaboration-Session-Aufruf allein
+wegen eines Tabwechsels. Auf definierten Desktop-Testdaten warme Wechsel mit
+Zielwert p95 unter 100 ms bis zur sichtbaren aktuellen Darstellung; Mobil separat
+messen und budgetieren. Das ist ein Ziel, noch kein erreichter Wert. Dauerhafte
+Verbindungen und gehaltene Dokumente bleiben unter den Limits; Heap und
+Server-Ressourcen wachsen bei wiederholten Wechseln nicht dauerhaft weiter.
+Leerlauf erzeugt keine zusätzlichen dokumentweisen HTTP-/SQL-Polling-Schleifen.
+Entzug und Tokenablauf funktionieren auch ohne gemounteten Editor. Kein Datenverlust
+bei Verdrängung, Offline-Änderung, Neustart oder Recovery. Review Center und Undo
+bleiben außerhalb der Umsetzung. API-Key-/SDK-Matrix und abschließendes Release
+bleiben separate erforderliche Teile des Gesamtplans.
 
 ### 6. Leistungsgrenzen und sichere Einführung
 
