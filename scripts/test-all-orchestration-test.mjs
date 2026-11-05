@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { independentTestScripts, serverTestScripts } from './helpers/test-all-results.mjs';
 
 const runner = fileURLToPath(new URL('./test-all.mjs', import.meta.url));
 const fixtureExecutable = `#!${process.execPath}
@@ -16,6 +17,7 @@ import path from 'node:path';
 const name = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
 const stage = name === 'npx' ? 'playwright' : args[1];
+console.log('Fixture command: ' + stage);
 appendFileSync('commands.jsonl', JSON.stringify({ name, args, env: {
   PORT: process.env.PORT, HOSTNAME: process.env.HOSTNAME, NODE_ENV: process.env.NODE_ENV,
   BASE_URL: process.env.BASE_URL, BETTER_AUTH_BASE_URL: process.env.BETTER_AUTH_BASE_URL,
@@ -24,6 +26,18 @@ appendFileSync('commands.jsonl', JSON.stringify({ name, args, env: {
   TEST_LOGIN_EMAIL: process.env.TEST_LOGIN_EMAIL, TEST_LOGIN_PASSWORD: process.env.TEST_LOGIN_PASSWORD,
   E2E_EXTERNAL_SERVER: process.env.E2E_EXTERNAL_SERVER,
 } }) + '\\n');
+if (stage === 'playwright') {
+  const skipped = { title: 'explicit skip', file: 'fixture.spec.ts', line: 2, tests: [{ status: 'skipped', expectedStatus: 'skipped', annotations: [{ type: 'skip', description: 'Fixture capability disabled' }], results: [] }] };
+  const passed = { title: 'passed case', file: 'fixture.spec.ts', line: 1, tests: [{ status: 'expected', expectedStatus: 'passed', results: [{ status: 'passed', errors: [] }] }] };
+  const specs = [passed, skipped];
+  if (process.env.FIXTURE_BROWSER_FAILURE === '1') specs.push({ title: 'failed case', file: 'fixture.spec.ts', line: 3,
+    tests: [{ status: 'unexpected', expectedStatus: 'passed', results: [{ status: 'failed', errors: [{ message: 'Synthetic browser assertion' }] }] }] });
+  if (process.env.FIXTURE_BROWSER_BLOCKED === '1') specs.push({ title: 'interrupted case', file: 'fixture.spec.ts', line: 4,
+    tests: [{ status: 'unexpected', expectedStatus: 'passed', results: [{ status: 'interrupted', errors: [] }] }] });
+  if (process.env.FIXTURE_BROWSER_BLOCKED === '1') specs.push({ title: 'serial case never started', file: 'fixture.spec.ts', line: 5, tests: [{ status: 'skipped', expectedStatus: 'passed', results: [] }] });
+  if (process.env.FIXTURE_MISSING_BROWSER_REPORT !== '1') writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
+    suites: [{ title: 'fixture', specs }], stats: { expected: 1, skipped: 1 }, errors: [] }));
+}
 if (stage === 'start') {
   writeFileSync('server-owner.pid', String(process.pid));
   if (process.env.FIXTURE_EXIT_START === '1') process.exit(19);
@@ -41,7 +55,7 @@ if (stage === 'start') {
 } else if (stage === 'test:smoke' && process.env.FIXTURE_HOLD_SUITE === '1') {
   writeFileSync('suite.pid', String(process.pid));
   setInterval(() => {}, 1000);
-} else if (stage === process.env.FIXTURE_FAIL_STAGE) {
+} else if ((process.env.FIXTURE_FAIL_STAGE || '').split(',').includes(stage)) {
   process.exit(23);
 }
 `;
@@ -90,6 +104,7 @@ async function fixture(t, extraEnv = {}) {
     CANVAS_APP_ROOT: '/wrong-checkout', HOSTNAME: 'foreign-host.invalid',
     NODE_ENV: 'development', CANVAS_TERMINAL_SOCKET: '/foreign/active-terminal.sock',
     BETTER_AUTH_BASE_URL: 'http://foreign-host.invalid',
+    TEST_ALL_REPORT_DIR: path.join(directory, 'report'),
     ...extraEnv,
   };
   if (extraEnv.FIXTURE_ACCELERATED_CLOCK === '1') {
@@ -116,6 +131,7 @@ async function fixture(t, extraEnv = {}) {
   });
   return {
     child, completion, directory, env, output: () => output,
+    report: async () => JSON.parse(await readFile(path.join(directory, 'report/results.json'), 'utf8')),
     commands: async () => {
       try { return (await readFile(path.join(directory, 'commands.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse); }
       catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -163,13 +179,12 @@ test('external mode uses the supplied live server without build/start or killing
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
   assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable', 'test:smoke', 'test:integration',
-      'test:prompt-builder', 'test:integration:pi', 'playwright']);
+    [...independentTestScripts, ...serverTestScripts, 'playwright']);
   assert.match(run.output(), /Build this checkout before starting/);
   assert.deepEqual(requests, ['/api/health']);
   assert.equal(server.listening, true);
   const playwright = commands.at(-1);
-  assert.deepEqual(playwright.args, ['--no-install', 'playwright', 'test', '--pass-with-no-tests', '--workers=1']);
+  assert.deepEqual(playwright.args, ['--no-install', 'playwright', 'test', '--workers=1', '--max-failures=0', '--reporter=line,json', '--output=' + path.join(run.directory, 'report/playwright-artifacts')]);
   assert.equal(playwright.env.TEST_LOGIN_EMAIL, run.env.TEST_LOGIN_EMAIL);
   assert.equal(playwright.env.TEST_LOGIN_PASSWORD, run.env.TEST_LOGIN_PASSWORD);
   assert.equal(playwright.env.BASE_URL, `http://127.0.0.1:${port}`);
@@ -181,8 +196,7 @@ test('normal mode builds once, uses the exact checkout and cleans its whole proc
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
   assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable', 'build', 'start', 'test:smoke',
-      'test:integration', 'test:prompt-builder', 'test:integration:pi', 'playwright']);
+    [...independentTestScripts, 'build', 'start', ...serverTestScripts, 'playwright']);
   const start = commands.find(command => command.args[1] === 'start');
   assert.equal(start.env.HOSTNAME, '127.0.0.1');
   assert.equal(start.env.NODE_ENV, 'production');
@@ -197,29 +211,55 @@ test('normal mode builds once, uses the exact checkout and cleans its whole proc
 });
 
 for (const external of [false, true]) {
-  for (const [index, stage] of ['test:server:shutdown', 'test:internal:scheduler'].entries()) {
-    test(`${stage} failure stops ${external ? 'external' : 'owned'} validation before startup or health`, async t => {
-      const requests = [];
-      const server = http.createServer((request, response) => {
-        requests.push(request.url);
-        response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ status: 'healthy' }));
-      });
-      const port = await listen(t, server);
-      const run = await fixture(t, {
-        FIXTURE_FAIL_STAGE: stage,
-        ...(external ? { E2E_EXTERNAL_SERVER: '1', BASE_URL: `http://127.0.0.1:${port}` } : {}),
-      });
-      assert.equal((await run.completion).code, 1, run.output());
-      assert.match(run.output(), new RegExp(`${stage} failed \\(23\\)`));
-      assert.deepEqual((await run.commands()).map(command => command.args[1]),
-        ['test:server:shutdown', 'test:internal:scheduler'].slice(0, index + 1));
-      assert.deepEqual(requests, []);
-      assert.equal(server.listening, true);
-      await assert.rejects(access(path.join(run.directory, 'server-owner.pid')), { code: 'ENOENT' });
+  test(`independent failures do not suppress later checks or ${external ? 'external' : 'owned'} server suites`, async t => {
+    const server = http.createServer((request, response) => {
+      response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ status: 'healthy' }));
     });
-  }
+    const port = await listen(t, server);
+    const failed = ['test:browser:environment:unit', 'test:api-keys:management'];
+    const run = await fixture(t, { FIXTURE_FAIL_STAGE: failed.join(','),
+      ...(external ? { E2E_EXTERNAL_SERVER: '1', BASE_URL: `http://127.0.0.1:${port}` } : {}) });
+    assert.equal((await run.completion).code, 1, run.output());
+    const commands = await run.commands();
+    for (const script of [...independentTestScripts, ...serverTestScripts]) assert(commands.some(command => command.args[1] === script), script);
+    assert(commands.some(command => command.name === 'npx'));
+    const report = await run.report();
+    assert.deepEqual(report.stages.filter(stage => stage.status === 'failed').map(stage => stage.id), failed);
+    assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'passed');
+    assert.equal(report.stages.find(stage => stage.id === 'build').status, external ? 'skipped' : 'passed');
+    assert.equal(report.stages.find(stage => stage.id === 'cleanup').status, 'passed');
+    assert.equal(report.browser.counts.skipped, 1);
+    assert.equal(server.listening, true);
+  });
 }
+
+test('build failure blocks only dependent runtime checks and is not reported as success', async t => {
+  const run = await fixture(t, { FIXTURE_FAIL_STAGE: 'build' });
+  assert.equal((await run.completion).code, 1, run.output());
+  const report = await run.report();
+  assert.equal(report.stages.find(stage => stage.id === 'build').status, 'failed');
+  for (const id of ['server-start', 'server-health', ...serverTestScripts, 'playwright']) {
+    assert.equal(report.stages.find(stage => stage.id === id).status, 'blocked', id);
+  }
+  for (const id of independentTestScripts) assert.equal(report.stages.find(stage => stage.id === id).status, 'passed', id);
+  assert.equal((await run.commands()).some(command => command.args[1] === 'start'), false);
+});
+
+test('browser report preserves failed, skipped and interrupted case details without hiding a nonzero exit', async t => {
+  const run = await fixture(t, { FIXTURE_FAIL_STAGE: 'playwright', FIXTURE_BROWSER_FAILURE: '1', FIXTURE_BROWSER_BLOCKED: '1' });
+  assert.equal((await run.completion).code, 1, run.output());
+  const report = await run.report();
+  assert.deepEqual(report.browser.counts, { passed: 1, failed: 1, skipped: 1, blocked: 2 });
+  assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'failed');
+  assert.match(await readFile(path.join(run.directory, 'report/summary.md'), 'utf8'), /Fixture capability disabled/);
+  assert.match(await readFile(path.join(run.directory, 'report/playwright.log'), 'utf8'), /./u);
+});
+
+test('missing browser JSON cannot turn a nominally successful command into a green run', async t => {
+  const run = await fixture(t, { FIXTURE_MISSING_BROWSER_REPORT: '1' });
+  assert.equal((await run.completion).code, 1, run.output());
+  assert.equal((await run.report()).stages.find(stage => stage.id === 'playwright').status, 'failed');
+});
 
 for (const url of ['http://example.invalid:3000', 'http://runner:secret@localhost:3000',
   'http://localhost:3000/other', 'http://localhost:3000?other=1', 'http://localhost:3000#other',
@@ -289,7 +329,10 @@ test('suite failure cleans owned descendants and leaves an unrelated listener al
   const port = await listen(t, unrelated);
   const run = await fixture(t, { FIXTURE_FAIL_STAGE: 'test:integration' });
   assert.equal((await run.completion).code, 1);
-  assert.equal((await run.commands()).some(command => command.name === 'npx'), false);
+  assert.equal((await run.commands()).some(command => command.name === 'npx'), true);
+  const report = await run.report();
+  assert.equal(report.stages.find(stage => stage.id === 'test:integration').status, 'failed');
+  assert.equal(report.stages.find(stage => stage.id === 'test:integration:pi').status, 'passed');
   await assertPidStopped(Number(await readFile(path.join(run.directory, 'server.pid'), 'utf8')));
   assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'unrelated');
 });
@@ -331,6 +374,21 @@ test('readiness budget includes a hung response and never starts suites after ti
   assert.ok(requests >= 1);
   assert.ok(Date.now() - started < 8_000, 'Per-fetch abort must also bound an unresponsive endpoint');
   assert.deepEqual((await run.commands()).map(command => command.args[1]),
-    ['test:server:shutdown', 'test:internal:scheduler', 'test:cli:portable']);
+    independentTestScripts);
   assert.equal(server.listening, true);
+});
+
+test('independent plan preserves every original aggregate leaf without executing an aggregate twice', async () => {
+  const scripts = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).scripts;
+  const expand = name => scripts[name].split(' && ').flatMap(command => {
+    const match = /^npm run ([\w:-]+)$/u.exec(command);
+    return match ? expand(match[1]) : [command];
+  });
+  const groups = ['test:browser:environment', 'test:browser:lifecycle', 'test:server:shutdown',
+    'test:internal:scheduler', 'test:cli:portable', 'test:api-keys', 'test:prompt-builder'];
+  const expected = groups.flatMap(expand);
+  const actual = independentTestScripts.flatMap(expand);
+  assert.equal(new Set(independentTestScripts).size, independentTestScripts.length);
+  assert.deepEqual(actual, expected);
+  assert.equal(scripts['test:all'], 'node scripts/test-all.mjs', 'no outer && chain may short-circuit the report');
 });
