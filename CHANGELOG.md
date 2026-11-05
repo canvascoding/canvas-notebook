@@ -11,6 +11,20 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.5.2] - 2026-11-05
+
+### Changed
+
+- Read document admission reservations in the native metadata query, reducing the measured collaboration-session query count from 346 to 322.
+- Reuse PostgreSQL query plans for member authorization snapshots while reading current permissions at every existing check.
+
+### Verification
+
+- `npm run verify:release` passed, including the strict license gate, production build, and CLI update/rollback tests.
+- PRs #204 and #207 passed their API and installed SDK CI.
+- In the compiled ten-document comparison, content became visible after a median of 692 ms before plan reuse and 472 ms after, across eight warm switches per variant.
+- The five-document browser cache probe reopened the recent inactive document without a new IndexedDB connection. The oldest document reloaded from IndexedDB with its content preserved.
+
 ## [2026.11.5.1] - 2026-11-05
 
 ### Fixed
