@@ -326,10 +326,11 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
         const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
         const originalExpiry = (await h.admin.query("SELECT expires_at FROM session WHERE id='session-member'")).rows[0].expires_at;
         const before = await domain(), files = await filesystem();
-        let sourceConnection: MetadataSqlEvent['client'] | undefined, injected = false;
+        let sourceConnection: MetadataSqlEvent['client'] | undefined, injected = false, nativeReads = 0;
         try {
           const rejected = await h.withProbe(async event => {
-            if (!sourceConnection && event.text.includes('ORDER BY d.path,d.id') && event.values[0] === h.source.workspaceId) sourceConnection = event.client;
+            if (event.text.includes('WITH expected AS MATERIALIZED') && Array.isArray(event.values[0])
+              && event.values[0].includes(document.documentId) && ++nativeReads === 2) sourceConnection = event.client;
             if (!injected && sourceConnection === event.client && /^COMMIT\s*;?$/iu.test(event.text.trim())) {
               injected = true;
               // The probe runs AFTER the real COMMIT: neither the admission
@@ -386,6 +387,28 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
         }
         await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+      });
+      await group('mixed source preview survives slow filesystem work outside bounded SQL authority phases', async () => {
+        const target = 'slow-mixed-preview.md', physical = path.join(h.source.rootPath, 'slow-physical-preview.md');
+        await h.upload(target, Buffer.from('# Slow mixed preview\n'));
+        await fs.writeFile(physical, `[Target](${target})\n`, { flag: 'wx' });
+        const originalOpen = fs.open;
+        let delayed = false;
+        try {
+          fs.open = async (...args: Parameters<typeof fs.open>) => {
+            const handle = await originalOpen(...args);
+            if (!delayed && String(args[0]) === physical) {
+              delayed = true;
+              const active = await h.admin.query(`SELECT count(*)::int AS count FROM pg_stat_activity
+                WHERE application_name=$1 AND xact_start IS NOT NULL`, [h.applicationName]);
+              assert.equal(active.rows[0].count, 0, 'The actual FD read must hold no source SQL transaction.');
+              await delay(5200);
+            }
+            return handle;
+          };
+          await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+          assert(delayed, 'The real FD read must exceed the five-second principal budget.');
+        } finally { fs.open = originalOpen; await fs.unlink(physical); }
       });
       await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
         const target = 'sql-timeout-preview.md';
