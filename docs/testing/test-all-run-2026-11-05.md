@@ -63,3 +63,26 @@ before writing its own completion record. Its missing process/exit metadata is
 not treated as success. The leftover host process was identified by its source
 checkout, private log/DATA paths and process group, then stopped. A later live
 managed-stack operation lock was not cleared or interrupted.
+
+## Focused follow-up after updating the main baseline
+
+Remote `main` acquired `498f94351` through PR #213 while this work was in progress.
+Relative to the original product baseline `b7501031f`, it changes only the plan
+and `tests/markdown-mailto-normalization.spec.ts`; application/runtime/dependency
+sources are unchanged. The corrected test observes and checks the actual startup
+migration receipt, document identity and state proof instead of expecting the
+transient formatting button. The runner branch was rebased onto that current
+main without changing the completed run's original report.
+
+Only the three initially failing browser cases were rerun, using the same owned
+QA database, a newly started runtime and a short private temporary directory.
+**All three passed (1.4 minutes).** The two Markdown cases now use the upstream
+expectations. The HTML case passed without a product change, so its original
+`PRINCIPAL_BUSY`/`NATIVE_SESSION_BUSY` failure remains a known intermittent issue;
+this successful retry does not establish that the cause has been fixed.
+
+Evidence: `browser-followup-1793896956546/results.json`, `playwright.json`, log and
+artifacts within the same private evidence directory. The follow-up records its
+actual source revision and verified cleanup of its own host process group.
+`verified-summary.json` links all reports. No full-suite green result is invented
+from the targeted reruns. Previously passing cases were not repeated.
