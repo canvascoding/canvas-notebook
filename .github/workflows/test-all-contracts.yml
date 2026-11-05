@@ -77,9 +77,13 @@ jobs:
         run: npm run test:browser:discovery
       - name: Native tab identity and confirmed deletion contracts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          NODE_ENV: production
         run: npm run test:notebook:tabs
       - name: Native location lookup and adoption lifecycle
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          NODE_ENV: production
         run: npm run test:notebook:location-lifecycle
       - name: Confirmed deletion event contract
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
