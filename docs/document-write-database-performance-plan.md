@@ -5,6 +5,42 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+## Release und offene Abnahme vom 05.11.2026
+
+Notebook [2026.11.4.3](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.4.3)
+ist produktiv. PR #198 bestand 13 CI-Checks. Der kompilierte reguläre Lauf
+bestand 331 Browserfälle bei 269 bedingten Skips, die ergänzenden zehn
+Recovery-/Kollaborationsfälle bestanden über Hauptlauf und gezielten Nachlauf.
+Dateibaum und je ein Markdown-Read wurden in allen fünf Produktions-Workspaces
+über MCP geprüft. Die öffentliche API- und SDK-Doku liefert HTTP 200.
+
+SDK [0.1.1](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.1)
+begrenzt die OAuth-Zustimmung auf die explizit angeforderten Rechte. PR #202
+bestand sieben CI-Checks. Das veröffentlichte Wheel entspricht dem installierten
+CI-Artefakt und wurde nach Veröffentlichung frisch installiert. Die produktive
+Zustimmungsseite zeigte nur die angeforderten Leserechte. Der authentifizierte
+SDK-Leseversuch wartet auf eine neue Benutzerfreigabe.
+
+Die Tabmessungen auf Produktstand `56c964131` mit Teststand `b4120c62d`
+beobachteten je zwei kalte Öffnungen und acht warme Wechsel. Angegeben sind
+Treiberaufrufe und Verbindungsbeschaffung bis zum Ende der beobachteten
+Datei-/Workspace-HTTP-Antworten. WebSocket- und Hintergrundarbeit sind nicht
+enthalten. Treiberzeit ist keine reine PostgreSQL-Ausführungszeit.
+
+| Quellen und Phase | Sichtbarer Inhalt | SQL | Pool-Ausleihen | Summe Pool-Beschaffung | HTTP-Bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10, kalt | 2.015–3.766 ms | 659–704 | 141–155 | 98,5–302,9 ms | 50.399–53.147 |
+| 10, warm | 819–876 ms | 543–564 | 108–115 | 1,2–1,5 ms | 15.295–16.675 |
+| 200, kalt | 3.076–4.015 ms | 644–690 | 135–152 | 99,9–243,3 ms | 110.681–183.010 |
+| 200, warm | 891–1.374 ms | 543–585 | 108–122 | 1,1–1,4 ms | 15.299–18.051 |
+
+Der Session-Endpunkt verursachte in beiden Größen je 2.768 SQL-Aufrufe über
+acht warme Wechsel. Als Nächstes sind seine wiederholten Kontext-/Schemaprüfungen
+nach Aufrufer und Transaktionsgrenze zu trennen. Die Messung belegt weder ein
+finales SQL-Budget noch alle API-/SDK-Latenzfälle. Rohbelege:
+`compiled-tab-sql-b4120c62d-10-1793838900736-result.json` und
+`compiled-tab-sql-b4120c62d-200-fixture-budget-1793839191749-result.json`.
+
 ## Aktueller Abnahmestand vom 04.11.2026
 
 Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
