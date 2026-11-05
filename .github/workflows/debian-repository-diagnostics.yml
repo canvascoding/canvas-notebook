@@ -1,16 +1,19 @@
-name: Debian snapshot network diagnostics
+name: Debian UTC signed APT probes
 on:
   push:
-    branches: [codex/diagnose-debian-snapshot]
+    branches:
+      - codex/diagnose-debian-snapshot
 permissions:
   contents: read
 jobs:
   probe:
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -19,30 +22,35 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 26
-      - name: Probe public archive routes and immutable metadata bytes
+      - name: Verify source binding and frozen metadata
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import {createHash} from 'node:crypto';
-          const suites=[
-            ['debian','bookworm','736a99b8b096598d48c438eb356bd074fecfbf23','77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa'],
-            ['debian','bookworm-updates','3ad936b0c3d3e1df2a530c4f753a76360fd1e65f','42cb0bdd2b7b27f81f25976b9c0052ac0f499675fbbb538e56c2bfa70ed9a2f3'],
-            ['debian-security','bookworm-security','926eb6bcb474be14d9fdbc89c4a2edd95754eaea','3928c61d792381356871c4168b1c1be6aed0732ac91b4e2555b80919b4640504'],
-          ];
-          const targets=suites.flatMap(([archive,suite,file,sha256])=>[
-            ...['snapshot.debian.org','snapshot-fastly.debian.org','snapshot-cloudflare.debian.org'].map(host=>({url:`https://${host}/archive/${archive}/20261105/dists/${suite}/InRelease`,sha256})),
-            {url:`https://snapshot.debian.org/archive/${archive}/20261105T000000Z/dists/${suite}/InRelease`,sha256},
-            ...['snapshot.debian.org','snapshot-fastly.debian.org','snapshot-cloudflare.debian.org'].map(host=>({url:`https://${host}/file/${file}/InRelease`,sha256})),
-          ]);
-          async function probe({url,sha256}){
-            const started=Date.now();
-            try {
-              const response=await fetch(url,{signal:AbortSignal.timeout(20000)});
-              const chunks=[];let bytes=0;
-              for await(const chunk of response.body){bytes+=chunk.length;if(bytes>2*1024*1024)throw Error('Response bound exceeded');chunks.push(Buffer.from(chunk));}
-              const body=Buffer.concat(chunks),actual=createHash('sha256').update(body).digest('hex');
-              console.log(JSON.stringify({url,status:response.status,finalUrl:response.url,bytes,sameReviewedBytes:response.status===200&&actual===sha256,elapsedMs:Date.now()-started,server:response.headers.get('server'),via:response.headers.get('via'),cache:response.headers.get('x-cache'),errorBody:response.status===200?undefined:body.toString('utf8').replace(/\s+/g,' ').slice(0,350)}));
-            }catch(error){console.log(JSON.stringify({url,error:error.message,elapsedMs:Date.now()-started}));}
-          }
-          for(let i=0;i<targets.length;i+=4)await Promise.all(targets.slice(i,i+4).map(probe));
+          import fs from 'node:fs';import assert from 'node:assert/strict';import{createHash}from'node:crypto';
+          const expected={"Dockerfile":"6deb7c0803c00e048d0ee75d6a582a737c2f007ca0999dc59919ee5930f50405","docs/compliance/debian-repository-lock.json":"c4df60f096462a08d4118ce0e2b3b7f170379d849ede34f4aebc062e840220fc","docs/compliance/docker-native-distribution-policy.json":"87cb44a8c71fa772851b0da6ad567b333490456647e99a810f407aa1712f311d","scripts/debian-repository-lock.mjs":"85fa62381164606072ca896bdd8af9309842f08d9a4c3acdb9e89d36f0575d72","scripts/debian-repository-lock-test.mjs":"451cf5710256f209d140d1b938fe1d1ada95049e60d6d7dba5b0610b57809275","scripts/debian-repository-preflight.mjs":"d7c44dee3321f5b06a8ce9c8f5efc4fe85505066d5a35473ac871816e9d17d6b","scripts/debian-repository-preflight-test.mjs":"3fac395127bc029485f859d161525877934508bcc3b0c53a924390ae3ca846bc"};
+          for(const[file,sha]of Object.entries(expected))assert.equal(createHash('sha256').update(fs.readFileSync(file)).digest('hex'),sha,file);
+          console.log('APT inputs match completed host release gate 9368340d1f8b6e63e01e7d2ba532220e56f24f6a3979f54037cc6a2120c14049');
           NODE
+          node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs
+          node scripts/debian-repository-preflight.mjs
+      - name: Execute actual Dockerfile bootstrap in pinned base; no image build or push
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';import assert from 'node:assert/strict';
+          const docker=fs.readFileSync('Dockerfile','utf8');
+          const prefix=docker.split('FROM canvas-base AS libvips-build')[0];
+          const command=prefix.split('RUN ')[1];assert(command&&!command.includes('\nRUN '));
+          const shell=command.replaceAll(String.fromCharCode(92,10),'')+"\ntimeout --kill-after=15s 5m apt-get -o Debug::Acquire::gpgv=true update\ntimeout --kill-after=30s 15m apt-get install -y --no-install-recommends --download-only --reinstall ca-certificates zlib1g\nnode -e 'const fs=require(\"fs\"),assert=require(\"assert/strict\");const s=fs.readFileSync(\"/etc/apt/sources.list.d/debian.sources\",\"utf8\");assert.equal((s.match(/20261105T000000Z/g)||[]).length,3);assert.equal(fs.readdirSync(\"/tmp\").filter(x=>x.startsWith(\"canvas-node-ca.\")).length,0);console.log(\"CANVAS_UTC_APT_PROBE_PASSED \"+process.arch);'\n";
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-utc-apt-probe.sh',shell);
+          const base=/^ARG NODE_BASE_IMAGE=(.+)$/m.exec(docker)?.[1];assert(base?.includes('@sha256:'));
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-utc-base-image',base);
+          NODE
+          docker run --rm --name canvas-debian-utc-probe \
+            --mount "type=bind,src=$PWD/docs/compliance/debian-repository-lock.json,dst=/usr/local/share/canvas-debian-repository-lock.json,readonly" \
+            --mount "type=bind,src=$PWD/scripts/debian-repository-lock.mjs,dst=/usr/local/libexec/canvas-debian-repository-lock.mjs,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/canvas-utc-apt-probe.sh,dst=/tmp/canvas-utc-apt-probe.sh,readonly" \
+            "$(cat "$RUNNER_TEMP/canvas-utc-base-image")" /bin/sh /tmp/canvas-utc-apt-probe.sh 2>&1 | tee "$RUNNER_TEMP/canvas-utc-apt-probe.log"
+          grep -F 'gpgv exited with status 0' "$RUNNER_TEMP/canvas-utc-apt-probe.log"
+          grep -F 'CANVAS_UTC_APT_PROBE_PASSED' "$RUNNER_TEMP/canvas-utc-apt-probe.log"

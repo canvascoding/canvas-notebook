@@ -13,6 +13,7 @@ const lock = JSON.parse(bytes);
 test('repository policy identifies the exact checked-in lock', () => {
   assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), policy.debianRepositories.lockSha256);
   assert.deepEqual(lock.repositories.map(entry => entry.suite), ['bookworm', 'bookworm-updates', 'bookworm-security']);
+  for (const repository of lock.repositories) assert.match(repository.uri, /\/\d{8}T\d{6}Z$/u, 'Reviewed sources must use full UTC cutoff addresses');
 });
 
 test('sources reject live mirrors, invalid cutoffs and mixed archive states before writing configuration', () => {
@@ -40,7 +41,7 @@ test('sources reject live mirrors, invalid cutoffs and mixed archive states befo
       assert(!fs.existsSync(path.join(directory, 'sources.list.d/debian.sources')));
     }
     const precise = structuredClone(lock);
-    for (const repository of precise.repositories) repository.uri += 'T000000Z';
+    for (const repository of precise.repositories) repository.uri = repository.uri.replace(/T\d{6}Z$/u, '') + 'T000000Z';
     configureRepositories(precise, directory);
     assert.match(fs.readFileSync(path.join(directory, 'sources.list.d/debian.sources'), 'utf8'), /20261105T000000Z/u);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
