@@ -267,7 +267,8 @@ Die neue Definition bindet den Lieferumfang an:
 
 - `node:24-bookworm-slim` unter dem unveraenderlichen Multi-Arch-Digest
   `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
-- Debian Bookworm, Updates und Security aus signierten Debian-Spiegeln, mit
+- Debian Bookworm, Updates und Security aus einem gemeinsamen festen
+  Debian-Snapshot (UTC-Stichtag `20261105`), mit aktiven Signatur-/Ablaufpruefungen und
   SHA-256-gepinnten amd64-/arm64-/Quellenindizes in `debian-repository-lock.json`
   und zwingender Pruefung nach jedem APT-Update, jeweils mit `deb` und `deb-src`,
 - PostgreSQL 18.4 und `postgresql-client-common` 293 aus PGDG mit exakten

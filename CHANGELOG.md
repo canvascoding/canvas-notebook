@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.5.3] - 2026-11-05
+## [2026.11.5.4] - 2026-11-05
 
 ### Fixed
 
@@ -19,6 +19,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Correct the published Python SDK read example to request only its required OAuth scopes.
 - Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
 - Publish typed nested edit and operation arguments through MCP schema adapters.
+- Resolve Debian packages from one fixed signed snapshot, preventing live security-index changes from interrupting image builds while retaining signature, expiry and index-hash checks.
 
 ### Changed
 
