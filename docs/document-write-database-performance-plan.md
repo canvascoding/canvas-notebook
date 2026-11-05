@@ -54,11 +54,33 @@ Lokale Belege im unten benannten privaten Artefaktverzeichnis:
 
 ### Aktueller Paketstatus und nächster konkreter Abschluss
 
+Nach dem Release ist [PR #210](https://github.com/canvascoding/canvas-notebook/pull/210)
+mit sieben grünen PR-Checks auf `main` gemergt (`6853659dd`). Auf dem kompilierten
+Produkt benötigen acht warme Session-Aufrufe bei zehn und bei 200 regulär
+angelegten Dokumenten jeweils **310 statt 322 SQL-Aufrufe**, weiterhin 48
+Pool-Ausleihen. Explizites Neuladen, Wiederherstellung des aktiven Tabs und der
+Test mit zwei bearbeitbaren Rich-Editoren samt Verschiebung und Backlinks bestehen.
+Der 200-Dokumente-Lauf bestätigt zusätzlich die automatische Wiederherstellung
+des gesunden lokalen Ausgangsstands und unveränderte geschützte Daten.
+Beim 10-Dokumente-Lauf blockierte die globale Container-Prüfung zunächst die
+Wiederherstellung, nachdem zwei fremde Testcontainer entfernt worden waren.
+Die separat geprüfte Wiederherstellung ist dokumentiert; der ursprüngliche
+Runner bleibt als fehlgeschlagen erfasst. PR #210 ist noch kein neues Release.
+
+Die nächste lokale Bündelung betrifft den tatsächlich verschachtelten Aufrufer:
+Transport-Bindung und native Metadaten werden unter der bereits authentifizierten
+nativen Fähigkeit gemeinsam gelesen. Der isolierte echte Web-POST benötigt
+damit 290 statt 326 SQL-Aufrufe und acht statt zwölf Binärlesungen. Das sind
+andere Messgrenzen als die kompilierten 310 Aufrufe oben. Frische Principal-,
+Binär-, Verbindungs- und Abschlussprüfungen bleiben erhalten; es wird keine
+frühere Berechtigung zwischengespeichert. Die kompilierten Browser-/Leistungs-
+Nachweise und der vollständige Release-Abschluss dieser neuen Bündelung sind offen.
+
 | Paket | Status | Noch erforderlicher Abschluss |
 | --- | --- | --- |
 | 0. Quellenfehler | in Umsetzung; Fix und gezielte Recovery-Belege vorhanden | Vorhandene Quellenfehler-Belege der finalen Transport-/Linkmatrix zuordnen; keine neue Datenreparatur allein aufgrund historischer Offen-Markierungen. |
 | 1. Messbasis | in Umsetzung; 10-/200-Quellen-Berichte vorhanden | Verbleibende REST-/SDK- und Browser-Leistungsfälle mit denselben Messgrenzen vervollständigen. |
-| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht | Verbleibende verschachtelte Beobachtungen pro erforderlicher Phase bündeln und endgültige Budgets festlegen. Ein kompilierter Session-Aufruf benötigt weiterhin 322 statt 346 Treiberaufrufe; Planwiederverwendung reduziert deren Anzahl nicht. |
+| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht, PR #210 auf main | Verbleibende verschachtelte Beobachtungen pro erforderlicher Phase bündeln und endgültige Budgets festlegen. Ein kompilierter Session-Aufruf benötigt auf main 310 statt ursprünglich 346 Treiberaufrufen; produktiv ist noch der vorherige Stand mit 322. Planwiederverwendung reduziert deren Anzahl nicht. |
 | 3. Inkrementelle Links | in Umsetzung; gezielte Vergleichsbelege vorhanden | Tatsächlich umgestellte Aufrufer gegen vollständigen Neuaufbau und finale Leistungsbudgets abnehmen. |
 | 4. Gemeinsame Schreibwege | in Umsetzung; native API-/SDK-CI und kompilierte Operationsfälle grün | Speicher-/Linkparität über die ausgewiesenen Transporte abschließend zuordnen und verbleibende Matrixlücken gezielt schließen. |
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
@@ -66,11 +88,12 @@ Lokale Belege im unten benannten privaten Artefaktverzeichnis:
 | 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Speicher-/Verbindungsgrenzen sowie noch offene große/mobile, Rechte- und Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
 | 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
 
-**Nächster Arbeitsschritt:** Die vorhandenen Session-Traces nach direkten
-Aufrufern, Transaktions- und tatsächlichen Frischegrenzen aufschlüsseln. Daraus
-die nächste kleine Bündelung mit unveränderten Rechte-, Seat-, Realm- und
-Parallelitätsprüfungen ableiten. Eine globale Rechte- oder Dokumentzustandskopie
-ersetzt keine erforderliche aktuelle Beobachtung.
+**Nächster Arbeitsschritt:** Die gemeinsame native Transport-Beobachtung auf dem
+neu gebauten Produkt gezielt abnehmen. Die vorhandenen 10-/200-Dokumente-Fixtures
+bleiben regulär erzeugte, isolierte Testdaten; ein neuer Testlauf verwendet einen
+mit aktuellem Stand neu erstellten Container. Danach verbleibende REST-/SDK-
+Messungen und endgültige Budgets abschließen. Eine globale Rechte- oder
+Dokumentzustandskopie ersetzt keine erforderliche aktuelle Beobachtung.
 
 Prüfungen folgen geänderten Abläufen und konkreten Fehlern. Bereits grüne Fälle
 werden bei unveränderten Laufzeitquellen und Abhängigkeiten anhand ihrer Belege

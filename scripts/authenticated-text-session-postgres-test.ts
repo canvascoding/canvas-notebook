@@ -138,7 +138,11 @@ async function main(): Promise<void> {
       try{return await operation(connection(client),client);}
       finally{await client.query('ROLLBACK').catch(()=>undefined);await endClient(client);}
     };
-    const check=async(name:string,operation:()=>Promise<void>)=>{if(process.argv[2]&&!name.includes(process.argv[2]))return;stage=name;await operation();cases++;console.log(`Authenticated native HTTP session passed: ${name}`);};
+    const check=async(name:string,operation:()=>Promise<void>)=>{
+      const filters = process.argv.slice(2);
+      if (filters.length && !filters.some(filter => name.includes(filter))) return;
+      stage=name;await operation();cases++;console.log(`Authenticated native HTTP session passed: ${name}`);
+    };
     const code=(expected:string)=>(error:unknown)=>!!error&&typeof error==='object'&&Reflect.get(error,'code')===expected;
     const captured=async<T>(operation:(principal:WorkspaceRequestPrincipal)=>Promise<T>,userId='owner',cookie=false)=>capture(await request(userId,cookie),{permission:'canRead',workspaceId},operation);
     const seed=async(label:string,representation:ExistingNativeSessionIdentity['representation']='plain_text',options:{empty?:boolean;doc?:InstanceType<typeof Y.Doc>;profile?:boolean}={})=>{
@@ -524,8 +528,14 @@ async function main(): Promise<void> {
         finally { Client.prototype.query = oldQuery; WeakMap.prototype.set = oldSet;
           await admin.query("UPDATE canvas_workspaces SET root_relative_path='organizations/principal-org/shared',customer_id=NULL WHERE id=$1", [workspaceId]); await restore?.(); }
         assert.equal(changed, true); assert.equal(response!.status, 409, `${surface}/${fault}`); assert.equal(Object.hasOwn(response!.wire, 'token'), false);
-        assert(capturedReadTransport, 'genuine read reenrollment really minted the disposed opaque transport');
-        await assert.rejects(transaction(db => transportPhase(db, capturedReadTransport!, { permission: 'canRead', path: target.identity.path }, async () => assert.fail('changed-origin enrollment must be disposed'))), code('NATIVE_TRANSPORT_DISPOSED'));
+        if (capturedReadTransport) {
+          await assert.rejects(transaction(db => transportPhase(db, capturedReadTransport!, { permission: 'canRead', path: target.identity.path }, async () => assert.fail('changed-origin enrollment must be disposed'))), code('NATIVE_TRANSPORT_DISPOSED'));
+        } else {
+          // A pooled backend can expose its changed path to the first genuine
+          // reenrollment Principal. Denial before minting needs no disposal.
+          assert.equal(fault, 'searchpath', 'Root/customer faults must exercise actual minted-transport cleanup.');
+          assert.equal(response!.wire.code, 'PRINCIPAL_SCOPE_CHANGED');
+        }
         assert.deepEqual(await stored(target.identity), before);
       }
     });
@@ -592,6 +602,7 @@ async function main(): Promise<void> {
         }
       });
     } finally { stopMigrationRuntime(); }
+    assert(cases > 0, 'No authenticated HTTP session families matched the requested filters.');
     assert.equal(fetches,0);
     disposeMobileCollaborationTickets();
     console.log(`Authenticated native HTTP session: ${cases} actual PostgreSQL18/BetterAuth/Team matrix families passed; actual exported Web/Mobile POSTs; product integration gate remains false.`);
