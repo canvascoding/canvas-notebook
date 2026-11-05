@@ -16,8 +16,9 @@ async function openSettings(context: BrowserContext, width = 1280) {
   const page = await context.newPage();
   await page.setViewportSize({ width, height: 900 });
   await authenticateManagedTestPage(page);
-  const settings = await page.request.get('/api/server-settings');
-  expect(settings.status()).toBe(200); expect((await settings.json()).data.documentReviewEnabled).toBe(false);
+  const reviewAvailability = await page.request.get('/api/document-review/availability');
+  expect(reviewAvailability.status()).toBe(200);
+  expect((await reviewAvailability.json()).data.documentReviewEnabled).toBe(false);
   const workspaces = await page.request.get('/api/workspaces'); expect(workspaces.status()).toBe(200);
   const shared = (await workspaces.json()).workspaces.find((workspace: { name: string }) => workspace.name === workspaceName);
   expect(Boolean(shared?.permissions.canWrite)).toBe(true);
