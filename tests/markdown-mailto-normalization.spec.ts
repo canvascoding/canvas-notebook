@@ -20,7 +20,7 @@ async function readDocument(request: APIRequestContext, workspaceId: string, fil
 }
 
 for (const mobile of [false, true]) {
-  test(`${mobile ? 'mobile' : 'desktop'}: mailto source offers a guarded rich upgrade and survives reload`, async ({ browser }, info) => {
+  test(`${mobile ? 'mobile' : 'desktop'}: mailto source completes a guarded rich upgrade and survives reload`, async ({ browser }, info) => {
     test.setTimeout(120_000);
     const context = await createAuthenticatedContext(browser, {
       locale: 'en-US', viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 },
@@ -45,12 +45,23 @@ for (const mobile of [false, true]) {
       const documentId = before.collaboration?.document?.id;
       expect(documentId).toEqual(expect.any(String));
 
+      // A fresh open already requests rich presentation. Its existing startup
+      // flow checkpoints and migrates eligible plain-text documents automatically.
+      // Observe the real migration receipt rather than racing its transient button.
+      const migrated = page.waitForResponse(response => {
+        if (!response.url().endsWith('/api/files/collaboration/session') || response.request().method() !== 'POST') return false;
+        const request = response.request().postDataJSON();
+        return request.path === filePath && Boolean(request.migration);
+      }, { timeout: 30_000 });
       await page.goto(`/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-      const prepare = page.getByRole('button', { name: 'Prepare formatted editing', exact: true });
-      await expect(prepare).toBeEnabled({ timeout: 30_000 });
-      expect((await readDocument(context.request, workspaceId, filePath)).content).toBe(source);
+      const receipt = await migrated;
+      expect(receipt.status()).toBe(200);
+      const request = receipt.request().postDataJSON();
+      expect(request.migration.expectedDocumentId).toBe(documentId);
+      expect(request.migration.stateProof).toMatch(/^yjs-snapshot-sha256-v1:/u);
+      expect(await receipt.json()).toMatchObject({ success: true, representation: 'tiptap_blocks',
+        migration: { requestId: request.migration.requestId, documentId, status: 'migrated' } });
       await expect(page.getByTestId('markdown-source-preservation-warning')).toHaveCount(0);
-      await prepare.click();
 
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });

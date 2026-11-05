@@ -111,7 +111,7 @@ nur der Ausgangspunkt; der neue verbindliche Plan steht in Abschnitt 5c.
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
 | 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Schreib-/Recovery-, Kaltstart- und Beispielnachweise; begrenzte REST-/SDK-Lesemessung bei 10/200 Quellen einschließlich echter Latenz bestanden. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
 | 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Begrenzt live verbundene offene Tabs gemäß erweitertem Abschnitt 5c umsetzen; lokale Speicher-/Verbindungsgrenzen und große/mobile, Rechte- sowie Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
-| 4d. Mailto und Quelltextmodus | in Umsetzung; Ursache reproduziert, Codec-Regressionsprüfung grün | Sichere Mailto-Normalisierung und gemischte Checkbox-/Aufzählungslisten im tatsächlichen Editor samt freigegebenem Rich-Upgrade abnehmen; Original bis zur bestätigten Umstellung erhalten. |
+| 4d. Mailto und Quelltextmodus | Fix, Host-/Linux-Build und CI grün; Browserabnahme offen | Sichere Mailto-Normalisierung und gemischte Checkbox-/Aufzählungslisten im tatsächlichen Editor samt freigegebenem Rich-Upgrade abnehmen; Original bis zur bestätigten Umstellung erhalten. |
 | 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
 
 **Nächster Arbeitsschritt:** Den Mailto-/Quelltext-Fix aus Abschnitt 5d gezielt
@@ -3005,8 +3005,10 @@ bereits separat verglichenen Checkbox-Zustand erkennen, ohne Text zu entfernen.
 2. **Bestehende Umstellung verwenden:** Keine neue Yjs-Repräsentation und keine
    Schemaänderung. Nicht kollaborative Dokumente verwenden die vorhandene explizite
    Normalisierung. Bestehende native Textdokumente verwenden das vorhandene
-   Rich-Upgrade mit aktuellem Checkpoint, Rechten und Migrationsbeleg. Eine bloße
-   Ansicht schreibt weder die Originaldatei noch den nativen Zustand um.
+   Rich-Upgrade mit aktuellem Checkpoint, Rechten und Migrationsbeleg. Der Import
+   erhält zunächst die Originalbytes. Beim tatsächlichen Öffnen in angeforderter
+   Rich-Darstellung kann die vorhandene Startlogik diesen geschützten Upgrade
+   selbst starten; dies ist keine neue Automatik dieses Fixes.
 3. **Gezielt verifizieren:** Einzelner E-Mail-Autolink, beschrifteter Mailto-Link,
    Subject-Parameter, Hervorhebung und gemischte Checkbox-/Aufzählungsliste.
    Veränderte Adresse, Linkbeschriftung, Parameter, Checkbox-Werte, Nummerierung
@@ -3015,9 +3017,10 @@ bereits separat verglichenen Checkbox-Zustand erkennen, ohne Text zu entfernen.
    eine reduzierte synthetische Regression verwenden.
 4. **Browser und Speicherung abnehmen:** Desktop und mobile Ansicht, angebotene
    Normalisierung beziehungsweise natives Rich-Upgrade, persistentes Lesen nach
-   Reload und unveränderte Dokumentidentität prüfen. Nur ausdrücklich bestätigte
-   Formatumstellung; keine neue Review-Center-/Undo-Abhängigkeit. Der gemeinsame
-   Stack bleibt bis zur Rückgabe exklusiv beim Chat „Behebe Workspace-Sync-Tools“.
+   Reload und unveränderte Dokumentidentität prüfen. Den echten Checkpoint-/
+   Migrationsbeleg der vorhandenen Startlogik prüfen; bei expliziter Source-
+   Darstellung bleibt die manuelle Vorbereitung separat erhalten. Keine neue
+   Review-Center-/Undo-Abhängigkeit. Gemeinsamen Stack nur exklusiv verwenden.
 5. **Freigabe:** Erst nach diesen gezielten Nachweisen und den vorgeschriebenen
    Abschlussprüfungen in das Fix-Release übernehmen. Der allgemeine Schutz vor
    nicht verlustfrei darstellbarem Markdown bleibt bestehen.
@@ -3025,8 +3028,21 @@ bereits separat verglichenen Checkbox-Zustand erkennen, ohne Text zu entfernen.
 Aktuell bestehen die erweiterte `markdown-roundtrip-preservation-test`-Prüfung,
 der Tiptap-Roundtrip- und Rendering-Test, zehn Einfügefälle und 26
 Zeichen-/Strukturkontrollfälle in XML und Blockbaum. Die beiden neuen
-Desktop-/Mobilfälle in `markdown-mailto-normalization.spec.ts` sind vorbereitet,
-aber noch nicht ausgeführt.
+Desktop-/Mobilfälle in `markdown-mailto-normalization.spec.ts` wurden am
+kompilierten Produktcommit `b7501031f` ausgeführt. Ihr erster Lauf scheiterte an
+der falschen Erwartung eines sichtbaren Vorbereitungsbuttons: Beide tatsächlichen
+Seiten zeigten bereits das bearbeitbare Rich-Dokument mit korrekten Mailto-Zielen
+und Checkboxen. Das ist noch keine bestandene Browserabnahme. Die korrigierte
+Prüfung verlangt den echten erfolgreichen Migrationsbeleg einschließlich Request-ID,
+Dokument-ID und Checkpoint-Proof sowie das persistente Ergebnis nach Reload.
+Der folgende Lauf wurde vor seinen Browserfällen durch einen externen Neustart
+des gesamten gemeinsamen Stacks unterbrochen; auch die Wiederherstellung
+kollidierte mit einer gleichzeitigen Container-Neuanlage. Die vier geschützten
+Originalzeilen samt xmin sind danach lesend unverändert nachgewiesen;
+Datei-/Ankerprüfung und aktueller Original-Runtime-Beleg bleiben offen, bis der
+Stack wieder exklusiv nutzbar ist. Die gescheiterten Läufe bleiben als solche
+dokumentiert. Host- und Linux-Produktionsbuild sowie alle sieben PR-Prüfungen des
+Produktcommits sind bestanden; zusätzlich besteht `test:editor:core`.
 Das angehängte Beispieldokument wird offline als `normalizable` mit
 `list_formatting` und `email_link_formatting` erkannt; seine Originaldatei wurde
 nicht verändert. Browser-/Migrationsabnahme ist noch offen. GitNexus bewertet die
