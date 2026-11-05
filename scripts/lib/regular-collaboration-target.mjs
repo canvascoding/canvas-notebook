@@ -55,8 +55,9 @@ export async function verifyRegularCollaborationTarget(environment = process.env
       assert(listing.ok, `${regularCollaborationPrerequisite}: Workspace listing failed.`);
       const workspaces = await listing.json();
       const workspace = workspaces.workspaces?.find(item => item.name === 'Shared Test Workspace'
-        && ['team', 'organization'].includes(item.type) && item.permissions?.canWrite && item.permissions?.canDelete);
-      assert(workspace, `${regularCollaborationPrerequisite}: Both users need write/delete access to Shared Test Workspace.`);
+        && ['team', 'organization'].includes(item.type) && item.permissions?.canWrite
+        && (users.length > 0 || item.permissions?.canDelete));
+      assert(workspace, `${regularCollaborationPrerequisite}: Both users need shared write access; the primary needs cleanup delete rights.`);
       users.push({ userId: identity.user.id, workspaceId: workspace.id });
     }
     assert(users[0].userId !== users[1].userId && users[0].workspaceId === users[1].workspaceId,

@@ -6,6 +6,6 @@ export default async function regularCollaborationSetup() {
   } catch (error) {
     // Preserve only the deliberately sanitized prerequisite messages.
     if (error instanceof Error && error.message.startsWith(regularCollaborationPrerequisite)) throw error;
-    throw new Error(`${regularCollaborationPrerequisite}: Verify a healthy local PostgreSQL Team target, its DATA, two managed users with shared write/delete rights, and disabled Review Center.`);
+    throw new Error(`${regularCollaborationPrerequisite}: Verify a healthy local PostgreSQL Team target, its DATA, two managed writers, primary cleanup rights, and disabled Review Center.`);
   }
 }

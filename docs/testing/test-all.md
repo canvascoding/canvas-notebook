@@ -54,7 +54,7 @@ and [JSON reporter](https://playwright.dev/docs/test-reporters#json-reporter).
 
 `test:all` also runs the `playwright-collaboration` stage. The ordinary discovery
 moves sixteen editor/collaboration files into this fixture-backed profile, so each
-file runs once. The profile currently discovers forty cases, including formatting,
+file runs once. The profile currently discovers thirty-nine cases, including formatting,
 tables/images, mobile block moves, peer edits, interrupted first opens, offline
 persistence, reconnect, file-event cache invalidation and multiple browser tabs.
 Existing local editor Ctrl-Z checks are ordinary editing coverage; no file-operation

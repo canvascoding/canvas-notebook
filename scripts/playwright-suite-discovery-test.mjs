@@ -109,4 +109,6 @@ for (const file of regularCollaborationFiles) {
 }
 assert(ordinaryCases.every(spec => !/file-version-center|document-review-production|editor-agent-review-lifecycle|excalidraw-review-disabled|undo.*\.spec/u.test(spec.file)));
 assert(regular.every(spec => !/file-version-center|document-review|file.*undo/u.test(spec.file)));
+assert(regular.every(spec => !(spec.tags ?? []).includes('experimental-review') && !/legacy reviews/u.test(spec.title)),
+  'Mixed collaboration files must not leak Review activation cases into the regular profile');
 console.log(`Regular collaboration profile retains ${regular.length} cases across ${regularCollaborationFiles.length} files, without Review activation fixtures.`);

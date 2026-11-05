@@ -718,7 +718,7 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
-  test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', async ({ browser }, testInfo) => {
+  test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await fixtureContext(browser);

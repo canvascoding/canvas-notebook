@@ -35,7 +35,10 @@ async function probe(t, variation = {}) {
       const id = cookie.includes('primary') ? 'primary' : 'secondary';
       value = { user: { id, email: id + '@fixture.invalid' } };
     } else if (route === '/api/workspaces') value = { workspaces: [{ id: variation.foreignPeer && cookie.includes('secondary') ? 'other' : 'shared',
-      name: 'Shared Test Workspace', type: 'organization', permissions: { canWrite: true, canDelete: true } }] };
+      name: 'Shared Test Workspace', type: 'organization', permissions: {
+        canWrite: !(variation.readOnlyPeer && cookie.includes('secondary')),
+        canDelete: cookie.includes('primary') && !variation.noPrimaryDelete,
+      } }] };
     else if (route === '/api/document-review/availability') value = { data: { documentReviewEnabled: variation.review ?? false } };
     else if (route === '/api/auth/sign-out') return new Response('{}', { status: variation.cleanupFails ? 500 : 200 });
     else throw new Error('Unexpected preflight request');
@@ -53,11 +56,11 @@ test('preflight uses both authentications and shared current rights without enab
   assert(p.calls.every(call => call.method === 'GET' || call.route.startsWith('/api/auth/')));
 });
 
-for (const variation of [{ foreignPeer: true }, { review: true }, { cleanupFails: true }]) {
+for (const variation of [{ foreignPeer: true }, { review: true }, { cleanupFails: true }, { readOnlyPeer: true }, { noPrimaryDelete: true }]) {
   test('invalid actual fixture facts or cleanup cannot admit the profile: ' + JSON.stringify(variation), async t => {
     const p = await probe(t, variation);
     await assert.rejects(p.operation(), /REGULAR_COLLABORATION_PREREQUISITE/);
-    assert.equal(p.calls.filter(call => call.route === '/api/auth/sign-out').length, 2);
+    assert.equal(p.calls.filter(call => call.route === '/api/auth/sign-out').length, variation.noPrimaryDelete ? 1 : 2);
   });
 }
 
