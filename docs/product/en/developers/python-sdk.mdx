@@ -17,12 +17,12 @@ The SDK calls Canvas's central document services. Canvas owns Yjs state, documen
 
 ## Install the SDK
 
-Use Python 3.10 or later. Download `canvas_notebook_python-0.1.0-py3-none-any.whl` and `canvas-python-sdk.sha256` from the matching [Canvas Notebook release](https://github.com/canvascoding/canvas-notebook/releases). Compare the wheel's SHA-256 digest with the entry in the checksum file, then install it:
+Use Python 3.10 or later. Download `canvas_notebook_python-0.1.1-py3-none-any.whl` and `canvas-python-sdk.sha256` from the [Python SDK release](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.1). Compare the wheel's SHA-256 digest with the entry in the checksum file, then install it:
 
 ```sh
 python -m venv .venv-sdk
 . .venv-sdk/bin/activate
-python -m pip install './canvas_notebook_python-0.1.0-py3-none-any.whl[mcp,keyring]'
+python -m pip install './canvas_notebook_python-0.1.1-py3-none-any.whl[mcp,keyring]'
 ```
 
 The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.0` and matching MCP types. `keyring` adds supported OS credential storage. The core `CanvasNotebook` facade and DTO/error types have no runtime MCP dependency; a controlled agent-runtime adapter is a separate, currently unimplemented connection.
