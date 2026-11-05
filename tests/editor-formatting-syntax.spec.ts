@@ -13,7 +13,8 @@ import { equivalentRichDocument } from '../app/lib/markdown/core/equivalence';
 import { analyzeMarkdownRichMode, createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3100';
@@ -51,13 +52,9 @@ async function upload(page: Page, workspace: Workspace, filePath: string, conten
     files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(content) } } })).ok()).toBe(true);
 }
 
-async function mode(page: Page, name: RegExp) {
-  await page.getByRole('group', { name: /Document view|Dokumentansicht/u }).getByRole('button', { name }).click();
-}
-
 async function openRich(page: Page, filePath: string) {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  await mode(page, /^(Edit|Bearbeiten)$/u);
+  await enterMarkdownEditMode(page);
   await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
 }
 
@@ -154,9 +151,8 @@ async function localRichTree(page: Page, identity: CollaborationSessionResponse)
 
 async function remove(page: Page, workspace: Workspace | undefined, filePath: string, api: APIRequestContext = page.request) {
   if (!workspace) return;
-  const result = await api.delete('/api/files/delete', { headers: headers(workspace), data: { path: filePath }, timeout: 15_000 });
-  expect(result.ok(), 'Only the synthetic document is deleted during cleanup.').toBe(true);
-  expect(await result.json()).toMatchObject({ success: true, deleted: [filePath], failed: [] });
+  await Promise.all(page.context().pages().map(page => page.close()));
+  await deleteOwnedFixtureFiles(api, workspace.id, [filePath]);
 }
 
 test.describe('formatting preserves Markdown meaning', () => {
@@ -169,7 +165,7 @@ test.describe('formatting preserves Markdown meaning', () => {
   });
   test.setTimeout(180_000);
 
-  test('typed input rules, literal delimiters and breaks survive projection, modes and reopen', async ({ browser }, info) => {
+  test('typed input rules, literal delimiters and breaks survive projection and native writer reopen', async ({ browser }, info) => {
     const context = await fixtureContext(browser); const page = await context.newPage();
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.name));
     const filePath = `editor-formatting-${randomUUID()}.md`;
@@ -209,13 +205,11 @@ test.describe('formatting preserves Markdown meaning', () => {
       await assertProjected(workspace, filePath, expected);
       await expect(page.getByRole('group', { name: /Document view|Dokumentansicht/u })
         .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
-      await mode(page, /^(Read|Lesen)$/u);
       await expect(page.getByRole('heading', { name: 'Heading # literal', exact: true })).toBeVisible();
-      await expect(page.locator('.canvas-document-reading')).toContainText('Literal: * _ # > ` \\ |');
-      await mode(page, /^(Edit|Bearbeiten)$/u);
+      await expect(page.locator(selector)).toContainText('Literal: * _ # > ` \\ |');
       await expect.poll(() => richTree(page)).toEqual(expected);
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await mode(page, /^(Edit|Bearbeiten)$/u);
+      await enterMarkdownEditMode(page);
       await expect.poll(() => richTree(page)).toEqual(expected);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       await assertProjected(workspace, filePath, expected);
@@ -281,16 +275,14 @@ test.describe('formatting preserves Markdown meaning', () => {
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
-      await phase('available-modes-preserve-native-state');
+      await phase('native-writer-reopen-preserves-unprojectable-state');
       await expect(page.getByRole('group', { name: /Document view|Dokumentansicht/u })
         .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
       await expect(page.locator('.cm-editor')).toHaveCount(0);
       await expect.poll(() => localRichTree(page, identity)).toEqual(invalid);
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
-      await mode(page, /^(Read|Lesen)$/u);
-      await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'false');
-      await expect.poll(() => richTree(page)).toEqual(invalid);
-      await mode(page, /^(Edit|Bearbeiten)$/u);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await enterMarkdownEditMode(page);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await expect.poll(() => richTree(page)).toEqual(invalid);
       await selectContent(peer.locator(selector).locator('p').filter({ hasText: /^Peer paragraph$/u }), true);
@@ -321,7 +313,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await assertProjected(workspace, filePath, recovered);
       await expect.poll(async () => (await storage(workspace!, filePath, identity)).validationCode).toBe(null);
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await mode(page, /^(Edit|Bearbeiten)$/u);
+      await enterMarkdownEditMode(page);
       await expect.poll(() => richTree(page)).toEqual(recovered);
       expect(JSON.stringify(recovered)).toContain('odd\\\\|pipe');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
@@ -353,7 +345,7 @@ test.describe('formatting preserves Markdown meaning', () => {
     }
   });
 
-  test('source-required presentation syntax stays exact through typing, Read and reopen', async ({ browser }, info) => {
+  test('source-required presentation syntax stays exact through typing and native writer reopen', async ({ browser }, info) => {
     const context = await fixtureContext(browser); const page = await context.newPage();
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.name));
     let unexpectedMigrations = 0;
@@ -370,11 +362,9 @@ test.describe('formatting preserves Markdown meaning', () => {
       workspace = await login(page); await upload(page, workspace, filePath, original);
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
-      await mode(page, /^(Edit|Bearbeiten)$/u);
-      await expect(page.getByRole('button', { name: /^(Read|Lesen)$/u, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await enterMarkdownEditMode(page);
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original);
       expect(unexpectedMigrations).toBe(0);
-      await mode(page, /^(Source|Quelltext)$/u);
       const source = page.locator('.cm-content');
       await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
@@ -388,16 +378,11 @@ test.describe('formatting preserves Markdown meaning', () => {
       await page.keyboard.press('Enter'); await page.keyboard.insertText(suffix.slice(1, -1)); await page.keyboard.press('Enter');
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);
       await expect.poll(() => readFile(diskPath(workspace!, filePath), 'utf8'), { timeout: 30_000 }).toBe(original + suffix);
-      await mode(page, /^(Read|Lesen)$/u);
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original + suffix);
-      await mode(page, /^(Edit|Bearbeiten)$/u);
-      await expect(page.getByRole('button', { name: /^(Read|Lesen)$/u, exact: true })).toHaveAttribute('aria-pressed', 'true');
-      await mode(page, /^(Source|Quelltext)$/u);
       await expect(source).toHaveAttribute('contenteditable', 'true');
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
-      await mode(page, /^(Edit|Bearbeiten)$/u);
-      await mode(page, /^(Source|Quelltext)$/u);
+      await enterMarkdownEditMode(page);
       await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);
