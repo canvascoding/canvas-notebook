@@ -26,6 +26,7 @@ tmp
 .env.*.local
 
 # Runtime/test artifacts
+artifacts
 test-results
 playwright-report
 coverage
