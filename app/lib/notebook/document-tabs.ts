@@ -180,6 +180,7 @@ export function closeNotebookDocumentTab(
 export function closeNotebookDocumentTabsAtPaths(
   state: NotebookDocumentTabsState,
   paths: Iterable<string>,
+  options: { preserveKnownIdentities?: boolean } = {},
 ): NotebookDocumentTabsState {
   const closedPaths = new Set(normalizeOpenPaths(Array.from(paths)));
   if (closedPaths.size === 0) return state;
@@ -190,6 +191,10 @@ export function closeNotebookDocumentTabsAtPaths(
 
   let nextState = state;
   for (const openPath of state.openPaths.filter(shouldClose)) {
+    // Filesystem absence alone cannot distinguish a moved native document
+    // from a deleted one. Its existing location watcher resolves the identity.
+    if (options.preserveKnownIdentities && Object.hasOwn(state.documentIds ?? {}, openPath)
+      && state.documentIds?.[openPath]) continue;
     nextState = closeNotebookDocumentTab(nextState, openPath);
   }
   return nextState;

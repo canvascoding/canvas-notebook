@@ -15,6 +15,8 @@ export type WorkspaceFileOpenedDetail = {
 export type WorkspacePathsDeletedDetail = {
   workspaceId: string | null;
   paths: string[];
+  /** A completed local delete operation, rather than physical watcher absence. */
+  confirmed?: boolean;
 };
 
 export type WorkspacePathRenamedDetail = {
@@ -33,11 +35,11 @@ export function notifyWorkspaceFileOpened(path: string, source: WorkspaceFileOpe
   );
 }
 
-export function notifyWorkspacePathsDeleted(paths: string[], workspaceId: string | null) {
+export function notifyWorkspacePathsDeleted(paths: string[], workspaceId: string | null, confirmed = false) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<WorkspacePathsDeletedDetail>(
     WORKSPACE_PATHS_DELETED_EVENT,
-    { detail: { paths, workspaceId } },
+    { detail: { paths, workspaceId, ...(confirmed ? { confirmed: true } : {}) } },
   ));
 }
 
