@@ -111,14 +111,16 @@ nur der Ausgangspunkt; der neue verbindliche Plan steht in Abschnitt 5c.
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
 | 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Schreib-/Recovery-, Kaltstart- und Beispielnachweise; begrenzte REST-/SDK-Lesemessung bei 10/200 Quellen einschließlich echter Latenz bestanden. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
 | 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Begrenzt live verbundene offene Tabs gemäß erweitertem Abschnitt 5c umsetzen; lokale Speicher-/Verbindungsgrenzen und große/mobile, Rechte- sowie Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
+| 4d. Mailto und Quelltextmodus | in Umsetzung; Ursache reproduziert, Codec-Regressionsprüfung grün | Sichere Mailto-Normalisierung und gemischte Checkbox-/Aufzählungslisten im tatsächlichen Editor samt freigegebenem Rich-Upgrade abnehmen; Original bis zur bestätigten Umstellung erhalten. |
 | 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
 
-**Nächster Arbeitsschritt:** Den erweiterten Live-Tab-Plan aus Abschnitt 5c
-prüfen und nach Freigabe umsetzen. Die bestandenen Lese-/Transportmessungen
-bleiben Belege; verbleibende Matrixlücken und endgültige Budgets werden gezielt
-abgeschlossen. Ein neuer Lauf verwendet ausschließlich den einzigen verwalteten,
-mit aktuellem Stand neu erstellten Testcontainer. Eine globale Rechte- oder
-Dokumentzustandskopie ersetzt keine erforderliche aktuelle Beobachtung.
+**Nächster Arbeitsschritt:** Den Mailto-/Quelltext-Fix aus Abschnitt 5d gezielt
+im Editor und in der bestehenden Migration abnehmen, die noch fehlenden Linkindex-
+Nachweise vervollständigen und die fertigen Fixes nach den vorgeschriebenen
+Abschlussprüfungen veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
+„Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
+Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale
+Rechte- oder Dokumentzustandskopie ersetzt eine erforderliche aktuelle Beobachtung.
 
 Prüfungen folgen geänderten Abläufen und konkreten Fehlern. Bereits grüne Fälle
 werden bei unveränderten Laufzeitquellen und Abhängigkeiten anhand ihrer Belege
@@ -2977,6 +2979,60 @@ Entzug und Tokenablauf funktionieren auch ohne gemounteten Editor. Kein Datenver
 bei Verdrängung, Offline-Änderung, Neustart oder Recovery. Review Center und Undo
 bleiben außerhalb der Umsetzung. API-Key-/SDK-Matrix und abschließendes Release
 bleiben separate erforderliche Teile des Gesamtplans.
+
+### 5d. Mailto-Verknüpfungen und unbeabsichtigter Quelltextmodus
+
+**Benutzerklärung vom 05.11.2026:** Gemeint ist, dass ein Dokument mit E-Mail-Link
+im Quelltextmodus bleibt. Klickziel oder sichtbarer Adresstext sind keine bisher
+belegten separaten Fehler. Der Fall wird gezielt behoben; die neue Live-Tab-
+Verwaltung folgt laut bestätigter Priorisierung nach dem Release der fertigen Fixes.
+
+Der reproduzierte Markdown-Roundtrip schreibt `<team@example.test>` als
+`[team@example.test](mailto:team@example.test)`. Die unabhängige Parserprüfung
+sieht bereits identischen Linktext und dieselbe Adresse, benennt diese reine
+Schreibweisenänderung bisher aber nicht als erlaubte Normalisierung. Dadurch
+bleibt der Rich-Modus gesperrt. Im angehängten Beispieldokument kommt eine zweite
+Blockade hinzu: Marked liefert den Checkbox-Marker bei engen Listen neben dem
+Absatz und bei lockeren Listen innerhalb des Absatzes. Der Vergleich muss den
+bereits separat verglichenen Checkbox-Zustand erkennen, ohne Text zu entfernen.
+
+1. **Eng begrenzt korrigieren:** Mailto-Schreibweisen nur dann als normalisierbar
+   behandeln, wenn der unabhängig geparste Linktext, das vollständige Ziel samt
+   Parametern und der Titel gleich sind. Bloße Adressen bleiben bloßer Text.
+   Nur einen passenden führenden Checkbox-Marker als redundante Darstellung des
+   vorhandenen Task-/Checked-Zustands behandeln. Reihenfolge, Checkbox-Werte,
+   Nummerierung und wörtliche Zeichen im eigentlichen Inhalt bleiben geschützt.
+2. **Bestehende Umstellung verwenden:** Keine neue Yjs-Repräsentation und keine
+   Schemaänderung. Nicht kollaborative Dokumente verwenden die vorhandene explizite
+   Normalisierung. Bestehende native Textdokumente verwenden das vorhandene
+   Rich-Upgrade mit aktuellem Checkpoint, Rechten und Migrationsbeleg. Eine bloße
+   Ansicht schreibt weder die Originaldatei noch den nativen Zustand um.
+3. **Gezielt verifizieren:** Einzelner E-Mail-Autolink, beschrifteter Mailto-Link,
+   Subject-Parameter, Hervorhebung und gemischte Checkbox-/Aufzählungsliste.
+   Veränderte Adresse, Linkbeschriftung, Parameter, Checkbox-Werte, Nummerierung
+   oder entfernter Literaltext müssen weiterhin abgewiesen werden. Das tatsächlich
+   angehängte Dokument offline prüfen, ohne seine Bytes zu verändern; im Repository
+   eine reduzierte synthetische Regression verwenden.
+4. **Browser und Speicherung abnehmen:** Desktop und mobile Ansicht, angebotene
+   Normalisierung beziehungsweise natives Rich-Upgrade, persistentes Lesen nach
+   Reload und unveränderte Dokumentidentität prüfen. Nur ausdrücklich bestätigte
+   Formatumstellung; keine neue Review-Center-/Undo-Abhängigkeit. Der gemeinsame
+   Stack bleibt bis zur Rückgabe exklusiv beim Chat „Behebe Workspace-Sync-Tools“.
+5. **Freigabe:** Erst nach diesen gezielten Nachweisen und den vorgeschriebenen
+   Abschlussprüfungen in das Fix-Release übernehmen. Der allgemeine Schutz vor
+   nicht verlustfrei darstellbarem Markdown bleibt bestehen.
+
+Aktuell bestehen die erweiterte `markdown-roundtrip-preservation-test`-Prüfung,
+der Tiptap-Roundtrip- und Rendering-Test, zehn Einfügefälle und 26
+Zeichen-/Strukturkontrollfälle in XML und Blockbaum. Die beiden neuen
+Desktop-/Mobilfälle in `markdown-mailto-normalization.spec.ts` sind vorbereitet,
+aber noch nicht ausgeführt.
+Das angehängte Beispieldokument wird offline als `normalizable` mit
+`list_formatting` und `email_link_formatting` erkannt; seine Originaldatei wurde
+nicht verändert. Browser-/Migrationsabnahme ist noch offen. GitNexus bewertet die
+gemeinsame Äquivalenzprüfung aufgrund ihrer vielen Editor-/Import-/Kollaborations-
+Aufrufer als kritisch; deshalb sind die negativen Inhaltsverlust-Prüfungen Teil
+der Freigabe und keine bloße Erleichterung des Guards.
 
 ### 6. Leistungsgrenzen und sichere Einführung
 

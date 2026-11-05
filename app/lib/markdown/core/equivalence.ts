@@ -7,6 +7,7 @@ export type MarkdownSafeNormalization =
   | 'list_formatting'
   | 'hard_break_marker'
   | 'html_entity_escaping'
+  | 'email_link_formatting'
   | 'table_formatting';
 
 type Token = {
@@ -16,6 +17,22 @@ type Token = {
   tokens?: Token[];
   [key: string]: unknown;
 };
+
+/** Marked places a task marker beside a tight paragraph or inside a loose one.
+ * Its checked state is already compared on the list item. Remove only that
+ * matching leading marker, never a literal checkbox elsewhere in the content. */
+function taskItemContentTokens(item: Token): Token[] {
+  const tokens = item.tokens ?? [];
+  if (item.task !== true || typeof item.checked !== 'boolean') return tokens;
+  const matches = (token: Token | undefined) => token?.type === 'checkbox'
+    && token.checked === item.checked && /^\[[ xX]\][\t ]+$/u.test(token.raw ?? '');
+  if (matches(tokens[0])) return tokens.slice(1);
+  const first = tokens[0];
+  if (first?.type === 'paragraph' && matches(first.tokens?.[0])) {
+    return [{ ...first, tokens: first.tokens!.slice(1) }, ...tokens.slice(1)];
+  }
+  return tokens;
+}
 
 function tokenShape(tokens: Token[], inline = false, decode = true): unknown[] {
   const result: unknown[] = [];
@@ -43,7 +60,7 @@ function tokenShape(tokens: Token[], inline = false, decode = true): unknown[] {
         type: 'list', ordered: token.ordered, start: token.start,
         items: (token.items as Token[]).map((item) => ({
           task: item.task ?? false, checked: item.checked ?? null,
-          content: tokenShape(item.tokens ?? [], false, decode),
+          content: tokenShape(taskItemContentTokens(item), false, decode),
         })),
       }; break;
       case 'table': {
@@ -71,6 +88,8 @@ function formattingFeatures(tokens: Token[], result: Record<string, string[]> = 
       : token.type === 'list' ? token.ordered ? 'ordered_list_spacing' : 'list_formatting'
         : token.type === 'br' ? 'hard_break_marker'
           : token.type === 'escape' && token.raw === '\\@' ? 'escaped_email_address' : null;
+    const emailLink = token.type === 'link' && /^mailto:/iu.test(String(token.href ?? ''));
+    if (emailLink) (result.email_link_formatting ??= []).push(token.raw ?? '');
     if (kind) (result[kind] ??= []).push(token.type === 'table'
       ? [tokens[index - 1]?.type === 'space' ? tokens[index - 1].raw : '', token.raw,
         tokens[index + 1]?.type === 'space' ? tokens[index + 1].raw : ''].join('\u0000')
@@ -95,7 +114,7 @@ export function equivalentMarkdownNormalization(before: string, after: string): 
   const rightFeatures = formattingFeatures(right);
   const kinds: MarkdownSafeNormalization[] = [
     'escaped_email_address', 'ordered_list_spacing', 'list_formatting', 'hard_break_marker',
-    'html_entity_escaping', 'table_formatting',
+    'html_entity_escaping', 'email_link_formatting', 'table_formatting',
   ];
   const changes = kinds.filter((kind) => kind === 'html_entity_escaping'
     ? JSON.stringify(tokenShape(left, false, false)) !== JSON.stringify(tokenShape(right, false, false))
