@@ -1,11 +1,84 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 05.11.2026. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 05.11.2026 nach Produktionsrollout 2026.11.5.2. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
-## Release und offene Abnahme vom 05.11.2026
+## Aktueller Stand nach Release 2026.11.5.2
+
+Notebook [2026.11.5.2](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.5.2)
+ist produktiv. Release-Commit `088aab9fb41211c196f77eac28b5082325bf79d8` und
+Tag `v2026.11.5.2` sind veröffentlicht. Der Control Plane bestätigte am
+05.11.2026 um 07:25:19 UTC Version, frischen Heartbeat, gesunden Container und
+gesunde App sowie den unveränderlichen Image-Digest
+`sha256:e3b64f835900fc4fedafc9f4c512525c823f48e793b0285d3084e50e47b906e3`.
+
+- `npm run verify:release` bestand einschließlich Lizenzgate, Produktionsbuild
+  und CLI-Update-/Rollback-Prüfungen. Der [Tag-Build](https://github.com/canvascoding/canvas-notebook/actions/runs/41973789440)
+  bestand für beide Architekturen; Artefaktherkunft, sieben Paketprüfsummen und
+  das signierte Update-Manifest wurden vor Veröffentlichung geprüft.
+- Auf genau diesem Image bestand `test:all`: **331 bestanden, null Fehler,
+  269 vereinbarte bedingte Skips**. Vier zusätzliche API-Key-UI-Fälle bestanden
+  ohne Skip oder Retry. Der ursprüngliche lokale Laufzeitstand und seine
+  geschützten Dokumentdaten wurden unverändert und gesund wiederhergestellt.
+- Die [API-/SDK-CI des Release-Commits](https://github.com/canvascoding/canvas-notebook/actions/runs/41973786691)
+  bestand zwölf frische Wheel-/Sdist-Installationsprofile ohne Skips unter
+  Python 3.10.22 und 3.15.1 sowie je 53 echte HTTP-/PostgreSQL-SDK-Testgruppen.
+  Wheel und Sdist des Releases sind bytegleich zu diesen geprüften Artefakten.
+- Der kompilierte OAuth-/macOS-Keychain-Lauf bestand am Produktstand `ebd18d825`:
+  sechs SDK-Änderungen mit zwei synchronisierten Editoren, natürlicher Tokenablauf,
+  automatischer Refresh, historische Status-/Recovery-Zugriffe und unabhängiges
+  Lesen. Eigene Zugänge und Keychain-Einträge wurden bereinigt. Die Laufzeitbäume
+  und Abhängigkeiten sind zum Release identisch; die Unterschiede betreffen
+  Versionen und Dokumentation. Die binäre Release-Abnahme erfolgte separat oben.
+- PR #208 korrigiert zwei Testannahmen: Review-Verfügbarkeit kommt aus ihrem
+  eigenen Endpunkt; SDK 0.1.1 verlangt nur explizit angeforderte OAuth-Rechte.
+  Der PR ist mit sieben grünen Checks gemergt; auch die anschließende CI auf
+  `main` ist grün. Review Center und Undo wurden nicht erweitert.
+- Nach dem Rollout bestanden über den echten MCP-Connector begrenzte
+  Dateibaumvorschauen und je ein Pfad- sowie ein versionierter nativer Abruf in
+  allen fünf freigegebenen Workspaces. Die nativen Auszüge umfassen je 256 Bytes
+  mit Projektionsstatus `current`; sie belegen keine vollständige Inventur aller
+  Dokumente und keine zusätzliche produktive Schreibprüfung.
+- Control-Plane-Benachrichtigung und Rollout bestanden. Der Desktop-Upload lief
+  vor Veröffentlichung in sein 30-Minuten-Wartelimit; ausschließlich dieser
+  Upload wurde nach Veröffentlichung erfolgreich wiederholt.
+
+Lokale Belege im unten benannten privaten Artefaktverzeichnis:
+`compiled-test-all-release-2026.11.5.2-1793860077447-result.json`,
+`issued-oauth-keychain-refresh-1793855148168-result.json`,
+`release-2026.11.5.2-oauth-source-equivalence.json`,
+`release-2026.11.5.2-verify.log` und
+`release-2026.11.5.2-deployment-f4a7fa2f-result.json`.
+
+### Aktueller Paketstatus und nächster konkreter Abschluss
+
+| Paket | Status | Noch erforderlicher Abschluss |
+| --- | --- | --- |
+| 0. Quellenfehler | in Umsetzung; Fix und gezielte Recovery-Belege vorhanden | Vorhandene Quellenfehler-Belege der finalen Transport-/Linkmatrix zuordnen; keine neue Datenreparatur allein aufgrund historischer Offen-Markierungen. |
+| 1. Messbasis | in Umsetzung; 10-/200-Quellen-Berichte vorhanden | Verbleibende REST-/SDK- und Browser-Leistungsfälle mit denselben Messgrenzen vervollständigen. |
+| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht | Verbleibende verschachtelte Beobachtungen pro erforderlicher Phase bündeln und endgültige Budgets festlegen. Ein kompilierter Session-Aufruf benötigt weiterhin 322 statt 346 Treiberaufrufe; Planwiederverwendung reduziert deren Anzahl nicht. |
+| 3. Inkrementelle Links | in Umsetzung; gezielte Vergleichsbelege vorhanden | Tatsächlich umgestellte Aufrufer gegen vollständigen Neuaufbau und finale Leistungsbudgets abnehmen. |
+| 4. Gemeinsame Schreibwege | in Umsetzung; native API-/SDK-CI und kompilierte Operationsfälle grün | Speicher-/Linkparität über die ausgewiesenen Transporte abschließend zuordnen und verbleibende Matrixlücken gezielt schließen. |
+| 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
+| 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Leistungs-/Beispielnachweise. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
+| 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Speicher-/Verbindungsgrenzen sowie noch offene große/mobile, Rechte- und Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
+| 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
+
+**Nächster Arbeitsschritt:** Die vorhandenen Session-Traces nach direkten
+Aufrufern, Transaktions- und tatsächlichen Frischegrenzen aufschlüsseln. Daraus
+die nächste kleine Bündelung mit unveränderten Rechte-, Seat-, Realm- und
+Parallelitätsprüfungen ableiten. Eine globale Rechte- oder Dokumentzustandskopie
+ersetzt keine erforderliche aktuelle Beobachtung.
+
+Prüfungen folgen geänderten Abläufen und konkreten Fehlern. Bereits grüne Fälle
+werden bei unveränderten Laufzeitquellen und Abhängigkeiten anhand ihrer Belege
+weiterverwendet; relevante Änderungen verlangen die betroffenen Regressionen.
+Vor dem nächsten Produktionsdeployment bleibt ein abschließender regulärer
+`test:all`-Lauf verpflichtend. Review Center und Undo bleiben ausgeschlossen.
+
+## Historischer Stand vor Release 2026.11.5.2
 
 Notebook [2026.11.5.1](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.5.1)
 ist auf Canvas Holdings produktiv. Der verifizierte Rollout für Release-Commit
@@ -100,7 +173,7 @@ Optimierungen des Binärlesers. Bei einer Bündelung bleiben insbesondere
 Prüfungen vor und nach einem Callback oder einer unabhängigen SQL-Beobachtung
 separat nachzuweisen.
 
-## Aktueller Abnahmestand vom 04.11.2026
+## Historischer Abnahmestand vom 04.11.2026
 
 Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
 `debian-repository-lock.json` an alle neun geprüften Paket-/Quellenlisten gebunden.
