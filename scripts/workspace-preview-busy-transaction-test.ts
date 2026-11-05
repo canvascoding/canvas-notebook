@@ -34,7 +34,8 @@ async function workspacePreviewBusyTransactionTest() {
       '../workspaces/request-principal': { WorkspaceRequestPrincipalError: PrincipalError,
         withWorkspaceRequestPrincipalOnConnection: async () => { throw original; } },
     };
-    for (const name of ['../markdown/workspace-source-authority-stage', '../markdown/workspace-file-operation-preview',
+    for (const name of ['../observability/workspace-source-scan', '../mcp/server/diagnostics',
+      '../markdown/workspace-source-authority-stage', '../markdown/workspace-file-operation-preview',
       '../mcp/server/document-read-principal', './workspace-operation-job-scope', './workspace-path-cohort-delete-preparation',
       './workspace-path-physical-delete-preparation-v5', './workspace-path-import-preparation-plan', './workspace-path-html-no-import-preparation',
       './workspace-path-html-native-delete-preparation', './workspace-path-html-import-preparation']) mocks[name] = {};
