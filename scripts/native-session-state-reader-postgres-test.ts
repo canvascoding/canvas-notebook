@@ -101,6 +101,27 @@ async function main() {
       canonical_hash,serialized_hash FROM collaboration_yjs_states WHERE document_id=$1`, [target.documentId])).rows[0];
     const inputFor = (identity: ExistingNativeSessionIdentity, context = workspace) => ({ workspace: context, path: identity.path, expectedIdentity: identity });
 
+    await fixture('a fresh native observation uses at most three read round trips', async () => {
+      const seeded = await seed('observation-budget.md');
+      await transaction(db => readSession(db, inputFor(seeded.identity), async cap => {
+        const start = traces.get(db)!.length;
+        const observed = await current(db, cap);
+        assert.equal(observed.stateProof, seeded.proof);
+        assert.equal(observed.stateVector, seeded.vector.toString('base64'));
+        assert(traces.get(db)!.length - start <= 3, 'A standalone current observation exceeded three database round trips.');
+      }));
+      assert.deepEqual((await bytes(seeded.identity)).yjs_state, seeded.update);
+    });
+    await fixture('connection drift is rejected even when the document lookup becomes empty', async () => {
+      const seeded = await seed('empty-drift.md');
+      await assert.rejects(transaction(db => readSession(db, inputFor(seeded.identity), async cap => {
+        await pool!.query('DELETE FROM collaboration_yjs_states WHERE document_id=$1', [seeded.identity.documentId]);
+        await pool!.query('DELETE FROM collaboration_documents WHERE id=$1', [seeded.identity.documentId]);
+        await db.run('SET LOCAL search_path=public');
+        await current(db, cap);
+      })), code('NATIVE_SESSION_SCOPE_CHANGED'));
+    });
+
     await fixture('existing Plain/XML/Blocks and empty native seeds need no physical root', async () => {
       for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) for (const empty of [false, true]) {
         const seeded = await seed(`${representation}-${empty}.md`, representation, { content: empty ? '' : undefined, sequence: empty ? 0 : 7 });

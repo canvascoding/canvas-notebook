@@ -124,28 +124,34 @@ function captureScope(connection: SqlConnection, input: { workspace: WorkspaceCo
     low: Number(unsigned & BigInt(0xffffffff)), expected, pending: new Set() };
 }
 
-async function connectionIdentity(connection: SqlConnection, principal?: PrincipalReaderPhase,
-  expectedSchema?: string, lock?: Pick<Capture, 'high' | 'low'>): Promise<ConnectionIdentity & { lockModes?: string[] }> {
+function assertPrincipalReaderConnection(connection: SqlConnection, principal?: PrincipalReaderPhase): void {
   if (principal && (!principal.active || principal.connection !== connection || authenticatedReaders.get(connection) !== principal)) {
     fail('NATIVE_SESSION_REQUIRED');
   }
+}
+function connectionIdentityStatement(expectedSchema?: string, lock?: Pick<Capture, 'high' | 'low'>, offset = 0) {
+  const schemaParameter = `$${offset + 1}`, tablesParameter = `$${offset + 2}`;
+  const highParameter = `$${offset + 3}`, lowParameter = `$${offset + 4}`;
   const relations = expectedSchema === undefined ? '' : `,
-    (SELECT count(*) = cardinality($2::text[]) AND bool_and(
-      (to_regclass(name)::oid = to_regclass($1||'.'||quote_ident(name))::oid) IS TRUE)
-      FROM unnest($2::text[]) names(name)) AS relations_match`;
+    (SELECT count(*) = cardinality(${tablesParameter}::text[]) AND bool_and(
+      (to_regclass(name)::oid = to_regclass(${schemaParameter}||'.'||quote_ident(name))::oid) IS TRUE)
+      FROM unnest(${tablesParameter}::text[]) names(name)) AS relations_match`;
   const lockModes = lock === undefined ? '' : `,
     ARRAY(SELECT l.mode FROM pg_locks l
       WHERE l.locktype='advisory' AND l.granted
         AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
-        AND l.classid::bigint=$3 AND l.objid::bigint=$4 AND l.objsubid=1 AND l.pid=a.pid) AS lock_modes`;
-  const row = await connection.get(`SELECT current_schema() AS schema_name,current_setting('search_path') AS search_path,
+        AND l.classid::bigint=${highParameter} AND l.objid::bigint=${lowParameter} AND l.objsubid=1 AND l.pid=a.pid) AS lock_modes`;
+  return { sql: `SELECT current_schema() AS schema_name,current_setting('search_path') AS search_path,
     pg_backend_pid() AS backend_pid,extract(epoch FROM a.backend_start)::text AS backend_start,
     (SELECT virtualxid FROM pg_locks WHERE locktype='virtualxid' AND pid=pg_backend_pid()
       AND granted AND mode='ExclusiveLock') AS transaction_id,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only${relations}${lockModes}
     FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`,
-    expectedSchema === undefined ? [] : [quote(expectedSchema), requiredTables, ...(lock ? [lock.high, lock.low] : [])]) as Row | undefined;
+  parameters: expectedSchema === undefined ? [] : [quote(expectedSchema), requiredTables, ...(lock ? [lock.high, lock.low] : [])] };
+}
+function validatedConnectionIdentity(row: Row | undefined, principal?: PrincipalReaderPhase,
+  expectedSchema?: string, lock?: Pick<Capture, 'high' | 'low'>): ConnectionIdentity & { lockModes?: string[] } {
   if (!row || typeof row.schema_name !== 'string' || !row.schema_name || row.schema_name.length > 63
     || /[\u0000-\u001f\u007f]/u.test(row.schema_name) || typeof row.search_path !== 'string'
     || !Number.isSafeInteger(row.backend_pid) || Number(row.backend_pid) < 1
@@ -158,6 +164,13 @@ async function connectionIdentity(connection: SqlConnection, principal?: Princip
   return Object.freeze({ schema: row.schema_name, searchPath: row.search_path, backend: Number(row.backend_pid),
     backendStart: row.backend_start, transaction: row.transaction_id, database: Number(row.database_oid),
     ...(lock ? { lockModes: row.lock_modes as string[] } : {}) });
+}
+async function connectionIdentity(connection: SqlConnection, principal?: PrincipalReaderPhase,
+  expectedSchema?: string, lock?: Pick<Capture, 'high' | 'low'>): Promise<ConnectionIdentity & { lockModes?: string[] }> {
+  assertPrincipalReaderConnection(connection, principal);
+  const statement = connectionIdentityStatement(expectedSchema, lock);
+  const row = await connection.get(statement.sql, statement.parameters) as Row | undefined;
+  return validatedConnectionIdentity(row, principal, expectedSchema, lock);
 }
 function assertActive(captured: Capture): void {
   const held = connections.get(captured.connection);
@@ -179,7 +192,12 @@ async function checkConnection(captured: Capture, checkLocks = false): Promise<s
   const expected = captured.identity;
   if (!expected) fail('NATIVE_SESSION_SCOPE_CHANGED');
   const current = await connectionIdentity(captured.connection, captured.principal, expected.schema, checkLocks ? captured : undefined);
+  return checkObservedConnection(captured, current);
+}
+function checkObservedConnection(captured: Capture, current: ConnectionIdentity & { lockModes?: string[] }): string[] {
   assertActive(captured);
+  const expected = captured.identity;
+  if (!expected) fail('NATIVE_SESSION_SCOPE_CHANGED');
   if (Object.keys(expected).some(key => current[key as keyof ConnectionIdentity] !== expected[key as keyof ConnectionIdentity])) {
     fail('NATIVE_SESSION_SCOPE_CHANGED');
   }
@@ -251,10 +269,16 @@ function inspectQuarantinedNativeState(state: PersistedCollaborationState): Nati
 }
 async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnapshot> {
   if (captured.principal) { await captured.principal.assertCurrent(); assertActive(captured); }
-  const modes = await checkConnection(captured, true);
-  if (!modes.includes('ShareLock') || modes.includes('ExclusiveLock')) fail('NATIVE_SESSION_SCOPE_CHANGED');
+  assertActive(captured);
+  if (!captured.identity) fail('NATIVE_SESSION_SCOPE_CHANGED');
+  assertPrincipalReaderConnection(captured.connection, captured.principal);
+  const observation = connectionIdentityStatement(captured.identity.schema, captured, 2);
   const schema = quote(captured.identity!.schema);
-  const rows = await captured.connection.all(`SELECT d.id,d.lineage_id,d.workspace_id,d.workspace_type,d.organization_id,d.path,d.provider,
+  // The current connection, shared lock and metadata belong to one SQL snapshot.
+  // LEFT JOIN retains the connection observation when no document is found.
+  const observedRows = await captured.connection.all(`SELECT connection_observation.*,native_source.*
+    FROM (${observation.sql}) connection_observation LEFT JOIN LATERAL (
+    SELECT d.id,d.lineage_id,d.workspace_id,d.workspace_type,d.organization_id,d.path,d.provider,
     d.status,d.state_version,d.yjs_state_lifecycle,l.workspace_id AS lineage_workspace_id,l.workspace_type AS lineage_workspace_type,
     l.organization_id AS lineage_organization_id,l.path AS lineage_path,l.status AS lineage_status,
     s.document_id AS state_document_id,s.workspace_id AS state_workspace_id,s.organization_id AS state_organization_id,
@@ -268,8 +292,13 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     FROM ${schema}.collaboration_documents d FULL JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
       LEFT JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
     WHERE ((d.workspace_id=$1 AND d.path=$2) OR (s.workspace_id=$1 AND s.path=$2))
-      AND (d.status='active' OR s.status='active') LIMIT 2`, [captured.workspaceId, captured.path]) as Row[];
+      AND (d.status='active' OR s.status='active') LIMIT 2) native_source ON true`,
+  [captured.workspaceId, captured.path, ...observation.parameters]) as Row[];
   assertActive(captured);
+  const currentIdentity = validatedConnectionIdentity(observedRows[0], captured.principal, captured.identity.schema, captured);
+  const modes = checkObservedConnection(captured, currentIdentity);
+  if (!modes.includes('ShareLock') || modes.includes('ExclusiveLock')) fail('NATIVE_SESSION_SCOPE_CHANGED');
+  const rows = observedRows.filter(row => row.id !== null || row.state_document_id !== null);
   if (rows.length === 0 || rows.length === 1 && rows[0].state_document_id == null) fail('NATIVE_SESSION_STATE_MISSING');
   if (rows.length !== 1) fail('NATIVE_SESSION_SCOPE_CHANGED');
   const metadata = rows[0];
