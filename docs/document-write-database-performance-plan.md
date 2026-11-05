@@ -48,8 +48,12 @@ Verbindungsprüfungen aus dem nativen Leser und 24 Reservierungsabfragen. Die
 Reservierungsabfragen teilen jetzt den Snapshot der ohnehin erforderlichen
 Dokumentmetadaten unter derselben Workspace-Sperre. Derselbe isolierte Aufruf
 kam damit auf 338 Treiberaufrufe insgesamt und 146 in der letzten Transaktion.
-Die Messung deckt eine Session-Route ab. Ein neuer Browser- und Latenzvergleich
-steht für diese Änderung aus.
+Bei vier gleichartigen Web-Session-Aufrufen pro Variante mit zusätzlich 3 ms
+pro Richtung über einen TCP-Proxy vor derselben lokalen PostgreSQL-18-Instanz
+lag der Median bei 3.309 ms vorher und 3.104 ms nachher. Die Einzelwerte waren
+3.527/3.328/3.248/3.290 ms und 3.304/3.032/3.101/3.106 ms. Die Messung erfasst
+die Route mit einem nativen Blockdokument im Testdatensatz. Der kompilierte
+Browservergleich bei 10 und 200 Quellen steht für diese Änderung aus.
 
 ## Aktueller Abnahmestand vom 04.11.2026
 
