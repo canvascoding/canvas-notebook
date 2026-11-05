@@ -681,7 +681,13 @@ function observePrincipalPhase<T>(phase: Phase, readCurrent: () => Promise<T>): 
   }
   phase.checking = true;
   const checked = measureDocumentPhase('authorization', readCurrent)
-    .catch(error => { phase.failure ??= reason(error); phase.request.failure ??= phase.failure; throw phase.failure; })
+    .catch(error => {
+      // The first failure survives the outer phase's error handling.
+      phase.failure ??= (error as { code?: string })?.code === '55P03'
+        ? new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY') : reason(error);
+      phase.request.failure ??= phase.failure;
+      throw phase.failure;
+    })
     .finally(() => { phase.checking = false; });
   phase.pending.add(checked);
   void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
