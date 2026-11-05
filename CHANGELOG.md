@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.5.5] - 2026-11-05
+## [2026.11.6.1] - 2026-11-06
 
 ### Fixed
 
@@ -20,6 +20,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
 - Publish typed nested edit and operation arguments through MCP schema adapters.
 - Resolve Debian packages from one fixed signed snapshot, preventing live security-index changes from interrupting image builds while retaining signature, expiry and index-hash checks.
+- Address the frozen Debian cutoff with a full UTC timestamp, avoiding the failing short-date archive route observed on GitHub while preserving every reviewed package-index hash.
 - Use verified HTTPS for the first Debian request with temporary public roots from the pinned Node binary. Bound APT execution and check frozen metadata before production compilation.
 - Retry transient Apple ticket-lookup failures against the same signed artifact and bind desktop rebuilds to an approved immutable release source. Preserve the flat artifact layout used by the updater publisher.
 
