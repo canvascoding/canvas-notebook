@@ -46,10 +46,10 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
       await h.admin.query('INSERT INTO mcp_direct_workspace_setting(workspace_id,enabled_by_user_id,enabled_at,updated_at) VALUES($1,\'owner\',100,100)', [workspaceId]);
       await h.admin.query('INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at) VALUES($1,\'member\',$2,100,100)', [clientId, workspaceId]);
     }
-    const issue = async (sessionId = 'session-member') => {
+    const issue = async (sessionId = 'session-member', lifetime = 1800) => {
       const seconds = Math.floor(Date.now() / 1000), result = await auth.api.signJWT({ body: { payload: {
         sub: 'member', azp: clientId, sid: sessionId, iss: 'http://localhost/api/auth', aud: 'http://localhost/mcp',
-        iat: seconds - 1, exp: seconds + 1800, scope: 'knowledge:read knowledge:write' } } }); assert(result.token); return result.token;
+        iat: seconds - 1, exp: seconds + lifetime, scope: 'knowledge:read knowledge:write' } } }); assert(result.token); return result.token;
     };
     const originalToken = await issue(); let currentToken = originalToken, requestId = 0;
     type Kind = 'move' | 'delete';
@@ -409,6 +409,45 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
           assert(delayed, 'The real FD read must exceed the five-second principal budget.');
         } finally { fs.open = originalOpen; await fs.unlink(physical); }
+      });
+      for (const change of ['rights', 'grant', 'token', 'native'] as const) await group(`preview rejects ${change} changed during actual FD reading`, async () => {
+        const target = `fd-change-${change}.md`, physical = path.join(h.source.rootPath, `fd-physical-${change}.md`);
+        const document = await h.upload(target, Buffer.from('# Protected FD observation\n'));
+        await fs.writeFile(physical, `[Target](${target})\n`, { flag: 'wx' });
+        const originalSequence = (await h.admin.query('SELECT document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [document.documentId])).rows[0].document_sequence;
+        const grant = (await h.admin.query("SELECT * FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id='member' AND workspace_id=$2", [clientId, h.source.workspaceId])).rows[0];
+        const before = await domain(), files = await filesystem(), token = currentToken, originalOpen = fs.open;
+        let injected = false;
+        try {
+          if (change === 'token') currentToken = await issue('session-member', 3);
+          fs.open = async (...args: Parameters<typeof fs.open>) => {
+            const handle = await originalOpen(...args);
+            if (!injected && String(args[0]) === physical) {
+              injected = true;
+              if (change === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id='principal-org' AND user_id='member'");
+              else if (change === 'grant') await h.admin.query("DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id='member' AND workspace_id=$2", [clientId, h.source.workspaceId]);
+              else if (change === 'native') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=document_sequence+1 WHERE document_id=$1', [document.documentId]);
+              else await delay(3200);
+            }
+            return handle;
+          };
+          const rejected = await call('delete', { ...slots, action: 'preview', path: target });
+          assert(injected, 'The change must happen after opening the actual source FD.');
+          assert.equal(rejected.result.isError, true);
+          assert.equal(rejected.value.code, change === 'native' ? 'PATH_PLAN_CHANGED' : change === 'token' ? 'AUTHENTICATION_REQUIRED' : 'ACCESS_DENIED');
+          assert.equal(rejected.value.preview, undefined);
+          const altered = change === 'rights' ? 'organization_user_permissions' : change === 'grant' ? 'mcp_direct_workspace_grant' : change === 'native' ? 'collaboration_yjs_states' : '';
+          const unchanged = (rows: typeof before.rows) => Object.fromEntries(Object.entries(rows).filter(([name]) => name !== altered));
+          assert.deepEqual(unchanged((await domain()).rows), unchanged(before.rows));
+          assert.deepEqual(await filesystem(), files);
+        } finally {
+          fs.open = originalOpen; currentToken = token;
+          if (change === 'rights') await h.admin.query("UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id='principal-org' AND user_id='member'");
+          if (change === 'grant') await h.admin.query('INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5)',
+            [grant.client_id, grant.user_id, grant.workspace_id, grant.created_at, grant.updated_at]);
+          if (change === 'native') await h.admin.query('UPDATE collaboration_yjs_states SET document_sequence=$1 WHERE document_id=$2', [originalSequence, document.documentId]);
+          await fs.unlink(physical);
+        }
       });
       await group('a real PostgreSQL source timeout retains public timeout diagnostics without mutation', async () => {
         const target = 'sql-timeout-preview.md';

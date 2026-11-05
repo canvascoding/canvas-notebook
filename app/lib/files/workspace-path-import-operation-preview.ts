@@ -4,10 +4,12 @@ import { isWorkspaceCohortDeleteRequest, createWorkspacePathCohortDeletePreparat
 
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
+import { withWorkspaceSourceScanObserver } from '../observability/workspace-source-scan';
+import { directMcpCorrelationId } from '../mcp/server/diagnostics';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
-import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
+import { readWorkspaceLinkSourcePreviewObservation, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
 import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
 import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
@@ -100,12 +102,14 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
   const captured = captureWorkspacePathImportPreviewInput(supplied);
   if (!authenticatedNativeTextSessionEnabled()) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID');
   type Sources = { workspace: Access['workspace']; scope: ReturnType<typeof captureWorkspaceOperationJobScope>;
-    observation: Awaited<ReturnType<typeof readWorkspaceLinkSourceAuthorityOnConnection>> };
+    observation: Awaited<ReturnType<typeof readWorkspaceLinkSourcePreviewObservation>> };
   const readSources = async (expected?: Sources): Promise<Sources> => {
     let scope: Sources['scope'] | undefined;
     let workspace: Access['workspace'] | undefined;
     let phaseFailure: unknown;
+    let phaseMs = 0, sqlMs = 0, sqlPhases = 0, maxPhaseMs = 0;
     const readPhase = async <T>(operation: (database: SqlConnection) => Promise<T>): Promise<T> => {
+      const phaseStarted = performance.now(); sqlPhases++;
       let rollbackClosedError: unknown;
       try {
         return await executeLifecycleTransaction({
@@ -157,6 +161,9 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           phaseFailure = error;
         }
         throw phaseFailure;
+      } finally {
+        const duration = performance.now() - phaseStarted;
+        phaseMs += duration; maxPhaseMs = Math.max(maxPhaseMs, duration);
       }
     };
     await readPhase(async () => undefined);
@@ -164,13 +171,23 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
     // writer, receipt owner or caller. It grants observations, not a reusable
     // connection/transaction authority. Even swallowed collector errors must
     // preserve the original failed authorization/SQL phase below.
+    const query = <T>(operation: (database: SqlConnection) => Promise<T>) => readPhase(async database => {
+      const started = performance.now();
+      try { return await operation(database); }
+      finally { sqlMs += performance.now() - started; }
+    });
     const readOnly: SqlConnection = {
-      get: (sql, values) => readPhase(database => Promise.resolve(database.get(sql, values))),
-      all: (sql, values) => readPhase(database => Promise.resolve(database.all(sql, values))),
+      get: (sql, values) => query(database => Promise.resolve(database.get(sql, values))),
+      all: (sql, values) => query(database => Promise.resolve(database.all(sql, values))),
       run: () => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID'); },
       close: () => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID'); },
     };
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(readOnly, workspace!, { physicalParserVersion: 3 });
+    const correlationId = directMcpCorrelationId();
+    const observation = await withWorkspaceSourceScanObserver(measurement => {
+      console.info('[source-preview]', JSON.stringify({ ...measurement, correlation_id: correlationId,
+        principal_kind: captured.principal.kind, sql_ms: Math.round(sqlMs), authority_phase_ms: Math.round(phaseMs),
+        sql_phases: sqlPhases, max_phase_ms: Math.round(maxPhaseMs) }));
+    }, () => readWorkspaceLinkSourcePreviewObservation(readOnly, workspace!));
     if (phaseFailure !== undefined) throw phaseFailure;
     await readPhase(async () => undefined);
     if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)
