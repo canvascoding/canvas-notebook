@@ -136,7 +136,11 @@ async function main(): Promise<void> {
       try{return await operation(connection(client),client);}
       finally{await client.query('ROLLBACK').catch(()=>undefined);await endClient(client);}
     };
-    const check=async(name:string,operation:()=>Promise<void>)=>{stage=name;await operation();cases++;console.log(`Native transport passed: ${name}`);};
+    const check=async(name:string,operation:()=>Promise<void>)=>{
+      const filters = process.argv.slice(2);
+      if (filters.length && !filters.some(filter => name.includes(filter))) return;
+      stage=name;await operation();cases++;console.log(`Native transport passed: ${name}`);
+    };
     const code=(expected:string)=>(error:unknown)=>{
       const actual=error&&typeof error==='object'?Reflect.get(error,'code'):undefined;
       if(actual!==expected)console.log('Expected fixture error code differed:',{expected,actualCode:typeof actual==='string'?actual.slice(0,128):null});
@@ -292,6 +296,26 @@ async function main(): Promise<void> {
         }
         await dispose(cap);
       }
+    });
+    await check('borrowed transport co-observes binding without duplicate native binary reads', async () => {
+      const cap = await captured(), target = await seed('joint-binding-budget'), before = await stored(target.identity);
+      try {
+        await transaction(async (db, client) => {
+          let binaryReads = 0;
+          const counted: SqlConnection = { ...db, get: async (sql, args) => {
+            if (sql.includes('SELECT * FROM') && sql.includes('collaboration_yjs_states WHERE')) binaryReads++;
+            return (await client.query(sql, args)).rows[0];
+          } };
+          await phase(counted, cap, { permission: 'canRead', ...input(target.identity) }, async (doc, access) => {
+            assert.equal(doc.snapshot.stateProof, target.proof);
+            assert.equal(access.workspace.workspaceId, workspaceId);
+            await access.assertCurrent();
+            assert.equal(doc.snapshot.stateProof, target.proof);
+          });
+          assert(binaryReads <= 5, `Borrowed transport repeated native binary reads: ${binaryReads}`);
+        });
+        assert.deepEqual(await stored(target.identity), before);
+      } finally { await dispose(cap); }
     });
     await check('request Headers/options and phase identity are captured before first await',async()=>{
       const actual=await request('owner',true),options={workspaceId,maxPermission:'canWrite' as 'canRead'|'canWrite'};
@@ -505,9 +529,9 @@ async function main(): Promise<void> {
         await assert.rejects(transaction(async(db,client)=>{
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{const row=(await client.query(sql,args)).rows[0];
             if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-            // Each retained Current now has two complete actual replies. Keep
-            // the same second/third completion boundary, after its final reply.
-            if(armed&&reads===baseline+3&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
+            // Joint transport verification leaves two native reads after the consumer.
+            // Keep the same second/third Current completion boundary, after its final reply.
+            if(armed&&reads===baseline+2&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
               &&++checks===window*2){attempted=true;assert.throws(()=>old.userId,code('NATIVE_TRANSPORT_REQUIRED'));}return row;}};
           await phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async(_doc,access)=>{old=access;baseline=reads;armed=true;});
         }),code('NATIVE_TRANSPORT_REQUIRED'));assert(attempted);await dispose(cap);
@@ -517,7 +541,7 @@ async function main(): Promise<void> {
       const cap=await captured();let switched=false,realmReads=0;
       await assert.rejects(transaction(async(db,client)=>{
         const wrapped:SqlConnection={...db,get:async(sql,args)=>{
-          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===3){
+          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===1){
             switched=true;await client.query(`ALTER SCHEMA "${schema}" RENAME TO "${schema}_old"`);await client.query(`CREATE SCHEMA "${schema}"`);
             await client.query(`ALTER TABLE "${schema}_old".canvas_workspaces SET SCHEMA "${schema}"`);
           }return(await client.query(sql,args)).rows[0];}};
@@ -529,7 +553,7 @@ async function main(): Promise<void> {
       await assert.rejects(transaction(async(_db,client)=>{
         const peer=await ownClient();await peer.query('BEGIN');let selected=client;
         const wrapped:SqlConnection={get:async(sql,args)=>{
-          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===3){switched=true;selected=peer;}
+          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===1){switched=true;selected=peer;}
           return(await selected.query(sql,args)).rows[0];},all:async(sql,args)=>(await selected.query(sql,args)).rows,
           run:async(sql,args)=>({changes:(await selected.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
         try{await phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async()=>{});}
@@ -541,7 +565,7 @@ async function main(): Promise<void> {
       const pending=transaction(async(db,client)=>{
         const wrapped:SqlConnection={...db,get:async(sql,args)=>{const row=(await client.query(sql,args)).rows[0];
           if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;
-          if(armed&&reads===baseline+3&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
+          if(armed&&reads===baseline+2&&row?.token_hash&&row.workspace&&row.seat&&Array.isArray(row.relations)
             &&++checks===6){entered.resolve();await release.promise;}return row;}};
         return phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async()=>{baseline=reads;armed=true;return 'not-published';});
       });const rejected=assert.rejects(pending,code('NATIVE_TRANSPORT_DISPOSED'));
@@ -555,7 +579,7 @@ async function main(): Promise<void> {
           const wrapped:SqlConnection={...db,get:async(sql,args)=>{
             // Revoke before the first full snapshot of the same retained
             // second/third Current, rather than its removed workspace-only read.
-            if(armed&&reads===baseline+3&&sql.includes('AS token_hash')&&sql.includes('AS workspace')&&sql.includes('AS seat')
+            if(armed&&reads===baseline+2&&sql.includes('AS token_hash')&&sql.includes('AS workspace')&&sql.includes('AS seat')
               &&++checks===window*2-1){
               changed=true;await client.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");}
             const row=(await client.query(sql,args)).rows[0];if(sql.includes('SELECT * FROM')&&sql.includes('collaboration_yjs_states WHERE'))reads++;return row;}};
@@ -578,6 +602,7 @@ async function main(): Promise<void> {
       for(const cookie of [true,false]){const cap=await captured('owner','canWrite',cookie);await read(cap,async(_doc,access)=>{assert.equal(access.userId,'owner');await access.assertCurrent();},'canWrite');await dispose(cap);
         await assert.rejects(captured('member','canRead',cookie),code('PRINCIPAL_AUTH_REVOKED'));}
     });
+    assert(cases > 0, 'No native transport families matched the requested filters.');
     assert.equal(fetches,0);
     console.log(`Authenticated native transport PG18: ${cases} genuine Cookie/Bearer/Team/Solo/lifetime families passed; inactive, no Session/WS activation.`);
   }finally{

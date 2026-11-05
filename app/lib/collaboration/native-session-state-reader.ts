@@ -267,7 +267,8 @@ function inspectQuarantinedNativeState(state: PersistedCollaborationState): Nati
         ...(state.projectionError ? { error: { ...state.projectionError } } : {}) }, content: native.content };
   } finally { doc.destroy(); }
 }
-async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnapshot> {
+async function readCurrent(captured: Capture, transport?: { row?: Readonly<Row> }): Promise<ExistingNativeSessionSnapshot> {
+  if (transport && !captured.principal) fail('NATIVE_SESSION_REQUIRED');
   if (captured.principal) { await captured.principal.assertCurrent(); assertActive(captured); }
   assertActive(captured);
   if (!captured.identity) fail('NATIVE_SESSION_SCOPE_CHANGED');
@@ -276,7 +277,13 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
   const schema = quote(captured.identity!.schema);
   // The current connection, shared lock and metadata belong to one SQL snapshot.
   // LEFT JOIN retains the connection observation when no document is found.
-  const observedRows = await captured.connection.all(`SELECT connection_observation.*,native_source.*
+  const transportFields = transport ? `,to_regnamespace(current_schema())::oid::bigint AS transport_schema_oid,
+    pg_current_xact_id()::text AS transport_xid,
+    transport_workspace.id AS transport_workspace_id,transport_workspace.type AS transport_workspace_type,
+    transport_workspace.organization_id AS transport_organization_id,transport_workspace.project_id AS transport_project_id,
+    transport_workspace.customer_id AS transport_customer_id,transport_workspace.owner_user_id AS transport_owner_user_id,
+    transport_workspace.root_relative_path AS transport_root_relative_path,transport_workspace.status AS transport_workspace_status` : '';
+  const observedRows = await captured.connection.all(`SELECT connection_observation.*,native_source.*${transportFields}
     FROM (${observation.sql}) connection_observation LEFT JOIN LATERAL (
     SELECT d.id,d.lineage_id,d.workspace_id,d.workspace_type,d.organization_id,d.path,d.provider,
     d.status,d.state_version,d.yjs_state_lifecycle,l.workspace_id AS lineage_workspace_id,l.workspace_type AS lineage_workspace_type,
@@ -292,7 +299,8 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     FROM ${schema}.collaboration_documents d FULL JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
       LEFT JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
     WHERE ((d.workspace_id=$1 AND d.path=$2) OR (s.workspace_id=$1 AND s.path=$2))
-      AND (d.status='active' OR s.status='active') LIMIT 2) native_source ON true`,
+      AND (d.status='active' OR s.status='active') LIMIT 2) native_source ON true
+    ${transport ? `LEFT JOIN ${schema}.canvas_workspaces transport_workspace ON transport_workspace.id=$1` : ''}`,
   [captured.workspaceId, captured.path, ...observation.parameters]) as Row[];
   assertActive(captured);
   const currentIdentity = validatedConnectionIdentity(observedRows[0], captured.principal, captured.identity.schema, captured);
@@ -351,6 +359,16 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
     persistedAt: state.persistedAt, checkpointedAt: state.checkpointedAt, stateVector: native.version.stateVector, stateProof: native.version.stateProof,
     newlineStyle: state.newlineStyle, hasBom: state.hasBom, degraded: state.degraded,
     ...(state.projectionError ? { projectionError: Object.freeze({ ...state.projectionError }) } : {}) });
+  if (transport) {
+    // Fixed transport facts share the native metadata observation. Publish only
+    // after the complete binary, connection and final principal fences pass.
+    const row = observedRows[0];
+    transport.row = Object.freeze({ schema: row.schema_name, schema_oid: row.transport_schema_oid,
+      search_path: row.search_path, database_oid: row.database_oid, backend: row.backend_pid,
+      backend_start: row.backend_start, xid: row.transport_xid,
+      ...Object.fromEntries(['workspace_id', 'workspace_type', 'organization_id', 'project_id', 'customer_id',
+        'owner_user_id', 'root_relative_path', 'workspace_status'].map(key => [key, row[`transport_${key}`]])) });
+  }
   return captured.snapshot;
 }
 
@@ -564,10 +582,27 @@ function requireCapability(connection: SqlConnection, capability: ExistingNative
 /** Must be awaited immediately before a later, separately authorized grant is assembled. */
 export function assertExistingNativeCollaborationSessionCurrentOnConnection(connection: SqlConnection,
   capability: ExistingNativeCollaborationSession): Promise<ExistingNativeSessionSnapshot> {
+  return observeCurrent(connection, capability);
+}
+
+/** Fixed internal co-observation, requiring an actual authenticated native
+ * capability. The row is data for transport validation, never new authority. */
+export async function observeAuthenticatedNativeSessionTransportBindingOnConnection(connection: SqlConnection,
+  capability: ExistingNativeCollaborationSession): Promise<Readonly<Row>> {
+  const transport: { row?: Readonly<Row> } = {};
+  await observeCurrent(connection, capability, transport);
+  try { requireCapability(connection, capability); }
+  catch (error) { poisonCapabilityFailure(connection, capability, error); throw error; }
+  if (!transport.row) fail('NATIVE_SESSION_REQUIRED');
+  return transport.row;
+}
+
+function observeCurrent(connection: SqlConnection, capability: ExistingNativeCollaborationSession,
+  transport?: { row?: Readonly<Row> }): Promise<ExistingNativeSessionSnapshot> {
   let captured: Capture;
   try { captured = requireCapability(connection, capability); }
   catch (error) { poisonCapabilityFailure(connection, capability, error); return Promise.reject(error); }
-  const pending = readCurrent(captured).catch(error => { poison(captured, error); throw error; });
+  const pending = readCurrent(captured, transport).catch(error => { poison(captured, error); throw error; });
   captured.pending.add(pending);
   void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending));
   return pending;

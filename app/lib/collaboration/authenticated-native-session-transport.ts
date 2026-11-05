@@ -12,6 +12,7 @@ import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence, ty
 import { isCollaborationStateQuarantined } from './failure';
 import { COLLABORATION_SCHEMA_VERSION } from './types';
 import { assertExistingNativeCollaborationSessionCurrentOnConnection, inspectExistingNativeCollaborationSessionOnConnection,
+  observeAuthenticatedNativeSessionTransportBindingOnConnection,
   NativeSessionStateReaderError, withAuthenticatedExistingNativeCollaborationSessionOnConnection,
   type ExistingNativeCollaborationSession, type ExistingNativeSessionIdentity,
   type ExistingNativeSessionRequestAccess } from './native-session-state-reader';
@@ -242,6 +243,9 @@ function createNativeRuntime(): NativeRuntime {
       w.project_id,w.customer_id,w.owner_user_id,w.root_relative_path,w.status AS workspace_status
       FROM pg_stat_activity a JOIN canvas_workspaces w ON w.id=$1 WHERE a.pid=pg_backend_pid()`,
     [scope.workspaceId]) as Record<string, unknown> | undefined;
+    return validateBinding(phase, scope, row);
+  }
+  function validateBinding(phase: Phase, scope: Scope, row: Readonly<Record<string, unknown>> | undefined): Binding {
     active(phase);
     if (!row || typeof row.schema !== 'string' || !row.schema || row.schema.length > 63
       || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
@@ -268,8 +272,18 @@ function createNativeRuntime(): NativeRuntime {
   function sameRealm(a: Realm, b: Realm): boolean {
     return a.schema === b.schema && a.schemaOid === b.schemaOid && a.searchPath === b.searchPath && a.databaseOid === b.databaseOid;
   }
-  async function verify(phase: Phase, access: WorkspaceRequestPrincipalAccess): Promise<void> {
+  async function verify(phase: Phase, access: WorkspaceRequestPrincipalAccess,
+    native?: ExistingNativeCollaborationSession): Promise<void> {
     active(phase);
+    if (native) {
+      // One genuine native observation includes the actual workspace/realm
+      // binding. Its initial/final principal and full binary guards remain in
+      // the reader; there is no independent binding SQL between two rereads.
+      const row = await observeAuthenticatedNativeSessionTransportBindingOnConnection(phase.connection, native);
+      const binding = validateBinding(phase, captureScope(access, phase.record.workspaceId), row);
+      phase.binding ??= binding;
+      return;
+    }
     await access.assertCurrent();
     const scope = captureScope(access, phase.record.workspaceId), binding = await readBinding(phase, scope);
     await access.assertCurrent();
@@ -366,14 +380,15 @@ function createNativeRuntime(): NativeRuntime {
       return Promise.reject(error ?? new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_INVALID'));
     }
   }
-  function callbackAccess(phase: Phase, access: ExistingNativeSessionRequestAccess): ExistingNativeSessionRequestAccess {
+  function callbackAccess(phase: Phase, access: ExistingNativeSessionRequestAccess,
+    native?: ExistingNativeCollaborationSession): ExistingNativeSessionRequestAccess {
     const assertBound = () => {
       active(phase, true);
       if (phase.checks.size) throw poison(phase.record, new AuthenticatedNativeSessionTransportError('NATIVE_TRANSPORT_REENTRANT'));
     };
     const assertCurrent = (): Promise<void> => {
       try { assertBound(); } catch (error) { return Promise.reject(poison(phase.record, error)); }
-      const pending = verify(phase, access).catch(error => { throw poison(phase.record, error); });
+      const pending = verify(phase, access, native).catch(error => { throw poison(phase.record, error); });
       phase.checks.add(pending);
       void pending.then(() => phase.checks.delete(pending), () => phase.checks.delete(pending));
       return pending;
@@ -405,11 +420,11 @@ function createNativeRuntime(): NativeRuntime {
           withAuthenticatedExistingNativeCollaborationSessionOnConnection(connection, principal,
             { path: captured.path, ...(captured.expectedIdentity ? { expectedIdentity: captured.expectedIdentity } : {}) },
             async (native, access) => {
-              await verify(phase, access);
+              await verify(phase, access, native);
               enterPeerConsumer(record);
               phase.callbackActive = true;
               let result: T | undefined;
-              try { result = await callbackContext.run(phase, () => consume(native, callbackAccess(phase, access))); }
+              try { result = await callbackContext.run(phase, () => consume(native, callbackAccess(phase, access, native))); }
               catch (error) { poison(record, error); }
               finally { phase.callbackActive = false; }
               if (phase.checks.size) {
@@ -417,7 +432,7 @@ function createNativeRuntime(): NativeRuntime {
                 await Promise.allSettled([...phase.checks]);
               }
               active(phase);
-              await verify(phase, access);
+              await verify(phase, access, native);
               return result as T;
             })));
     } catch (error) {

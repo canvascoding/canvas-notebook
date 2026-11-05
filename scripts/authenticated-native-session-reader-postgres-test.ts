@@ -122,6 +122,7 @@ async function main(): Promise<void> {
     const { withAuthenticatedExistingNativeCollaborationSessionOnConnection:readSession,
       withExistingNativeCollaborationSessionOnConnection:readOnlySession,
       assertExistingNativeCollaborationSessionCurrentOnConnection:current,
+      observeAuthenticatedNativeSessionTransportBindingOnConnection:transportBinding,
       inspectExistingNativeCollaborationSessionOnConnection:inspect } = await import('../app/lib/collaboration/native-session-state-reader');
     const { createPlainTextYDoc,createRichMarkdownYDoc,validateRichMarkdownYDoc,richMarkdownSchemaExtensions } = await import('../app/lib/collaboration/markdown-state');
     const { Y } = await import('../app/lib/collaboration/server-runtime');
@@ -166,6 +167,30 @@ async function main(): Promise<void> {
     const stored=async(identity:ExistingNativeSessionIdentity)=>(await admin.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1',[identity.documentId])).rows[0];
     const input=(identity:ExistingNativeSessionIdentity)=>({path:identity.path,expectedIdentity:identity});
     const native=await seed('native-existing');
+    await check('joint transport binding requires genuine authenticated native authority and current binary', async () => {
+      await captured(p => transaction(db => readSession(db, p, input(native.identity), async cap => {
+        const row = await transportBinding(db, cap);
+        assert(Object.isFrozen(row));
+        assert.equal(row.workspace_id, workspaceId); assert.equal(row.workspace_status, 'active');
+        const actual = await db.get(`SELECT pg_backend_pid() AS backend,pg_current_xact_id()::text AS xid,
+          to_regnamespace(current_schema())::oid::bigint AS schema_oid`) as { backend: number; xid: string; schema_oid: number };
+        assert.equal(row.backend, actual.backend); assert.equal(row.xid, actual.xid); assert.equal(row.schema_oid, actual.schema_oid);
+        assert.equal(cap.snapshot.stateProof, native.proof);
+      })));
+      await assert.rejects(captured(p => transaction(db => readSession(db, p, input(native.identity), async cap => {
+        await assert.rejects(transportBinding(db, { ...cap }), code('NATIVE_SESSION_REQUIRED'));
+      }))), code('NATIVE_SESSION_REQUIRED'));
+      const { requireRequestWorkspace } = await import('../app/lib/workspaces/request');
+      const real = await requireRequestWorkspace(await request(), { workspaceId, permissions: 'canRead' }); assert(!real.response);
+      await assert.rejects(transaction(db => readOnlySession(db, { workspace: real.workspace, ...input(native.identity) }, async cap => {
+        await assert.rejects(transportBinding(db, cap), code('NATIVE_SESSION_REQUIRED'));
+      }), 'BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'), code('NATIVE_SESSION_REQUIRED'));
+      await assert.rejects(captured(p => transaction(db => readSession(db, p, input(native.identity), async cap => {
+        await db.run('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2', [Buffer.from([255]), native.identity.documentId]);
+        await transportBinding(db, cap);
+      }))));
+      assert.deepEqual((await stored(native.identity)).yjs_state, native.update);
+    });
     await check('actual cookie/bearer trusted Team rights read native Plain/XML/Blocks/empty',async()=>{
       for(const cookie of [true,false]) for(const representation of ['plain_text','tiptap_xml','tiptap_blocks'] as const) for(const empty of [true,false]){
         const target=await seed(`${representation}-${empty}-${cookie}`,representation,{empty,profile:true});const before=await stored(target.identity);
