@@ -36,6 +36,10 @@ function runStep(name, overrides = {}, responses = [{ status: 0, message: 'Ticke
     fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ version: '2026.11.5.4' }));
     fs.writeFileSync(path.join(directory, 'responses.json'), JSON.stringify(responses));
     fs.writeFileSync(path.join(directory, 'output'), '');
+    if (name === 'Stage desktop source receipt') {
+      fs.mkdirSync(path.join(directory, 'dist-electron'));
+      fs.writeFileSync(path.join(directory, 'desktop-release-source.json'), JSON.stringify({ schemaVersion: 1, commitSha: sourceSha, tag: releaseTag }));
+    }
     const executable = (name, body) => fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n${body}`, { mode: 0o700 });
     executable('xcrun', `
       const fs = require('node:fs');
@@ -72,6 +76,8 @@ function runStep(name, overrides = {}, responses = [{ status: 0, message: 'Ticke
     return { status: result.status, stderr: result.stderr,
       calls: rows('calls').map(JSON.parse), sleeps: rows('sleeps'), gitCalls: rows('git-calls').map(JSON.parse),
       output: rows('output'), injected: fs.existsSync(path.join(directory, 'injected')),
+      stagedProof: fs.existsSync(path.join(directory, 'dist-electron/desktop-release-source.json'))
+        ? JSON.parse(fs.readFileSync(path.join(directory, 'dist-electron/desktop-release-source.json'))) : null,
       proof: fs.existsSync(path.join(directory, 'desktop-release-source.json'))
         ? JSON.parse(fs.readFileSync(path.join(directory, 'desktop-release-source.json'))) : null };
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -171,4 +177,24 @@ test('an unversioned manual build emits no publishable release tag', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.proof, { schemaVersion: 1, commitSha: sourceSha, tag: '' });
   assert(result.output.includes('release_tag='));
+});
+
+test('the exact source receipt is staged with the signed desktop assets', () => {
+  const result = runStep('Stage desktop source receipt');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.proof, null);
+  assert.deepEqual(result.stagedProof, { schemaVersion: 1, commitSha: sourceSha, tag: releaseTag });
+});
+
+test('artifact paths share the output directory so the publisher receives a flat archive', () => {
+  // upload-artifact roots multiple paths at their least common ancestor.
+  const section = workflow.slice(workflow.indexOf('      - name: Upload desktop artifacts'));
+  const lines = section.split('\n');
+  const start = lines.indexOf('          path: |');
+  assert(start >= 0);
+  const paths = [];
+  for (let index = start + 1; lines[index]?.startsWith('            '); index++) paths.push(lines[index].trim());
+  assert(paths.length > 3);
+  assert.deepEqual([...new Set(paths.map(value => path.posix.dirname(value)))], ['dist-electron']);
+  assert(paths.includes('dist-electron/desktop-release-source.json'));
 });

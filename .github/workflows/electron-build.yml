@@ -237,6 +237,12 @@ jobs:
           APP_PATH: ${{ steps.signed-app.outputs.app_path }}
         run: spctl --assess --type execute --verbose=4 "$APP_PATH"
 
+      - name: Stage desktop source receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv desktop-release-source.json dist-electron/desktop-release-source.json
+
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -248,7 +254,7 @@ jobs:
             dist-electron/*.dmg
             dist-electron/*.zip
             dist-electron/latest-mac.yml
-            desktop-release-source.json
+            dist-electron/desktop-release-source.json
 
   release:
     name: Publish desktop release
