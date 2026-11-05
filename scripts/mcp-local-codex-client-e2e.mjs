@@ -66,7 +66,7 @@ try {
     capabilities: { experimentalApi: true } });
   app.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
   const login = await rpc('mcpServer/oauth/login', { name: serverName, clientRegistration: 'dcr', timeoutSecs: 180,
-    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search', 'knowledge:write'] });
+    scopes: ['workspace:list', 'knowledge:tree', 'knowledge:read', 'knowledge:search', 'knowledge:write', 'knowledge:assets'] });
   const authorization = new URL(login.authorizationUrl);
   assert.equal(authorization.origin, baseURL);
   const page = await owner.newPage();
@@ -95,11 +95,16 @@ try {
   assert.equal(readSchema.oneOf, undefined);
   const editSchema = catalog.edit_knowledge_source.inputSchema;
   assert.equal(editSchema.oneOf, undefined);
-  assert.equal(editSchema.properties.patch.anyOf.length, 2);
-  for (const variant of editSchema.properties.patch.anyOf) {
-    assert.equal(variant.type, 'object'); assert.equal(variant.properties.kind.type, 'string');
-    assert(variant.required.includes('kind'));
-  }
+  const patch = editSchema.properties.patch;
+  assert.equal(patch.type, 'object'); assert.equal(patch.anyOf, undefined);
+  assert.deepEqual(patch.properties.kind.enum, ['native_text_replace', 'native_blocks']);
+  assert.equal(patch.properties.edits.type, 'array');
+  assert.deepEqual(patch.properties.edits.items.required, ['oldText', 'newText']);
+  assert.equal(patch.properties.edits.items.properties.expectedOccurrences.type, 'integer');
+  assert.equal(patch.properties.operations.type, 'array');
+  assert.equal(patch.properties.operations.items.type, 'object');
+  assert.equal(patch.properties.operations.items.properties.kind.enum.length, 6);
+  assert.match(patch.properties.operations.items.description, /delete_block requires kind, blockId, subtreeHash/);
   const call = (tool, args) => rpc('mcpServer/tool/call', { threadId, server: serverName, tool,
     arguments: { workspace_id: fixture.workspaceId, ...args } });
   await verifyCapabilitiesAcceptance(call);
@@ -173,8 +178,15 @@ try {
     assert.notEqual(after.isError, true); assert.equal(after.structuredContent.sha256, document.sha256);
     largePreviews.push({ workspaceId: largeFixture.workspaceId, path: document.path, outcome: expectedPreview, durationMs, retries, unchanged: true });
   }
+  const mixedPhysicalReads = [];
+  for (const largeFixture of largeFixtures) for (const document of largeFixture.physicalSources ?? []) {
+    const result = await call('read_knowledge_source', { workspace_id: largeFixture.workspaceId, path: document.path });
+    assert.notEqual(result.isError, true);
+    assert.equal(result.structuredContent.sha256, document.sha256);
+    mixedPhysicalReads.push({ workspaceId: largeFixture.workspaceId, path: document.path, sha256: document.sha256 });
+  }
   await fs.writeFile(path.join(path.dirname(process.argv[2]), 'codex-client-report.json'), JSON.stringify({ passed: true,
-    reliability, sourceCoverage, replacementCompletion, largePreviews, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
+    reliability, sourceCoverage, replacementCompletion, largePreviews, mixedPhysicalReads, client: 'installed codex app-server MCP client', modelTurns: 0, ephemeral: true, workspaceId: fixture.workspaceId,
     checks: ['OAuth DCR/PKCE', 'workspace grant', 'tools/list', 'legacy read', 'native format and byte limit',
       'native read continuation', 'wrong version conflict', 'native search continuation',
       'legacy hash-protected continuation', 'legacy search continuation', 'tree continuation', 'upload retries/status/checksum'],

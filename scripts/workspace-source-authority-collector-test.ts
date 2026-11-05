@@ -17,7 +17,8 @@ import { withNativeInspectionSchema } from '../app/lib/collaboration/native-insp
 import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
-import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../app/lib/markdown/workspace-source-authority-stage';
+import { readWorkspaceLinkSourceAuthorityOnConnection, readWorkspaceLinkSourcePreviewObservation,
+  requiresWorkspaceLinkSourceAuthorityRevalidation } from '../app/lib/markdown/workspace-source-authority-stage';
 import { documentLinkReadProjectionStatistics, withFreshDocumentLinkReadProjection } from '../app/lib/markdown/document-link-read-projection';
 import { withWorkspaceSourceScanObserver, type WorkspaceSourceScanMeasurement } from '../app/lib/observability/workspace-source-scan';
 
@@ -95,6 +96,35 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(observed.nativeBindings.length, 0); assert.equal(observed.privateNativeStates.length, 0);
       assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 3);
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id') || entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
+    });
+    await fixture('historical preview batches fifty physical authority probes and still reads all sources', async () => {
+      await seed('native.md');
+      for (let index = 0; index < 50; index++) await fs.writeFile(path.join(root, `physical-${index}.md`), '[Native](native.md)\n');
+      const observed = await readWorkspaceLinkSourcePreviewObservation(connection, workspace);
+      assert.equal(observed.stage.coverage.complete, true);
+      assert.equal(observed.stage.sources.length, 51);
+      const catalogues = trace.filter(entry => entry.sql.includes('has_state_history'));
+      assert.equal(catalogues.length, 4, 'Four full snapshots replace per-file registry lookups in previews only.');
+      assert(catalogues.every(entry => JSON.stringify(entry.values[1]) === '[""]'));
+      // A normal owner on the SAME connection must not inherit preview mode.
+      trace.length = 0;
+      const strict = await read();
+      assert.equal(strict.stage.coverage.complete, true);
+      assert(trace.filter(entry => entry.sql.includes('has_state_history')).length > 50);
+    });
+    await fixture('preview catalogue batching rejects an authority change during physical reading', async () => {
+      await fs.writeFile(path.join(root, 'physical.md'), '[Other](other.md)\n');
+      let changed = false;
+      const observed = await readWorkspaceLinkSourcePreviewObservation(connection, workspace, {
+        afterSourceFingerprint: async () => {
+          if (!changed) { changed = true; await seed('new-native.md'); }
+        },
+      });
+      assert(changed);
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.privateCatalogue, undefined);
+      assert.equal(observed.stage.sources.length, 0);
+      assert.equal(requiresWorkspaceLinkSourceAuthorityRevalidation(observed), true);
     });
     for (const code of ['25P04', '57014', '08006', 'MCP_READ_PHASE_TIMEOUT']) {
       for (const pass of [1, 2]) await fixture(`preserves ${code} during native read pass ${pass}`, async () => {

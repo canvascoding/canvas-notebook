@@ -116,23 +116,31 @@ test('MCP declaration preserves typed patch variants while runtime rejects mixed
   assert.equal(Object.hasOwn(schema, 'oneOf'), false);
   assert.equal(JSON.stringify(schema).includes('"oneOf"'), false);
   assert(Object.hasOwn(piDocumentEditInputSchema(legacy), 'oneOf'), 'PI contract is unchanged');
-  type Shape = { type?: string; const?: string; properties?: Record<string, Shape>; anyOf?: Shape[]; items?: Shape; required?: string[]; maxItems?: number };
+  type Shape = { type?: string; const?: string; enum?: string[]; description?: string;
+    properties?: Record<string, Shape>; anyOf?: Shape[]; items?: Shape; required?: string[]; maxItems?: number };
   const patch = schema.properties!.patch as Shape;
-  assert.equal(patch.anyOf?.length, 2);
-  const text = patch.anyOf![0], blocks = patch.anyOf![1];
-  assert.equal(text.properties!.kind.type, 'string');
-  assert.equal(text.properties!.edits.maxItems, 32);
-  assert.deepEqual(text.required, ['kind', 'edits']);
-  const operations = blocks.properties!.operations.items!.anyOf!;
-  assert.equal(operations.length, 6);
-  for (const operation of operations) {
-    assert.equal(operation.type, 'object');
-    assert.equal(operation.properties!.kind.type, 'string');
-    assert(operation.required!.includes('kind'));
-    for (const field of operation.required!) assert(operation.properties![field], field);
+  assert.equal(patch.type, 'object');
+  assert.equal(patch.anyOf, undefined, 'Shared patch fields must be directly visible to MCP adapters.');
+  assert.deepEqual(patch.properties!.kind.enum, ['native_text_replace', 'native_blocks']);
+  assert.equal(patch.properties!.edits.type, 'array');
+  assert.equal(patch.properties!.edits.maxItems, 32);
+  assert.deepEqual(patch.properties!.edits.items!.required, ['oldText', 'newText']);
+  assert.equal(patch.properties!.operations.type, 'array');
+  assert.equal(patch.properties!.operations.maxItems, 32);
+  const operation = patch.properties!.operations.items!;
+  assert.equal(operation.type, 'object');
+  const kinds = ['move_block', 'delete_block', 'insert_blocks', 'format_block', 'format_text', 'table_operation'];
+  assert.deepEqual(operation.properties!.kind.enum, kinds);
+  for (const name of ['blockId', 'placementHash', 'subtreeHash', 'blocks', 'beforeAttrs', 'afterAttrs', 'from', 'to', 'mark', 'enabled', 'cellId', 'action']) {
+    assert(operation.properties![name].type, `Missing explicit type for ${name}`);
   }
+  assert.match(patch.description!, /native_text_replace requires kind, edits/);
+  assert.match(operation.description!, /delete_block requires kind, blockId, subtreeHash/);
   const examples = (schema as unknown as { examples: Record<string, unknown>[] }).examples;
   for (const example of examples) assert(decodeDirectMcpNativeDocumentEditSelection(example));
+  for (const kind of kinds) assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], patch: {
+    kind: 'native_blocks', operations: [{ kind }],
+  } }), `Missing protection/target fields must still be rejected for ${kind}`);
   assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], path: 'mixed.md' }));
   assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], patch: {
     kind: 'native_text_replace', edits: [{ oldText: 'x', newText: 'y' }], operations: [],

@@ -23,3 +23,18 @@ test('diagnostic observer failures never change collector control flow', async (
   });
   assert.equal(result, 'source-result');
 });
+test('source timing separates completed and failed reads from native work', async () => {
+  const records: WorkspaceSourceScanMeasurement[] = [];
+  const failure = new Error('private database diagnostic');
+  await withWorkspaceSourceScanObserver(value => records.push(value), async () => {
+    const scan = beginWorkspaceSourceScan();
+    assert.equal(await scan.read('native', async () => 42), 42);
+    await assert.rejects(scan.read('native', async () => { throw failure; }), error => error === failure);
+    scan.checkpoint('native'); scan.finish(false, 0, 1);
+  });
+  const value = records[0];
+  assert(Number.isFinite(value.readWaitMs.native) && value.readWaitMs.native! >= 0);
+  assert(Number.isFinite(value.workMs.native) && value.workMs.native! >= 0);
+  assert(Object.isFrozen(value.readWaitMs) && Object.isFrozen(value.workMs));
+  assert(!JSON.stringify(value).includes('private'));
+});

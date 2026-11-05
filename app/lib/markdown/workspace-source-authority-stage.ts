@@ -78,6 +78,7 @@ export type WorkspaceLinkSourceAuthorityObservation = Readonly<{
 }>;
 // Rejection-only provenance. No public DTO field or current authority is cached.
 const confirmedSourceReadChanges = new WeakSet<WorkspaceLinkSourceAuthorityObservation>();
+const previewSourceConnections = new WeakSet<SqlConnection>();
 export function requiresWorkspaceLinkSourceAuthorityRevalidation(observation: WorkspaceLinkSourceAuthorityObservation): boolean {
   return confirmedSourceReadChanges.has(observation);
 }
@@ -288,6 +289,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   workspace = structuredClone(workspace);
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   const originalMove = readOriginalMoveCollectorOverlay(connection, workspace);
+  const previewOnly = previewSourceConnections.has(connection);
   const limits = { ...DEFAULT_LIMITS, ...dependencies.limits };
   if (Object.entries(limits).some(([key, value]) => !Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key as keyof Limits])) throw new Error('Invalid physical source staging limit.');
   const sources: WorkspaceSourceAuthorityStage['sources'] = []; const namespace = new Map<string, NativeNamespaceEntry>();
@@ -300,16 +302,23 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   let totalBytes = 0; let totalLinks = 0;
   const measurement = beginWorkspaceSourceScan();
   let measuring: 'catalogue' | 'filesystem' | 'native' | 'physical' | 'revalidation' = 'catalogue';
+  const readConnection: SqlConnection = { ...connection,
+    get: (sql, values) => measurement.read(measuring, () => Promise.resolve(connection.get(sql, values))),
+    all: (sql, values) => measurement.read(measuring, () => Promise.resolve(connection.all(sql, values))),
+  };
   try {
     const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
-    const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
+    const catalogue = await readWorkspaceDocumentCatalogue(readConnection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
     privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
     measurement.checkpoint(measuring); measuring = 'filesystem';
     const registered = new Map(catalogue.map((entry) => [entry.path, entry]));
+    let physicalCatalogue = previewOnly ? registered : undefined;
     const verifyPhysicalAuthority = async (filePath: string) => {
-      const current = await readWorkspaceDocumentCatalogue(connection!, workspace, { paths: [filePath] });
+      const entry = physicalCatalogue?.get(filePath);
+      const current = physicalCatalogue ? entry ? [entry] : []
+        : await readWorkspaceDocumentCatalogue(readConnection, workspace, { paths: [filePath] });
       const expected = registered.get(filePath);
       if (current.some((entry) => entry.path !== filePath || entry.authority !== 'pristine')
         || nativeLinkJsonProof(current[0] ?? null) !== nativeLinkJsonProof(expected ?? null)) fail('physical-authority-changed', filePath);
@@ -404,7 +413,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // Extension/capability never authorize projection bytes for this branch.
     measurement.checkpoint(measuring); measuring = 'native';
-    const nativeRead = await readNativeSources(connection, workspace, catalogue.filter(document => document.authority === 'initialized'),
+    const nativeRead = await readNativeSources(readConnection, workspace, catalogue.filter(document => document.authority === 'initialized'),
       limits, limits.maxTotalSourceBytes - totalBytes, dependencies.loadState, documentIndexRead);
     totalBytes += nativeRead.reservedBytes;
     gaps.push(...nativeRead.gaps);
@@ -441,6 +450,11 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       }
     }
     measurement.checkpoint(measuring); measuring = 'physical';
+    if (previewOnly) {
+      const current = await readWorkspaceDocumentCatalogue(readConnection, workspace, catalogueOptions);
+      if (nativeLinkJsonProof(current) !== catalogueProof) throw new ConfirmedSourceReadChange('source-authority-changed', '');
+      physicalCatalogue = new Map(current.map(entry => [entry.path, entry]));
+    }
     for (const item of observed) {
       if (!item.stat.isFile()) continue;
       const document = registered.get(originalMove?.logicalPath(item.relativePath) ?? item.relativePath);
@@ -473,7 +487,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
     measurement.checkpoint(measuring); measuring = 'revalidation';
-    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
+    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(readConnection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
       if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
@@ -483,7 +497,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
     try {
-      const current = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
+      const current = await readNativeSources(readConnection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
         limits, limits.maxTotalSourceBytes - physicalBytes - unavailableNativeBytes, dependencies.loadState, documentIndexRead,
         documentIndexRead ? undefined : nativeRead.sources);
       if (current.gaps.length) fail('native-source-changed', '');
@@ -497,7 +511,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     await assertWorkspaceOriginalPathsCurrent({ configuredRootPath: workspace.rootPath, root, observed });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
-    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, catalogueOptions);
+    const finalCatalogue = await readWorkspaceDocumentCatalogue(readConnection, workspace, catalogueOptions);
     if (nativeLinkJsonProof(finalCatalogue) !== catalogueProof) {
       if (finalCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
       throw new ConfirmedSourceReadChange('source-authority-changed', '');
@@ -531,6 +545,18 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   measurement.finish(!gaps.length, sources.length, gaps.length, gaps.map(gap => gap.code));
   if (confirmedSourceReadChange) confirmedSourceReadChanges.add(observation);
   return observation;
+}
+
+/** Historical preview only, under the caller's projection kernel fence.
+ * Physical registry probes share full fresh catalogue snapshots before and
+ * after the FD work; byte/inode/namespace/native revalidation is unchanged.
+ * Actual execution owners keep the default per-FD same-transaction checks. */
+export async function readWorkspaceLinkSourcePreviewObservation(connection: SqlConnection, workspace: WorkspaceContext,
+  dependencies: CollectorDependencies = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
+  if (previewSourceConnections.has(connection)) throw new Error('Source preview is already active.');
+  previewSourceConnections.add(connection);
+  try { return await readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, { ...dependencies, physicalParserVersion: 3 }); }
+  finally { previewSourceConnections.delete(connection); }
 }
 
 /** Original standalone API. Its own short read TX/shared fence is retained;
