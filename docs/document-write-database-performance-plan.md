@@ -81,6 +81,25 @@ Browservergleich belegt noch kein endgültiges SQL- oder Latenzbudget. Die
 nächste Bündelung setzt bei den verschachtelten Berechtigungs- und
 Verbindungsprüfungen innerhalb der letzten Session-Transaktion an.
 
+`EXPLAIN (ANALYZE, BUFFERS)` auf vier tatsächlich erfassten SELECT-Familien
+einer isolierten PostgreSQL-18-Web-Session bestätigte den nächsten Ansatz.
+Je Familie wurde der erste Lauf getrennt behandelt. Die folgenden Spannen
+stammen aus fünf Wiederholungen auf der kleinen Fixture:
+
+| Abfrage | Aufrufe pro Session | Planungszeit je Aufruf | Ausführung je Aufruf |
+| --- | ---: | ---: | ---: |
+| Berechtigungssnapshot | 76 | 1,274–1,371 ms | 0,277–0,392 ms |
+| Native Verbindung und Schema | 37 | 0,094–0,155 ms | 0,141–0,212 ms |
+| Native Metadaten mit Reservierungen | 12 | 0,123–0,151 ms | 0,028–0,039 ms |
+| Begrenzter Binärzustand | 12 | 0,020–0,048 ms | 0,009–0,022 ms |
+
+Alle beobachteten Blöcke kamen aus dem PostgreSQL-Cache. Diese Probe gibt
+keinen Anlass für einen zusätzlichen Index und erfasst keine Netzlaufzeit.
+Sie priorisiert die wiederholten Berechtigungssnapshots vor weiteren
+Optimierungen des Binärlesers. Bei einer Bündelung bleiben insbesondere
+Prüfungen vor und nach einem Callback oder einer unabhängigen SQL-Beobachtung
+separat nachzuweisen.
+
 ## Aktueller Abnahmestand vom 04.11.2026
 
 Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
