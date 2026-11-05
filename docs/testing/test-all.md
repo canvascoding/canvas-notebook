@@ -65,6 +65,9 @@ The profile's global setup checks a healthy loopback PostgreSQL Team target,
 its user-owned DATA root, two distinct actual sign-ins, their shared writable
 workspace, and disabled Review Center. It cleans up only its own preflight
 sessions. It never enables Review Center or supplies fake application principals.
+A primary cleanup owner needs delete rights; the secondary peer needs write
+rights. UI actions are bounded at 15 seconds and navigation at 45 seconds,
+while explicit synchronization assertions retain their own longer timeouts.
 A failed preflight or unexpected skipped profile case blocks this quality gate;
 it cannot silently make the run green. Both browser profiles' actual JSON results
 are retained individually and combined in the overall report.
