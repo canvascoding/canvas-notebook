@@ -1088,7 +1088,9 @@
     "test:api-keys:management": "NODE_ENV=test tsx --conditions react-server scripts/api-key-management-test.ts",
     "test:api-keys:proxy": "NODE_ENV=test tsx --conditions react-server scripts/api-key-workspace-proxy-test.ts",
     "test:api-keys:errors": "NODE_ENV=test tsx --conditions react-server scripts/api-key-error-result-test.ts",
-    "test:all:runner": "node --test scripts/test-all-orchestration-test.mjs"
+    "test:all:runner": "node --test scripts/test-all-orchestration-test.mjs",
+    "test:collaboration:regular:contracts": "node --test scripts/regular-collaboration-profile-test.mjs",
+    "test:e2e:collaboration:regular": "E2E_EXTERNAL_SERVER=1 COLLABORATION_E2E=1 CANVAS_REGULAR_COLLABORATION_E2E=1 playwright test --config tests/playwright/playwright.regular-collaboration.config.ts --workers=1 --max-failures=0"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.14",

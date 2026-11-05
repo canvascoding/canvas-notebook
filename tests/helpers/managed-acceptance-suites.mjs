@@ -1,3 +1,5 @@
+import { regularCollaborationFiles, deferredReviewAndUndoFiles } from './regular-collaboration-suites.mjs';
+
 // These suites have separate supervisors/private fixtures. Their own configs
 // keep their admission guards; the ordinary suite must not invoke them unowned.
 export const managedAcceptanceTestIgnore = [
@@ -37,6 +39,9 @@ export function managedAcceptanceSelection(environment = process.env) {
   return {
     testIgnore: [
       ...managedAcceptanceTestIgnore,
+      ...(environment.CANVAS_DOCUMENT_REVIEW_E2E !== '1' ? deferredReviewAndUndoFiles : []),
+      ...(!yjs && environment.CANVAS_COLLABORATION_QA !== '1' && environment.COLLABORATION_E2E !== '1'
+        ? regularCollaborationFiles.map(file => '**/' + file) : []),
       ...(!yjs ? ownedYjsOnly : []),
       ...(!batch ? ownedBatchOnly : []),
       ...(!batch && !yjs ? ['**/workspace-operation-automatic.spec.ts'] : []),

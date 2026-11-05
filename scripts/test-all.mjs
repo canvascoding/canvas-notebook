@@ -240,7 +240,7 @@ async function run() {
       console.log(`[test:all] PASSED ${id}`);
       return true;
     } catch (error) {
-      const status = interruption.signal.aborted && !always ? 'blocked' : 'failed';
+      const status = (interruption.signal.aborted && !always) || error.blocked ? 'blocked' : 'failed';
       await results.update(id, { status, reason: error.message, durationMs: performance.now() - started });
       console.error(`[test:all] ${status.toUpperCase()} ${id}: ${error.message}`);
       return false;
@@ -307,21 +307,42 @@ async function run() {
     for (const script of serverTestScripts) {
       await stage(script, () => command(script, 'npm', ['run', script], true), { dependencies: ['server-health'] });
     }
-    await stage('playwright', async () => {
-      const jsonFile = path.join(results.directory, 'playwright.json');
+    async function browserSuite(id, extraArgs = [], extraEnvironment = {}) {
+      const jsonFile = path.join(results.directory, id + '.json');
       let commandError;
       try {
-        await command('playwright', 'npx', ['--no-install', 'playwright', 'test', '--workers=1', '--max-failures=0',
-          '--reporter=line,json', '--output=' + path.join(results.directory, 'playwright-artifacts')], true,
-        { PLAYWRIGHT_JSON_OUTPUT_NAME: jsonFile });
+        await command(id, 'npx', ['--no-install', 'playwright', 'test', ...extraArgs, '--workers=1', '--max-failures=0',
+          '--reporter=line,json', '--output=' + path.join(results.directory, id + '-artifacts')], true,
+        { ...extraEnvironment, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonFile });
       } catch (error) { commandError = error; }
-      // A nonzero Playwright exit still carries useful per-case results.
-      results.report.browser = await readPlaywrightResults(jsonFile);
+      const profile = await readPlaywrightResults(jsonFile);
+      results.report.browserProfiles ??= {};
+      results.report.browserProfiles[id] = profile;
+      const profiles = Object.values(results.report.browserProfiles);
+      results.report.browser = {
+        counts: Object.fromEntries(['passed', 'failed', 'skipped', 'blocked'].map(status =>
+          [status, profiles.reduce((sum, value) => sum + value.counts[status], 0)])),
+        tests: Object.entries(results.report.browserProfiles).flatMap(([suite, value]) => value.tests.map(test => ({ ...test, suite }))),
+        errors: profiles.flatMap(value => value.errors),
+      };
       await results.save();
+      if (id === 'playwright-collaboration' && profile.errors.some(error =>
+        String(error.message ?? error.value).includes('REGULAR_COLLABORATION_PREREQUISITE'))) {
+        const error = new Error('Regular collaboration prerequisites are missing; see profile report.');
+        error.blocked = true; throw error;
+      }
+      if (id === 'playwright-collaboration' && profile.counts.skipped) {
+        const error = new Error('The required collaboration profile skipped cases; check its fixture and profile selection.');
+        error.blocked = true; throw error;
+      }
       if (commandError) throw commandError;
-      const browser = results.report.browser;
-      if (browser.counts.failed || browser.counts.blocked || browser.errors.length) throw new Error('Playwright reported failed/blocked cases or global errors');
-    }, { dependencies: ['server-health'] });
+      if (profile.counts.failed || profile.counts.blocked || profile.errors.length) throw new Error('Playwright reported failed/blocked cases or global errors');
+    }
+    await stage('playwright', () => browserSuite('playwright'), { dependencies: ['server-health'] });
+    await stage('playwright-collaboration', () => browserSuite('playwright-collaboration',
+      ['--config', 'tests/playwright/playwright.regular-collaboration.config.ts'],
+      { COLLABORATION_E2E: '1', CANVAS_REGULAR_COLLABORATION_E2E: '1', CANVAS_DOCUMENT_REVIEW_E2E: '' }),
+    { dependencies: ['server-health'] });
     await stage('server-lifetime', async () => { assertRunning(server); }, {
       dependencies: ['server-health'], skipReason: external ? 'External server lifetime is not owned by this runner.' : undefined,
     });

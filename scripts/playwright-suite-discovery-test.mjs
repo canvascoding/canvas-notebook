@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { regularCollaborationFiles } from '../tests/helpers/regular-collaboration-suites.mjs';
 import { managedAcceptanceSelection } from '../tests/helpers/managed-acceptance-suites.mjs';
 
 const env = { ...process.env, E2E_EXTERNAL_SERVER: '1', CANVAS_YJS_AUTHORITY_E2E: '',
   CANVAS_BATCH_E2E_RUN_ID: '', CANVAS_COLLABORATION_QA: '', CANVAS_PI_CHAT_LIVE_E2E: '',
-  CANVAS_DOCUMENT_REVIEW_E2E: '' };
+  CANVAS_DOCUMENT_REVIEW_E2E: '', COLLABORATION_E2E: '', CANVAS_REGULAR_COLLABORATION_E2E: '' };
 function list(args = [], overrides = {}) {
   return spawnSync('npx', ['--no-install', 'playwright', 'test', '--list', '--reporter=json', ...args], {
     env: { ...env, ...overrides }, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
@@ -97,3 +98,15 @@ const remote = list(['--config', 'tests/playwright/playwright.pi-chat-live.confi
 assert.notEqual(remote.status, 0);
 assert.match(remote.stderr + remote.stdout, /requires its explicit production-mode loopback runner/u);
 console.log(`Ordinary discovery retains ${files.length} files and ${ordinaryCases.length} cases; private runners remain guarded and discoverable`);
+
+const regular = cases(report(list(['--config', 'tests/playwright/playwright.regular-collaboration.config.ts'], {
+  COLLABORATION_E2E: '1', CANVAS_REGULAR_COLLABORATION_E2E: '1',
+})));
+assert(regular.length >= 30, 'Keep meaningful regular editor, peer and recovery coverage');
+for (const file of regularCollaborationFiles) {
+  assert(regular.some(spec => spec.file.endsWith(file)), file);
+  assert(!ordinaryCases.some(spec => spec.file.endsWith(file)), 'Run moved files once, in their fixture-backed profile: ' + file);
+}
+assert(ordinaryCases.every(spec => !/file-version-center|document-review-production|editor-agent-review-lifecycle|excalidraw-review-disabled|undo.*\.spec/u.test(spec.file)));
+assert(regular.every(spec => !/file-version-center|document-review|file.*undo/u.test(spec.file)));
+console.log(`Regular collaboration profile retains ${regular.length} cases across ${regularCollaborationFiles.length} files, without Review activation fixtures.`);

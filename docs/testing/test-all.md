@@ -49,3 +49,37 @@ without building or starting the application.
 
 Playwright documents the [CLI failure limit](https://playwright.dev/docs/test-cli)
 and [JSON reporter](https://playwright.dev/docs/test-reporters#json-reporter).
+
+## Required regular collaboration profile
+
+`test:all` also runs the `playwright-collaboration` stage. The ordinary discovery
+moves sixteen editor/collaboration files into this fixture-backed profile, so each
+file runs once. The profile currently discovers forty cases, including formatting,
+tables/images, mobile block moves, peer edits, interrupted first opens, offline
+persistence, reconnect, file-event cache invalidation and multiple browser tabs.
+Existing local editor Ctrl-Z checks are ordinary editing coverage; no file-operation
+Undo or Review Center implementation is developed by this profile.
+
+Review/version-center, file-Undo and review-activation fixtures remain excluded.
+The profile's global setup checks a healthy loopback PostgreSQL Team target,
+its user-owned DATA root, two distinct actual sign-ins, their shared writable
+workspace, and disabled Review Center. It cleans up only its own preflight
+sessions. It never enables Review Center or supplies fake application principals.
+A failed preflight or unexpected skipped profile case blocks this quality gate;
+it cannot silently make the run green. Both browser profiles' actual JSON results
+are retained individually and combined in the overall report.
+
+For focused development, `npm run test:e2e:collaboration:regular` runs this profile
+against an already prepared local target with `BASE_URL`, actual `DATA`, primary
+`TEST_LOGIN_*` and secondary `TEST_SECONDARY_*` credentials. The managed local skill
+prepares the Team users/workspace/provider. Missing inputs fail the prerequisite
+check. `npm run test:collaboration:regular:contracts` verifies selection and admission
+contracts without an application server. Discovery checks separately prove that
+Review activation fixtures and sealed specialty cases cannot leak into this profile.
+
+Special native-operation/backup/restore/restart, agent-tool-host, guest-mail and
+OAuth suites retain their own supervisors or fixtures. Their results must be
+obtained through those runners when that behavior is changed; ordinary discovery
+or an opt-in flag alone is not acceptance evidence. Real external media/model
+cases require their configured provider and credentials. Their absence is a
+coverage limitation, not a passing test.

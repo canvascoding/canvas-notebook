@@ -16,7 +16,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 const name = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
-const stage = name === 'npx' ? 'playwright' : args[1];
+const stage = name === 'npx' ? process.env.TEST_ALL_STAGE_ID || 'playwright' : args[1];
 console.log('Fixture command: ' + stage);
 appendFileSync('commands.jsonl', JSON.stringify({ name, args, env: {
   PORT: process.env.PORT, HOSTNAME: process.env.HOSTNAME, NODE_ENV: process.env.NODE_ENV,
@@ -24,9 +24,9 @@ appendFileSync('commands.jsonl', JSON.stringify({ name, args, env: {
   CANVAS_APP_ROOT: process.env.CANVAS_APP_ROOT,
   CANVAS_TERMINAL_SOCKET: process.env.CANVAS_TERMINAL_SOCKET,
   TEST_LOGIN_EMAIL: process.env.TEST_LOGIN_EMAIL, TEST_LOGIN_PASSWORD: process.env.TEST_LOGIN_PASSWORD,
-  E2E_EXTERNAL_SERVER: process.env.E2E_EXTERNAL_SERVER,
+  E2E_EXTERNAL_SERVER: process.env.E2E_EXTERNAL_SERVER, STAGE_ID: process.env.TEST_ALL_STAGE_ID,
 } }) + '\\n');
-if (stage === 'playwright') {
+if (stage.startsWith('playwright')) {
   const skipped = { title: 'explicit skip', file: 'fixture.spec.ts', line: 2, tests: [{ status: 'skipped', expectedStatus: 'skipped', annotations: [{ type: 'skip', description: 'Fixture capability disabled' }], results: [] }] };
   const passed = { title: 'passed case', file: 'fixture.spec.ts', line: 1, tests: [{ status: 'expected', expectedStatus: 'passed', results: [{ status: 'passed', errors: [] }] }] };
   const specs = [passed, skipped];
@@ -36,7 +36,7 @@ if (stage === 'playwright') {
     tests: [{ status: 'unexpected', expectedStatus: 'passed', results: [{ status: 'interrupted', errors: [] }] }] });
   if (process.env.FIXTURE_BROWSER_BLOCKED === '1') specs.push({ title: 'serial case never started', file: 'fixture.spec.ts', line: 5, tests: [{ status: 'skipped', expectedStatus: 'passed', results: [] }] });
   if (process.env.FIXTURE_MISSING_BROWSER_REPORT !== '1') writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
-    suites: [{ title: 'fixture', specs }], stats: { expected: 1, skipped: 1 }, errors: [] }));
+    suites: [{ title: 'fixture', specs: stage === 'playwright-collaboration' ? (process.env.FIXTURE_COLLAB_BLOCKED === '1' ? [] : process.env.FIXTURE_COLLAB_SKIP === '1' ? specs : specs.filter(spec => spec.title !== 'explicit skip')) : specs }], stats: { expected: 1, skipped: 1 }, errors: stage === 'playwright-collaboration' && process.env.FIXTURE_COLLAB_BLOCKED === '1' ? [{ message: 'REGULAR_COLLABORATION_PREREQUISITE: fixture missing' }] : [] }));
 }
 if (stage === 'start') {
   writeFileSync('server-owner.pid', String(process.pid));
@@ -178,12 +178,12 @@ test('external mode uses the supplied live server without build/start or killing
   const run = await fixture(t, { E2E_EXTERNAL_SERVER: '1', BASE_URL: `http://127.0.0.1:${port}`, PORT: '3000' });
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
-  assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    [...independentTestScripts, ...serverTestScripts, 'playwright']);
+  assert.deepEqual(commands.map(command => command.name === 'npx' ? command.env.STAGE_ID : command.args[1]),
+    [...independentTestScripts, ...serverTestScripts, 'playwright', 'playwright-collaboration']);
   assert.match(run.output(), /Build this checkout before starting/);
   assert.deepEqual(requests, ['/api/health']);
   assert.equal(server.listening, true);
-  const playwright = commands.at(-1);
+  const playwright = commands.find(command => command.env.STAGE_ID === 'playwright');
   assert.deepEqual(playwright.args, ['--no-install', 'playwright', 'test', '--workers=1', '--max-failures=0', '--reporter=line,json', '--output=' + path.join(run.directory, 'report/playwright-artifacts')]);
   assert.equal(playwright.env.TEST_LOGIN_EMAIL, run.env.TEST_LOGIN_EMAIL);
   assert.equal(playwright.env.TEST_LOGIN_PASSWORD, run.env.TEST_LOGIN_PASSWORD);
@@ -195,8 +195,8 @@ test('normal mode builds once, uses the exact checkout and cleans its whole proc
   const run = await fixture(t);
   assert.equal((await run.completion).code, 0, run.output());
   const commands = await run.commands();
-  assert.deepEqual(commands.map(command => command.name === 'npx' ? 'playwright' : command.args[1]),
-    [...independentTestScripts, 'build', 'start', ...serverTestScripts, 'playwright']);
+  assert.deepEqual(commands.map(command => command.name === 'npx' ? command.env.STAGE_ID : command.args[1]),
+    [...independentTestScripts, 'build', 'start', ...serverTestScripts, 'playwright', 'playwright-collaboration']);
   const start = commands.find(command => command.args[1] === 'start');
   assert.equal(start.env.HOSTNAME, '127.0.0.1');
   assert.equal(start.env.NODE_ENV, 'production');
@@ -238,7 +238,7 @@ test('build failure blocks only dependent runtime checks and is not reported as 
   assert.equal((await run.completion).code, 1, run.output());
   const report = await run.report();
   assert.equal(report.stages.find(stage => stage.id === 'build').status, 'failed');
-  for (const id of ['server-start', 'server-health', ...serverTestScripts, 'playwright']) {
+  for (const id of ['server-start', 'server-health', ...serverTestScripts, 'playwright', 'playwright-collaboration']) {
     assert.equal(report.stages.find(stage => stage.id === id).status, 'blocked', id);
   }
   for (const id of independentTestScripts) assert.equal(report.stages.find(stage => stage.id === id).status, 'passed', id);
@@ -249,7 +249,7 @@ test('browser report preserves failed, skipped and interrupted case details with
   const run = await fixture(t, { FIXTURE_FAIL_STAGE: 'playwright', FIXTURE_BROWSER_FAILURE: '1', FIXTURE_BROWSER_BLOCKED: '1' });
   assert.equal((await run.completion).code, 1, run.output());
   const report = await run.report();
-  assert.deepEqual(report.browser.counts, { passed: 1, failed: 1, skipped: 1, blocked: 2 });
+  assert.deepEqual(report.browser.counts, { passed: 2, failed: 2, skipped: 1, blocked: 4 });
   assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'failed');
   assert.match(await readFile(path.join(run.directory, 'report/summary.md'), 'utf8'), /Fixture capability disabled/);
   assert.match(await readFile(path.join(run.directory, 'report/playwright.log'), 'utf8'), /./u);
@@ -385,10 +385,38 @@ test('independent plan preserves every original aggregate leaf without executing
     return match ? expand(match[1]) : [command];
   });
   const groups = ['test:browser:environment', 'test:browser:lifecycle', 'test:server:shutdown',
-    'test:internal:scheduler', 'test:cli:portable', 'test:api-keys', 'test:prompt-builder'];
+    'test:internal:scheduler', 'test:cli:portable', 'test:api-keys', 'test:prompt-builder', 'test:collaboration:regular:contracts'];
   const expected = groups.flatMap(expand);
   const actual = independentTestScripts.flatMap(expand);
   assert.equal(new Set(independentTestScripts).size, independentTestScripts.length);
   assert.deepEqual(actual, expected);
   assert.equal(scripts['test:all'], 'node scripts/test-all.mjs', 'no outer && chain may short-circuit the report');
+});
+
+test('missing collaboration prerequisites block that profile and preserve ordinary browser results', async t => {
+  const run = await fixture(t, { FIXTURE_COLLAB_BLOCKED: '1' });
+  assert.equal((await run.completion).code, 1, run.output());
+  const report = await run.report();
+  assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'passed');
+  assert.equal(report.stages.find(stage => stage.id === 'playwright-collaboration').status, 'blocked');
+  assert.equal(report.browserProfiles.playwright.counts.passed, 1);
+  assert.equal(report.stages.find(stage => stage.id === 'cleanup').status, 'passed');
+});
+
+test('unexpected skips cannot certify the required collaboration profile', async t => {
+  const run = await fixture(t, { FIXTURE_COLLAB_SKIP: '1' });
+  assert.equal((await run.completion).code, 1, run.output());
+  const report = await run.report();
+  assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'passed');
+  assert.equal(report.stages.find(stage => stage.id === 'playwright-collaboration').status, 'blocked');
+  assert.equal(report.browserProfiles['playwright-collaboration'].counts.skipped, 1);
+});
+
+test('ordinary browser failure still runs the independent regular collaboration profile', async t => {
+  const run = await fixture(t, { FIXTURE_FAIL_STAGE: 'playwright' });
+  assert.equal((await run.completion).code, 1, run.output());
+  const report = await run.report();
+  assert.equal(report.stages.find(stage => stage.id === 'playwright').status, 'failed');
+  assert.equal(report.stages.find(stage => stage.id === 'playwright-collaboration').status, 'passed');
+  assert.equal(report.stages.find(stage => stage.id === 'cleanup').status, 'passed');
 });

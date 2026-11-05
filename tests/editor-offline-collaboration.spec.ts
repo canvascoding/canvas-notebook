@@ -1,3 +1,4 @@
+import { assertRegularCollaborationEnvironment } from '../scripts/lib/regular-collaboration-target.mjs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -129,6 +130,7 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the approved managed local stack.');
   test.beforeAll(async () => {
     if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
     else expect(baseURL).toBe('http://127.0.0.1:3100');
   });
   test.setTimeout(120_000);
@@ -296,6 +298,7 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
 test('same-browser tabs keep ordinary HTTP requests and document locations available', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(90_000);
   const headers = await login(page);
@@ -366,6 +369,7 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
 test('a native fixture file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(90_000);
   const headers = await login(page);
