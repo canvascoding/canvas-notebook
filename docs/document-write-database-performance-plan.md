@@ -2736,6 +2736,36 @@ bleiben in diesem isolierten Budgettest ausdrücklich Testersatz; daraus folgt
 keine OAuth-, Modell- oder kompilierte UI-Abnahme. Keine neue Review-Center-
 oder Undo-Funktion wird eingeführt. Die reguläre `test:all`-Abnahme bleibt offen.
 
+**Ausführbare Lesebeispiele, 05.11.2026 – kompiliert bestanden:** Der neue
+`scripts/helpers/python_sdk_documentation_probe.py` lädt das erste REST-Such-JSON
+und die unveränderte Python-Funktion `read_first_hit` direkt aus den öffentlichen
+MDX-Quellen. Mit dem tatsächlich installierten veröffentlichten SDK 0.1.1 und
+regulär ausgestelltem API-Key bestehen fünf Phasen: REST-Suche, versionierter
+nativer REST-Read, SDK-Verbindungsaufbau, Lesen des ersten Treffers und Suche ohne
+Treffer über mehrere tatsächliche Fortsetzungsseiten. REST und SDK bestätigen
+dieselbe Dokument-ID, vollständige Version und denselben nativen Inhalt.
+Die Requests verwenden den echten Schlüsselheader ohne Session/OAuth-Fallback;
+alle fünf Phasen haben tatsächliche HTTP-/SQL-Belege. Produktquellen entsprechen
+dem gebauten Stand `9f109fe5e`; nur Plan, SDK-Doku und neuer Testhelfer unterscheiden
+sich und sind im Bericht separat durch Hashes gebunden.
+
+Die Doku war bei OAuth veraltet: Der gelieferte SDK-Stand 0.1.1 begrenzt bereits
+auf explizit angeforderte Rechte und lehnt nicht nachweisbare oder darüber
+hinausgehende Tokenrechte ab. Das reine Lesebeispiel fordert jetzt weder Write
+noch Tree an. Der neue Test prüft diese Scopemenge im tatsächlichen Beispiel,
+ersetzt aber keine neue OAuth-Ausstellung oder Zustimmung. Der OAuth-`main`-
+Einstieg wird von diesem API-Key-Test nicht ausgeführt. Weitere Schreibbeispiele
+und die übrige Gesamtmatrix bleiben gesondert abnahmepflichtig.
+
+Beleg: `compiled-api-sdk-documentation-1793880210608-result.json`, inklusive
+Dokumentations-/Testhashes und Rohantwort-Metadaten. Eigene Credentials sind
+widerrufen, MCP-Einstellungen und ursprünglicher gesunder Notebook-Container
+wiederhergestellt. Geschützte Daten und fremde Container blieben erhalten.
+Der vorausgehende Versuch `1793880180567` scheiterte am alten Checkout-SHA-Guard
+vor jeder Containeränderung; der Runner bleibt als fehlgeschlagen erfasst.
+Die korrigierte Orchestrierung prüft explizit die reine Doku-/Testabweichung,
+Produktbytes, Checkout und alle Schutzgrenzen.
+
 **Status am 05.11.2026: reguläre Suite, Tag-CI und API-Key-Browserabnahme
 bestanden. Die Gesamtmatrix ist offen.** Der Umfang umfasst alle in API und
 SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
