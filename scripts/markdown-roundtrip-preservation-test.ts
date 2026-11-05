@@ -13,6 +13,7 @@ import {
 } from '../app/lib/markdown/obsidian-metadata';
 import { hasMarpDirective } from '../app/lib/marp/detect';
 import { getMarkdownSourceModeNotice } from '../app/lib/markdown/source-mode-notice';
+import { equivalentMarkdownNormalization } from '../app/lib/markdown/core/equivalence';
 
 const fixtureRoot = path.join(process.cwd(), 'tests', 'fixtures', 'markdown-roundtrip');
 
@@ -86,6 +87,36 @@ assert.deepEqual(analyzeMarkdownRichMode(explicitEmailLink), {
   prefix: '',
   body: explicitEmailLink,
 });
+
+const emailAutolink = '**Canvas <team@example.test>**\n';
+const normalizedEmailAutolink = '**Canvas [team@example.test](mailto:team@example.test)**\n';
+assert.deepEqual(analyzeMarkdownRichMode(emailAutolink), {
+  mode: 'normalizable', prefix: '', body: emailAutolink,
+  normalizedBody: normalizedEmailAutolink, normalizations: ['email_link_formatting'],
+});
+assert.equal(serializeRichMarkdownBody(normalizedEmailAutolink), normalizedEmailAutolink);
+assert.equal(analyzeMarkdownRichMode(normalizedEmailAutolink).mode, 'rich');
+
+const mailtoTaskList = readFixture('mailto-task-list.md');
+const mailtoTaskListAnalysis = analyzeMarkdownRichMode(mailtoTaskList);
+assert.equal(mailtoTaskListAnalysis.mode, 'normalizable');
+if (mailtoTaskListAnalysis.mode !== 'normalizable') throw new Error('Mail/task fixture must offer safe normalization.');
+assert.deepEqual(mailtoTaskListAnalysis.normalizations, ['list_formatting', 'email_link_formatting']);
+assert.match(mailtoTaskListAnalysis.normalizedBody, /\[Support\]\(mailto:support@example\.test\?subject=Hello%20world\)/u);
+assert.equal(analyzeMarkdownRichMode(mailtoTaskListAnalysis.normalizedBody).mode, 'rich');
+
+for (const [before, after] of [
+  ['<one@example.test>\n', '[one@example.test](mailto:two@example.test)\n'],
+  ['<one@example.test>\n', '[Changed](mailto:one@example.test)\n'],
+  ['one@example.test\n', '[one@example.test](mailto:one@example.test)\n'],
+  ['[Support](mailto:one@example.test?subject=Original)\n', '[Support](mailto:one@example.test?subject=Changed)\n'],
+  ['[Support](mailto:one@example.test "Original title")\n', '[Support](mailto:one@example.test "Changed title")\n'],
+  ['- [x] Complete\n- Ordinary\n', '- [ ] Complete\n\n- Ordinary\n'],
+  ['- [x] Keep [ ] literal\n', '- [x] Keep literal\n'],
+  ['1. [x] First\n2. Ordinary\n', '- [x] First\n- Ordinary\n'],
+]) {
+  assert.equal(equivalentMarkdownNormalization(before, after), null, 'Normalization must retain link identity, label and task semantics.');
+}
 
 const literalThematicBreak = '\\---\n';
 assert.deepEqual(analyzeMarkdownRichMode(literalThematicBreak), {
