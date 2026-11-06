@@ -53,7 +53,7 @@ node "$scripts/debian-package-install.mjs" zstd
 # Exercise the Dockerfile's exact hash-pinned PGDG block with APT downloads
 # disabled. netbase is a direct client-common dependency that APT previously
 # fetched implicitly. The other libraries are supplied by the runtime packages.
-node "$scripts/debian-package-install.mjs" netbase perl curl libreadline8 liblz4-1 libzstd1 libpq5
+node "$scripts/debian-package-install.mjs" netbase sensible-utils perl curl libreadline8 liblz4-1 libzstd1 libpq5
 node --input-type=module <<'NODE'
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
