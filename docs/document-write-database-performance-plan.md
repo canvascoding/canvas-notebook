@@ -1,11 +1,67 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 06.11.2026, Produktion weiterhin 2026.11.5.2. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 06.11.2026, Produktion 2026.11.6.3 seit 12:25 UTC verifiziert. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
-## Aktueller Release-Blocker: reservierter Darstellungswechsel
+## Aktueller Abschluss: Fix-Release produktiv, Gesamtplan weiterhin offen
+
+Release [`v2026.11.6.3`](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.6.3)
+ist aus Produktcommit `0c67bce200f45011f91432b2684b05ec910909e0` veröffentlicht
+und auf der Produktionsinstanz ausgerollt. Die Control Plane bestätigt am
+06.11.2026 um 12:25:32 UTC den erfolgreichen Update-Lauf
+`eb590283-1e03-44e3-b893-c5a3a8a11815`, Exitcode 0, frischen Heartbeat sowie
+gesunden Container und gesunde Anwendung mit dem unveränderlichen Image-Digest
+`sha256:cb15ab89972c37b79522eacf77f635e8bad1b735d3bc207fbe18e27096b6f369`.
+Eine spätere Beobachtung um 12:25:54 UTC bestätigt den Agenten wieder online.
+
+Das tatsächliche Release-Image besteht `test:all`: 333 reguläre Fälle bestanden,
+kein Fehler, 102 bestehende bedingte Auslassungen; das verpflichtende
+Zusammenarbeitsprofil besteht alle 40 Fälle ohne Auslassung oder Flaky-Ergebnis.
+Der Teststand `5309898213218ad5c49427fd88eff3fae70170d5` unterscheidet sich
+vom Produktstand ausschließlich in drei Testdateien aus PR #222. Diese erkennen
+einen nachweislich abgeschlossenen, eng begrenzten Migrations-Handoff; sie ändern
+keinen Produktcode. Drei zusätzliche echte Browserläufe erreichen und überwinden
+diesen Zwischenzustand. Die vier API-Key-Verwaltungsfälle am selben Produktimage
+sowie Desktop-/Mobil-Mailto, Linkindex bei 10/200 Quellen und die Wiederaufnahme
+von drei zurückbehaltenen eigenen Migrationsvorgängen sind nachgewiesen.
+
+Produktiv bestehen über die vorhandene MCP-Verbindung die Workspace-Liste,
+Versions-/Fähigkeitsantwort, fünf auf die Wurzel begrenzte Dateibaum-Vorschauen
+und je ein auf 256 Bytes begrenzter nativer Dokumentabruf. Alle fünf gelesenen
+Dokumente melden einen dauerhaften nativen Stand und eine aktuelle Projektion.
+Die Tiefenbegrenzung der Vorschau und unvollständige Inhaltsseiten sind gewollte
+Leselimits. Das ist keine vollständige Inventur, keine Produktionsschreibprüfung
+und keine neue SDK-OAuth-Ausstellung. Der Update-Lauf überspringt die CLI-Sicherung
+ausdrücklich; daraus wird kein neuer Backup-/Restore-Nachweis abgeleitet.
+
+Der abgeschlossene Fix-Rollout ersetzt nicht die folgenden Arbeiten:
+
+1. Vorhandene Belege den Matrixzellen aus 5b mit Produkt-/SDK-Version, tatsächlichem
+   Transport und Prüfgrenze zuordnen; fehlende und nur indirekt belegte Fälle
+   ausdrücklich offen führen. Alte Teilbelege nicht allein wegen ihres Alters
+   erneut ausführen, sondern bei relevanter Produktänderung oder fehlender Grenze.
+2. Verbleibende dominante Datenbankketten und vollständige Kalt-/Warm-Abläufe bei
+   10/200 Quellen gezielt messen und bündeln; endgültige Budgets abnehmen.
+3. Inkrementelle Linkmutationen und gemeinsame Schreibwege über alle ausgewiesenen
+   Transporte gegen den vollständigen Neuaufbau prüfen, einschließlich Konflikt,
+   Abbruch, Wiederaufnahme und aktuellem Rechteentzug.
+4. Verbleibende API-/SDK-Matrix, ausführbare Schreibbeispiele und unterstützten
+   Schreib-Recovery nach Restore schließen. Ein produktiver SDK-OAuth-Test benötigt
+   weiterhin die ausdrückliche Zustimmung zur tatsächlichen Ausstellung.
+5. Danach die vereinbarten begrenzt live verbundenen Tabs aus 5c implementieren
+   und mit lokalen Ressourcen-, Mobil-, Rechte- und Wiederherstellungsfällen abnehmen.
+
+Review Center und Undo bleiben außerhalb der Umsetzung. Die produktive
+Fix-Version bleibt während der weiteren Arbeit unverändert.
+
+Private Ergebnisbelege: `release-2026.11.6.3-final-acceptance-summary.json`,
+`release-2026.11.6.3-production-final-verification.json` und
+`release-2026.11.6.3-production-bounded-mcp.json`. Die Remote-Build-, SDK-,
+Desktop- und Benachrichtigungsnachweise sind den Release-Artefakten zugeordnet.
+
+## Historischer Release-Blocker von Kandidat 2026.11.6.2 (mit 6.3 behoben)
 
 Der unveröffentlichte Kandidat `v2026.11.6.2` besteht den Build für beide
 Architekturen und die API-/SDK-CI. Sein finaler kompilierter Browserlauf besteht
@@ -57,7 +113,7 @@ Private Belege: `rich-migration-resumption-red.log`,
 und die gebundenen Browser-/Wiederherstellungsberichte unter
 `compiled-test-all-fixed-tests-release-2026.11.6.2-1793944297242`.
 
-## Aktueller Stand nach Release 2026.11.5.2
+## Ausgangsstand nach Release 2026.11.5.2
 
 Notebook [2026.11.5.2](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.5.2)
 ist produktiv. Release-Commit `088aab9fb41211c196f77eac28b5082325bf79d8` und
@@ -157,14 +213,14 @@ nur der Ausgangspunkt; der neue verbindliche Plan steht in Abschnitt 5c.
 | --- | --- | --- |
 | 0. Quellenfehler | in Umsetzung; Fix und gezielte Recovery-Belege vorhanden | Vorhandene Quellenfehler-Belege der finalen Transport-/Linkmatrix zuordnen; keine neue Datenreparatur allein aufgrund historischer Offen-Markierungen. |
 | 1. Messbasis | in Umsetzung; 10-/200-Quellen-Berichte vorhanden | Verbleibende REST-/SDK- und Browser-Leistungsfälle mit denselben Messgrenzen vervollständigen. |
-| 2. Datenbankbündelung | in Umsetzung; PR #204 und #207 veröffentlicht, PR #211 auf main | Endgültige Budgets anhand vollständiger Abläufe festlegen. Ein kompilierter Session-Aufruf benötigt auf main 274 statt ursprünglich 346 Treiberaufrufen; produktiv ist der Stand mit 322. Planwiederverwendung reduziert deren Anzahl nicht. |
+| 2. Datenbankbündelung | in Umsetzung; Teiloptimierungen mit 2026.11.6.3 produktiv | Endgültige Budgets anhand vollständiger Abläufe und einheitlicher Messgrenzen festlegen; Batch-, Einzelaufruf- und Hintergrundfenster nicht gleichsetzen. Planwiederverwendung allein reduziert die Abfrageanzahl nicht. |
 | 3. Inkrementelle Links | in Umsetzung; gezielte Vergleichsbelege vorhanden | Tatsächlich umgestellte Aufrufer gegen vollständigen Neuaufbau und finale Leistungsbudgets abnehmen. |
 | 4. Gemeinsame Schreibwege | in Umsetzung; native API-/SDK-CI und kompilierte Operationsfälle grün | Speicher-/Linkparität über die ausgewiesenen Transporte abschließend zuordnen und verbleibende Matrixlücken gezielt schließen. |
 | 4a. API-Key-Verwaltung | in Umsetzung; Code und aktuelle UI-/HTTP-Nachweise veröffentlicht | Gemeinsamer Abschluss mit der vollständigen Rechte-/Lebenszyklusmatrix aus 4b; keine neue Verwaltungsfunktion allein aufgrund alter Statuszeilen. |
 | 4b. API-/SDK-Abnahme | in Umsetzung; Installations-, HTTP- und lokaler OAuth-Lauf grün | Vollständige Matrixzuordnung und verbleibende Schreib-/Recovery-, Kaltstart- und Beispielnachweise; begrenzte REST-/SDK-Lesemessung bei 10/200 Quellen einschließlich echter Latenz bestanden. Der authentifizierte SDK-Produktionstest wartet auf ausdrückliche OAuth-Freigabe zum Aktionszeitpunkt. |
 | 4c. Browsercache | in Umsetzung; begrenzte Aufbewahrung und Verdrängungsprobe umgesetzt/geprüft | Begrenzt live verbundene offene Tabs gemäß erweitertem Abschnitt 5c umsetzen; lokale Speicher-/Verbindungsgrenzen und große/mobile, Rechte- sowie Wiederherstellungsfälle abnehmen. Der 10-Dokumente-Vergleich misst 692 → 472 ms mediane Inhaltssichtbarkeit bei acht warmen Wechseln je Variante; er ersetzt die übrigen Fälle nicht. |
-| 4d. Mailto und Quelltextmodus | abgenommen, PR #213 auf main; Release offen | Desktop-/Mobilabnahme des echten Rich-Upgrades samt Speicherung, Reload und unveränderter Dokument-ID bestanden; keine neue Review-Center-/Undo-Abhängigkeit. |
-| 5. Einführung | in Umsetzung; dieses Release und sein Produktionsrollout abgeschlossen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Das laufende Produkt bleibt auf dem geprüften Release. |
+| 4d. Mailto und Quelltextmodus | abgenommen und mit 2026.11.6.3 produktiv | Desktop-/Mobilabnahme des echten Rich-Upgrades samt Speicherung, Reload und unveränderter Dokument-ID am Release-Image bestanden; keine neue Review-Center-/Undo-Abhängigkeit. |
+| 5. Einführung | Fix-Release 2026.11.6.3 und Produktionsrollout verifiziert; Gesamtpaket offen | Vollständige Planabnahme erst nach den übrigen Paketen und endgültigen Budgets. Produktionsnachweise oben sind auf lesenden MCP-Smoke begrenzt. Das laufende Produkt bleibt auf dem geprüften Release. |
 
 PR #213 ist mit sieben grünen Prüfungen und ohne offene Review-Kommentare auf
 `main` gemergt (`350fb294a`). Die echte Desktop-/Mobilabnahme des Mailto-Upgrades
