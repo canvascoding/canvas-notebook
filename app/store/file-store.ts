@@ -33,7 +33,6 @@ import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
 import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateMarkdownUploadResume, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
 import { resumeWorkspaceMarkdownUpload } from '@/app/lib/files/workspace-upload-client';
 import type { WorkspaceUploadCompletion } from '@/app/lib/files/upload-result';
-import { isManualMarkdownCreatePath } from '@/app/lib/files/markdown-create-result';
 import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { uploadWorkspaceDirectories } from '@/app/lib/files/upload-directory-client';
 import {
@@ -1439,9 +1438,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       // Refresh from parent directory
       const parentDir = getParentDirectory(path);
       if (openedDocumentAuthScope() === authScope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
-        try { await get().refreshDirectory(parentDir, true, workspaceId); } catch (error) {
-          if (type !== 'file' || options.template || !isManualMarkdownCreatePath(path)) throw error;
-          // A failed explorer refresh cannot turn a confirmed creation into another create attempt.
+        try { await get().refreshDirectory(parentDir, true, workspaceId); } catch {
+          // The server already confirmed creation. Keep refresh failure local
+          // to the explorer so the dialog cannot invite another create attempt.
+          if (openedDocumentAuthScope() === authScope && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+            get().markDirectoryStale(parentDir);
+          }
         }
       }
     } catch (error) {
