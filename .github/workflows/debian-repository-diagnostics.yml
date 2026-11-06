@@ -1,4 +1,4 @@
-name: Debian UTC signed APT probes
+name: Copy recovery focused diagnostics
 on:
   push:
     branches:
@@ -6,51 +6,82 @@ on:
 permissions:
   contents: read
 jobs:
-  probe:
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+  copy-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      CANVAS_POSTGRES_VECTOR_ENABLED: "false"
+      CANVAS_NATIVE_TEST_ADMIN_URL: postgresql://canvas_ci@127.0.0.1:55433/postgres
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: canvas_ci
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55433:5432
+        options: --health-cmd "pg_isready -U canvas_ci -d postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+          ref: d54eac4695c6cb394a405395506a0f3b513e96e9
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 26
-      - name: Verify source binding and frozen metadata
+          cache: npm
+      - run: npm ci
+      - run: npm run build:decision-models
+      - name: Build and verify native filesystem helper
+        run: |
+          npm run build:fd-publication
+          npm run verify:fd-publication
+      - name: Test fixture configuration contract
+        run: npm run test:api-keys:ci-config
+      - name: Allocate owned PostgreSQL 18 fixture database
+        run: npm run test:api-keys:ci-database -- create
+      - name: Add response and assertion-location diagnostics only
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import fs from 'node:fs';import assert from 'node:assert/strict';import{createHash}from'node:crypto';
-          const expected={"Dockerfile":"6deb7c0803c00e048d0ee75d6a582a737c2f007ca0999dc59919ee5930f50405","docs/compliance/debian-repository-lock.json":"c4df60f096462a08d4118ce0e2b3b7f170379d849ede34f4aebc062e840220fc","docs/compliance/docker-native-distribution-policy.json":"87cb44a8c71fa772851b0da6ad567b333490456647e99a810f407aa1712f311d","scripts/debian-repository-lock.mjs":"85fa62381164606072ca896bdd8af9309842f08d9a4c3acdb9e89d36f0575d72","scripts/debian-repository-lock-test.mjs":"451cf5710256f209d140d1b938fe1d1ada95049e60d6d7dba5b0610b57809275","scripts/debian-repository-preflight.mjs":"d7c44dee3321f5b06a8ce9c8f5efc4fe85505066d5a35473ac871816e9d17d6b","scripts/debian-repository-preflight-test.mjs":"3fac395127bc029485f859d161525877934508bcc3b0c53a924390ae3ca846bc"};
-          for(const[file,sha]of Object.entries(expected))assert.equal(createHash('sha256').update(fs.readFileSync(file)).digest('hex'),sha,file);
-          console.log('APT inputs match completed host release gate 9368340d1f8b6e63e01e7d2ba532220e56f24f6a3979f54037cc6a2120c14049');
+          import fs from 'node:fs';import assert from 'node:assert/strict';import{execFileSync}from'node:child_process';
+          assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'d54eac4695c6cb394a405395506a0f3b513e96e9');
+          const file='scripts/api-key-native-copy-adapters-postgres-test.ts';let text=fs.readFileSync(file,'utf8');
+          const needle='assert.equal(result.status, 200);';const count=text.split(needle).length-1;assert(count>=3&&count<=5);
+          text=text.replaceAll(needle,'assert.equal(result.status, 200, JSON.stringify({diagnostic: "copy-response", stage, body: result.body}));');
+          const catcher='main().catch(error => { console.error(';assert(text.includes(catcher));
+          text=text.replace(catcher,'main().catch(error => { console.error(error instanceof Error ? error.stack : error); console.error(');
+          fs.writeFileSync(file,text);
+          assert.equal(execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim(),file);
+          console.log(JSON.stringify({diagnostic:'copy-instrumentation-only',productSource:'d54eac4695c6cb394a405395506a0f3b513e96e9',file,assertionMessages:count}));
           NODE
-          node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs
-          node scripts/debian-repository-preflight.mjs
-      - name: Execute actual Dockerfile bootstrap in pinned base; no image build or push
+      - name: Three focused native Copy suites; no mutation replay added
         shell: bash
-        run: |
+        run: >
           set -euo pipefail
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';import assert from 'node:assert/strict';
-          const docker=fs.readFileSync('Dockerfile','utf8');
-          const prefix=docker.split('FROM canvas-base AS libvips-build')[0];
-          const command=prefix.split('RUN ')[1];assert(command&&!command.includes('\nRUN '));
-          const shell=command.replaceAll(String.fromCharCode(92,10),'')+"\ntimeout --kill-after=15s 5m apt-get -o Debug::Acquire::gpgv=true update\ntimeout --kill-after=30s 15m apt-get install -y --no-install-recommends --download-only --reinstall ca-certificates zlib1g\nnode -e 'const fs=require(\"fs\"),assert=require(\"assert/strict\");const s=fs.readFileSync(\"/etc/apt/sources.list.d/debian.sources\",\"utf8\");assert.equal((s.match(/20261105T000000Z/g)||[]).length,3);assert.equal(fs.readdirSync(\"/tmp\").filter(x=>x.startsWith(\"canvas-node-ca.\")).length,0);console.log(\"CANVAS_UTC_APT_PROBE_PASSED \"+process.arch);'\n";
-          fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-utc-apt-probe.sh',shell);
-          const base=/^ARG NODE_BASE_IMAGE=(.+)$/m.exec(docker)?.[1];assert(base?.includes('@sha256:'));
-          fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-utc-base-image',base);
-          NODE
-          docker run --rm --name canvas-debian-utc-probe \
-            --mount "type=bind,src=$PWD/docs/compliance/debian-repository-lock.json,dst=/usr/local/share/canvas-debian-repository-lock.json,readonly" \
-            --mount "type=bind,src=$PWD/scripts/debian-repository-lock.mjs,dst=/usr/local/libexec/canvas-debian-repository-lock.mjs,readonly" \
-            --mount "type=bind,src=$RUNNER_TEMP/canvas-utc-apt-probe.sh,dst=/tmp/canvas-utc-apt-probe.sh,readonly" \
-            "$(cat "$RUNNER_TEMP/canvas-utc-base-image")" /bin/sh /tmp/canvas-utc-apt-probe.sh 2>&1 | tee "$RUNNER_TEMP/canvas-utc-apt-probe.log"
-          grep -F 'gpgv exited with status 0' "$RUNNER_TEMP/canvas-utc-apt-probe.log"
-          grep -F 'CANVAS_UTC_APT_PROBE_PASSED' "$RUNNER_TEMP/canvas-utc-apt-probe.log"
+
+          task_failed=0
+
+          for task_attempt in 1 2 3; do
+            set +e
+            NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/api-key-native-copy-adapters-postgres-test.ts 2>&1 | tee "$RUNNER_TEMP/copy-recovery-$task_attempt.log"
+            task_status=${PIPESTATUS[0]}
+            set -e
+            printf 'COPY_RECOVERY_OBSERVATION attempt=%s exit=%s\n' "$task_attempt" "$task_status"
+            if [ "$task_status" -ne 0 ]; then task_failed=1; fi
+          done
+
+          exit "$task_failed"
+      - name: Verify resource closure and remove only owned test databases
+        if: always()
+        run: npm run test:api-keys:ci-database -- cleanup
+      - name: Retain focused logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: copy-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/copy-recovery-*.log
