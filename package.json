@@ -604,7 +604,7 @@
     "test:license-domain": "tsx scripts/license-domain-normalization-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",
-    "test:licenses": "node --test scripts/debian-repository-lock-test.mjs && tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check && npm run test:dictation-docker-boundary && npm run test:dictation-runtime",
+    "test:licenses": "node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs && tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check && npm run test:dictation-docker-boundary && npm run test:dictation-runtime",
     "test:dictation-docker-boundary": "tsx --conditions react-server scripts/dictation-docker-boundary-test.ts",
     "test:licenses:python-inventory": "node scripts/python-license-inventory-test.mjs",
     "test:dictation-runtime": "python3 scripts/dictation-runtime-test.py && python3 scripts/dictation-cpp-runtime-test.py",

@@ -3,6 +3,8 @@ name: Test suite orchestration
 on:
   pull_request:
     paths:
+      - scripts/debian-*
+      - Dockerfile
       - scripts/test-all*
       - scripts/helpers/test-all-results.mjs
       - scripts/lib/regular-collaboration-target.mjs
@@ -24,6 +26,8 @@ on:
   push:
     branches: [main]
     paths:
+      - scripts/debian-*
+      - Dockerfile
       - scripts/test-all*
       - scripts/helpers/test-all-results.mjs
       - scripts/lib/regular-collaboration-target.mjs
@@ -90,3 +94,6 @@ jobs:
       - name: Confirmed deletion event contract
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run test:notebook:delete-events
+      - name: Frozen Debian artifact transports and integrity
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs

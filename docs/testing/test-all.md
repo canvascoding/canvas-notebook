@@ -105,3 +105,19 @@ obtained through those runners when that behavior is changed; ordinary discovery
 or an opt-in flag alone is not acceptance evidence. Real external media/model
 cases require their configured provider and credentials. Their absence is a
 coverage limitation, not a passing test.
+
+## Frozen Debian package downloads
+
+Docker builds resolve packages only against the signed, SHA-256-locked Debian
+snapshot indexes. `scripts/debian-package-download.mjs` asks APT for exact package
+filenames, sizes and SHA-256 hashes, downloads those artifacts from the official
+Debian pool, and falls back once to the original snapshot if transport fails.
+It never adds a live mirror as a package-resolution source. Missing artifacts,
+changed bytes, invalid metadata or conflicting cache files fail the build. APT
+then installs with downloads disabled. The release compliance archive includes
+the helper and repository lock so this transport remains reproducible.
+
+`node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs`
+checks the repository lock, bounded transport fallback, exact artifact integrity,
+cache integrity and rejection of unreviewed origins. These checks also run in the
+Node 24/26 PR contract jobs and the release preflight.
