@@ -190,7 +190,26 @@ Unterordner; die Publisher-Pruefung blieb rot. Die Herkunftsdatei wird fuer das
 naechste Release im selben Ausgabeordner wie die Artefakte abgelegt. Kein
 Desktop- oder Serverrelease `.4` wurde dadurch publiziert.
 
-**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.5.5` nach vollständiger
+PR #218 ist mit 14 erfolgreichen Checks und ohne Review-Kommentare gemergt
+(`38fbf521f`). Seine 20 Dateien entsprechen exakt dem erfolgreichen lokalen
+`verify:release` und beiden frischen HTTPS-/Signatur-APT-Basisproben. Der Tag
+`v2026.11.5.5` bleibt unveraendert und unveroeffentlicht: Zwei GitHub-Runner
+scheiterten vor dem Compiler an 504 bzw. 503 fuer alle drei kurz datierten
+Snapshot-Adressen. Die uebrigen Build-Gates bestanden. Der echte Desktop-Build
+bestand einschliesslich Sicherheitspruefungen; sein Publisher wartet auf das
+noch nicht erstellte Release.
+
+Die gezielte GitHub-Netzdiagnose `42127809033` pruefte beide Architekturen.
+Alle sechs Abrufe mit `20261105T000000Z` lieferten HTTP 200 und exakt dieselben
+Metadatenbytes wie die bestehenden Quellen; die Kurzadressen blieben teilweise
+503/504. Die Korrektur fuer `2026.11.6.1` praezisiert deshalb nur die drei
+UTC-Adressen und ihren Lockdatei-Hash. Indexhashes und menschliche Freigabeangaben
+bleiben erhalten. Lokal scheitert der neue Adressweg noch an einem anderen
+503-Zugang; die entscheidende APT-Abnahme muss deshalb direkt auf beiden
+GitHub-Architekturen erfolgen. Metadaten-Netzproben allein sind kein Image- oder
+Signaturnachweis.
+
+**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.6.1` nach vollständiger
 Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
 „Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
 Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale
@@ -303,7 +322,8 @@ Die Paketquelle ist auf signierte Debian-Repositories umgestellt und durch
 `debian-repository-lock.json` an alle neun geprüften Paket-/Quellenlisten gebunden.
 Echte APT-Positiv- und Negativprüfungen sowie Host- und Linux-Build sind bestanden.
 Signatur- und Ablaufprüfungen bleiben aktiv; ein geänderter Index wird abgewiesen.
-Der Paketquellen-Ausfall blockiert den Build damit nicht mehr.
+Der damalige Paketquellen-Ausfall war damit behoben; die spaeteren
+Snapshot-Zugangsfehler und ihre aktuellen Release-Gates stehen oben.
 
 Produktstand `3236393b3` hält den Editor während der lokalen Sicherung bei einem
 Dokumentwechsel gemountet. Zehn kompilierte UI-Regressionsfälle bestanden; alle
