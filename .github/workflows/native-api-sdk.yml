@@ -7,6 +7,7 @@ on:
       - 'server/**'
       - 'scripts/**'
       - 'packages/canvas-notebook-python/**'
+      - 'docs/product/en/developers/python-sdk.mdx'
       - 'package*.json'
       - 'tsconfig*.json'
       - '.github/workflows/native-api-sdk.yml'
@@ -106,7 +107,7 @@ jobs:
           --dist-dir "$RUNNER_TEMP/canvas-sdk-dist"
           --output "$RUNNER_TEMP/sdk-matrix-3.10"
           --github-env "$GITHUB_ENV"
-      - name: Installed Python 3.10 SDK over actual HTTP and PostgreSQL
+      - name: Installed Python 3.10 SDK and MDX examples over actual HTTP and PostgreSQL
         run: |
           set -euo pipefail
           npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.10.log"
@@ -120,7 +121,7 @@ jobs:
           --dist-dir "$RUNNER_TEMP/canvas-sdk-dist"
           --output "$RUNNER_TEMP/sdk-matrix-3.15"
           --github-env "$GITHUB_ENV"
-      - name: Installed Python 3.15 SDK over actual HTTP and PostgreSQL
+      - name: Installed Python 3.15 SDK and MDX examples over actual HTTP and PostgreSQL
         run: |
           set -euo pipefail
           npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.15.log"
