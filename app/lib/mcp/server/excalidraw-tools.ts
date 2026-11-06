@@ -75,7 +75,7 @@ export async function executeDirectMcpExcalidrawTool(id: DirectMcpExcalidrawTool
     let result;
     if (id === 'create_excalidraw_scene') {
       result = await createExcalidrawDocument({ ...parseExcalidrawCreateInput(raw), workspace: authority.workspace,
-        actor: authority.actor, beforeApply });
+        actor: authority.actor, beforeApply, beforeComplete: verifyCurrent });
     } else if (id === 'get_excalidraw_scene') {
       result = await withWorkspaceMutationLock(authority.workspace.workspaceId, async () => {
         signal?.throwIfAborted();

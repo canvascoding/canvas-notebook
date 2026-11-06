@@ -232,9 +232,10 @@ export async function getExcalidrawDocument(input: {
   });
 }
 
-async function completeCreate(workspace: WorkspaceContext, receipt: CreateReceipt, actor: ExcalidrawDocumentActor) {
+async function completeCreate(workspace: WorkspaceContext, receipt: CreateReceipt, actor: ExcalidrawDocumentActor,
+  beforeRead?: () => Promise<WorkspaceContext>) {
   const document = await getExcalidrawDocument({ workspace,
-    ...(receipt.document_id ? { documentId: receipt.document_id } : { path: receipt.path }), actor });
+    ...(receipt.document_id ? { documentId: receipt.document_id } : { path: receipt.path }), actor, beforeRead });
   const database = await openDb();
   try {
     await database.run(`UPDATE collaboration_excalidraw_creates SET status='completed',document_id=$1,updated_at=$2
@@ -248,6 +249,8 @@ async function completeCreate(workspace: WorkspaceContext, receipt: CreateReceip
 export async function createExcalidrawDocument(input: {
   workspace: WorkspaceContext; path: string; actor: ExcalidrawDocumentActor; idempotencyKey: string;
   beforeApply?: () => Promise<void>;
+  /** Fresh WRITE authority for confirmation after a bounded admission wait. */
+  beforeComplete?: () => Promise<WorkspaceContext>;
 }): Promise<ExcalidrawDocumentSnapshot> {
   await assertWorkspace(input.workspace, true);
   const path = normalizedPath(input.path);
@@ -255,6 +258,15 @@ export async function createExcalidrawDocument(input: {
     throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_REQUEST', 400, 'A trusted actor and an idempotency key of at most 500 characters are required.');
   }
   const fingerprint = hash(JSON.stringify({ workspaceId: input.workspace.workspaceId, path }));
+  // Publication is durable before scene confirmation. A short concurrent read
+  // fence must not turn that success into a fail-fast Busy response. Only
+  // callers with fresh authority can use the existing bounded read wait;
+  // recovery/captured-context callers retain their fail-fast behavior.
+  const beforeRead = input.beforeComplete ? async () => {
+    const current = await input.beforeComplete!();
+    await assertWorkspace(current, true);
+    return current;
+  } : undefined;
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     await input.beforeApply?.();
     const database = await openDb();
@@ -274,8 +286,8 @@ export async function createExcalidrawDocument(input: {
       receipt = existingReceipt ?? await database.get(`SELECT * FROM collaboration_excalidraw_creates
         WHERE workspace_id=$1 AND actor_user_id=$2 AND actor_id=$3 AND idempotency_key=$4`, scope) as CreateReceipt;
       if (receipt.request_fingerprint !== fingerprint) throw new ExcalidrawDocumentError('EXCALIDRAW_IDEMPOTENCY_CONFLICT', 409, 'This idempotency key belongs to a different create request.');
-      if (receipt.status === 'completed') return getExcalidrawDocument({ workspace: input.workspace, documentId: receipt.document_id!, actor: input.actor });
-      if (receipt.document_id) return completeCreate(input.workspace, receipt, input.actor);
+      if (receipt.status === 'completed') return getExcalidrawDocument({ workspace: input.workspace, documentId: receipt.document_id!, actor: input.actor, beforeRead });
+      if (receipt.document_id) return completeCreate(input.workspace, receipt, input.actor, beforeRead);
       const currentPath = normalizedPath(receipt.path);
       if (existingReceipt) await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, currentPath);
       await assertWorkspacePathHasNoAliases(input.workspace, currentPath);
@@ -305,7 +317,7 @@ export async function createExcalidrawDocument(input: {
           }));
       }
     } finally { await database.close(); }
-    const document = await completeCreate(input.workspace, receipt!, input.actor);
+    const document = await completeCreate(input.workspace, receipt!, input.actor, beforeRead);
     await recordAuditEvent({ organizationId: input.workspace.organizationId, workspaceId: input.workspace.workspaceId,
       userId: input.actor.userId, source: 'files', eventType: 'file', entityType: 'workspace_path', entityId: path,
       action: 'excalidraw.create', status: 'success', summary: `Excalidraw document created at ${path}.`, metadata: { documentId: document.documentId } });

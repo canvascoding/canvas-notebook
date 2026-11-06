@@ -3435,3 +3435,33 @@ echte PG-Suite und die bisherigen 15 Grenzfälle bestehen. Am Produktstand
 Neustart, alle vier UI-Fälle, 15 Linux-Speicherfälle und neun CI-Prüfungen. Die
 Originaldaten bleiben nach dem gesamten Lauf unverändert. Die finale Gesamtsuite,
 Budgets, übrigen Pakete und Release-Abnahme bleiben offen.
+
+
+### Produktionsmeldung: Nicht-Markdown-Erstellung und Löschen (2026-11-06)
+
+Die bestätigte Dateierstellung darf nicht nachträglich durch einen unabhängigen
+Explorer-Refresh als fehlgeschlagen erscheinen. Der Store markiert den Ordner
+bei diesem Folgefehler als veraltet; echte Create-Fehler bleiben sichtbar.
+
+Ein echter kompilierter Browserlauf reproduzierte zusätzlich HTTP 409
+`EXCALIDRAW_FILE_LIFECYCLE_BUSY` nach dem Anlegen einer Excalidraw-Datei.
+Die Abschlussprüfung verwendete einen sofortigen Sperrversuch. Der Service
+übergibt jetzt für HTTP, MCP und Agent eine frische Schreibberechtigungsprüfung
+an den bestehenden begrenzten Lese-Wartepfad. Aufrufer ohne frische Autorität
+und die Hintergrund-Recovery bleiben bei sofortiger Ablehnung. Echte
+Datei-Reservierungen werden weiterhin beachtet.
+
+Sechs echte PostgreSQL-Gruppen bestehen einschließlich kontrollierter
+Lesesperre nach der physischen Veröffentlichung, Wiederholung desselben
+Erstellungsbelegs, Entzug nur des Schreibrechts während der Wartezeit sowie
+bestehender Timeout-/Leserechtsgrenzen. Weitere sechs Reservierungsgruppen
+bestehen. Das ist noch keine Browserabnahme des korrigierten Linux-Builds.
+
+Die gemeldete Löschblockade ist separat offen: Auch Nicht-Markdown-Dateien
+können eingehende Markdown-Links besitzen. Die Vorschau benötigt deshalb
+vollständige Quellen; native Abdeckungslücken können sie mit
+`PATH_SOURCE_INCOMPLETE` blockieren. Die Zuordnung zum konkreten
+Produktionsvorfall erfordert den betroffenen Pfad und Fehlercode. Schutz und
+Dokumentzustände werden nicht umgangen oder gelöscht. Review Center und Undo
+bleiben außerhalb dieses Arbeitspakets. Build, Browserabnahme, PR/CI und
+Veröffentlichung der neuen Korrektur stehen noch aus.
