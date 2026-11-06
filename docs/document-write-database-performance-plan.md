@@ -5,6 +5,15 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+Zusätzlicher Editor-Nachweis vom 06.11.: Die Vorbereitung formatierter Bearbeitung
+meldet Fehler künftig nach ihrem bestätigten Grund, statt jeden Fehler anderen
+Editoren zuzuschreiben. 16 Komponentenfälle und vier kompilierte Browserfälle
+einschließlich echter Mailto-Migration und Wiederholung bestehen; Details und
+Screenshots stehen im [Abnahmebericht](testing/rich-migration-feedback-2026-11-06/README.md).
+Das ist noch nicht veröffentlicht und beweist nicht die Ursache des produktiven
+Zugriffs-/Migrationsfehlers. Der Gesamtplan und die offenen Produktionsfälle
+bleiben offen.
+
 ## Aktueller Abschluss: Fix-Release produktiv, Gesamtplan weiterhin offen
 
 Release [`v2026.11.6.3`](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.6.3)
