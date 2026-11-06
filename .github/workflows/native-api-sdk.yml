@@ -80,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:api-keys 2>&1 | tee "$RUNNER_TEMP/api-contracts.log"
+          npm run test:chat:file-reference-runtime 2>&1 | tee "$RUNNER_TEMP/native-chat-file-reference-runtime.log"
       - name: File preview contention and transaction cleanup
         run: |
           set -euo pipefail
@@ -153,6 +154,7 @@ jobs:
             ${{ runner.temp }}/native-api.log
             ${{ runner.temp }}/native-excalidraw-admission.log
             ${{ runner.temp }}/native-rich-migration-read.log
+            ${{ runner.temp }}/native-chat-file-reference-runtime.log
             ${{ runner.temp }}/native-mobile-admission.log
             ${{ runner.temp }}/native-autolink-*.log
             ${{ runner.temp }}/native-mcp-paths.log

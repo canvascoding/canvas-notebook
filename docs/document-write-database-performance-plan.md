@@ -3592,3 +3592,37 @@ diesen benannten Busy-Fall mit begrenzter Fortsetzung derselben ID. Unbekannte
 HTTP-/Transportfehler bleiben Fehler; die mobile Produkt-Schreiblogik bleibt
 unverändert. Seine kompilierte Abnahme steht aus. `test:all` ist noch nicht grün;
 es wird kein Release daraus abgeleitet.
+
+### Aktuelle Chat-Laufzeit vor der Zusammenfassung bestätigen (2026-11-07)
+
+Die beiden korrigierten Kollaborationsfälle bestehen am Linux-Image von
+`31f4cef92` auf den zurückbehaltenen Daten des vorherigen Gesamtlaufs: zwei
+Erfolge, kein Fehler, Skip oder Flaky-Ergebnis. Der ursprüngliche lokale Stack
+und seine geschützten Daten wurden anschließend unverändert wiederhergestellt.
+Auch die vier API-Key-Verwaltungsfälle bestehen am selben aktuellen Image.
+
+Der folgende reguläre Gesamtlauf findet einen anderen Fehler: Beim Öffnen eines
+laufenden Chats kann die Änderungszusammenfassung bereits vor der initialen
+WebSocket-Statusantwort abgefragt werden. Die aktuelle UI behandelt einen noch
+unbekannten Laufzustand wie bestätigtes Ende. Ein deterministischer Render der
+tatsächlichen `ChatMessageList` mit normalen Read-Belegen zeigt bei unbekanntem
+oder fehlendem Status zwei Abschnitte statt nur des früher abgeschlossenen;
+Streaming und Idle ergeben bereits korrekt einen beziehungsweise zwei Abschnitte.
+Nach diesem Nachweis wurde der fehlgeschlagene Gesamtlauf über seinen eigenen
+SIGINT-/Cleanup-Pfad beendet. Sein Bericht bleibt fehlgeschlagen und unvollständig;
+der ursprüngliche Stack, Datenzeilen, Dateibytes und Speicheranker sind wieder
+gesund und unverändert. Die übrigen Browserfälle gelten dadurch nicht als geprüft.
+
+Die Korrektur verlangt für den aktuellen Abschnitt bestätigtes `idle`; frühere
+abgeschlossene Abschnitte bleiben verfügbar. Die tatsächliche Komponente besteht
+die vier gezielten Unknown-/Null-/Streaming-/Idle-Grenzen. Die bestehenden
+Projektions-, Karten-, Summary- und Summary-API-Prüfungen bestehen ebenfalls.
+Der Browserfall hält die initiale Statusantwort jetzt kontrolliert zurück,
+bevor er Streaming, internes Turn-Ende und vollständigen Abschluss prüft.
+Diese kompilierte Browserabnahme und ein vollständiger finaler Gesamtlauf stehen
+noch aus. Es gibt keine neue Review-Center- oder Undo-Implementierung.
+
+Ein zusätzlich aufgerufener alter Fork-UI-Quellprüfer stoppt vor seinem Render an
+einer veralteten Erwartung an `textareaRef.current?.focus()`. Der davon betroffene
+übergeordnete Chat-Code ist gegenüber dem vorherigen Commit bytegleich; dies ist
+kein erfolgreicher zusätzlicher Fork-Nachweis und keine neue Korrektur an Forks.
