@@ -74,6 +74,40 @@ Die Zuordnung ist auf API-Key-HTTP und echte PostgreSQL-Pfade begrenzt; sie erse
 weder die kompilierte Next.js-Abnahme noch OAuth, OS-Keyring oder die verbleibende
 vollständige Rechte-/Linkmatrix.
 
+## Linkmutationen über Key-REST, MCP und installiertes SDK
+
+Der neue Prüfer `scripts/document-link-write-parity-postgres-test.ts` besteht lokal
+24 Prüfgruppen: je Ausgangszustand und fünf tatsächliche Änderungen über Key-REST,
+MCP 2025-11-25, MCP 2026-07-28 und das installierte SDK. Der regulär angelegte
+Rich-Dokumentzustand wird verwendet; die Probe ersetzt ihn nicht durch einen
+künstlichen Plain-Text-Zustand. Geprüft werden Aliaswechsel, fehlende und
+mehrdeutige Ziele, Auflösung nach Anlage eines zuvor fehlenden Ziels sowie
+Titeländerungen. Jede Beobachtung vergleicht den inkrementellen Index mit einem
+vollständigen aktuellen Neuaufbau. Die verlinkende Quelldatei bleibt einschließlich
+nativer Zeilen, `xmin` und Dateibytes unverändert.
+
+REST und die beiden direkten MCP-Protokolle verwenden die wirklichen Handler,
+Key-Autorisierung und PostgreSQL; das installierte SDK spricht zusätzlich über
+wirkliches Loopback-HTTP mit dem MCP-Handler. Diese Source-Abnahme ist keine
+kompilierte Next.js- oder Editor-/Agent-Abnahme. Der Prüfer hält echte 429-Grenzen
+ein und wartet begrenzt auf `Retry-After`; er wiederholt dadurch ausschließlich
+Index-Leseaufrufe, keine Mutationen. Review Center und Undo sind abgeschaltet.
+Der eigene SQL-Scope, Pool, Clients und temporäre Dateien wurden entfernt.
+
+`npm run test:api-keys:sdk:link-parity` bindet den Fall in beide Python-Lanes der
+Native-API-/SDK-CI ein. Deren Ausführung am neuen PR-Head steht noch aus. Der
+private Bericht `document-link-write-parity-20261106-result.json` bindet den
+bestandenen lokalen Lauf an die ausgeführten Testdateien; spätere Änderungen
+beschränken sich auf CI-Verkabelung und das Entfernen unbenutzter Probe-Definitionen.
+Move-/Rename-Parität sowie Editor- und Agent-Mutationen bleiben separat offen.
+
+Das öffentlich heruntergeladene Wheel aus `sdk-v0.1.1` wurde mit seiner
+veröffentlichten Prüfsumme geprüft. Es stimmt als vollständige Datei bytegleich
+mit dem installierten CI-Wheel überein:
+`b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316`.
+Alle acht SDK-Module entsprechen dem aktuellen Quellstand. Das ist ein
+Paketidentitätsnachweis, keine neue produktive OAuth-Ausstellung.
+
 ## Wiederherstellung derselben Instanz mit installiertem SDK
 
 Am 06.11.2026 besteht der tatsächlich gebaute Produktstand
