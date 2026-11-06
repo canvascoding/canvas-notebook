@@ -66,6 +66,23 @@ function targetParts(literal: string): { fragment: string | null; path: string }
   };
 }
 
+function externalAutolinkNode(node: Nodes, raw: string): boolean {
+  return node.type === 'link' && raw.startsWith('<') && raw.endsWith('>')
+    && /^(?:https?:|mailto:|data:|\/\/)/iu.test(node.url)
+    && !getCanvasNotebookExactLinkTarget(node.url);
+}
+
+/** A positive CommonMark AST fact, not a textual URL-prefix exemption. */
+export function isWorkspaceExternalMarkdownAutolink(raw: string): boolean {
+  if (!raw.startsWith('<') || !raw.endsWith('>')) return false;
+  const root = fromMarkdown(raw);
+  if (root.children.length !== 1 || root.children[0].type !== 'paragraph'
+    || root.children[0].children.length !== 1) return false;
+  const node = root.children[0].children[0];
+  return node.position?.start.offset === 0 && node.position?.end.offset === raw.length
+    && externalAutolinkNode(node, raw);
+}
+
 export function parseWorkspaceMarkdownHref(href: string): {
   fragment: string | null;
   path: string;
@@ -389,6 +406,10 @@ function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: 
       return;
     }
     if (node.type === 'link' || node.type === 'image') {
+      // CommonMark autolinks have no ](...) target span. The current grammar
+      // can classify genuine external email/URI nodes directly; historical
+      // inventories and real Notebook targets keep their existing handling.
+      if (ordinaryV4 && externalAutolinkNode(node, markdown.slice(start, end))) return;
       const range = inlineTargetRange(markdown, start, end);
       if (range) add(node, range, node.type === 'image' ? 'inline-image' : 'inline-link');
       else emitUnevaluated({ sourcePath, raw: markdown.slice(start, end), reason: 'unparsed-target', start });

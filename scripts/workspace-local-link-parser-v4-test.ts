@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 import { parseObsidianWikiTarget } from '../app/lib/markdown/obsidian-flavored-markdown';
 import { inspectWorkspaceMarkdownHtmlV4, parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV3,
-  parseWorkspaceLocalLinksV4, type ParsedWorkspaceLocalLink } from '../app/lib/markdown/workspace-local-link-parser';
+  parseWorkspaceLocalLinksV4, isWorkspaceExternalMarkdownAutolink, type ParsedWorkspaceLocalLink } from '../app/lib/markdown/workspace-local-link-parser';
 import { MAX_INDEXED_MARKDOWN_BYTES } from '../app/lib/markdown/workspace-link-limits';
 
 type Expected = Pick<ParsedWorkspaceLocalLink, 'raw' | 'targetLiteral' | 'targetPathText' | 'kind' | 'syntax'>
@@ -232,6 +232,29 @@ export function workspaceLocalLinkParserV4Test(): void {
     assert.equal(frontier.slice(link.targetStart, link.targetEnd), link.targetLiteral);
   }
   passed++;
-  assert.equal(passed, 11);
+  // CommonMark email/URI autolinks are external, not unparsed file targets.
+  // Historical parsers deliberately retain their old incomplete evidence.
+  for (const autolink of ['<alex@example.test>', '<mailto:alex@example.test>',
+    '<https://example.test/[[Fake]]?q=one>', '<data:text/plain,hello>']) {
+    assert.equal(isWorkspaceExternalMarkdownAutolink(autolink), true);
+    const source = `\uFEFF# Contact 😀\r\n**Studio ${autolink}**\r\n[Asset](images/a.png)\r\n`;
+    const result = checkParser4(source, [{ raw: '[Asset](images/a.png)', targetLiteral: 'images/a.png',
+      targetPathText: 'images/a.png', kind: 'markdown', syntax: 'inline-link' }]);
+    assert.deepEqual(result.unevaluated, [], autolink);
+    for (const historical of [parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV3]) {
+      assert(historical(source.slice(1), 'Notes/Source.md').unevaluated.some(gap => gap.raw === autolink), autolink);
+    }
+  }
+  for (const source of ['<custom:target>', '<javascript:alert(1)>',
+    '<https://canvas.example/notebook?path=real.md>']) {
+    assert.equal(isWorkspaceExternalMarkdownAutolink(source), false);
+    assert(parseWorkspaceLocalLinksV4(source, 'Source.md', { notebookPaths: 'exact' }).unevaluated.length > 0,
+      'Unknown schemes and actual Notebook targets must not be discarded as external.');
+  }
+  for (const raw of ['mailto:alex@example.test', '[Mail](mailto:alex@example.test)',
+    '<span>alex@example.test</span>', 'prefix <alex@example.test>', '<alex@example.test> suffix',
+    '```\n<alex@example.test>\n```']) assert.equal(isWorkspaceExternalMarkdownAutolink(raw), false, raw);
+  passed++;
+  assert.equal(passed, 12);
   console.log(JSON.stringify({ suite: 'workspace-local-link-parser-v4', passed, frontierLinks: frontierResult.links.length, syntaxFactsOnly: true }));
 }

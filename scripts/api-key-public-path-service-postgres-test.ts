@@ -142,6 +142,10 @@ async function main() {
       if (profile === 'physical') await fs.writeFile(path.join(h.source.rootPath, selectedPath), bytes, { flag: 'wx', mode: 0o600 });
       if (profile === 'native-only') await fs.unlink(path.join(h.source.rootPath, nativePath));
       if (profile === 'cohort') await fs.writeFile(path.join(h.source.rootPath, root, 'paper.pdf'), Buffer.from('%PDF-1.7\nCohort original\n'), { flag: 'wx', mode: 0o600 });
+      const emailBytes = Buffer.from('# Contact\n**Studio <alex@example.test>**\n');
+      const emailPath = `public-delete-email-${randomUUID()}.md`;
+      const email = profile === 'physical' ? await h.upload(emailPath, emailBytes) : null;
+      const emailBefore = email ? await loadCollaborationStateOnConnection(h.connection, email.documentId) : null;
       const incoming = await h.upload(`public-delete-incoming-${randomUUID()}.md`, Buffer.from(`[Preserved label](${nativePath})\n`));
       const beforeState = target ? await loadCollaborationStateOnConnection(h.connection, target.documentId) : null, before = await domain();
       const preview = await call('delete', { action: 'preview', path: selectedPath }); assert(preview.action === 'preview'); assert.deepEqual(await domain(), before);
@@ -157,6 +161,13 @@ async function main() {
       const trash = (await h.admin.query('SELECT metadata_json,trash_relative_path FROM workspace_trash_entries WHERE original_path=$1', [selectedPath])).rows;
       assert.equal(trash.length, 1);
       if (profile === 'physical') assert.deepEqual(await fs.readFile(path.join(h.dataRoot, trash[0].trash_relative_path)), bytes);
+      if (email) {
+        const emailAfter = await loadCollaborationStateOnConnection(h.connection, email.documentId);
+        assert(emailBefore && emailAfter);
+        assert.deepEqual(emailAfter.yjsState, emailBefore.yjsState);
+        assert.deepEqual(emailAfter.stateVector, emailBefore.stateVector);
+        assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, emailPath)), emailBytes);
+      }
       const linked = await loadCollaborationStateOnConnection(h.connection, incoming.documentId); assert(linked);
       assert.equal(inspectPersistedDocumentLinks(linked).links.some(link => link.targetPathText === nativePath), false);
       await assert.rejects(fs.lstat(path.join(h.source.rootPath, selectedPath)), error => code(error) === 'ENOENT');

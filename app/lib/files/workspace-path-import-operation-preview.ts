@@ -11,6 +11,7 @@ import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-t
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceLinkSourcePreviewObservation, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
 import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
+import { isWorkspaceExternalMarkdownAutolink } from '../markdown/workspace-local-link-parser';
 import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
@@ -213,7 +214,8 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
     // native coverage gaps must remain blocked, with their original cause;
     // do not feed them into evidence capture and lose them as INVALID.
     const nativeGaps = observation.stage.sources.flatMap(source => source.kind === 'native'
-      ? source.inventory.coverage.gaps.filter(gap => gap.code !== 'uninspected-html') : []);
+      ? source.inventory.coverage.gaps.filter(gap => gap.code !== 'uninspected-html'
+        && !(gap.code === 'unsupported-target' && typeof gap.raw === 'string' && isWorkspaceExternalMarkdownAutolink(gap.raw))) : []);
     if (!cohortDelete && nativeGaps.length) {
       throw new WorkspacePathSourceIncompleteError(nativeGaps);
     }

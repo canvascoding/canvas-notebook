@@ -12,7 +12,7 @@ import { COLLABORATION_SCHEMA_VERSION } from '../collaboration/types';
 import type { NativeDocumentLinkInventory, NativeDocumentLink } from '../markdown/workspace-link-contract-v2';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof, type NativeDocumentLinkInventoryV4 } from '../markdown/workspace-native-link-inventory';
 import { evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks } from '../markdown/workspace-html-link-safety';
-import { inspectWorkspaceMarkdownHtmlV4 } from '../markdown/workspace-local-link-parser';
+import { inspectWorkspaceMarkdownHtmlV4, isWorkspaceExternalMarkdownAutolink } from '../markdown/workspace-local-link-parser';
 import { workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
@@ -210,6 +210,12 @@ function inspectHtmlInventoryCoverage(inventory: Pick<NativeDocumentLinkInventor
   if (coverage.complete !== (gaps.length === 0)) fail();
   for (const value of gaps) {
     const gap = record(value, ['code', 'path', 'raw'], ['htmlTargets']);
+    // Retain the legacy incomplete fact, but admit a positively parsed
+    // external autolink to this non-executable evidence component. Current
+    // ordinary inventory and actual native bytes are independently verified.
+    if (gap.code === 'unsupported-target' && gap.path === inventory.document.path
+      && text(gap.raw, MAX_EVIDENCE_BYTES) && isWorkspaceExternalMarkdownAutolink(gap.raw)
+      && !Object.hasOwn(gap, 'htmlTargets')) continue;
     if (gap.code !== 'uninspected-html' || gap.path !== inventory.document.path || !text(gap.raw, MAX_EVIDENCE_BYTES) || !gap.raw) fail();
     const actual = evaluateWorkspaceHtmlLinks(gap.raw);
     if (!actual.unevaluated || nativeLinkJsonProof(gap.htmlTargets ?? null) !== nativeLinkJsonProof(actual.explicitLocalTargets ?? null)) fail();

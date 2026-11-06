@@ -3489,7 +3489,8 @@ Sechs echte PostgreSQL-Gruppen bestehen einschließlich kontrollierter
 Lesesperre nach der physischen Veröffentlichung, Wiederholung desselben
 Erstellungsbelegs, Entzug nur des Schreibrechts während der Wartezeit sowie
 bestehender Timeout-/Leserechtsgrenzen. Weitere sechs Reservierungsgruppen
-bestehen. Das ist noch keine Browserabnahme des korrigierten Linux-Builds.
+bestehen. Inzwischen bestehen auch vier kompilierte Desktop-/Mobilfälle des
+korrigierten Linux-Builds; PR #230 ist auf `main`, aber noch nicht veröffentlicht.
 
 Die gemeldete Löschblockade ist separat offen: Auch Nicht-Markdown-Dateien
 können eingehende Markdown-Links besitzen. Die Vorschau benötigt deshalb
@@ -3499,3 +3500,65 @@ Produktionsvorfall erfordert den betroffenen Pfad und Fehlercode. Schutz und
 Dokumentzustände werden nicht umgangen oder gelöscht. Review Center und Undo
 bleiben außerhalb dieses Arbeitspakets. Build, Browserabnahme, PR/CI und
 Veröffentlichung der neuen Korrektur stehen noch aus.
+
+
+### Konkrete Löschblockade: externe Autolinks und Frontmatter (2026-11-06)
+
+PR #230 ist nach 15 erfolgreichen Prüfungen und ohne offene Reviews auf `main`
+(`2c80c6df9`) gemergt. Seine Host-/Linux-Builds und vier kompilierten Browserfälle
+bestehen. Dieser Erstellungsfix ist noch nicht als neues Release deployed.
+
+Eine echte unverändernde Produktionsvorschau liefert nun
+`PATH_SOURCE_INCOMPLETE`: neun Quellen haben ungültiges Frontmatter; eine weitere
+Quelle enthält einen normalen E-Mail-Autolink, den die alte Grammatik als
+`unparsed-target` bewertet. Es entstand kein ausführbarer Plan und keine Datei
+wurde gelöscht. Damit ist ein konkreter globaler Quellenblocker belegt; die drei
+separaten Projektionsfehler sind nicht als alleinige Ursache anzusehen.
+
+Die aktuelle Parser-4-Korrektur erkennt externe CommonMark-Autolinks über den
+tatsächlichen AST. Parser 2/3 und ihre Inventare bleiben unverändert. Historische
+Lücken bleiben als unvollständige Fakten im Beleg erhalten. Ein aktueller Plan
+kann sie nur mit positiv vollständiger aktueller Quellprüfung entlasten; die
+native Belegprüfung akzeptiert dafür ausschließlich tatsächlich geparste externe
+Autolinks. Unbekannte Schemata, echte Notebook-Ziele, ungültiges Frontmatter und
+fehlende aktuelle Quellprüfung bleiben gesperrt. Keine generelle Ignore-Liste und
+keine neue Review-Center-/Undo-Abhängigkeit.
+
+Lokal bestehen zwölf Parsergruppen, zwölf Yjs-Inventargruppen, 19 reine
+Graph-/Planner-/Compilerfamilien, zehn echte PostgreSQL-Preview/Apply/Status/Recover-
+Gruppen und die Grenzen für Busy/Rollback/Close. Der neue physische Delete-Fall
+enthält eine regulär angelegte native E-Mail-Quelle; deren Yjs-/Dateibytes bleiben
+erhalten und die ausgewählten Originalbytes landen unverändert im Papierkorb.
+Zwei zusätzliche Desktop-/Mobilfälle für den normalen Browser-Löschdialog sind
+in der verpflichtenden regulären Kollaborationssuite registriert. Host- und
+Linux-Build von `e8b730de4` bestehen. Die echte kompilierte Browserabnahme besteht
+mit zwei Fällen, ohne Wiederholung, Fehler oder übersprungene Fälle: regulärer
+PNG-Upload, Löschvorschau, genau ein Apply, vollständiger Batch-Abschluss und
+Kontrolle nach Neuladen. Die separate native Klartextquelle mit E-Mail-Autolink
+behält Inhalt, Identität, Darstellung und Version. Der erste Browserlauf scheiterte
+beim Abmelden am fehlenden JSON-Body des Tests (HTTP 415); nur dieser Testaufruf
+wurde korrigiert und gegen dasselbe unveränderte Produkt-Image erneut geprüft.
+Anschließend wurden der ursprüngliche lokale Notebook-Container und seine
+geschützten Daten erfolgreich wiederhergestellt und verglichen. PR #232 benötigt
+noch die abschließende CI und Integration; die gesamte `test:all`-Abnahme des
+kombinierten Release-Stands steht aus.
+
+Für die neun Inhaltsfehler sind vollständige Markdown-Kopien und ein konkreter
+Vorschlag privat vorbereitet: achtmal Titel/Alias quotieren, einmal eine Leerzeile
+vor einer Markdown-Trennlinie. Lokal bleiben alle ursprünglichen Textzeichen
+erhalten; anschließend sind alle neun Quellen syntaktisch prüfbar. Es wurde noch
+nichts an Produktionsdokumenten geändert. Die gesondert angefragte Inhaltsänderung
+wartet auf die Benutzerentscheidung. Ein vollständiger verwalteter Backup-Lauf
+ist inzwischen abgeschlossen und remote hochgeladen (`consistent_snapshot` für
+die Datenbank, `online_best_effort` für Dateien); sein Archiv wurde hier nicht
+heruntergeladen oder probeweise wiederhergestellt. Vor jedem Apply sind die
+Backup-Aktualität und aktuelle native Dokumentversionen erneut zu prüfen.
+
+Die eigenständige SDK-Abnahme läuft weiter: PR #229 enthält den getesteten
+älteren-pip-Prüfer und ausführbare MDX-Beispiele; PR #231 ergänzt echte installierte
+SDK-Lese-Konflikte und Seiten-/Bytebudgets. PR #229 ist nach 15 erfolgreichen
+Prüfungen auf `main` (`7b7c780ec`); die tatsächlichen CI-Artefakte bestätigen die
+MDX-Beispiele und acht Wheel-Identitätsfälle jeweils unter Python 3.10 und 3.15.
+PR #231 hat grüne Prüfungen am bisherigen Head, benötigt nach der Umstellung auf
+`main` aber die Auflösung zweier additiver Konflikte und neue CI am integrierten
+Head. Gesamtmatrix, Endbudgets, Live-Tabs und finale Release-Abnahme bleiben offen.
