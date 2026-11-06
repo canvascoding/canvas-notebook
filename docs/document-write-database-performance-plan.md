@@ -3017,6 +3017,40 @@ vor jeder Containeränderung; der Runner bleibt als fehlgeschlagen erfasst.
 Die korrigierte Orchestrierung prüft explizit die reine Doku-/Testabweichung,
 Produktbytes, Checkout und alle Schutzgrenzen.
 
+**Ausführbare Schreibbeispiele, 06.11.2026 – Quellhandler bestanden:**
+`test:api-keys:sdk:documentation:native` führt zwölf unveränderte Python-Funktionen
+direkt aus den MDX-Codeblöcken aus: Create mit identischer Wiederholung, Import,
+Originalimport und Status, Edit und Status, Copy mit Preview/Apply/Status/Recover
+sowie Move-/Delete-Preview mit anschließender SDK-Ausführung und Wiederaufnahme.
+Ein tatsächlich installiertes SDK-Wheel 0.1.1 verwendet einen regulär ausgestellten,
+auf zwei eigene Workspaces begrenzten API-Key und die echten HTTP-/PostgreSQL-
+Handler. Alle 30 HTTP-Anfragen sind beim Controller nachgewiesen; jede Phase
+besitzt einen tatsächlichen HTTP-Beleg. Sieben logische Mutationen sind vor dem
+Senden mit ihren ursprünglichen Argumenten privat journalisiert. Das geschützte
+Vergleichsdokument bleibt einschließlich Registry-/Yjs-Zeilen, `xmin` und
+Dateiinhalt erhalten. Eigene Schlüssel werden widerrufen; Testschema, Pool,
+HTTP-Server und Room-Owner sind geschlossen. Review Center und Undo bleiben aus.
+
+Der neue Test gehört zur SDK-Gesamtsuite und damit zu beiden bestehenden
+CI-Läufen mit Python 3.10/3.15. Die MDX-Quelle löst diese CI nun selbst aus.
+Auch am kompilierten Produktstand `084ad8b4d` bestehen zwölf Funktionen,
+sieben journalisierte Mutationen, 30 HTTP-Anfragen und alle 26 Phasen mit
+tatsächlichem SQL-Nachweis. Query-/Poolfehler, offene Queries/Ausleihen an der
+Antwortgrenze und unbeobachtete Treiberabschlüsse sind null. Eigene Credentials
+sind widerrufen und deren Ablehnung geprüft; MCP-Einstellungen und ursprünglicher
+gesunder Container sind wiederhergestellt. Geschützte Zeilen einschließlich
+`xmin`, Dateibytes, Speicheranker und fremde Container bleiben erhalten.
+Produktbytes sind gegen das Image geprüft; die separat gebundenen Änderungen
+betreffen Tests, Doku und CI. Dies ist keine Abnahme neu gerenderter Doku-Seiten.
+Die anschließende Korrektur veralteter Veröffentlichungshinweise verändert keinen
+der sieben Python-/JSON-Codeblöcke. Neue CI, übrige Gesamtmatrix und nächstes
+Release bleiben offen.
+Lokaler Beleg: `sdk-documentation-write-source-20261106-attempt3.log`.
+Die beiden vorherigen Fehlversuche bleiben als solche erhalten: ein falsch
+zugeordnetes externes Bundle-Input und anschließend vom Prüfer verschluckte
+HTTP-Protokollausgaben. Externe MDX-/Python-Eingaben sind nun separat gehasht;
+das Controller-Protokoll bleibt vom ausgeblendeten Beispiel-Feedback getrennt.
+
 **Status am 05.11.2026: reguläre Suite, Tag-CI und API-Key-Browserabnahme
 bestanden. Die Gesamtmatrix ist offen.** Der Umfang umfasst alle in API und
 SDK ausgewiesenen Dokumentfunktionen und Authentifizierungsarten. Eine
