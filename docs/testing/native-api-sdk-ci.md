@@ -111,3 +111,33 @@ content. The OAuth entry point is not executed by this key-only probe. Its stati
 check of the read example's minimal scopes does not establish interactive consent
 or refresh acceptance. Execution requires a real compiled fixture; a syntax check
 alone is not a passing acceptance result.
+
+## Published write-example acceptance
+
+`npm run test:api-keys:sdk:documentation:native` executes twelve actual Python
+helper functions extracted from the SDK MDX source. It requires the same verified
+installed interpreter and wheel as the other native SDK tests; missing artifacts
+fail instead of skipping the case. The SDK aggregate includes it in both Python
+CI lanes. Changes to the SDK MDX page also trigger that workflow.
+
+The fixture issues a real API key for two owned workspaces and runs actual MCP
+HTTP handlers with PostgreSQL. It covers Create and identical retry, Edit/status,
+external and original-file Import/status, Copy preview/apply/status/recover, and
+Move/Delete preview followed by SDK apply/status/recover. Mutation arguments are
+journaled privately before sending; retries and recovery retain the original
+request. MDX and Python inputs are hashed before and after execution. HTTP evidence
+uses a separate protocol stream from the example functions' printed feedback.
+Every phase must have an observed HTTP exchange, and the controller's exchange
+count must equal the probe's count.
+
+`scripts/helpers/python_sdk_documentation_write_probe.py` can also run against
+the managed compiled backend when an independent controller supplies an owned
+fixture, key, exact input/wheel hashes and private journal directory over stdin.
+Its explicit `source-handler` and `compiled-next` profiles distinguish handler CI
+from compiled-server acceptance. The compiled profile requires the managed
+loopback endpoint on port 3100. The controller remains responsible for workspace
+setup, key revocation, settings restoration and protected-data preservation.
+
+Neither profile runs the documentation's interactive OAuth entry point. These
+write examples do not replace the complete rights/recovery/link matrix, browser
+acceptance, a newly rendered documentation build or final release checks.

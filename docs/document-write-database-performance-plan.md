@@ -3033,8 +3033,18 @@ HTTP-Server und Room-Owner sind geschlossen. Review Center und Undo bleiben aus.
 
 Der neue Test gehört zur SDK-Gesamtsuite und damit zu beiden bestehenden
 CI-Läufen mit Python 3.10/3.15. Die MDX-Quelle löst diese CI nun selbst aus.
-Diese neue CI-Ausführung, die Ausführung gegen den kompilierten Notebook-Server,
-die übrige Gesamtmatrix und das nächste Release sind noch nicht nachgewiesen.
+Auch am kompilierten Produktstand `084ad8b4d` bestehen zwölf Funktionen,
+sieben journalisierte Mutationen, 30 HTTP-Anfragen und alle 26 Phasen mit
+tatsächlichem SQL-Nachweis. Query-/Poolfehler, offene Queries/Ausleihen an der
+Antwortgrenze und unbeobachtete Treiberabschlüsse sind null. Eigene Credentials
+sind widerrufen und deren Ablehnung geprüft; MCP-Einstellungen und ursprünglicher
+gesunder Container sind wiederhergestellt. Geschützte Zeilen einschließlich
+`xmin`, Dateibytes, Speicheranker und fremde Container bleiben erhalten.
+Produktbytes sind gegen das Image geprüft; die separat gebundenen Änderungen
+betreffen Tests, Doku und CI. Dies ist keine Abnahme neu gerenderter Doku-Seiten.
+Die anschließende Korrektur veralteter Veröffentlichungshinweise verändert keinen
+der sieben Python-/JSON-Codeblöcke. Neue CI, übrige Gesamtmatrix und nächstes
+Release bleiben offen.
 Lokaler Beleg: `sdk-documentation-write-source-20261106-attempt3.log`.
 Die beiden vorherigen Fehlversuche bleiben als solche erhalten: ein falsch
 zugeordnetes externes Bundle-Input und anschließend vom Prüfer verschluckte
