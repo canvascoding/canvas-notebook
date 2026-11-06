@@ -11,10 +11,12 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.6.2] - 2026-11-06
+## [2026.11.6.3] - 2026-11-06
 
 ### Fixed
 
+- Resume an already accepted rich-text migration before native session admission so its own durable reservation cannot permanently block editor startup. Return pending receipts without session tickets and retain the original request for completion or cancellation.
+- Recover the current writer's matching pending migration after browser state is lost, while preserving explicit Source requests, other users' reservations, native identities and the existing migration backup.
 - Allow supported Markdown containing email autolinks and mixed task/plain lists to enter formatted editing through the existing guarded rich upgrade. Preserve full mailto targets, labels, titles and checkbox states.
 - Preserve open native-document tabs across watcher unlink and path moves while keeping confirmed local deletion explicit.
 - Correct the published Python SDK read example to request only its required OAuth scopes.
@@ -31,11 +33,11 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
-- Focused repository/download checks passed. Native amd64 and arm64 APT probes passed offline metadata updates, exact package installation, and rejection of changed metadata/index contents.
-- Native API and installed Python SDK CI passed under Python 3.10 and 3.15.
-- Desktop and mobile mailto migration/reload acceptance passed with two cases, no skips and no retries.
-- At product revision `b7501031f`, actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts; exact-image acceptance after later shared-source changes remains required.
-- `npm run verify:release` is required before the release commit; final regular `test:all` on the release image is required before publication and deployment.
+- Genuine PostgreSQL 18/Better Auth Web/Mobile POST regressions reproduce reserved-migration startup failure before the fix and pass afterward, including pending receipts without tickets, same-request completion/cancellation, browser-state loss, foreign-writer rejection and explicit Source preservation.
+- Existing session API, migration/authorization and Busy/retry families passed; production TypeScript and ESLint passed.
+- `npm run verify:release` includes the strict license gate, production build and CLI update/rollback checks and must pass before this release commit.
+- Both architecture builds, native API and installed Python SDK CI must pass for the final release source before publication.
+- Exact-image recovery, desktop/mobile mailto migration/reload, link-index completion at ten and 200 documents, API-key browser acceptance and regular `test:all` with its required 40-case collaboration profile must pass before publication and deployment.
 
 ## [2026.11.5.2] - 2026-11-05
 
