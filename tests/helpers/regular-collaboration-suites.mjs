@@ -9,6 +9,7 @@ export const regularCollaborationFiles = [
   'editor-table-menu.spec.ts', 'pdf-viewer-layers.spec.ts',
   'editor-formatting-syntax.spec.ts', 'editor-url-paste.spec.ts',
   'file-live-collaboration.spec.ts', 'editor-offline-collaboration.spec.ts',
+  'file-create-confirmation.spec.ts',
 ];
 
 export const deferredReviewAndUndoFiles = [
