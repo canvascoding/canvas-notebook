@@ -11,6 +11,7 @@ import deMessages from '../messages/de.json';
 import { createAuthenticatedContext, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { recoveredRoomReadUrls, roomReadConsoleMessage } from './helpers/recovered-room-read.mjs';
+import { recoveredRichMigrationErrors } from './helpers/recovered-rich-migration.mjs';
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
@@ -404,10 +405,26 @@ test.describe('Markdown live collaboration', () => {
     const owner = await ownerContext.newPage();
     const peer = await peerContext.newPage();
     const roomReads: Array<Promise<{ url: string; status: number; code?: string; documentId?: string; at: number }>> = [];
-    const consoleErrors: Array<{ url: string; message: string; value: string }> = [];
+    const consoleErrors: Array<{ client: string; url: string; message: string; value: string }> = [];
+    const migrationReads: Array<Promise<Record<string, unknown>>> = [];
     for (const [page, label] of [[owner, 'caret-owner'], [peer, 'caret-peer']] as const) {
-      page.on('console', message => { if (message.type() === 'error') consoleErrors.push({ url: message.location().url, message: message.text(), value: `[${label}] console error: ${message.text()} [${message.location().url}]` }); });
+      page.on('console', message => { if (message.type() === 'error') consoleErrors.push({ client: label, url: message.location().url, message: message.text(), value: `[${label}] console error: ${message.text()} [${message.location().url}]` }); });
       page.on('response', response => {
+        if (new URL(response.url()).pathname === '/api/files/collaboration/session' && response.request().method() === 'POST') {
+          const at = Date.now();
+          migrationReads.push((async () => {
+            const payload = await response.json().catch(() => null);
+            let requestBody;
+            try { requestBody = response.request().postDataJSON(); } catch { requestBody = null; }
+            return { client: label, url: response.url(), method: response.request().method(), status: response.status(), at,
+              path: requestBody?.path, requestRepresentation: requestBody?.representation,
+              requestMigration: requestBody?.migration, success: payload?.success, code: payload?.code,
+              migration: payload?.migration, documentId: payload?.documentId,
+              lifecycleGeneration: payload?.lifecycleGeneration, representation: payload?.representation,
+              credentialFieldsPresent: !!payload && ['token', 'ticket', 'sessionToken', 'adoptionTicket'].some(key => Object.hasOwn(payload, key)),
+              ticketIssued: typeof payload?.token === 'string' && payload.token.length > 0 };
+          })());
+        }
         if (new URL(response.url()).pathname !== '/api/files/read') return;
         const at = Date.now();
         roomReads.push((async () => {
@@ -483,7 +500,11 @@ test.describe('Markdown live collaboration', () => {
       const recovered = recoveredRoomReadUrls(await Promise.all(roomReads), consoleErrors);
       const recoveredMessages = new Set(consoleErrors.filter(error => recovered.has(error.url)
         && error.message === roomReadConsoleMessage).map(error => error.value));
+      const recoveredMigrations = recoveredRichMigrationErrors(await Promise.all(migrationReads), consoleErrors);
+      for (const message of recoveredMigrations) recoveredMessages.add(message);
       expect([...errors, ...peerErrors].filter(error => !recoveredMessages.has(error))).toEqual([]);
+      if (recoveredMigrations.size) testInfo.annotations.push({ type: 'recovered-rich-migration',
+        description: JSON.stringify({ count: recoveredMigrations.size }) });
       if (recovered.size) testInfo.annotations.push({ type: 'recovered-room-read',
         description: JSON.stringify({ count: recovered.size, urls: [...recovered] }) });
     } finally {
