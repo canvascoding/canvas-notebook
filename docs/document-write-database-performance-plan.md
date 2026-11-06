@@ -3562,3 +3562,27 @@ MDX-Beispiele und acht Wheel-Identitätsfälle jeweils unter Python 3.10 und 3.1
 PR #231 hat grüne Prüfungen am bisherigen Head, benötigt nach der Umstellung auf
 `main` aber die Auflösung zweier additiver Konflikte und neue CI am integrierten
 Head. Gesamtmatrix, Endbudgets, Live-Tabs und finale Release-Abnahme bleiben offen.
+
+### Gesamtabnahme und verbleibende Zulassungsfehler (2026-11-06)
+
+PR #232 ist nach zehn erfolgreichen Checks und ohne offene Reviews auf `main`
+(`3758eea90`). Beide Python-Lanes und die heruntergeladenen tatsächlichen
+Paket-/HTTP-/Dokumentationsartefakte sind geprüft. Das ist noch kein neues Release.
+
+Der anschließende vollständige lokale Lauf endet mit 334 regulären Erfolgen,
+einem Fehler und 102 bestehenden bedingten Auslassungen; das verpflichtende
+Kollaborationsprofil erreicht 44 Erfolge und zwei Fehler ohne Skip. Originaldaten,
+Zeilen, Bytes und Speicheranker sind danach unverändert wiederhergestellt.
+Der reguläre Fehler ist eine übersehene alte Testerwartung nach dem präziseren
+Migrationsfeedback: Unsupported darf nicht länger andere Editoren beschuldigen.
+Die korrigierte Erwartung und der benachbarte tatsächliche Room-Active-Fall bestehen.
+
+Ein Kollaborationsfehler ist ein bestätigter PostgreSQL-Lock-Timeout beim aktuellen
+Beobachtungslesen nach einer Migration. Seine [gezielte Korrektur und Grenzen](testing/rich-migration-read-contention-2026-11-06.md)
+bestehen acht tatsächliche PostgreSQL-Gruppen und die bestehenden 61 Migrations-
+und Rechtefamilien. Eine kompilierte Wiederholung des betroffenen Browserfalls
+steht noch aus. Der zweite Kollaborationsfehler ist ein mobiler PUT mit
+`503/COLLABORATION_BUSY` vor der Vorbereitung des Schreibvorgangs; seine erhaltene
+native Ersatzdatei bleibt leer und es existiert kein vorbereiteter mobiler Vorgang.
+Dieser Fall wird gezielt weiter untersucht, ohne unklare Schreibversuche blind
+zu wiederholen. `test:all` ist noch nicht grün; es wird kein Release daraus abgeleitet.

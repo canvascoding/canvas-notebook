@@ -95,6 +95,7 @@ jobs:
           set -euo pipefail
           npm run test:api-keys:native 2>&1 | tee "$RUNNER_TEMP/native-api.log"
           npm run test:excalidraw:read-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-excalidraw-admission.log"
+          npm run test:collaboration:migration-read-contention:postgres 2>&1 | tee "$RUNNER_TEMP/native-rich-migration-read.log"
           npm run test:mcp:path-tools:native 2>&1 | tee "$RUNNER_TEMP/native-mcp-paths.log"
           npm run test:pi:workspace-tree:native 2>&1 | tee "$RUNNER_TEMP/native-agent-list.log"
           npm run test:pi:read:native 2>&1 | tee "$RUNNER_TEMP/native-agent-read.log"
@@ -149,6 +150,8 @@ jobs:
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log
             ${{ runner.temp }}/native-api.log
+            ${{ runner.temp }}/native-excalidraw-admission.log
+            ${{ runner.temp }}/native-rich-migration-read.log
             ${{ runner.temp }}/native-autolink-*.log
             ${{ runner.temp }}/native-mcp-paths.log
             ${{ runner.temp }}/native-agent-*.log
