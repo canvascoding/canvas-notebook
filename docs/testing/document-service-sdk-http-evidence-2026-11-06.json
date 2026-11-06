@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "ff6d683be2a09a178a7410e1308ace1dc025dbf0",
+  "sameTreeMainMerge": "e07df827f8553778d9da55864a4d58871e32794c",
+  "ciRunUrl": "https://github.com/canvascoding/canvas-notebook/actions/runs/42222775763",
+  "ciEvent": "pull_request",
+  "pullRequest": 224,
+  "lanes": [
+    {
+      "python": "3.10.22",
+      "log": "native-sdk-3.10.log",
+      "logSha256": "1cf8161918be4bdddfe10ac0385502e44699ba6ac5dff42504f9bf5862017465",
+      "suites": [
+        {
+          "suite": "installed-api-key-sdk-native-http",
+          "passed": true,
+          "groups": 4,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "nativeDocumentsUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-edit-http",
+          "passed": true,
+          "groups": 6,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "droppedWriteAcknowledgements": 1,
+          "automaticWriteReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-create-import-http",
+          "passed": true,
+          "groups": 7,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 3,
+          "droppedWriteAcknowledgements": {
+            "create": 1,
+            "import": 1
+          },
+          "automaticWriteReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-copy-http",
+          "passed": true,
+          "groups": 8,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 4,
+          "droppedHttpAcknowledgements": 1,
+          "lostB1Acknowledgements": 1,
+          "automaticWriteReplays": 0,
+          "protectedSourceUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-path-http",
+          "passed": true,
+          "groups": 21,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "droppedHttpAcknowledgements": 2,
+          "lostCommitAcknowledgements": 4,
+          "automaticWriteReplays": 0,
+          "protectedOriginalsAndHistoryRetained": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false,
+          "undoEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-original-import-http",
+          "passed": true,
+          "groups": 7,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "droppedAcknowledgements": 1,
+          "automaticMutationReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "pristineIdentityPreserved": true,
+          "immutableOriginalReceipts": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        }
+      ],
+      "groupTotal": 53
+    },
+    {
+      "python": "3.15.2",
+      "log": "native-sdk-3.15.log",
+      "logSha256": "28840dbc9dc664c9e9f2435ec210f7d28e93050455d5469622c41776ad3a60b2",
+      "suites": [
+        {
+          "suite": "installed-api-key-sdk-native-http",
+          "passed": true,
+          "groups": 4,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "nativeDocumentsUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-edit-http",
+          "passed": true,
+          "groups": 6,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "droppedWriteAcknowledgements": 1,
+          "automaticWriteReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-create-import-http",
+          "passed": true,
+          "groups": 7,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 3,
+          "droppedWriteAcknowledgements": {
+            "create": 1,
+            "import": 1
+          },
+          "automaticWriteReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-copy-http",
+          "passed": true,
+          "groups": 8,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 4,
+          "droppedHttpAcknowledgements": 1,
+          "lostB1Acknowledgements": 1,
+          "automaticWriteReplays": 0,
+          "protectedSourceUnchanged": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-path-http",
+          "passed": true,
+          "groups": 21,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "actual401": 2,
+          "droppedHttpAcknowledgements": 2,
+          "lostCommitAcknowledgements": 4,
+          "automaticWriteReplays": 0,
+          "protectedOriginalsAndHistoryRetained": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false,
+          "undoEnabled": false
+        },
+        {
+          "suite": "installed-api-key-sdk-original-import-http",
+          "passed": true,
+          "groups": 7,
+          "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+          "droppedAcknowledgements": 1,
+          "automaticMutationReplays": 0,
+          "protectedNativeDocumentUnchanged": true,
+          "pristineIdentityPreserved": true,
+          "immutableOriginalReceipts": true,
+          "compiledNext": false,
+          "oauthIssuance": false,
+          "reviewCenterEnabled": false
+        }
+      ],
+      "groupTotal": 53
+    }
+  ],
+  "scope": {
+    "actualHttpAndPostgres": true,
+    "installedWheel": true,
+    "compiledNext": false,
+    "oauthIssuance": false,
+    "osKeyring": false,
+    "fullMatrixComplete": false
+  },
+  "limits": [
+    "Suite summaries bind actual executed fault counts; they do not prove every authorization or link-parity matrix cell.",
+    "The compiled same-instance restore and SDK process check is recorded separately in document-service-acceptance-2026-11-06.md.",
+    "No new test run was started to produce this mapping."
+  ]
+}

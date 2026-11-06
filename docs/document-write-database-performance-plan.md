@@ -47,8 +47,9 @@ Der abgeschlossene Fix-Rollout ersetzt nicht die folgenden Arbeiten:
 3. Inkrementelle Linkmutationen und gemeinsame Schreibwege über alle ausgewiesenen
    Transporte gegen den vollständigen Neuaufbau prüfen, einschließlich Konflikt,
    Abbruch, Wiederaufnahme und aktuellem Rechteentzug.
-4. Verbleibende API-/SDK-Matrix, ausführbare Schreibbeispiele und unterstützte
-   Schreib-Recovery nach Restore derselben Instanz schließen. Die ältere erfolgreiche
+4. Verbleibende API-/SDK-Matrix und ausführbare Schreibbeispiele abschließen. Die unterstützte Wiederherstellung derselben Instanz
+   mit nach dem Export rotiertem Schlüssel und installiertem SDK ist am Stand
+   von PR #224 jetzt tatsächlich bestanden, siehe Abnahmeabgleich. Die ältere erfolgreiche
    portable Übernahme in eine getrennte Instanz ist bereits belegt. Ein produktiver SDK-OAuth-Test benötigt
    weiterhin die ausdrückliche Zustimmung zur tatsächlichen Ausstellung.
 5. Danach die vereinbarten begrenzt live verbundenen Tabs aus 5c implementieren
