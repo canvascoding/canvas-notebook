@@ -1,0 +1,44 @@
+name: Verified Debian package supply
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'scripts/debian-*'
+      - 'docs/compliance/debian-repository-lock.json'
+      - '.github/workflows/debian-verified-packages.yml'
+  push:
+    branches: [main, codex/fix-verified-debian-pools]
+    paths:
+      - 'Dockerfile'
+      - 'scripts/debian-*'
+      - 'docs/compliance/debian-repository-lock.json'
+      - '.github/workflows/debian-verified-packages.yml'
+permissions:
+  contents: read
+jobs:
+  native-apt:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26
+      - name: Test verified download and repository guards
+        run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-fetch-test.mjs
+      - name: Test signed frozen APT and exact official-pool packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(sed -n 's/^ARG NODE_BASE_IMAGE=//p' Dockerfile)
+          [[ "$base" =~ ^node:24-bookworm-slim@sha256:[a-f0-9]{64}$ ]]
+          docker run --rm --name canvas-debian-verified-packages \
+            --mount "type=bind,src=$PWD/docs/compliance/debian-repository-lock.json,dst=/usr/local/share/canvas-debian-repository-lock.json,readonly" \
+            --mount "type=bind,src=$PWD/scripts,dst=/usr/local/libexec/canvas-debian,readonly" \
+            "$base" sh /usr/local/libexec/canvas-debian/debian-package-install-native-test.sh

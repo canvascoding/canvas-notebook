@@ -17,7 +17,7 @@ export async function preflightRepositories({ lock = repositoryLock, fetchImpl =
     fs.mkdirSync(path.join(directory, 'apt.conf.d'));
     configureRepositories(lock, directory);
     const outcomes = await Promise.allSettled(lock.repositories.map(async repository => {
-      const url = `${repository.uri}/dists/${repository.suite}/InRelease`;
+      const url = `https://snapshot.debian.org/file/${repository.inRelease.fileSha1}/InRelease`;
       const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
       try {
         assert.equal(response.status, 200, `Debian metadata unavailable: ${url}, HTTP ${response.status}`);
