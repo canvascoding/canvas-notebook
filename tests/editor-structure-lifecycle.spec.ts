@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
+import { completeNativeFixtureRename } from './helpers/completed-native-rename';
 
 async function login(page: Page, peer = false) {
   if (peer) {
@@ -99,6 +100,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
   }
 
   test('a moved document deep link reopens its identity after the old path is reused', async ({ page }, info) => {
+    test.setTimeout(180_000);
     const headers = await login(page);
     const readNativeFile = async (path: string) => {
       const deadline = Date.now() + 5_000;
@@ -136,9 +138,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
       const original = await readNativeFile(`${oldFolder}/b.md`);
       const documentId = original.collaboration.document.id;
       const before = await tree(page);
-      expect((await page.request.post('/api/files/rename', { headers, data: {
-        oldPath: oldFolder, newPath: newFolder, updateLinks: false,
-      } })).ok()).toBe(true);
+      await completeNativeFixtureRename(page.request, { workspaceId: headers['x-canvas-workspace-id'], oldPath: oldFolder, newPath: newFolder });
       await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe(`${newFolder}/b.md`);
       expect(await tree(page)).toEqual(before);
       expect((await page.request.post('/api/files/create', { headers, data: { path: oldFolder, type: 'directory' } })).ok()).toBe(true);

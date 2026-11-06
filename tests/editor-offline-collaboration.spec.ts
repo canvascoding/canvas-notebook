@@ -10,6 +10,7 @@ import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } 
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
+import { completeNativeFixtureRename } from './helpers/completed-native-rename';
 
 const baseURL = process.env.BASE_URL || '';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -301,7 +302,7 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
   else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const headers = await login(page);
   const filePath = `offline-http-pool-${randomUUID()}.md`;
   const movedPath = filePath.replace('.md', '-moved.md');
@@ -353,8 +354,7 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
     await expect.poll(() => syncStatuses.filter(status => status === 200).length).toBeGreaterThanOrEqual(3);
     expect(eventSources).toEqual([]);
     expect(syncStatuses.every(status => status === 200)).toBe(true);
-    const renamed = await page.request.post('/api/files/rename', { headers, data: { oldPath: filePath, newPath: movedPath, updateLinks: false } });
-    expect(renamed.status(), 'This single native move must finish before checking live tab locations.').toBe(200);
+    await completeNativeFixtureRename(page.request, { workspaceId: headers['x-canvas-workspace-id'], oldPath: filePath, newPath: movedPath });
     cleanupPath = movedPath;
     for (const candidate of pages) {
       await expect.poll(() => new URL(candidate.url()).searchParams.get('path'), { timeout: 30_000 }).toBe(movedPath);
@@ -370,7 +370,7 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
 });
 
 
-test('a native fixture file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
+test('a filesystem file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
   else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
@@ -387,17 +387,18 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
   const dataRoot = process.env.DATA;
   expect(dataRoot && nodePath.isAbsolute(dataRoot)).toBe(true);
   const folder = `native-live-cache-${randomUUID()}`;
-  const nativeRelative = `${folder}/native-created.md`;
+  const nativeRelative = `${folder}/native-created.txt`;
   const fixtureRoot = nodePath.join(dataRoot!, relativeRoot, folder);
   expect((await page.request.post('/api/files/create', { headers, data: { path: folder, type: 'directory' } })).ok()).toBe(true);
   expect((await page.request.post('/api/files/upload', { headers, multipart: { path: folder, files: {
-    name: 'seed.md', mimeType: 'text/markdown', buffer: Buffer.from('Synthetic cache seed.'),
+    name: 'seed.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic cache seed.'),
   } } })).ok()).toBe(true);
   type ProbeWindow = Window & { __cacheProbe?: { socket: WebSocket; events: Array<{ relativePath?: string }> } };
+  let primaryError: unknown;
   try {
     // Verify the exact host/container mount using the fixture we just created;
     // no pre-existing workspace document is read or modified by the native write.
-    expect(await readFile(nodePath.join(fixtureRoot, 'seed.md'), 'utf8')).toBe('Synthetic cache seed.');
+    expect(await readFile(nodePath.join(fixtureRoot, 'seed.txt'), 'utf8')).toBe('Synthetic cache seed.');
     await page.goto('/api/health', { waitUntil: 'domcontentloaded' });
     const clientId = await page.evaluate(async ({ workspaceId }) => new Promise<string>((resolve, reject) => {
       const url = new URL('/ws/live-events', window.location.href); url.protocol = 'ws:';
@@ -415,7 +416,9 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
         else if (message.event.event === 'filechange') state.events.push(value);
       };
     }), { workspaceId });
-    expect((await page.request.post('/api/files/watch', { headers, data: { clientId, dirs: [folder] } })).ok()).toBe(true);
+    const watched = await page.request.post('/api/files/watch', { headers, data: { clientId, dirs: [folder] } });
+    expect(watched.ok()).toBe(true);
+    expect((await watched.json()).watchedDirs).toContain(folder);
     const getTree = async () => {
       const response = await page.request.get('/api/files/tree', { headers, params: { path: folder, depth: '0' } });
       expect(response.ok()).toBe(true); return (await response.json()).data as Array<{ path: string }>;
@@ -424,9 +427,11 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
       const response = await page.request.get('/api/files/list', { headers, params: { q: folder, limit: '50' } });
       expect(response.ok()).toBe(true); return (await response.json()).files as Array<{ path: string }>;
     };
-    expect((await getTree()).some(entry => entry.path === `${folder}/seed.md`)).toBe(true);
-    expect((await getReferences()).some(entry => entry.path === `${folder}/seed.md`)).toBe(true);
-    await writeFile(nodePath.join(fixtureRoot, 'native-created.md'), 'Native synthetic fixture.', { flag: 'wx' });
+    expect((await getTree()).some(entry => entry.path === `${folder}/seed.txt`)).toBe(true);
+    expect((await getReferences()).some(entry => entry.path === `${folder}/seed.txt`)).toBe(true);
+    // This isolates filesystem/cache delivery. Native Markdown birth and its
+    // identity/import policy have their own tests; no orphan Markdown is minted.
+    await writeFile(nodePath.join(fixtureRoot, 'native-created.txt'), 'Native synthetic fixture.', { flag: 'wx' });
     await expect.poll(() => page.evaluate(relative => (window as ProbeWindow).__cacheProbe?.events.some(event => event.relativePath === relative), nativeRelative),
       { timeout: 10_000 }).toBe(true);
     // This page has no Notebook UI. Therefore no background noCache=true tree
@@ -439,8 +444,20 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
     await info.attach('native-cache-invalidation', { body: JSON.stringify({ eventReceived: true, treeContains, referencesContain, nativeRead: true }), contentType: 'application/json' });
     expect.soft(treeContains, 'The native watcher must invalidate the HTTP tree cache immediately.').toBe(true);
     expect.soft(referencesContain, 'The native watcher must invalidate the HTTP file-reference cache immediately.').toBe(true);
+  } catch (error) {
+    primaryError = error;
+    await info.attach('filesystem-cache-watcher-state', { body: JSON.stringify(await page.evaluate(() => ({
+      readyState: (window as ProbeWindow).__cacheProbe?.socket.readyState,
+      events: (window as ProbeWindow).__cacheProbe?.events,
+    }))), contentType: 'application/json' }).catch(() => undefined);
+    throw error;
   } finally {
     await page.evaluate(() => (window as ProbeWindow).__cacheProbe?.socket.close()).catch(() => undefined);
-    await cleanFiles(page.context(), headers, [folder]);
+    try { await cleanFiles(page.context(), headers, [folder]); }
+    catch (error) {
+      if (!primaryError) throw error;
+      await info.attach('retained-cache-fixture-cleanup', { body: error instanceof Error
+        ? error.message.split('\n')[0] : 'Unconfirmed cleanup; fixture data retained.', contentType: 'text/plain' });
+    }
   }
 });

@@ -9,6 +9,7 @@ on:
       - scripts/regular-collaboration-profile-test.mjs
       - scripts/owned-fixture-files-test.mjs
       - scripts/recovered-room-read-test.mjs
+      - scripts/completed-native-rename-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/**
       - app/lib/notebook/**
@@ -29,6 +30,7 @@ on:
       - scripts/regular-collaboration-profile-test.mjs
       - scripts/owned-fixture-files-test.mjs
       - scripts/recovered-room-read-test.mjs
+      - scripts/completed-native-rename-test.ts
       - scripts/playwright-suite-discovery-test.mjs
       - tests/**
       - app/lib/notebook/**
