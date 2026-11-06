@@ -209,7 +209,31 @@ bleiben erhalten. Lokal scheitert der neue Adressweg noch an einem anderen
 GitHub-Architekturen erfolgen. Metadaten-Netzproben allein sind kein Image- oder
 Signaturnachweis.
 
-**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.6.1` nach vollständiger
+Auch der unveraenderliche Tag `v2026.11.6.1` bleibt unveroeffentlicht. Beide
+Image-Versuche scheiterten an Snapshot-503, zuletzt fuer einzelne Pakete
+(`libexif12` bzw. `libjsoncpp25`). Anwendungscompiler und die wiederholte
+API-/SDK-CI `42134355820` bestanden. Der erste API-Lauf hatte einen nicht erneut
+reproduzierten Autorisierungs-Lockkonflikt; dessen Ursache ist nicht als behoben
+nachgewiesen.
+
+Die gezielte native Probe `42141093716` installierte beide betroffenen Pakete
+auf amd64 und arm64 aus dem offiziellen Debian-Pool. Groesse und SHA-256
+entsprachen exakt den signierten eingefrorenen APT-Indizes; die Installation
+mit `--no-download` bestand. PR #220 uebernimmt diesen Lieferweg als gemeinsamen
+Build-Service. Ein lokaler Build-Mirror vermeidet wiederholte Metadatenabrufe;
+Signaturen, Ablauf, InRelease-Gesamthashes und Paketindex-Hashes bleiben
+verpflichtend. Die neue native CI `42143905954` besteht auf amd64 und arm64 einschliesslich
+Offline-Updates, exakter Paketinstallation und Ablehnung veraenderter
+Metadaten/Indexinhalte. Die finale Release-/Image-Abnahme steht noch aus.
+
+PR #217 ist inzwischen auf `main` (`1e2595b78`). Der Release-Abgleich uebernimmt
+seine bestaetigte Tab-/Loeschereignis-Logik und den verpflichtenden regulaeren
+Kollaborationslauf mit 40 Browserfaellen. Seine kanonische Debian-Schnittstelle
+bleibt erhalten und verwendet denselben geprueften Download-Service wie der
+Build-Mirror. Review Center und Datei-Undo bleiben ausgeschlossen. Die Abnahme
+muss beide Browserprofile auf dem endgueltigen Release-Image belegen.
+
+**Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.6.2` nach vollständiger
 Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
 „Fertige Fixes zuerst veröffentlichen“ gewählt. Die neue Live-Tab-Verwaltung aus
 Abschnitt 5c folgt danach. Bestehende grüne Belege bleiben erhalten; keine globale

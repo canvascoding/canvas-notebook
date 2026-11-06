@@ -49,7 +49,7 @@ for (const unavailable of ['http', 'network']) test(`bounded snapshot fallback a
   await downloadLockedDebianPackages([entry], directory, async (url, options) => {
     assert(options.signal instanceof AbortSignal); calls.push(url);
     if (url === entry.urls[1]) return new Response(content);
-    if (unavailable === 'network') throw new Error('transport failed');
+    if (unavailable === 'network') throw new TypeError('transport failed', { cause: { code: 'ECONNRESET' } });
     return new Response('not retained by live mirror', { status: 404 });
   });
   assert.deepEqual(calls, entry.urls);

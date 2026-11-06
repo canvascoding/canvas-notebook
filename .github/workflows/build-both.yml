@@ -137,7 +137,7 @@ jobs:
 
       - name: Check frozen Debian metadata before compilation
         run: |
-          node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-download-test.mjs
+          node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-fetch-test.mjs scripts/debian-package-download-test.mjs
           node scripts/debian-repository-preflight.mjs
 
       - name: Install dependencies
@@ -608,7 +608,7 @@ jobs:
           cp docs/compliance/dictation-cpp-policy.json docs/compliance/container-local-dictation-review-2026-10-04.md "dist-native-compliance/${asset}/"
           mkdir -p "dist-native-compliance/${asset}/docs/compliance" "dist-native-compliance/${asset}/scripts"
           cp docs/compliance/debian-repository-lock.json "dist-native-compliance/${asset}/docs/compliance/"
-          cp scripts/debian-repository-lock.mjs scripts/debian-package-download.mjs "dist-native-compliance/${asset}/scripts/"
+          cp scripts/debian-repository-lock.mjs scripts/debian-package-fetch.mjs scripts/debian-package-install.mjs scripts/debian-package-download.mjs "dist-native-compliance/${asset}/scripts/"
           cp Dockerfile requirements/runtime-python.txt requirements/dictation-python.txt THIRD_PARTY_NOTICES.md "dist-native-compliance/${asset}/"
           cp docs/compliance/third-party-components.json \
              docs/compliance/docker-native-distribution-policy.json \

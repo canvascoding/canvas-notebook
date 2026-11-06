@@ -109,15 +109,26 @@ coverage limitation, not a passing test.
 ## Frozen Debian package downloads
 
 Docker builds resolve packages only against the signed, SHA-256-locked Debian
-snapshot indexes. `scripts/debian-package-download.mjs` asks APT for exact package
-filenames, sizes and SHA-256 hashes, downloads those artifacts from the official
-Debian pool, and falls back once to the original snapshot if transport fails.
-It never adds a live mirror as a package-resolution source. Missing artifacts,
-changed bytes, invalid metadata or conflicting cache files fail the build. APT
-then installs with downloads disabled. The release compliance archive includes
-the helper and repository lock so this transport remains reproducible.
+snapshot indexes. The build-only local mirror retains signed metadata across
+stages, with active APT signature/expiry checks. Index payloads use official
+SHA-256 addresses with exact archival fallbacks. The installer checks retained
+metadata and decoded package indexes before requesting exact package bytes.
 
-`node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs`
-checks the repository lock, bounded transport fallback, exact artifact integrity,
-cache integrity and rejection of unreviewed origins. These checks also run in the
-Node 24/26 PR contract jobs and the release preflight.
+`scripts/debian-package-fetch.mjs` supplies the shared bounded HTTPS transport,
+size/hash verification, safe cache handling, and atomic publication. Both the
+local-mirror installer and the existing canonical-source download interface use
+this service. Integrity/TLS failures remain failures; availability fallback never
+selects different bytes or versions. No live mirror is a package-resolution source.
+APT installs verified Debian bytes with downloads disabled. The separately
+SHA-256-checked PGDG files use local dpkg installation after Debian dependencies
+are present. The final image restores canonical repository sources.
+
+The native amd64/arm64 CI checks offline metadata updates, the earlier failing
+packages, changed metadata/index rejection, derived-stage initialization, and
+working PostgreSQL client 18.4 from the Dockerfile's exact pinned local archives.
+The release compliance archive contains every helper and the repository lock.
+
+`node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-fetch-test.mjs scripts/debian-package-download-test.mjs`
+checks both retained interfaces and their shared transport. These checks run in
+the Node 24/26 PR contracts and release preflight. Actual image inventory and
+compiled-product browser acceptance remain separate release gates.

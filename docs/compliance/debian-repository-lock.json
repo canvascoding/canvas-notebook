@@ -15,6 +15,16 @@
         "main/source/Sources": "92d75d23e1757f7a0a21ccb8612cd8a63c64d4020241a31b234b2a2be9653844",
         "main/source/Sources.gz": "c5a2379970764ac50e167f75909655c552602c1a4d7018c0907b3e30d8dc9de4",
         "main/source/Sources.xz": "92d11a035571df011f06f28c61cb9825130ef1d92abb2f2e0525e8674dc44af8"
+      },
+      "inRelease": {
+        "fileSha1": "736a99b8b096598d48c438eb356bd074fecfbf23",
+        "sha256": "77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa",
+        "size": 151075
+      },
+      "indexFileSha1": {
+        "main/binary-amd64/Packages.xz": "efe5b90ec48b9c017922c5aa4996807d0f044064",
+        "main/binary-arm64/Packages.xz": "dc2e4469c4d5a6e92f4913726ada07ca1d353203",
+        "main/source/Sources.xz": "b5d2189a5f7dd344fab97d8e372bbb852c7644b9"
       }
     },
     {
@@ -27,6 +37,16 @@
         "main/binary-arm64/Packages.xz": "5dfd52317071685ad6e58c4ef0720128b7db68624079f83be02bdf55f07ac070",
         "main/source/Sources": "49e607c6d5dbdc679b1f25fde5da4e94437e2afd8e659b1f11489046ee0034a2",
         "main/source/Sources.xz": "45fcd5257b7ad716ef3b674305dd678ad2d6e6198a0dd7a8f45bb0e8d3f3a7f3"
+      },
+      "inRelease": {
+        "fileSha1": "3ad936b0c3d3e1df2a530c4f753a76360fd1e65f",
+        "sha256": "42cb0bdd2b7b27f81f25976b9c0052ac0f499675fbbb538e56c2bfa70ed9a2f3",
+        "size": 55403
+      },
+      "indexFileSha1": {
+        "main/binary-amd64/Packages.xz": "c6196a06b4270d1020fdf3d05f3c2ceba459d75d",
+        "main/binary-arm64/Packages.xz": "83c322b3ad7fc1e7445144bdadd9de711cb25c09",
+        "main/source/Sources.xz": "9cf6e6d0b069070874c4cfc0e6c93d1ffcffcc62"
       }
     },
     {
@@ -39,6 +59,16 @@
         "main/binary-arm64/Packages.xz": "f8c9cc246a207b65aa26dfb35a34cacf0f78d4fbaab69b4e05c857139998a293",
         "main/source/Sources": "aceb0f6eaf7e60aaabaf6c2da60fb35f66a231258cc7e79dc084f77f0f913f2d",
         "main/source/Sources.xz": "00c07ffb2123b7f8055ba6c8aa3d883491b962fa2b3d471fd869878c313255ca"
+      },
+      "inRelease": {
+        "fileSha1": "926eb6bcb474be14d9fdbc89c4a2edd95754eaea",
+        "sha256": "3928c61d792381356871c4168b1c1be6aed0732ac91b4e2555b80919b4640504",
+        "size": 34770
+      },
+      "indexFileSha1": {
+        "main/binary-amd64/Packages.xz": "266fd152b8b2ff630753f3bd6747652adbd31245",
+        "main/binary-arm64/Packages.xz": "da9f4073699105fa52efaf09ce3cb47da1aea6e1",
+        "main/source/Sources.xz": "663bb1c2c8618f69dcb882330ef894cc4524c16e"
       }
     }
   ]

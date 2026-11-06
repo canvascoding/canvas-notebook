@@ -98,7 +98,7 @@ jobs:
         run: npm run test:notebook:delete-events
       - name: Frozen Debian artifact transports and integrity
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs
+        run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-fetch-test.mjs scripts/debian-package-download-test.mjs
       - name: Runtime image privilege policy
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run test:docker:privileges

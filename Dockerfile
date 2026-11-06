@@ -11,18 +11,16 @@ FROM ${NODE_BASE_IMAGE} AS canvas-base
 
 # A fixed snapshot prevents live mirror updates from invalidating a release.
 # APT verifies Debian signatures; the post-update hook rejects any index drift.
-# Bootstrap HTTPS trust from the pinned Node binary's built-in public roots.
+# Node HTTPS uses its pinned built-in roots before ca-certificates is installed.
+# The build-only mirror retains the reviewed signed metadata; APT authenticates
+# it locally in every stage. Package bytes come from official pools by SHA256.
 COPY docs/compliance/debian-repository-lock.json /usr/local/share/canvas-debian-repository-lock.json
-COPY scripts/debian-repository-lock.mjs /usr/local/libexec/canvas-debian-repository-lock.mjs
-COPY scripts/debian-package-download.mjs scripts/debian-repository-lock.mjs /usr/local/libexec/
+COPY scripts/debian-repository-lock.mjs scripts/debian-package-fetch.mjs scripts/debian-package-install.mjs /usr/local/libexec/canvas-debian/
 RUN set -eux; \
-  node /usr/local/libexec/canvas-debian-repository-lock.mjs configure; \
-  task_ca_file="$(mktemp /tmp/canvas-node-ca.XXXXXX)"; \
-  node -e 'require("node:fs").writeFileSync(process.argv[1], require("node:tls").rootCertificates.join("\n") + "\n")' "$task_ca_file"; \
-  chmod 0644 "$task_ca_file"; \
-  timeout --kill-after=15s 5m apt-get -o "Acquire::https::CAInfo=$task_ca_file" update; \
-  timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs ca-certificates; \
-  rm -rf /var/lib/apt/lists/* "$task_ca_file"
+  timeout --kill-after=15s 15m node /usr/local/libexec/canvas-debian/debian-repository-lock.mjs prepare; \
+  timeout --kill-after=15s 5m apt-get update; \
+  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs ca-certificates; \
+  rm -rf /var/lib/apt/lists/*
 
 FROM canvas-base AS libvips-build
 ARG LIBVIPS_VERSION
@@ -37,7 +35,7 @@ ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup \
 # distributing the statically aggregated @img/sharp-libvips binaries.
 RUN set -eux; \
   timeout --kill-after=15s 5m apt-get update; \
-  timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs \
+  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs \
     build-essential ca-certificates curl meson ninja-build pkg-config \
     libarchive-dev libexif-dev libexpat1-dev libglib2.0-dev libheif-dev \
     libjpeg62-turbo-dev liblcms2-dev libpango1.0-dev libpng-dev \
@@ -101,7 +99,7 @@ RUN cc -O2 -Wall -Wextra -Werror -std=c11 \
 FROM canvas-base AS dictation-build
 WORKDIR /source
 RUN timeout --kill-after=15s 5m apt-get update \
-  && timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs build-essential cmake python3 ca-certificates \
+  && timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs build-essential cmake python3 ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 COPY scripts/build-dictation-cpp.py ./scripts/build-dictation-cpp.py
 COPY docs/compliance/dictation-cpp-policy.json ./docs/compliance/dictation-cpp-policy.json
@@ -112,7 +110,7 @@ FROM canvas-base AS app-base
 
 RUN set -eux; \
   timeout --kill-after=15s 5m apt-get update; \
-  timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs \
+  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs \
     libarchive13 libexif12 libexpat1 libfontconfig1 libglib2.0-0 libheif1 \
     libjpeg62-turbo liblcms2-2 libpango-1.0-0 libpangocairo-1.0-0 \
     libpng16-16 librsvg2-2 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 libx11-xcb1 zlib1g; \
@@ -133,7 +131,7 @@ ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
 # source-built shared libvips. These development
 # headers remain in the deps stage and are not copied into the runtime image.
 RUN timeout --kill-after=15s 5m apt-get update \
-  && timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs \
+  && timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs \
     python3 make g++ pkg-config \
     libarchive-dev libexif-dev libexpat1-dev libglib2.0-dev libheif-dev \
     libjpeg62-turbo-dev liblcms2-dev libpango1.0-dev libpng-dev \
@@ -162,7 +160,7 @@ ENV NODE_ENV=production \
 # Prebuild verifies optional installers and builds the architecture-specific
 # descriptor addon. The compiler stays in this build stage.
 RUN timeout --kill-after=15s 5m apt-get update \
-  && timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs python3 gcc libc6-dev \
+  && timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs python3 gcc libc6-dev \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION}
 
@@ -220,7 +218,7 @@ COPY --from=dictation-build /opt/canvas-dictation /app/native/dictation
 
 RUN set -eux; \
   timeout --kill-after=15s 5m apt-get update; \
-  timeout --kill-after=30s 15m node /usr/local/libexec/debian-package-download.mjs ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs ffmpeg curl wget zstd ca-certificates unzip zip git make netbase python3 python3-pip python3-venv ripgrep poppler-utils procps \
      pandoc libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-draw-nogui \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
@@ -244,8 +242,10 @@ RUN set -eux; \
   echo "a4e2461975abffae23688fc95c4fdc97fea4c4c9cc096c2c4a7a4e334dfc3353  /tmp/postgresql-client-common.deb" | sha256sum -c -; \
   echo "${pg_libpq_sha}  /tmp/libpq5.deb" | sha256sum -c -; \
   echo "${pg_client_sha}  /tmp/postgresql-client.deb" | sha256sum -c -; \
-  timeout --kill-after=30s 15m apt-get install -y --no-install-recommends /tmp/postgresql-client-common.deb /tmp/libpq5.deb /tmp/postgresql-client.deb; \
+  timeout --kill-after=30s 15m dpkg --install /tmp/postgresql-client-common.deb /tmp/libpq5.deb /tmp/postgresql-client.deb; \
   rm -f /tmp/*.deb; \
+  node /usr/local/libexec/canvas-debian/debian-repository-lock.mjs configure; \
+  rm -rf /usr/local/share/canvas-debian-snapshot; \
   rm -rf /var/lib/apt/lists/*; \
   python3 --version; \
   pg_dump --version; \

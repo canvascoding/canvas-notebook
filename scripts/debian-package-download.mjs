@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyRepositoryLists } from './debian-repository-lock.mjs';
+import { fetchVerified } from './debian-package-fetch.mjs';
 
 // Versions and SHA-256 come exclusively from APT's signed, locked snapshot lists.
 // The live mirror is an artifact transport, never a package-resolution source.
@@ -41,44 +41,7 @@ export async function downloadLockedDebianPackages(downloads, directory, fetcher
       const item = downloads[next++];
       try {
         const destination = path.join(directory, item.filename);
-        let cached;
-        try { cached = await fs.lstat(destination); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-        if (cached) {
-          assert(cached.isFile() && cached.size === item.size, 'Invalid existing APT archive');
-          assert.equal(createHash('sha256').update(await fs.readFile(destination)).digest('hex'), item.sha256,
-            'Existing APT archive checksum differs');
-          continue;
-        }
-        let installed = false;
-        for (const url of item.urls) {
-          let response;
-          try { response = await fetcher(url, { signal: AbortSignal.timeout(30_000) }); }
-          catch { continue; }
-          if (!response.ok) { await response.body?.cancel(); continue; }
-          const temporary = path.join(directory, '.canvas-' + randomUUID() + '.partial');
-          const handle = await fs.open(temporary, 'wx', 0o600);
-          try {
-            const hash = createHash('sha256');
-            let bytes = 0;
-            for await (const chunk of response.body) {
-              bytes += chunk.byteLength;
-              assert(bytes <= item.size, 'Debian artifact exceeds its signed size');
-              hash.update(chunk);
-              await handle.writeFile(chunk);
-            }
-            assert.equal(bytes, item.size, 'Debian artifact differs from its signed size');
-            assert.equal(hash.digest('hex'), item.sha256, 'Debian artifact differs from its signed SHA256');
-            await handle.close();
-            await fs.rename(temporary, destination);
-            installed = true;
-            console.log(`[locked-debian] ${new URL(url).hostname} ${item.filename} SHA256 verified`);
-          } finally {
-            await handle.close();
-            await fs.rm(temporary, { force: true });
-          }
-          break;
-        }
-        assert(installed, `Locked Debian artifact is unavailable: ${item.filename}`);
+        await fetchVerified({ ...item, destination, fetchImpl: fetcher, timeoutMs: 30_000 });
       } catch (error) { failures.push(error); }
     }
   });

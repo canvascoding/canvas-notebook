@@ -11,17 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.6.1] - 2026-11-06
+## [2026.11.6.2] - 2026-11-06
 
 ### Fixed
 
 - Allow supported Markdown containing email autolinks and mixed task/plain lists to enter formatted editing through the existing guarded rich upgrade. Preserve full mailto targets, labels, titles and checkbox states.
+- Preserve open native-document tabs across watcher unlink and path moves while keeping confirmed local deletion explicit.
 - Correct the published Python SDK read example to request only its required OAuth scopes.
 - Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
 - Publish typed nested edit and operation arguments through MCP schema adapters.
 - Resolve Debian packages from one fixed signed snapshot, preventing live security-index changes from interrupting image builds while retaining signature, expiry and index-hash checks.
 - Address the frozen Debian cutoff with a full UTC timestamp, avoiding the failing short-date archive route observed on GitHub while preserving every reviewed package-index hash.
-- Use verified HTTPS for the first Debian request with temporary public roots from the pinned Node binary. Bound APT execution and check frozen metadata before production compilation.
+- Fetch exact Debian package bytes from official pools with signed-index SHA-256 and size checks. Reuse a build-only frozen metadata mirror across stages, retaining signature, expiry and index verification while avoiding repeated snapshot metadata downloads. Bootstrap HTTPS through the pinned Node binary and bound all build downloads.
 - Retry transient Apple ticket-lookup failures against the same signed artifact and bind desktop rebuilds to an approved immutable release source. Preserve the flat artifact layout used by the updater publisher.
 
 ### Changed
@@ -30,6 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
+- Focused repository/download checks passed. Native amd64 and arm64 APT probes passed offline metadata updates, exact package installation, and rejection of changed metadata/index contents.
 - Native API and installed Python SDK CI passed under Python 3.10 and 3.15.
 - Desktop and mobile mailto migration/reload acceptance passed with two cases, no skips and no retries.
 - At product revision `b7501031f`, actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts; exact-image acceptance after later shared-source changes remains required.
