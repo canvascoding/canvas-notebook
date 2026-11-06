@@ -2064,6 +2064,11 @@ criticalInputsByEntryPoint['scripts/api-key-python-sdk-path-postgres-test.ts'] =
   'app/lib/api-keys/mcp-runtime.ts', 'app/lib/documents/path-contract.ts',
   'app/lib/documents/path-public-service.ts', 'app/lib/documents/service.ts',
 ])];
+criticalInputsByEntryPoint['scripts/document-link-write-parity-postgres-test.ts'] = [entryPoint,
+  'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
+  'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts', 'app/api/documents/create/route.ts',
+  'app/api/documents/edit/route.ts', 'app/api/documents/read/route.ts', 'app/api/markdown/link-index/route.ts',
+  'app/lib/markdown/document-link-read-projection.ts', 'app/lib/markdown/document-link-resolution-projection.ts'];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = [...criticalInputsByEntryPoint[entryPoint]];
 if (['scripts/helpers/document-read-tool-dispatch-fixture.ts', 'scripts/helpers/native-copy-metadata-owner-fixture.ts']

@@ -106,6 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.10.log"
+          npm run test:api-keys:sdk:link-parity 2>&1 | tee "$RUNNER_TEMP/native-sdk-link-parity-3.10.log"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.15'
@@ -119,6 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:api-keys:sdk:native 2>&1 | tee "$RUNNER_TEMP/native-sdk-3.15.log"
+          npm run test:api-keys:sdk:link-parity 2>&1 | tee "$RUNNER_TEMP/native-sdk-link-parity-3.15.log"
       - name: Verify resource closure and remove only owned test databases
         if: always()
         run: npm run test:api-keys:ci-database -- cleanup

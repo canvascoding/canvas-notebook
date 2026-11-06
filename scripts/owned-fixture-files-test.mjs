@@ -50,8 +50,16 @@ test('unexpected completion paths and transport ambiguity cannot pass cleanup', 
   assert.equal(calls, 1);
 });
 
-test('deadline and invalid relative paths retain data without unbounded work', async () => {
+test('deadline and invalid relative paths retain data without unbounded work', async (context) => {
+  let now = 0;
+  context.mock.method(Date, 'now', () => now);
   const t = target([[409, { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' }]]);
+  const deleteFixture = t.api.delete;
+  t.api.delete = async (...args) => {
+    const response = await deleteFixture(...args);
+    now = 100;
+    return response;
+  };
   await assert.rejects(deleteOwnedFixtureFiles(t.api, 'workspace', ['owned.md'], 100), /retain its data/u);
   assert.equal(t.calls.length, 1);
   for (const path of ['/root', '../other', 'a/../other', '']) {
