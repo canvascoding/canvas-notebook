@@ -1,4 +1,4 @@
-name: Copy recovery focused diagnostics
+name: Frozen Debian HTTP cache diagnostics
 on:
   push:
     branches:
@@ -6,82 +6,32 @@ on:
 permissions:
   contents: read
 jobs:
-  copy-recovery:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      NODE_ENV: test
-      CANVAS_POSTGRES_VECTOR_ENABLED: "false"
-      CANVAS_NATIVE_TEST_ADMIN_URL: postgresql://canvas_ci@127.0.0.1:55433/postgres
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: canvas_ci
-          POSTGRES_DB: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 127.0.0.1:55433:5432
-        options: --health-cmd "pg_isready -U canvas_ci -d postgres" --health-interval 5s
-          --health-timeout 5s --health-retries 12
+  probe:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          persist-credentials: false
           ref: d54eac4695c6cb394a405395506a0f3b513e96e9
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 26
-          cache: npm
-      - run: npm ci
-      - run: npm run build:decision-models
-      - name: Build and verify native filesystem helper
-        run: |
-          npm run build:fd-publication
-          npm run verify:fd-publication
-      - name: Test fixture configuration contract
-        run: npm run test:api-keys:ci-config
-      - name: Allocate owned PostgreSQL 18 fixture database
-        run: npm run test:api-keys:ci-database -- create
-      - name: Add response and assertion-location diagnostics only
+      - name: Compare default, revalidation and frozen-cache headers; reads only
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import fs from 'node:fs';import assert from 'node:assert/strict';import{execFileSync}from'node:child_process';
-          assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'d54eac4695c6cb394a405395506a0f3b513e96e9');
-          const file='scripts/api-key-native-copy-adapters-postgres-test.ts';let text=fs.readFileSync(file,'utf8');
-          const needle='assert.equal(result.status, 200);';const count=text.split(needle).length-1;assert(count>=3&&count<=5);
-          text=text.replaceAll(needle,'assert.equal(result.status, 200, JSON.stringify({diagnostic: "copy-response", stage, body: result.body}));');
-          const catcher='main().catch(error => { console.error(';assert(text.includes(catcher));
-          text=text.replace(catcher,'main().catch(error => { console.error(error instanceof Error ? error.stack : error); console.error(');
-          fs.writeFileSync(file,text);
-          assert.equal(execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim(),file);
-          console.log(JSON.stringify({diagnostic:'copy-instrumentation-only',productSource:'d54eac4695c6cb394a405395506a0f3b513e96e9',file,assertionMessages:count}));
+          import fs from 'node:fs';import{createHash}from'node:crypto';
+          const lock=JSON.parse(fs.readFileSync('docs/compliance/debian-repository-lock.json'));
+          const modes=[['default',undefined],['force-revalidate','max-age=0'],['allow-frozen-cache','max-age=86400']];
+          await Promise.all(lock.repositories.map(async repository=>{
+           const url=repository.uri+'/dists/'+repository.suite+'/InRelease';
+           for(const[mode,cache]of modes){const started=Date.now();try{const response=await fetch(url,{headers:cache?{'cache-control':cache}:{},signal:AbortSignal.timeout(20000)});const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>2*1024*1024)throw Error('Metadata bound');console.log(JSON.stringify({mode,url,status:response.status,finalUrl:response.url,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length,age:response.headers.get('age'),cache:response.headers.get('x-cache'),via:response.headers.get('via'),elapsedMs:Date.now()-started}));}catch(error){console.log(JSON.stringify({mode,url,error:error.message,elapsedMs:Date.now()-started}));}}
+          }));
           NODE
-      - name: Three focused native Copy suites; no mutation replay added
-        shell: bash
-        run: >
-          set -euo pipefail
-
-          task_failed=0
-
-          for task_attempt in 1 2 3; do
-            set +e
-            NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/api-key-native-copy-adapters-postgres-test.ts 2>&1 | tee "$RUNNER_TEMP/copy-recovery-$task_attempt.log"
-            task_status=${PIPESTATUS[0]}
-            set -e
-            printf 'COPY_RECOVERY_OBSERVATION attempt=%s exit=%s\n' "$task_attempt" "$task_status"
-            if [ "$task_status" -ne 0 ]; then task_failed=1; fi
-          done
-
-          exit "$task_failed"
-      - name: Verify resource closure and remove only owned test databases
-        if: always()
-        run: npm run test:api-keys:ci-database -- cleanup
-      - name: Retain focused logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: copy-recovery-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: error
-          path: ${{ runner.temp }}/copy-recovery-*.log
