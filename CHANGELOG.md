@@ -16,6 +16,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Allow supported Markdown containing email autolinks and mixed task/plain lists to enter formatted editing through the existing guarded rich upgrade. Preserve full mailto targets, labels, titles and checkbox states.
+- Preserve open native-document tabs across watcher unlink and path moves while keeping confirmed local deletion explicit.
 - Correct the published Python SDK read example to request only its required OAuth scopes.
 - Keep large MCP file previews outside short authorization transactions, while retaining current permission checks and matching complete source observations.
 - Publish typed nested edit and operation arguments through MCP schema adapters.
@@ -30,7 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
-- Sixteen focused repository/download checks passed. Native amd64 and arm64 APT probes passed offline metadata updates, exact package installation, and rejection of changed metadata/index contents.
+- Focused repository/download checks passed. Native amd64 and arm64 APT probes passed offline metadata updates, exact package installation, and rejection of changed metadata/index contents.
 - Native API and installed Python SDK CI passed under Python 3.10 and 3.15.
 - Desktop and mobile mailto migration/reload acceptance passed with two cases, no skips and no retries.
 - At product revision `b7501031f`, actual mobile link-index completion passed at ten and 200 uploaded documents, with complete source coverage and no incomplete-index warning. Each of eight measured index requests used 35 SQL calls and seven pool checkouts; exact-image acceptance after later shared-source changes remains required.

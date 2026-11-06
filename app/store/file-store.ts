@@ -1503,7 +1503,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     });
     persistExplorerState({ currentDirectory, expandedDirs }, workspaceId);
     useFilePresenceStore.getState().removePaths(paths);
-    notifyWorkspacePathsDeleted(paths, workspaceId);
+    notifyWorkspacePathsDeleted(paths, workspaceId, local);
   },
 
   applyPathRename: (mutation) => {

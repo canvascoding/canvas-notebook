@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 
 test('URL paste offers link, explicit preview and supported document embed without changing code paste', async ({ page, context }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires managed local PostgreSQL.');
@@ -15,7 +16,7 @@ test('URL paste offers link, explicit preview and supported document embed witho
   const target = `editor-embed-${randomUUID()}.md`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
   for (const [file, content] of [[path, 'First slot\n\nSecond slot\n\nEmbed slot\n\n```text\ncode\n```'], [target, '# Embedded heading\n\nEmbedded content.']]) {
-    await page.request.post('/api/files/create', { headers, data: { path: file, type: 'file' } });
+    await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: file });
     const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${file}`, { headers })).json();
     expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: { path: file, content, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId } })).ok()).toBe(true);
   }
@@ -71,10 +72,10 @@ test('URL paste offers link, explicit preview and supported document embed witho
     await page.reload();
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
     await expect(editor.locator('.node-obsidianWikiLink')).toHaveCount(1);
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByText('Embedded content.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Preview Embedded heading', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('Embedded content.');
   } finally {
     await page.close();
-    for (const file of [path, target]) await page.request.delete('/api/files/delete', { headers, data: { path: file } });
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path, target]);
   }
 });

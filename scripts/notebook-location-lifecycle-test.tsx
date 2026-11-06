@@ -193,7 +193,12 @@ async function main() {
     const activeIdentity = useFileStore.getState().currentFile?.editorIdentity;
     locations.set('doc-a', 'renamed/a.md'); files.delete('folder/a.md'); files.set('renamed/a.md', file('renamed/a.md', 'doc-a'));
     locations.set('doc-b', 'renamed/b.md'); files.delete('folder/b.md'); files.set('renamed/b.md', file('renamed/b.md', 'doc-b'));
-    await act(async () => watcher.file('unlinkDir', 'folder'));
+    await act(async () => {
+      // The real watcher confirms old-path absence before a location lookup
+      // can finish. That notification must not discard B's native identity.
+      useFileStore.getState().applyPathsDeleted(['folder/b.md'], 'workspace');
+      watcher.file('unlinkDir', 'folder');
+    });
     assert(tabs().openPaths.includes('folder/a.md'), 'raw unlink never closes the active collaborative tab');
     assert(tabs().openPaths.some(path => path.endsWith('/b.md')), 'raw unlink never closes the inactive collaborative tab');
     // The first mount already looked up B; its next request observes the one-second rate bound.

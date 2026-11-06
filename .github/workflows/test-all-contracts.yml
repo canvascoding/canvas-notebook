@@ -1,0 +1,104 @@
+name: Test suite orchestration
+
+on:
+  pull_request:
+    paths:
+      - scripts/docker-runtime-privilege-policy-test.mjs
+      - scripts/debian-*
+      - Dockerfile
+      - scripts/test-all*
+      - scripts/helpers/test-all-results.mjs
+      - scripts/lib/regular-collaboration-target.mjs
+      - scripts/regular-collaboration-profile-test.mjs
+      - scripts/owned-fixture-files-test.mjs
+      - scripts/recovered-room-read-test.mjs
+      - scripts/completed-native-rename-test.ts
+      - scripts/playwright-suite-discovery-test.mjs
+      - tests/**
+      - app/lib/notebook/**
+      - app/lib/files/workspace-file-events.ts
+      - app/store/file-store.ts
+      - app/components/DashboardShell.tsx
+      - scripts/notebook-*.ts
+      - scripts/notebook-*.tsx
+      - playwright.config.ts
+      - package*.json
+      - .github/workflows/test-all-contracts.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/docker-runtime-privilege-policy-test.mjs
+      - scripts/debian-*
+      - Dockerfile
+      - scripts/test-all*
+      - scripts/helpers/test-all-results.mjs
+      - scripts/lib/regular-collaboration-target.mjs
+      - scripts/regular-collaboration-profile-test.mjs
+      - scripts/owned-fixture-files-test.mjs
+      - scripts/recovered-room-read-test.mjs
+      - scripts/completed-native-rename-test.ts
+      - scripts/playwright-suite-discovery-test.mjs
+      - tests/**
+      - app/lib/notebook/**
+      - app/lib/files/workspace-file-events.ts
+      - app/store/file-store.ts
+      - app/components/DashboardShell.tsx
+      - scripts/notebook-*.ts
+      - scripts/notebook-*.tsx
+      - playwright.config.ts
+      - package*.json
+      - .github/workflows/test-all-contracts.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-all-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Test suite contracts (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ matrix.node }}
+      - id: dependencies
+        run: npm ci
+      - name: Failure continuation, blocking and process ownership
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:all:runner
+      - name: Real-profile admission and safe fixture cleanup contracts
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:collaboration:regular:contracts
+      - name: Actual discovery and exclusion contracts
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:browser:discovery
+      - name: Native tab identity and confirmed deletion contracts
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          NODE_ENV: production
+        run: npm run test:notebook:tabs
+      - name: Native location lookup and adoption lifecycle
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          NODE_ENV: production
+        run: npm run test:notebook:location-lifecycle
+      - name: Confirmed deletion event contract
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:notebook:delete-events
+      - name: Frozen Debian artifact transports and integrity
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-repository-preflight-test.mjs scripts/debian-package-fetch-test.mjs scripts/debian-package-download-test.mjs
+      - name: Runtime image privilege policy
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:docker:privileges

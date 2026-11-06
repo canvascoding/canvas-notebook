@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, createCompletedWorkspaceMarkdownFile } from './helpers/managed-test-context';
 import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
 test('table menu moves rows and columns and checkpoints aligned inserted rows', async ({ page }, info) => {
@@ -13,7 +13,7 @@ test('table menu moves rows and columns and checkpoints aligned inserted rows', 
   const headers = { 'x-canvas-workspace-id': workspace.id };
   const path = `editor-table-${randomUUID()}.md`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
-  await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers })).json();
   const content = serializeRichMarkdownBody('| A | B |\n| --- | --- |\n| one | two |\n| three | four |');
   expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 
 test.use({ hasTouch: true });
 
@@ -21,7 +23,7 @@ test('selection formatting preserves its range through pointer, keyboard and lin
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, workspace.id);
-  await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
+  await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: workspace.id, filePath: path });
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
@@ -54,9 +56,9 @@ test('selection formatting preserves its range through pointer, keyboard and lin
     await page.screenshot({ path: info.outputPath('selection-formatting.png') });
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
-    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await enterMarkdownEditMode(page);
     await expect(menu).toHaveCount(0);
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(editor.locator('a[href="https://example.com/selected"]')).toHaveText('Alpha');
     // The same commands work in a narrow touch viewport without opening a second editor.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -81,6 +83,6 @@ test('selection formatting preserves its range through pointer, keyboard and lin
     expect(pageErrors).toEqual([]);
   } finally {
     await page.close();
-    await page.request.delete('/api/files/delete', { headers, data: { path } });
+    await deleteOwnedFixtureFiles(page.request, workspace.id, [path]);
   }
 });
