@@ -95,7 +95,7 @@ async function harness() {
             || current.path !== parameters[2] || current.organization_id !== parameters[3]
             || current.lifecycle_generation !== parameters[4] || current.representation !== parameters[5]
             || current.schema_version !== parameters[6] || current.status !== 'active') return undefined;
-          return { document_id: current.document_id };
+          return { document_id: current.document_id, available: false, copy_available: false, raw_copy_available: false };
         }
         if (query.startsWith('SELECT')) {
           if (!current || current.document_id !== parameters[0]) return undefined;

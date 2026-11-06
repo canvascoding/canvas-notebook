@@ -28,22 +28,27 @@ export async function assertCurrentCollaborationProjectionIdentity(
 ): Promise<void> {
   const database = transaction ?? await openDb();
   try {
-    const row = await database.get(`SELECT y.document_id FROM collaboration_yjs_states y
+    const row = await database.get(`SELECT y.document_id,
+      to_regclass('collaboration_markdown_create_births') IS NOT NULL AS available,
+      to_regclass('collaboration_native_copy_receipts') IS NOT NULL AS copy_available,
+      to_regclass('collaboration_native_copy_markdown_births') IS NOT NULL AS raw_copy_available
+      FROM collaboration_yjs_states y
       ${currentProjectionIdentityJoins}
       WHERE y.document_id = $1 AND y.workspace_id = $2 AND y.path = $3
         AND y.organization_id IS NOT DISTINCT FROM $4
         AND y.lifecycle_generation = $5 AND y.representation = $6 AND y.schema_version = $7
         AND y.status = 'active'`, [state.documentId, state.workspaceId, state.path, state.organizationId,
-      state.lifecycleGeneration, state.representation, state.schemaVersion]);
+      state.lifecycleGeneration, state.representation, state.schemaVersion]) as {
+        document_id: string; available: boolean; copy_available: boolean; raw_copy_available: boolean;
+      } | undefined;
     if (!row) throw new CollaborationProjectionIdentityError();
+    if ([row.available, row.copy_available, row.raw_copy_available].some(value => typeof value !== 'boolean')) {
+      throw new Error('Collaboration projection catalogue observation is unavailable.');
+    }
     // Legacy/import-only projections retain their original contract. A pending
     // create birth can be consumed only by the module-private authenticated
     // I04 phase; no background/recovery caller may adopt a later peer inode.
-    const exists = await database.get(`SELECT to_regclass('collaboration_markdown_create_births') IS NOT NULL AS available,
-      to_regclass('collaboration_native_copy_receipts') IS NOT NULL AS copy_available,
-      to_regclass('collaboration_native_copy_markdown_births') IS NOT NULL AS raw_copy_available`) as {
-        available?: boolean; copy_available?: boolean; raw_copy_available?: boolean } | undefined;
-    if (exists?.available === true) {
+    if (row.available) {
       // Advancing native generation cannot erase an unfinished physical birth.
       const birth = await database.get(`SELECT * FROM collaboration_markdown_create_births WHERE document_id=$1`,
       [state.documentId]) as Record<string, unknown> | undefined;
@@ -55,27 +60,35 @@ export async function assertCurrentCollaborationProjectionIdentity(
     // A clone's file namespace belongs to its Copy/Restore owner until that
     // owner's physical publication is confirmed. Existing room drain targets
     // have no clone birth here and retain their normal checkpoint contract.
-    if (exists?.copy_available === true && await database.get(`SELECT 1 AS pending
+    const parameters: unknown[] = [state.workspaceId, state.organizationId];
+    const clonePending = row.copy_available ? `EXISTS(SELECT 1
       FROM collaboration_native_copy_receipts
       WHERE workspace_id=$1 AND organization_id IS NOT DISTINCT FROM $2
         AND kind IN ('native_clone','native_restore')
         AND publication_status IN ('native_committed','publication_failed')
-        AND private_result @> $3::jsonb LIMIT 1`, [state.workspaceId, state.organizationId,
-      JSON.stringify({ documents: [{ clone: { documentId: state.documentId } }] })])) {
-      throw new CollaborationCopyPublicationPendingError();
-    }
+        AND private_result @> $3::jsonb LIMIT 1)` : 'false';
+    if (row.copy_available) parameters.push(JSON.stringify({ documents: [{ clone: { documentId: state.documentId } }] }));
     // Actual Raw-Copy births have no fabricated CloneReceipt.documents entry.
     // They retain their original Copy's publication fence across later native
     // sequences/generations. Only genuine B2 publication releases the projector.
-    if (exists?.raw_copy_available === true && await database.get(`SELECT 1 AS pending
+    if (row.raw_copy_available) parameters.push(state.documentId);
+    const rawPending = row.raw_copy_available ? `EXISTS(SELECT 1
       FROM collaboration_native_copy_markdown_births b
       LEFT JOIN collaboration_native_copy_receipts p ON p.workspace_id=b.workspace_id AND p.operation_id=b.parent_operation_id
-      WHERE b.document_id=$1 AND (b.workspace_id IS DISTINCT FROM $2 OR p.operation_id IS NULL
-        OR p.organization_id IS DISTINCT FROM $3 OR p.kind IS DISTINCT FROM 'native_clone'
+      WHERE b.document_id=$${parameters.length} AND (b.workspace_id IS DISTINCT FROM $1 OR p.operation_id IS NULL
+        OR p.organization_id IS DISTINCT FROM $2 OR p.kind IS DISTINCT FROM 'native_clone'
         OR p.publication_fingerprint IS DISTINCT FROM b.stage_digest
-        OR p.publication_status IS DISTINCT FROM 'published') LIMIT 1`,
-    [state.documentId,state.workspaceId,state.organizationId])) {
-      throw new CollaborationCopyPublicationPendingError();
+        OR p.publication_status IS DISTINCT FROM 'published') LIMIT 1)` : 'false';
+    if (row.copy_available || row.raw_copy_available) {
+      // Both blockers belong to one fresh snapshot after original-birth checks.
+      // Keep this observation local to this call; every publication rechecks it.
+      const pending = await database.get(`SELECT ${clonePending} AS copy_pending,${rawPending} AS raw_copy_pending`, parameters) as {
+        copy_pending: boolean; raw_copy_pending: boolean;
+      } | undefined;
+      if (!pending || typeof pending.copy_pending !== 'boolean' || typeof pending.raw_copy_pending !== 'boolean') {
+        throw new Error('Collaboration projection publication observation is unavailable.');
+      }
+      if (pending.copy_pending || pending.raw_copy_pending) throw new CollaborationCopyPublicationPendingError();
     }
   } finally {
     if (!transaction) await (database as SqlConnection).close();
