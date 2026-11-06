@@ -1,7 +1,7 @@
 import { assertRegularCollaborationEnvironment } from '../scripts/lib/regular-collaboration-target.mjs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import nodePath from 'node:path';
 import type { JSONContent } from '@tiptap/core';
 import * as Y from 'yjs';
@@ -11,6 +11,7 @@ import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '
 import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { completeNativeFixtureRename } from './helpers/completed-native-rename';
+import { createOwnedFilesystemFixture } from './helpers/owned-native-filesystem';
 
 const baseURL = process.env.BASE_URL || '';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -431,7 +432,8 @@ test('a filesystem file event invalidates the actual HTTP tree and reference cac
     expect((await getReferences()).some(entry => entry.path === `${folder}/seed.txt`)).toBe(true);
     // This isolates filesystem/cache delivery. Native Markdown birth and its
     // identity/import policy have their own tests; no orphan Markdown is minted.
-    await writeFile(nodePath.join(fixtureRoot, 'native-created.txt'), 'Native synthetic fixture.', { flag: 'wx' });
+    await createOwnedFilesystemFixture({ dataRoot: dataRoot!, relativePath: nodePath.posix.join(relativeRoot, nativeRelative),
+      seedRelativePath: nodePath.posix.join(relativeRoot, folder, 'seed.txt'), seedContent: 'Synthetic cache seed.', content: 'Native synthetic fixture.' });
     await expect.poll(() => page.evaluate(relative => (window as ProbeWindow).__cacheProbe?.events.some(event => event.relativePath === relative), nativeRelative),
       { timeout: 10_000 }).toBe(true);
     // This page has no Notebook UI. Therefore no background noCache=true tree
