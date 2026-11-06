@@ -27,10 +27,11 @@ import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
 import { CollaborationSessionError, parseCollaborationSessionRequest, type CollaborationSessionGrant,
   type CollaborationSessionRequest } from './session-service';
 import { supportsBlockTreeCollaboration, type TextCollaborationRepresentation } from './types';
-import type { RichMigrationResult } from './representation-migration-contract';
+import type { RichMigrationRequest, RichMigrationResult } from './representation-migration-contract';
 import { CollaborationRepresentationMigrationError } from './persistence';
 import { advanceAuthenticatedRichRepresentationMigration, changeAuthenticatedCollaborationRepresentation } from './representation-migration';
 import { materializeCollaborationCheckpoint } from './checkpoint';
+import { readAuthenticatedPendingRichMigration } from './rich-migration-domain';
 
 type TextRequest = Extract<CollaborationSessionRequest, { provider: 'yjs' }>;
 type Input = { request: NextRequest; workspaceId: string; sessionRequest: TextRequest; permission: 'read' | 'write' };
@@ -61,6 +62,7 @@ const startupDiagnosticCodes = new Set([
   'NATIVE_SESSION_QUARANTINE_REQUIRED', 'NATIVE_SESSION_TOO_LARGE', 'NATIVE_SESSION_REENTRANT', 'NATIVE_SESSION_DETACHED',
   'NATIVE_SESSION_INVALID_REQUEST', 'NATIVE_SESSION_INITIALIZATION_REQUIRED', 'NATIVE_SESSION_COMMIT_UNCONFIRMED',
   'NATIVE_SESSION_PUBLICATION_CLOSED', 'NATIVE_TRANSPORT_INVALID', 'NATIVE_TRANSPORT_REQUIRED',
+  'NATIVE_SESSION_MIGRATION_PENDING',
   'NATIVE_TRANSPORT_TOO_LARGE', 'NATIVE_TRANSPORT_SCOPE_CHANGED', 'NATIVE_TRANSPORT_ACCESS_DENIED',
   'NATIVE_TRANSPORT_REENTRANT', 'NATIVE_TRANSPORT_DETACHED', 'NATIVE_TRANSPORT_DISPOSED', 'NATIVE_TRANSPORT_QUARANTINED',
   'MARKDOWN_IMPORT_INVALID_INPUT', 'MARKDOWN_IMPORT_ENCODING_UNSUPPORTED', 'MARKDOWN_IMPORT_RICH_UNAVAILABLE',
@@ -91,6 +93,20 @@ export class AuthenticatedTextSessionError extends Error {
     | 'NATIVE_SESSION_COMMIT_UNCONFIRMED' | 'NATIVE_SESSION_PUBLICATION_CLOSED', readonly status: 400 | 409 | 503) {
     super(code); this.name = 'AuthenticatedTextSessionError';
   }
+}
+
+class AuthenticatedTextSessionMigrationPendingError extends Error {
+  readonly code = 'NATIVE_SESSION_MIGRATION_PENDING';
+  readonly status = 503;
+  readonly migration: Readonly<RichMigrationResult>;
+  constructor(migration: RichMigrationResult) {
+    super('Formatted editing is still being prepared. Poll the same migration request.');
+    this.migration = Object.freeze({ ...migration });
+  }
+}
+
+export function authenticatedTextSessionPendingMigration(error: unknown): Readonly<RichMigrationResult> | undefined {
+  return error instanceof AuthenticatedTextSessionMigrationPendingError ? error.migration : undefined;
 }
 
 function identity(snapshot: ExistingNativeSessionSnapshot): ExistingNativeSessionIdentity {
@@ -374,12 +390,35 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
     const expectedScope = await observeRequestOrigin(original, workspaceId, permission);
     phase = 'scope';
     await retryRead(() => observeRequestScope(original, workspaceId, permission, expectedScope));
+    let migration: RichMigrationResult | undefined;
+    let migratedIdentity: ExistingNativeSessionIdentity | undefined;
+    const advanceMigration = async (selected: RichMigrationRequest, cancel = false) => {
+      phase = 'migration'; mutationOrPublicationAttempted = true;
+      if (permission !== 'write') throw Object.assign(new Error('Write access is required to prepare formatted editing.'), { status: 403, code: 'migration_permission_denied' });
+      const result = await advanceAuthenticatedRichRepresentationMigration({ request: original, workspaceId,
+        path: requested.path, migration: selected, ...(cancel ? { cancel: true } : {}) });
+      migration = result.migration;
+      if (migration.status === 'pending') throw new AuthenticatedTextSessionMigrationPendingError(migration);
+      migratedIdentity = { documentId: result.state.documentId, lineageId: result.lineageId,
+        workspaceId: result.state.workspaceId, organizationId: result.state.organizationId, path: result.state.path,
+        lifecycleGeneration: result.state.lifecycleGeneration, representation: result.state.representation, schemaVersion: result.state.schemaVersion };
+    };
+    if (requested.migration) await advanceMigration(requested.migration, requested.migrationAction === 'cancel');
     phase = 'enroll';
     transport = await retryRead(() => enroll(expectedScope)); let observed: Observation;
     phase = 'read';
-    try { observed = await readExisting(expectedScope); }
+    try { observed = await readExisting(expectedScope, migratedIdentity); }
     catch (error) {
-      if ((isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_QUARANTINED') {
+      if (!requested.migration && permission === 'write' && supportsBlockTreeCollaboration(requested)
+        && ['auto', 'tiptap_blocks'].includes(requested.representation)
+        && !/\.txt$/iu.test(requested.path)
+        && (isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_BUSY') {
+        const pending = await readAuthenticatedPendingRichMigration(original, workspaceId, requested.path);
+        if (!pending) throw error;
+        await advanceMigration(pending);
+        phase = 'read';
+        observed = await readExisting(expectedScope, migratedIdentity);
+      } else if ((isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_QUARANTINED') {
         phase = 'diagnosis';
         observed = await retryRead(() => diagnosis(original, workspaceId, requested, expectedScope));
         phase = 'enroll';
@@ -408,23 +447,7 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
         observed = await readExisting(expectedScope);
       }
     }
-    let migration: RichMigrationResult | undefined;
-    if (requested.migration) {
-      phase = 'migration'; mutationOrPublicationAttempted = true;
-      if (permission !== 'write') throw Object.assign(new Error('Write access is required to prepare formatted editing.'), { status: 403, code: 'migration_permission_denied' });
-      const result = await advanceAuthenticatedRichRepresentationMigration({ request: original, workspaceId,
-        path: requested.path, migration: requested.migration, ...(requested.migrationAction === 'cancel' ? { cancel: true } : {}) });
-      migration = result.migration;
-      if (migration.status === 'pending' && migration.reason === 'outcome_unconfirmed') {
-        phase = 'publication';
-        return await publish(Object.freeze({ grant: Object.freeze({ ...observed.grant, migration }), identity: observed.identity,
-          takeTransport: () => { throw new AuthenticatedTextSessionError('NATIVE_SESSION_PUBLICATION_CLOSED', 409); } }));
-      }
-      phase = 'read';
-      observed = await readExisting(expectedScope, { ...observed.native, documentId: result.state.documentId,
-        workspaceId: result.state.workspaceId, organizationId: result.state.organizationId, path: result.state.path,
-        lifecycleGeneration: result.state.lifecycleGeneration, representation: result.state.representation, schemaVersion: result.state.schemaVersion });
-    } else if (requested.allowRichMigration && requested.representation === 'auto' && permission === 'write'
+    if (!migration && requested.allowRichMigration && requested.representation === 'auto' && permission === 'write'
       && requested.expectedLifecycleGeneration === observed.native.lifecycleGeneration
       && (observed.native.representation === 'plain_text' || observed.native.representation === 'tiptap_xml' && observed.target === 'tiptap_blocks')
       && observed.target !== 'plain_text' && !/\.txt$/iu.test(requested.path)) {

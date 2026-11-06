@@ -1,9 +1,61 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 05.11.2026 nach Produktionsrollout 2026.11.5.2. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 06.11.2026, Produktion weiterhin 2026.11.5.2. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
+
+## Aktueller Release-Blocker: reservierter Darstellungswechsel
+
+Der unveröffentlichte Kandidat `v2026.11.6.2` besteht den Build für beide
+Architekturen und die API-/SDK-CI. Sein finaler kompilierter Browserlauf besteht
+mit 333 regulären Fällen und 102 bedingten Auslassungen, aber das verpflichtende
+Zusammenarbeitsprofil endet mit 17 bestandenen und 23 fehlgeschlagenen Fällen.
+Dieser Kandidat wird deshalb nicht veröffentlicht oder produktiv ausgerollt.
+Der zuvor einmal vollständig bestandene 40-Fälle-Lauf hat den Zwischenzustand
+einer noch laufenden Migration nicht zuverlässig erreicht.
+
+Trace und ausschließlich lesende SQL-Beobachtung zeigen für betroffene eigene
+Testdokumente eine `representation_change`-Reservierung im Zustand `reserved`.
+Yjs bleibt dabei unverändert bei `plain_text`, Generation 1, Sequenz 0; ein
+Room-Eigentümer ist nicht mehr vorhanden. Die Web-Sitzungsantwort liefert
+`409/NATIVE_SESSION_BUSY` ohne Migrationsbeleg. Der normale native Leser wird
+vor dem Fortsetzen der Migration aufgerufen und weist dadurch deren eigene
+Reservierung zurück. Spätere Lösch-/Linkprüfungen werden ebenfalls blockiert.
+Ein Cleanup-Fehler kann den vorausgehenden Editor-Timeout verdecken.
+
+Der lokale Anwendungsfix führt explizite Migrationsanfragen vor dem normalen
+Sitzungsleser aus. Ein noch laufender Vorgang liefert nur seinen Beleg und kein
+Ticket. Nach Verlust des Browserzustands kann eine Rich-/Auto-Anfrage ausschließlich
+den eigenen, bereits genehmigten Vorgang anhand aktueller Schreibrechte und der
+passenden Dokumentidentität fortsetzen. Fremde Vorgänge und ausdrücklich
+angeforderte Quelltextansichten bleiben gesperrt; Reservierungen werden nicht
+gelöscht oder pauschal freigegeben. Der bestehende Migrationskern behält seine
+Sicherung, Zustandsprüfung und idempotente Abschlussbehandlung.
+
+Gezielte neue Regressionsfälle reproduzieren den Fehler vor der Änderung und
+bestehen danach über die tatsächlichen exportierten Web-/Mobile-POST-Funktionen
+mit PostgreSQL 18, Better Auth und Team-Rechten: vorhandene Reservierung
+fortsetzen/abbrechen, echtes Advisory-Lock mit Beleg ohne Ticket, gleicher
+Request nach Freigabe, Wiederanlauf ohne Browser-Request und Ablehnung eines
+anderen Schreibberechtigten. Die bestehenden 61 Migrations-/Rechtefälle und
+36 Busy-Fälle bestehen. Diese Quellenprüfungen ersetzen noch keine Abnahme
+des neuen kompilierten Images.
+
+Nächster Abschluss: Fix-Commit und PR-/CI-Abnahme, neuer unveränderlicher
+Release-Kandidat, gezielte kompilierte Wiederanlaufprüfung einschließlich der
+zurückbehaltenen eigenen Testdaten und anschließend grünes `test:all`. Erst danach
+folgen Veröffentlichung, Control-Plane-Registrierung und Produktionsrollout.
+Die fehlgeschlagene Abnahme hat den ursprünglichen lokalen Laufzeitstand und
+seine geschützten Dokumentdaten unverändert wiederhergestellt.
+
+Private Belege: `rich-migration-resumption-red.log`,
+`rich-migration-resumption-and-reload-green.log`,
+`rich-migration-source-preservation-and-reload.log`,
+`rich-migration-final-session-regression.log`,
+`rich-migration-full-domain-regression.log`, `rich-migration-busy-regression.log`
+und die gebundenen Browser-/Wiederherstellungsberichte unter
+`compiled-test-all-fixed-tests-release-2026.11.6.2-1793944297242`.
 
 ## Aktueller Stand nach Release 2026.11.5.2
 

@@ -116,6 +116,10 @@ export async function POST(request: NextRequest) {
       && typeof error.code === 'string' && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
     const nativeErrors = nativeSession ? await import('@/app/lib/collaboration/authenticated-text-session-service') : null;
+    const migration = nativeErrors?.authenticatedTextSessionPendingMigration(error);
+    if (migration) return NextResponse.json({ success: false, migration,
+      error: 'Formatted editing is still being prepared. Poll the same migration request.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } });
     const status = nativeErrors
       ? nativeErrors.authenticatedTextSessionErrorStatus(error)
       : error instanceof CollaborationSessionError

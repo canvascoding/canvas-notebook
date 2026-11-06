@@ -111,7 +111,7 @@ async function main(): Promise<void> {
       [`session-${userId}`,token,userId,Date.now()+3600000,now]);
     };
     await seedSession(); await seedSession('member');
-    const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
+    const { getPostgresRuntimeQueryable, openDb } = await import('../app/lib/db');
     const runtime = getPostgresRuntimeQueryable(); assert(runtime); pool = runtime as typeof pool;
     assert.equal((await runtime.query('SELECT current_schema() AS schema')).rows[0].schema,schema);
     const { getLicenseStatus } = await import('../app/lib/license');
@@ -542,6 +542,9 @@ async function main(): Promise<void> {
     const { installRichMigrationRuntime, noteRichMigrationWorkerSuccess } = await import('../app/lib/collaboration/representation-migration-runtime');
     const { collaborationUpdateStateProof } = await import('../app/lib/collaboration/state-proof');
     const { readAuthenticatedRichMigrationNative } = await import('../app/lib/collaboration/rich-migration-domain');
+    const { createCollaborationAdmissionService } = await import('../app/lib/collaboration/room-admission');
+    const { createRepresentationAdmissionRequest } = await import('../app/lib/collaboration/representation-admission-contract');
+    const { lockIdentity: roomOwnerLockIdentity } = await import('../app/lib/collaboration/room-owner');
     const stopMigrationRuntime = installRichMigrationRuntime(() => 0);
     const migrationSeed = async (label: string, markdown = '# Native title\n\nFirst **bold** text.\n') => {
       const doc = createPlainTextYDoc(markdown); const target = await seed(label, 'plain_text', { doc }); doc.destroy();
@@ -554,7 +557,90 @@ async function main(): Promise<void> {
       return { ...target, migration: { requestId: crypto.randomUUID(), expectedDocumentId: target.identity.documentId,
         expectedLifecycleGeneration: 1, documentSequence: 1, stateProof: collaborationUpdateStateProof(target.update, Y)! } };
     };
+    const reserveMigration = async (target: Awaited<ReturnType<typeof migrationSeed>>) => {
+      const native = await readAuthenticatedRichMigrationNative(await request('owner'), workspaceId, target.identity.path);
+      const admission = createCollaborationAdmissionService({ openConnection: openDb });
+      return admission.reserve(createRepresentationAdmissionRequest(native.state, native.userId, target.migration));
+    };
     try {
+      await check('actual modern POST resumes or cancels its existing reserved migration before native session reads', async () => {
+        for (const surface of ['web', 'mobile'] as const) for (const cancel of [false, true]) {
+          const target = await migrationSeed(`reserved-${surface}-${cancel}`); noteRichMigrationWorkerSuccess();
+          assert.equal((await reserveMigration(target)).status, 'reserved');
+          const result = await post(surface, target.identity.path, { migration: target.migration,
+            ...(cancel ? { migrationAction: 'cancel' } : {}) });
+          assert.equal(result.status, 200, JSON.stringify({ surface, cancel, status: result.status,
+            code: result.wire.code, migration: result.wire.migration }));
+          assert.equal((result.wire.migration as { status: string }).status, cancel ? 'blocked' : 'migrated');
+          assert.equal(result.wire.lifecycleGeneration, cancel ? 1 : 2);
+          assert.equal((await admin.query('SELECT status FROM collaboration_admission_requests WHERE request_id=$1',
+            [target.migration.requestId])).rows[0].status, cancel ? 'cancelled' : 'committed');
+          assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_state_backups WHERE document_id=$1',
+            [target.identity.documentId])).rows[0].count, cancel ? 0 : 1);
+          if (cancel) assert.deepEqual((await stored(target.identity)).yjs_state, target.update);
+        }
+      });
+      await check('actual modern POST returns a pending migration receipt without a ticket and resumes after real room contention', async () => {
+        for (const surface of ['web', 'mobile'] as const) {
+          const target = await migrationSeed(`pending-${surface}`); noteRichMigrationWorkerSuccess();
+          const holder = await ownClient(), key = roomOwnerLockIdentity(target.identity.documentId).key;
+          try {
+            await holder.query('SELECT pg_advisory_lock($1::bigint)', [key]);
+            const pending = await post(surface, target.identity.path, { migration: target.migration });
+            assert.equal(pending.status, 503, JSON.stringify({ surface, status: pending.status, code: pending.wire.code }));
+            assert.equal(pending.wire.success, false);
+            assert.equal(Object.hasOwn(pending.wire, 'token'), false);
+            assert.equal(Object.hasOwn(pending.wire, 'retryable'), false);
+            assert.equal((pending.wire.migration as { requestId: string }).requestId, target.migration.requestId);
+            assert.equal((pending.wire.migration as { status: string }).status, 'pending');
+            assert.deepEqual((await stored(target.identity)).yjs_state, target.update);
+          } finally {
+            await holder.query('SELECT pg_advisory_unlock($1::bigint)', [key]);
+            await endClient(holder);
+          }
+          noteRichMigrationWorkerSuccess();
+          const completed = await post(surface, target.identity.path, { migration: target.migration });
+          assert.equal(completed.status, 200, JSON.stringify({ surface, status: completed.status, code: completed.wire.code }));
+          assert.equal((completed.wire.migration as { status: string }).status, 'migrated');
+          noteRichMigrationWorkerSuccess();
+          const repeated = await post(surface, target.identity.path, { migration: target.migration });
+          assert.equal(repeated.status, 200); assert.equal(repeated.wire.lifecycleGeneration, 2);
+          assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_state_backups WHERE document_id=$1',
+            [target.identity.documentId])).rows[0].count, 1);
+        }
+      });
+      await check('ordinary modern POST recovers only its own reserved migration after browser request state was lost', async () => {
+        for (const surface of ['web', 'mobile'] as const) {
+          const target = await migrationSeed(`lost-request-${surface}`); noteRichMigrationWorkerSuccess();
+          assert.equal((await reserveMigration(target)).status, 'reserved');
+          if (surface === 'web') {
+            const source = await post(surface, target.identity.path, { representation: 'plain_text' });
+            assert.equal(source.status, 409); assert.equal(Object.hasOwn(source.wire, 'token'), false);
+            assert.deepEqual((await stored(target.identity)).yjs_state, target.update);
+            assert.equal((await admin.query('SELECT status FROM collaboration_admission_requests WHERE request_id=$1',
+              [target.migration.requestId])).rows[0].status, 'reserved');
+          }
+          await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=1 WHERE user_id='member'");
+          try {
+            const other = await post(surface, target.identity.path, {}, 'member');
+            assert.equal(other.status, 409); assert.equal(other.wire.code, 'NATIVE_SESSION_BUSY');
+            assert.equal(Object.hasOwn(other.wire, 'migration'), false); assert.equal(Object.hasOwn(other.wire, 'token'), false);
+            assert.deepEqual((await stored(target.identity)).yjs_state, target.update);
+            assert.equal((await admin.query('SELECT status FROM collaboration_admission_requests WHERE request_id=$1',
+              [target.migration.requestId])).rows[0].status, 'reserved');
+          } finally {
+            await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
+          }
+          noteRichMigrationWorkerSuccess();
+          const recovered = await post(surface, target.identity.path);
+          assert.equal(recovered.status, 200, JSON.stringify({ surface, status: recovered.status, code: recovered.wire.code }));
+          assert.equal(recovered.wire.documentId, target.identity.documentId); assert.equal(recovered.wire.lifecycleGeneration, 2);
+          assert.equal((recovered.wire.migration as { requestId: string }).requestId, target.migration.requestId);
+          assert.equal((recovered.wire.migration as { status: string }).status, 'migrated');
+          assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_state_backups WHERE document_id=$1',
+            [target.identity.documentId])).rows[0].count, 1);
+        }
+      });
       await check('actual Web/Mobile POSTs run typed genuine modern migration and repeat the immutable ID without a second native write', async () => {
         const actualPool = runtime as unknown as Pool, leases = [];
         try {

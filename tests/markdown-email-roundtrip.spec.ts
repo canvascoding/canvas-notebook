@@ -65,14 +65,13 @@ test.describe('Markdown email round trips', () => {
       });
 
       await page.goto(`/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-      await enterMarkdownEditMode(page);
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
-      const normalizeButton = page.getByRole('button', {
-        name: /Normalize and open|Normalisieren und öffnen/i,
+      const prepareButton = page.getByRole('button', {
+        name: 'Prepare formatted editing', exact: true,
       });
-      await expect(editor.or(normalizeButton)).toBeVisible({ timeout: 30_000 });
-      if (await normalizeButton.isVisible()) {
-        await expect(page.locator('.cm-content')).toBeVisible();
+      await expect(editor.or(prepareButton)).toBeVisible({ timeout: 30_000 });
+      if (await prepareButton.isVisible()) {
+        expect((await readWorkspaceFile(page, workspaceId, filePath))?.content).toBe(FIXTURE);
 
         const normalizationScreenshotPath = testInfo.outputPath('markdown-email-normalization-prompt.png');
         await page.screenshot({ path: normalizationScreenshotPath, type: 'png' });
@@ -81,8 +80,9 @@ test.describe('Markdown email round trips', () => {
           contentType: 'image/png',
         });
 
-        await normalizeButton.click();
+        await prepareButton.click();
       }
+      await enterMarkdownEditMode(page);
       await expect(editor).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('.cm-content')).toHaveCount(0);
 
