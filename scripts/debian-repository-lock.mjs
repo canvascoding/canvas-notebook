@@ -39,6 +39,21 @@ export function verifyRelease(repository, bytes, now = Date.now()) {
   return hashes;
 }
 
+export function indexDownloadUrls(repository, filename) {
+  const hash = repository.indexSha256[filename];
+  assert.match(hash ?? '', /^[a-f0-9]{64}$/u);
+  assert.match(repository.indexFileSha1[filename] ?? '', /^[a-f0-9]{40}$/u);
+  assert(/^main\/(?:binary-(?:amd64|arm64)\/Packages|source\/Sources)\.xz$/u.test(filename));
+  const archive = repository.suite === 'bookworm-security' ? 'debian-security' : 'debian';
+  const byHash = `dists/${repository.suite}/${path.posix.dirname(filename)}/by-hash/SHA256/${hash}`;
+  return [
+    `https://deb.debian.org/${archive}/${byHash}`,
+    `https://snapshot.debian.org/file/${repository.indexFileSha1[filename]}/${path.basename(filename)}`,
+    `${repository.uri}/${byHash}`,
+    `${repository.uri}/dists/${repository.suite}/${filename}`,
+  ];
+}
+
 export async function prepareMirror(lock, directory = mirrorDirectory) {
   for (const repository of lockedRepositories(lock)) {
     const local = mirrorRepository(repository, directory);
@@ -50,8 +65,7 @@ export async function prepareMirror(lock, directory = mirrorDirectory) {
     for (const filename of Object.keys(repository.indexSha256).filter(name => name.endsWith('.xz'))) {
       const entry = hashes.get(filename);
       const destination = path.join(suiteDirectory, filename);
-      assert.match(repository.indexFileSha1[filename], /^[a-f0-9]{40}$/u);
-      await fetchVerified({ urls: [`https://snapshot.debian.org/file/${repository.indexFileSha1[filename]}/${path.basename(filename)}`, `${repository.uri}/dists/${repository.suite}/${filename}`], destination, sha256: entry.hash, size: entry.size });
+      await fetchVerified({ urls: indexDownloadUrls(repository, filename), destination, sha256: entry.hash, size: entry.size });
       const byHash = path.join(path.dirname(destination), 'by-hash/SHA256', entry.hash);
       fs.mkdirSync(path.dirname(byHash), { recursive: true });
       if (!fs.existsSync(byHash)) fs.linkSync(destination, byHash);

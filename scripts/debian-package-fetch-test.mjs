@@ -6,12 +6,29 @@ import path from 'node:path';
 import test from 'node:test';
 import { fetchVerified } from './debian-package-fetch.mjs';
 import { parsePackagePlan } from './debian-package-install.mjs';
-import { mirrorRepository, verifyRelease } from './debian-repository-lock.mjs';
+import { indexDownloadUrls, mirrorRepository, verifyRelease } from './debian-repository-lock.mjs';
 
 const payload = Buffer.from('authenticated package bytes');
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const urls = ['https://deb.debian.org/debian/pool/package.deb', 'https://snapshot.debian.org/archive/debian/20261105T000000Z/pool/package.deb'];
 const options = { urls, sha256: digest(payload), size: payload.length };
+
+test('index transports preserve the reviewed SHA256 across official mirrors and archives', () => {
+  const lock = JSON.parse(fs.readFileSync('docs/compliance/debian-repository-lock.json'));
+  for (const repository of lock.repositories) {
+    for (const filename of Object.keys(repository.indexSha256).filter(name => name.endsWith('.xz'))) {
+      const candidates = indexDownloadUrls(repository, filename);
+      assert.equal(candidates.length, 4);
+      assert(candidates.every(url => new URL(url).protocol === 'https:'));
+      assert(candidates[0].endsWith(`/by-hash/SHA256/${repository.indexSha256[filename]}`));
+      assert.equal(new URL(candidates[0]).host, 'deb.debian.org');
+      assert.equal(new URL(candidates[0]).pathname.split('/')[1], repository.suite === 'bookworm-security' ? 'debian-security' : 'debian');
+      assert(candidates[1].includes(`/file/${repository.indexFileSha1[filename]}/`));
+      assert(candidates[2].startsWith(`${repository.uri}/`));
+      assert.throws(() => indexDownloadUrls(repository, '../Packages.xz'));
+    }
+  }
+});
 
 test('transient source failure uses identical authenticated bytes from fallback and verifies cache hits', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-fetch-test-'));
