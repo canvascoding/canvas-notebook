@@ -17,7 +17,7 @@ test('transport candidates retain the frozen package path, version and strong ha
   assert.deepEqual(entry, { filename: 'package_1.0+1_arm64.deb', size: content.length, sha256: digest,
     urls: ['https://deb.debian.org/debian/pool/main/p/package/package_1.0%2b1_arm64.deb', uri] });
   const security = lockedDebianDownloads(manifest.replace(lock.repositories[0].uri, lock.repositories[2].uri), lock)[0];
-  assert.match(security.urls[0], /^https:\/\/deb.debian.org\/debian-security\/pool\//u);
+  assert.match(security.urls[0], /^https:\/\/deb\.debian\.org\/debian-security\/pool\//u);
 });
 
 test('unlocked origins, traversal, weak/missing hashes and conflicting filenames cannot start downloads', () => {
