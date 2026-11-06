@@ -521,3 +521,9 @@ Fuer einen ungeprueften Kandidaten muss `npm run test:licenses:release`
 fehlschlagen. Der aktuelle 45-Paket-Docker-Kandidat schliesst den optionalen
 Diktat-Installer aus und besteht das Gate; seine Nachweise stehen im
 [Boundary Review](optional-dictation-boundary-review-2026-09-29.md).
+
+Die eingecheckten Snapshot-Adressen verwenden den vollstaendigen UTC-Stichtag
+`20261105T000000Z`. Die Kurzadresse `20261105` lieferte auf GitHub 503/504,
+waehrend alle drei vollstaendigen Adressen auf amd64 und arm64 bytegleiche
+InRelease-Dateien lieferten. Andere CDN-Zugaenge sind nicht pauschal freigegeben;
+APT-Signaturen, Ablauf- und Indexhash-Pruefungen bleiben verpflichtend.

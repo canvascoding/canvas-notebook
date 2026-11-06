@@ -503,3 +503,9 @@ Aktueller Freigabebeleg:
 - einen fehlgeschlagenen strikten Check durch einen normalen Build ersetzen,
 - MIT-Code, Markenrechte und proprietaere SaaS-Funktionen gleichsetzen,
 - eine KI-Antwort als rechtliche Freigabe eintragen.
+
+Die eingecheckten Snapshot-Adressen verwenden den vollstaendigen UTC-Stichtag
+`20261105T000000Z`. Die Kurzadresse `20261105` lieferte auf GitHub 503/504,
+waehrend alle drei vollstaendigen Adressen auf amd64 und arm64 bytegleiche
+InRelease-Dateien lieferten. Andere CDN-Zugaenge sind nicht pauschal freigegeben;
+APT-Signaturen, Ablauf- und Indexhash-Pruefungen bleiben verpflichtend.
