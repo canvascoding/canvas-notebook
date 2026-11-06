@@ -24,7 +24,7 @@ Ein offener Gesamtbereich bedeutet nicht, dass seine Implementierung fehlt.
 | Navigation und Lesen | Release: fünf produktive Wurzelvorschauen und fünf begrenzte native Reads, alle dauerhaften Versionen und Projektionen aktuell. Ältere kompilierte 10-/200-Quellen-Messung für REST und installiertes SDK mit echter PostgreSQL-Latenz vorhanden. | Seitengrenzen, Unicode, leere Fortsetzungsseiten, Größen- und Versionskonflikte den einzelnen Suitefällen zuordnen; produktiver Smoke ist keine vollständige Inventur. |
 | Erstellen, Importieren und Bearbeiten | Release: alle 40 Zusammenarbeitstests, Mailto Desktop/Mobil und drei Wiederaufnahmen bestehender Migrationsvorgänge. Native installierte SDK-/HTTP-Familien am Produktcommit bestanden. | REST-/SDK-/Agent-Schreibfälle, Originalimport, Idempotenz und Parallelität mit Inhalt, Identität und Links zeilenweise zuordnen. Browser-Edit beweist keinen vollständigen SDK-Write. |
 | Dateioperationen und Links | Kompilierter Stand `2f85bb3c7`: Standardprofil mit sechs REST-/SDK-Copy-/Move-/Delete-Operationen, vier Gruppen eingehender Links, Schlüsselrotation, historische Status-/Recover-Zugriffe und unabhängige REST-Statuskontrolle. | Zweites Minimalprofil separat zuordnen. Titel, Aliase, neue/mehrdeutige Ziele und relativen Pfadwechsel gegen vollständigen Neuaufbau pro tatsächlich unterstütztem Transport abnehmen. Alte Operationsabnahme nicht als aktuelle Release-Komplettmatrix ausgeben. |
-| Unterbrechungen und Wiederaufnahme | Release: drei ursprüngliche Migrationsvorgänge nach normalem Browseröffnen wiederaufgenommen, ursprüngliche Identität erhalten, alter Yjs-Zustand/Statevector bytegleich gesichert. Portable Übernahme am Stand `a489fa3e4` tatsächlich bestanden, siehe unten. | Unterstütztes Backup/Restore derselben Instanz sowie tatsächlichen Verlust der COMMIT-Antwort und Prozessabbruch mit nachfolgendem Status/Recovery pro betroffener Schreibfamilie belegen. Vorhandene Domänentests zunächst zuordnen; keine blind wiederholte Mutation. |
+| Unterbrechungen und Wiederaufnahme | Release: drei ursprüngliche Migrationsvorgänge nach normalem Browseröffnen wiederaufgenommen, ursprüngliche Identität erhalten, alter Yjs-Zustand/Statevector bytegleich gesichert. Portable Übernahme am Stand `a489fa3e4` tatsächlich bestanden, siehe unten. | Same-Instance-Restore am Stand von PR #224 zusätzlich bestanden, siehe unten. Tatsächlichen Verlust der COMMIT-Antwort und Prozessabbruch mit nachfolgendem Status/Recovery pro betroffener Schreibfamilie belegen. Vorhandene Domänentests zunächst zuordnen; keine blind wiederholte Mutation. |
 | Paket und Kompatibilität | SDK-CI `42188297151` am Produktcommit: zwölf frische Wheel-/Sdist-Profile auf Python 3.10.22 und 3.15.2, je 53 echte HTTP-/PostgreSQL-Gruppen pro Python, null Skips. Bundle-Wheel und -Sdist stimmen bytegleich mit dieser CI überein. | Native CI verwendet Quell-HTTP-Endpunkte und ist keine kompilierte Next.js-/OAuth-/OS-Keychain-Abnahme. Versionsmatrix und vorhandene tatsächliche Keychain-Belege getrennt führen. |
 | Fehler und Leistung | Release: Linkindex bei 10/200 regulären Quellen, 35 SQL-Aufrufe je Request beim Browserabruf und bei den drei warmen Abrufen; keine beobachteten Query-/Poolfehler. Die Quellen enthalten keine Links. Ältere REST-/SDK-Latenzbelege vorhanden. | Vollständige Kalt-/Warm-/Schreib-/Recovery-Messung, feste Zeit-/Poolgrenzen und dominante verbleibende Ketten. Indexmessung ersetzt weder Linkmutation noch Save-/WebSocket-/Hintergrundmessung. |
 
@@ -57,6 +57,49 @@ der frühere Klonfehler ist kein weiterhin unbehobener portabler Restore-Fehler.
 Ein Neuaufbau des bereits bestandenen Transfers ist erst bei einer konkret
 betroffenen Prüfgrenze erforderlich.
 
+## Wiederherstellung derselben Instanz mit installiertem SDK
+
+Am 06.11.2026 besteht der tatsächlich gebaute Produktstand
+`ff6d683be2a09a178a7410e1308ace1dc025dbf0` aus PR #224 diese zusätzliche
+Abnahme. Der Merge `e07df827f8553778d9da55864a4d58871e32794c` hat denselben
+vollständigen Git-Baum. Das geprüfte Linux-Image ist
+`sha256:c57e2a4b30b8bc6d8be80ec21e58e4df83d05e73f903bf545e095cb708df879b`;
+es ist nicht das bereits veröffentlichte Release-Image 2026.11.6.3.
+
+- Frische eigene Instanzdaten im einzigen verwalteten Testcontainer; Anmeldung,
+  MCP-Freigabe und API-Key-Ausstellung über die regulären APIs.
+- Das frisch installierte SDK liest und bearbeitet ein natives Dokument vor dem
+  Export. Der reguläre Export enthält weder API-Key-Tabellen noch Schlüsselwerte.
+- Schlüsselrotation erst nach dem Export: alter Schlüssel verweigert, neuer
+  Schlüssel führt eine tatsächliche abweichende Bearbeitung aus.
+- Regulärer Upload, erfolgreicher Dry-run, bestätigtes `FULL_RESTORE` und
+  automatischer Neustart desselben Containers. Kein manuell ausgelöster Neustart
+  wird als Restore-Neustart gezählt.
+- Vor der ersten Schlüsselverwendung nach Restore sind aktive und widerrufene
+  Credential-Zeilen einschließlich `xmin` exakt erhalten. Die alte Session ist
+  ungültig, der alte Key bleibt gesperrt. Dokument-IDs, Versionen, Yjs-Bytes und
+  Markdown-Linkinhalte entsprechen dem Export; die spätere Änderung ist zurückgesetzt.
+- Ein neuer SDK-Prozess mit dem rotierten Key liest den historischen Edit-Status,
+  bearbeitet das wiederhergestellte Dokument und legt ein weiteres natives
+  Markdown-Dokument an. Eigene Credentials werden danach widerrufen.
+- Die ursprünglichen lokalen Daten, Zeilen einschließlich `xmin`, Dateibytes und
+  Speicheranker bleiben unverändert; der ursprüngliche Stack läuft wieder gesund.
+
+Verwendet wird das aktuelle CI-Wheel auf Python 3.14.3. Alle acht installierten
+SDK-Module stimmen bytegleich mit Wheel und aktuellem Quellstand überein. Der
+Schreib-/Status-Prüfer liegt bytegleich zur ausgeführten Version unter
+`scripts/helpers/python_sdk_restore_probe.py`. Er erwartet seine Konfiguration
+über stdin und ein installiertes Wheel in einer isolierten Python-Umgebung;
+Credentials gehören nicht in Kommandoargumente oder ins Repository. Der Prüfer
+allein führt keinen Restore aus; die obigen Restore-Schritte stammen aus dem
+gebundenen verwalteten Containerablauf. Diese Abnahme ersetzt weder die übrige
+Matrix noch einen erneuten vollständigen `test:all`-Lauf vor dem nächsten Release.
+
+Zwei vorherige Versuche scheiterten im neuen Abnahmeaufbau: zunächst an einer
+veralteten Dokument-ID-Erwartung, danach an der fehlenden MCP-Freigabe der frischen
+Testinstanz. Beide Originalwiederherstellungen bestanden. Der dritte Lauf besteht
+sämtliche Schritte; keine Produktprüfung wurde dafür abgeschwächt.
+
 ## Belegregister
 
 Die folgenden JSON-Berichte liegen im privaten Abnahmearchiv. Es werden keine
@@ -74,3 +117,11 @@ für deren Prüfgrenzen oder die noch fehlende vollständige Matrixzuordnung.
 | `compiled-api-sdk-operations-1793755216082-result.json` | `68ad1bcfb2e5e3d714d351b67665a4ec40ac9e3964216c6309a90bc96bbbd01a` |
 | `compiled-oauth-sdk011-prepared-1793855048563-result.json` | `c3594edcc7b9b322e38627f5f2ea855a4d72e30ea98d22efc3ebc86a9e2f6cfc` |
 | `compiled-api-sdk-latency-1793879360344-result.json` | `085f31946f253c9e0f47a7fa53db4b411037896f7418a029227ce0a8b8ff1c16` |
+
+Zusätzliche Belege zur Wiederherstellung derselben Instanz:
+
+| Bericht | SHA-256 |
+| --- | --- |
+| `compiled-same-instance-sdk-restore-1793973867150-result.json` | `dacd6f4cf93369a77ffffd884c94d3f78484f19e00e5e3ec3283d736ab2e1b63` |
+| `same-instance-sdk-current-wheel-binding.json` | `21367d9066c1af4820a7800edc3bd11708a11549f65b09bbeb626ec446487cea` |
+| `same-instance-sdk-restore-private-runner-hashes-20261106-attempt3.json` | `955a10ce060ac5e9ddba29eea958f6915f25001055c7057acadd2aba00e4bdf8` |
