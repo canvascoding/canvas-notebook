@@ -11,14 +11,15 @@ function target(responses) {
   } } };
 }
 
-test('cleanup retries only uncommitted lifecycle busy with the original identity', async () => {
-  const t = target([[409, { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY' }],
-    [200, { success: true, deleted: ['owned.md'], failed: [] }]]);
-  await deleteOwnedFixtureFiles(t.api, 'workspace', ['owned.md']);
-  assert.equal(t.calls.length, 2);
-  assert.deepEqual(t.calls[0].data, t.calls[1].data);
-  assert.equal(t.calls[0].headers['x-canvas-workspace-id'], 'workspace');
-});
+for (const code of ['COLLABORATION_FILE_LIFECYCLE_BUSY', 'PATH_IMPORT_PREVIEW_BUSY']) {
+  test(`cleanup retries only uncommitted busy with the original identity (${code})`, async () => {
+    const t = target([[409, { code }], [200, { success: true, deleted: ['owned.md'], failed: [] }]]);
+    await deleteOwnedFixtureFiles(t.api, 'workspace', ['owned.md']);
+    assert.equal(t.calls.length, 2);
+    assert.deepEqual(t.calls[0].data, t.calls[1].data);
+    assert.equal(t.calls[0].headers['x-canvas-workspace-id'], 'workspace');
+  });
+}
 
 test('cleanup uses one selection per request and distinct identities per exact path', async () => {
   const t = target(['a.md', 'b.md'].map(file => [200, { success: true, deleted: [file], failed: [] }]));
@@ -28,7 +29,11 @@ test('cleanup uses one selection per request and distinct identities per exact p
 });
 
 for (const [status, payload] of [[403, { code: 'FORBIDDEN' }], [409, { code: 'COHORT_DELETE_UNSUPPORTED' }],
-  [409, { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY', operation: { status: 'failed' } }]]) {
+  [409, { code: 'COLLABORATION_FILE_LIFECYCLE_BUSY', operation: { status: 'failed' } }],
+  [409, { code: 'PATH_IMPORT_PREVIEW_BUSY', operation: { status: 'queued' } }],
+  [409, { code: 'PATH_IMPORT_PREVIEW_BUSY', operation: null }],
+  [409, { code: 'PATH_IMPORT_PREVIEW_BUSY', operation: false }],
+  [409, { code: 'PATH_IMPORT_PREVIEW_UNAVAILABLE' }], [503, { code: 'PATH_IMPORT_PREVIEW_BUSY' }]]) {
   test(`cleanup retains rejected or already-started operations (${status}/${payload.code})`, async () => {
     const t = target([[status, payload]]);
     await assert.rejects(deleteOwnedFixtureFiles(t.api, 'workspace', ['owned.md']), /retain its data/u);

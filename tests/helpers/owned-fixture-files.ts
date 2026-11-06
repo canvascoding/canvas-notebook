@@ -4,7 +4,8 @@ import { setTimeout as wait } from 'node:timers/promises';
 import type { APIRequestContext } from '@playwright/test';
 
 /** Call after closing every page using these exact, caller-owned fixture paths.
- * Busy is retryable only before an operation exists; ambiguous writes are retained.
+ * Only closed read-preview contention or lifecycle busy before an operation may
+ * retry; ambiguous writes are retained with their original idempotency identity.
  */
 export async function deleteOwnedFixtureFiles(api: APIRequestContext, workspaceId: string,
   paths: readonly string[], timeoutMs = 45_000): Promise<void> {
@@ -30,8 +31,8 @@ export async function deleteOwnedFixtureFiles(api: APIRequestContext, workspaceI
         assert.deepEqual(payload.failed, []);
         break;
       }
-      assert(response.status() === 409 && payload.code === 'COLLABORATION_FILE_LIFECYCLE_BUSY'
-        && !payload.operation, `Owned fixture cleanup rejected (${response.status()}/${String(payload.code ?? 'unknown')}); retain its data.`);
+      assert(response.status() === 409 && ['COLLABORATION_FILE_LIFECYCLE_BUSY', 'PATH_IMPORT_PREVIEW_BUSY'].includes(payload.code)
+        && !Object.hasOwn(payload, 'operation'), `Owned fixture cleanup rejected (${response.status()}/${String(payload.code ?? 'unknown')}); retain its data.`);
       await wait(Math.min(500, Math.max(1, deadline - Date.now())));
     }
   }
