@@ -242,7 +242,7 @@ RUN set -eux; \
   echo "a4e2461975abffae23688fc95c4fdc97fea4c4c9cc096c2c4a7a4e334dfc3353  /tmp/postgresql-client-common.deb" | sha256sum -c -; \
   echo "${pg_libpq_sha}  /tmp/libpq5.deb" | sha256sum -c -; \
   echo "${pg_client_sha}  /tmp/postgresql-client.deb" | sha256sum -c -; \
-  timeout --kill-after=30s 15m apt-get --no-download install -y --no-install-recommends /tmp/postgresql-client-common.deb /tmp/libpq5.deb /tmp/postgresql-client.deb; \
+  timeout --kill-after=30s 15m dpkg --install /tmp/postgresql-client-common.deb /tmp/libpq5.deb /tmp/postgresql-client.deb; \
   rm -f /tmp/*.deb; \
   node /usr/local/libexec/canvas-debian/debian-repository-lock.mjs configure; \
   rm -rf /usr/local/share/canvas-debian-snapshot; \

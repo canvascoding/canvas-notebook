@@ -67,7 +67,7 @@ const argumentsText = ['POSTGRES_CLIENT_VERSION', 'POSTGRES_COMMON_VERSION'].map
   return `${name}='${value}'`;
 }).join('\n');
 const commands = dockerfile.slice(start, end).replaceAll('\\\n', '');
-assert(commands.includes('apt-get --no-download install'));
+assert(commands.includes('dpkg --install /tmp/postgresql-client-common.deb /tmp/libpq5.deb /tmp/postgresql-client.deb'));
 fs.writeFileSync('/tmp/canvas-pgdg-install.sh', `set -eu\n${argumentsText}\n${commands}\n`, { flag: 'wx', mode: 0o600 });
 NODE
 sh /tmp/canvas-pgdg-install.sh
