@@ -286,15 +286,32 @@ erfolgreich verglichen wurden. Die Evidenzen werden als
 `canvas-native-compliance-<version>.tar.gz` aufbewahrt. Exakte Parameter und
 Hashes stehen in `docker-native-distribution-policy.json`.
 
-Das minimale Node-Basisimage besitzt anfangs keinen CA-Store. Fuer den ersten
-HTTPS-Abruf werden daher die eingebauten oeffentlichen Root-Zertifikate des
-digestgepinnten Node-Binaries temporaer exportiert und explizit als APT-CA-Datei
-verwendet. Nach Installation von `ca-certificates` wird diese Datei entfernt.
-Alle Abrufe verwenden HTTPS; Debian-Signaturen, gueltige Release-Metadaten und
-die gesperrten Indexhashes bleiben verpflichtend. APT-Updates haben eine harte
-Fuenf-Minuten-Grenze, Installationen 15 Minuten. Die fruehe Repository-Vorpruefung
-prueft Erreichbarkeit und Indexhash-Metadaten vor dem Compiler; APT fuehrt die
-kryptographische Signatur- und Ablaufpruefung weiterhin selbst aus.
+Das minimale Node-Basisimage besitzt anfangs keinen CA-Store. Der Build-Helfer
+verwendet deshalb Node-HTTPS mit den eingebauten oeffentlichen Root-Zertifikaten
+des digestgepinnten Node-Binaries. Er legt die unveraenderten InRelease-Dateien
+und komprimierten Indizes als temporaeren lokalen Build-Mirror ab. Die
+InRelease-Gesamtdateien und alle Indizes werden vor der Nutzung gegen den Lock
+geprueft. Inhaltsadressierte Snapshot-Datei-IDs sind Transportadressen; die
+Sicherheitsbindung bleibt SHA-256. Die zuvor freigegebenen Indexhashes und
+Paketversionen aendern sich dadurch nicht.
+
+APT prueft Signaturen und Ablauf beim lokalen Update weiterhin selbst. Vor
+jeder Installation prueft der Paket-Helfer zusaetzlich InRelease-Gesamthashes,
+Datum/Ablauf, gpgv und die entpackten lokalen Paketindizes. APT bestimmt daraus
+exakte Version, Groesse und SHA-256. Der Helfer bezieht identische Paketbytes
+bevorzugt aus offiziellen Debian-Pools, mit Archiv-Fallback nur bei
+Verfuegbarkeitsfehlern; Integritaetsfehler bleiben Fehler. Hoechstens vier
+Downloads laufen gleichzeitig. Installiert wird anschliessend mit deaktiviertem
+APT-Download. Der Laufzeitstage entfernt den Build-Mirror und stellt die
+kanonischen Snapshot-Quellen wieder her. Die separat gehashten PGDG-Pakete
+werden ebenfalls ohne APT-Netzdownload installiert.
+
+APT-Updates haben eine harte Fuenf-Minuten-Grenze, Vorbereitung und Installationen
+15 Minuten. Die fruehe Repository-Vorpruefung bindet die vollstaendigen
+InRelease-Metadaten und deren Gueltigkeit vor dem Compiler. Die native
+amd64-/arm64-CI prueft Offline-Updates, die zuvor betroffenen Pakete, manipulierte
+Metadaten/Indizes und einen weiteren Stage nach Listenbereinigung. Ein gruener
+Basisprobe-Lauf ersetzt nicht den finalen Image-/Inventarnachweis.
 Der libvips-Laufzeitstage installiert nur die expliziten
 Codec-/GLib-/Pango-Laufzeitbibliotheken. Das Debian-Paket `libvips42` wird
 nicht zusaetzlich ausgeliefert, sodass `/usr/local/lib/libvips*.so*` eindeutig

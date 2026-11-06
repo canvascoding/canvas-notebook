@@ -19,21 +19,30 @@ release=$(find /var/lib/apt/lists -maxdepth 1 -name '*bookworm_InRelease' -print
 test -n "$release"
 cp "$release" /tmp/canvas-original-InRelease
 printf '\ntampered\n' >> "$release"
-if node "$scripts/debian-package-install.mjs" zstd; then
+if node "$scripts/debian-package-install.mjs" zstd > /tmp/canvas-release-rejection.log 2>&1; then
   echo 'Tampered InRelease was accepted' >&2
   exit 1
 fi
+grep -q 'InRelease SHA256 differs' /tmp/canvas-release-rejection.log
 cp /tmp/canvas-original-InRelease "$release"
 
 architecture=$(dpkg --print-architecture)
 index=$(find /var/lib/apt/lists -maxdepth 1 -name "*bookworm_main_binary-${architecture}_Packages*" -print)
 test -n "$index"
 cp "$index" /tmp/canvas-original-Packages
-printf '\ntampered\n' >> "$index"
-if node "$scripts/debian-package-install.mjs" zstd; then
+/usr/lib/apt/apt-helper cat-file "$index" > /tmp/canvas-tampered-Packages
+printf '\nPackage: canvas-tampered-index\n' >> /tmp/canvas-tampered-Packages
+plain_index=${index%.lz4}
+plain_index=${plain_index%.xz}
+plain_index=${plain_index%.gz}
+rm "$index"
+cp /tmp/canvas-tampered-Packages "$plain_index"
+if node "$scripts/debian-package-install.mjs" zstd > /tmp/canvas-index-rejection.log 2>&1; then
   echo 'Tampered Packages was accepted' >&2
   exit 1
 fi
+grep -q 'Cached APT package index changed' /tmp/canvas-index-rejection.log
+rm "$plain_index"
 cp /tmp/canvas-original-Packages "$index"
 
 # Re-run a derived stage after the same lists cleanup used by the Dockerfile.
