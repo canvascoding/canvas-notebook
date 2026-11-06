@@ -249,7 +249,8 @@ test('a confirmed unsupported preparation returns to the exact editable Source',
   await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeEditable();
   await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue('1. First item\n\n2. Second item\n');
   await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
-  await expect(page.getByRole('status').filter({ hasText: 'Other editors or pending changes' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'This document needs to stay in source mode to preserve its content.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Other editors or pending changes' })).toHaveCount(0);
   expect(requests).toBe(1);
 });
 
