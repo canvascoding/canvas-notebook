@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import de from '../messages/de.json';
 import en from '../messages/en.json';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
@@ -13,6 +13,18 @@ const configResponse = (available = false) => ({ success: true, config: {
   managedMediaAvailable: false, canManageCentralCredentials: true,
 } });
 
+async function openStudioWorkspace(page: Page, locale: 'de' | 'en') {
+  const response = await page.request.get('/api/workspaces');
+  expect(response.status()).toBe(200);
+  const payload = await response.json() as {
+    workspaces: Array<{ id: string; type: string; permissions: { canRead: boolean } }>;
+  };
+  const workspace = payload.workspaces.find(candidate => candidate.type === 'personal' && candidate.permissions.canRead);
+  expect(workspace, 'Studio notice acceptance needs an authorized personal workspace').toBeTruthy();
+  await page.context().addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), workspace!.id);
+  await page.goto(`/${locale}/studio?workspaceId=${encodeURIComponent(workspace!.id)}`, { waitUntil: 'domcontentloaded' });
+}
+
 for (const [locale, messages, width] of [['de', de, 390], ['en', en, 1280]] as const) {
   test(`Studio ${locale} provider notice handles delayed checks and credential navigation`, async ({ page }, info) => {
     const pageErrors: string[] = [];
@@ -24,7 +36,7 @@ for (const [locale, messages, width] of [['de', de, 390], ['en', en, 1280]] as c
       await route.fulfill({ json: configResponse() });
     });
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/${locale}/studio`, { waitUntil: 'domcontentloaded' });
+    await openStudioWorkspace(page, locale);
     const copy = messages.studio.providerRequirements;
     await expect(page.getByText(copy.checkingTitle, { exact: true })).toBeVisible({ timeout: 90_000 });
     await expect(page.getByText(copy.gemini.title, { exact: true })).toHaveCount(0);
@@ -69,7 +81,7 @@ test('Studio failed provider check offers retry and retains the correct access s
     const retryClicked = await page.evaluate(() => document.documentElement.dataset.studioProviderRetryClicked === 'true');
     await route.fulfill(retryClicked ? { json: configResponse(true) } : { status: 503, json: { success: false } });
   });
-  await page.goto('/de/studio', { waitUntil: 'domcontentloaded' });
+  await openStudioWorkspace(page, 'de');
   const failed = page.locator('[data-slot="alert"]').filter({ has: page.getByText(de.studio.providerRequirements.checkFailedTitle, { exact: true }) });
   await expect(failed).toBeVisible({ timeout: 90_000 });
   await expect(failed).toHaveAttribute('role', 'alert');
