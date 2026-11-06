@@ -222,7 +222,9 @@ entsprachen exakt den signierten eingefrorenen APT-Indizes; die Installation
 mit `--no-download` bestand. PR #220 uebernimmt diesen Lieferweg als gemeinsamen
 Build-Service. Ein lokaler Build-Mirror vermeidet wiederholte Metadatenabrufe;
 Signaturen, Ablauf, InRelease-Gesamthashes und Paketindex-Hashes bleiben
-verpflichtend. Die neue native CI und die finale Release-Abnahme stehen noch aus.
+verpflichtend. Die neue native CI `42143905954` besteht auf amd64 und arm64 einschliesslich
+Offline-Updates, exakter Paketinstallation und Ablehnung veraenderter
+Metadaten/Indexinhalte. Die finale Release-/Image-Abnahme steht noch aus.
 
 **Nächster Arbeitsschritt:** Die fertigen Fixes als `2026.11.6.2` nach vollständiger
 Release-Verifikation und regulärem `test:all` auf dem endgültigen Image veröffentlichen. Der Benutzer hat am 05.11.2026 ausdrücklich
