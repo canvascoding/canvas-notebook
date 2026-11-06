@@ -36,5 +36,24 @@ Gesamtlauf bleibt mit 334 regulären Erfolgen, einem regulären Fehler, 102 bedi
 Auslassungen sowie 44 erfolgreichen und zwei fehlgeschlagenen verpflichtenden
 Kollaborationsfällen erhalten. Die veraltete Unsupported-Meldung im isolierten
 Browsertest ist inzwischen korrigiert und zusammen mit der echten Room-Active-
-Meldung gezielt geprüft. Der mobile Zulassungskonflikt und die endgültige
-Gesamtabnahme bleiben offen. Review Center und Dateioperationen-Undo bleiben aus.
+Meldung gezielt geprüft. Die kompilierte Wiederholung und endgültige Gesamtabnahme
+bleiben offen. Review Center und Dateioperationen-Undo bleiben aus.
+
+## Explizite Fortsetzung des ursprünglichen mobilen Vorgangs
+
+Der mobile Fehler ist eine bereits vorgesehene Zulassungsablehnung:
+`503/COLLABORATION_BUSY` verlangt denselben Request. Der vorhandene echte
+PostgreSQL-Prüfer bestätigt unter kontrollierter Lesersperre, dass eine neue
+Mutation weder vorbereitet noch angewandt wird. Nach Freigabe erzeugt dieselbe
+Operations-ID genau einen Vorgang; eine weitere Wiederholung liefert denselben
+Beleg ohne Änderung nativer Bytes oder Historie. Spätere Peer-Änderungen bleiben
+auch beim Abruf eines älteren Belegs erhalten. Der ursprüngliche konkrete
+Sperrhalter des Browserlaufs wird damit nicht nachträglich identifiziert.
+
+Der Browseraufbau verwendet dafür nun einen eingefrorenen Request mit derselben
+Version, demselben Inhalt und expliziter Idempotenz-ID. Nur der genaue benannte
+503-Busy-Fall darf höchstens zweimal nach je 250 ms fortgesetzt werden. Andere
+HTTP-Fehler und unklare Transportausgänge werden nicht wiederholt. Ein erfolgreicher
+Aufbau erfordert einen dauerhaften angewandten Beleg; die bestehenden Dokument-
+und Deep-Link-Identitätsprüfungen bleiben erhalten. Die mobile Produkt-Schreiblogik
+wurde dafür nicht geändert. Der erweiterte PostgreSQL-Prüfer ist in der CI verdrahtet.

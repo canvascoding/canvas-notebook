@@ -3584,5 +3584,11 @@ und Rechtefamilien. Eine kompilierte Wiederholung des betroffenen Browserfalls
 steht noch aus. Der zweite Kollaborationsfehler ist ein mobiler PUT mit
 `503/COLLABORATION_BUSY` vor der Vorbereitung des Schreibvorgangs; seine erhaltene
 native Ersatzdatei bleibt leer und es existiert kein vorbereiteter mobiler Vorgang.
-Dieser Fall wird gezielt weiter untersucht, ohne unklare Schreibversuche blind
-zu wiederholen. `test:all` ist noch nicht grün; es wird kein Release daraus abgeleitet.
+Ein kontrollierter tatsächlicher PostgreSQL-Leser bestätigt inzwischen diesen
+vorgesehenen Busy-Vertrag. Nach Freigabe wird derselbe versionierte Request mit
+derselben Idempotenz-ID genau einmal akzeptiert; erneuter Belegabruf erhält native
+Bytes, Historie und spätere Peer-Änderungen. Der Browseraufbau behandelt ausschließlich
+diesen benannten Busy-Fall mit begrenzter Fortsetzung derselben ID. Unbekannte
+HTTP-/Transportfehler bleiben Fehler; die mobile Produkt-Schreiblogik bleibt
+unverändert. Seine kompilierte Abnahme steht aus. `test:all` ist noch nicht grün;
+es wird kein Release daraus abgeleitet.

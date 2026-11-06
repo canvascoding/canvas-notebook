@@ -45,6 +45,7 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       bytes: await readFile(physicalFile),
     });
     const before = await snapshot(); assert.equal(before.originalReceipt?.yjs_update, null);
+    let deniedInput: typeof firstInput | undefined, operationsBeforeDenied = 0;
     await h.admin.query('BEGIN');
     await h.admin.query('SELECT pg_advisory_xact_lock_shared($1::bigint)', [collaborationAdmissionLockKey(h.source.workspaceId)]);
     try {
@@ -58,9 +59,11 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       assert.deepEqual(await snapshot(), before);
       const current = await readMobileNotebookDocument(input);
       const operationsBefore = (await h.admin.query('SELECT count(*)::integer AS n FROM mobile_notebook_operations WHERE document_id=$1', [native.documentId])).rows[0].n;
+      operationsBeforeDenied = operationsBefore;
+      deniedInput = { ...input, content: 'Unapplied mutation must remain strict',
+        expectedSha256: current.sha256, baseRevisionId: current.revisionId, idempotencyKey: randomUUID() };
       const busyResponses: Response[] = [];
-      await assert.rejects(saveMobileNotebookDocument({ ...input, content: 'Unapplied mutation must remain strict',
-        expectedSha256: current.sha256, baseRevisionId: current.revisionId, idempotencyKey: randomUUID() }),
+      await assert.rejects(saveMobileNotebookDocument(deniedInput),
         error => {
           assert(error instanceof Error && Reflect.get(error, 'code') === 'ADMISSION_CONFLICT');
           const busyResponse = mobileNotebookErrorResponse(error, 'Actual unaccepted mutation'); busyResponses.push(busyResponse);
@@ -86,6 +89,23 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       await assert.rejects(saveMobileNotebookDocument(firstInput), error => error instanceof Error && Reflect.get(error, 'code') === 'COLLABORATION_ACCESS_REVOKED');
       assert.deepEqual(await snapshot(), before);
     } finally { await h.admin.query('UPDATE session SET expires_at=$2 WHERE id=$1', [input.actorSessionId, expiry]); }
+    assert(deniedInput);
+    const resumed = await saveMobileNotebookDocument(deniedInput);
+    assert.equal(resumed.content, deniedInput.content); assert.equal(resumed.saveReceipt?.durable, true);
+    assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM mobile_notebook_operations WHERE document_id=$1', [native.documentId])).rows[0].n,
+      operationsBeforeDenied + 1, 'The originally denied request creates exactly one accepted operation.');
+    const resumedProjectionDeadline = Date.now() + 15_000;
+    while ((await readFile(physicalFile, 'utf8')).trim() !== resumed.content) {
+      assert(Date.now() < resumedProjectionDeadline);
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    const afterResume = await snapshot();
+    const sameReceipt = await saveMobileNotebookDocument(deniedInput);
+    assert.equal(sameReceipt.saveReceipt?.operationId, resumed.saveReceipt?.operationId);
+    assert.deepEqual(await snapshot(), afterResume);
+    assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM mobile_notebook_operations WHERE document_id=$1', [native.documentId])).rows[0].n,
+      operationsBeforeDenied + 1, 'The same original key cannot create another mutation.');
+    console.log('PASS known mobile admission denial: the original key resumes once after reader release; repeated receipt leaves native bytes and history unchanged.');
     console.log('Mobile replay PG: real shared-reader receipt verification, later peer deletion, fingerprint binding, exclusive owner denial and expired user denial passed.');
   } finally {
     await h.admin.query('ROLLBACK');
