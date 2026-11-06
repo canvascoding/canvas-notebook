@@ -882,7 +882,7 @@ export async function createAgentExcalidrawScene(input: {
   const context = await collaborativeAgentExcalidrawContext({ workspaceId: input.workspaceId, write: true });
   const relativePath = await excalidrawAgentPath(context.workspace, input.path);
   return createExcalidrawDocument({ workspace: context.workspace, actor: context.actor,
-    path: relativePath, idempotencyKey: input.idempotencyKey, beforeApply: context.beforeApply });
+    path: relativePath, idempotencyKey: input.idempotencyKey, beforeApply: context.beforeApply, beforeComplete: context.verifyCurrent });
 }
 
 export async function getAgentExcalidrawScene(input: {

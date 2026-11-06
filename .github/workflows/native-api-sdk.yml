@@ -88,6 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:api-keys:native 2>&1 | tee "$RUNNER_TEMP/native-api.log"
+          npm run test:excalidraw:read-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-excalidraw-admission.log"
           npm run test:mcp:path-tools:native 2>&1 | tee "$RUNNER_TEMP/native-mcp-paths.log"
           npm run test:pi:workspace-tree:native 2>&1 | tee "$RUNNER_TEMP/native-agent-list.log"
           npm run test:pi:read:native 2>&1 | tee "$RUNNER_TEMP/native-agent-read.log"

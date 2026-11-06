@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       await createExcalidrawDocument({ ...input, workspace: workspaceResult.workspace,
         actor: { userId: workspaceResult.session.user.id, actorId: `user:${workspaceResult.session.user.id}`,
           actorType: 'user', sessionId: workspaceResult.session.session.id },
-        beforeApply: async () => { await verify(); } });
+        beforeApply: async () => { await verify(); }, beforeComplete: verify });
     } else if (type === 'file' && isDocxPath(path)) {
       await writeWorkspaceFileContent({
         workspace: workspaceResult.workspace, fileOptions, actorUserId: workspaceResult.session.user.id,

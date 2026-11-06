@@ -148,6 +148,78 @@ export async function excalidrawReadAdmissionPostgresTest(): Promise<void> {
       currentCase = name; await operation(); console.log(`PASS excalidraw-read-admission ${++groups}: ${name}`);
     };
 
+    for (const revokeWrite of [false, true]) await group(`create completion after physical publication ${revokeWrite ? 'rejects revoked write authority' : 'waits for a genuine read fence without replaying publication'}`, async () => {
+      const target = `completion-${randomUUID()}.excalidraw`, idempotencyKey = randomUUID();
+      const connection = await openDb(); let transaction = false, backend: Backend | undefined, publications = 0, refreshes = 0;
+      let published!: () => void;
+      const publication = new Promise<void>(resolve => { published = resolve; });
+      const beforeComplete = async () => {
+        const fresh = await beforeRead(); refreshes++;
+        // The callback returns actual persisted authority. The service must also
+        // require WRITE, even when READ survived a revocation during the wait.
+        return fresh;
+      };
+      let request: ReturnType<typeof start<Awaited<ReturnType<typeof create>>>> | undefined;
+      try {
+        await h.withProbe(async event => {
+          if (!/UPDATE collaboration_excalidraw_creates SET file_dev/u.test(event.text)) return;
+          publications++; assert.equal(publications, 1);
+          await connection.run('BEGIN READ ONLY'); transaction = true;
+          await connection.get('SELECT pg_advisory_xact_lock_shared($1::bigint)', [collaborationAdmissionLockKey(workspace.workspaceId)]);
+          backend = await connection.get(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start
+            FROM pg_stat_activity WHERE pid=pg_backend_pid()`) as Backend;
+          const held = (await locks()).filter(row => row.pid === backend!.pid && row.start === backend!.start);
+          assert.equal(held.length, 1); assert.equal(held[0].mode, 'ShareLock'); assert(held[0].granted);
+          published();
+        }, async () => {
+          request = start(() => create({ workspace, actor, path: target, idempotencyKey, beforeComplete }));
+          await Promise.race([publication, request.pending.then(outcome => {
+            assert.fail(`Creation settled before publication: ${JSON.stringify('error' in outcome ? { code: errorCode(outcome.error) } : { returned: true })}`);
+          })]);
+          assert(backend);
+          const waiting = await request.waitForWriter(backend);
+          const physical = await fs.stat(path.join(workspace.rootPath, target), { bigint: true });
+          const content = await fs.readFile(path.join(workspace.rootPath, target));
+          const receipt = (await h.admin.query(`SELECT * FROM collaboration_excalidraw_creates WHERE workspace_id=$1 AND idempotency_key=$2`,
+            [workspace.workspaceId, idempotencyKey])).rows[0];
+          assert.equal(receipt.status, 'preparing'); assert.equal(receipt.file_dev, String(physical.dev)); assert.equal(receipt.file_ino, String(physical.ino));
+          if (revokeWrite) assert.equal((await h.admin.query(`UPDATE canvas_workspace_members SET can_write=0
+            WHERE workspace_id=$1 AND user_id='member' AND can_read=1 AND can_write=1 RETURNING workspace_id`, [workspace.workspaceId])).rowCount, 1);
+          await connection.run('ROLLBACK'); transaction = false;
+          const outcome = await request.pending;
+          assert(refreshes > 0, 'Completion must actually refresh authority after the genuine wait.');
+          if (revokeWrite) {
+            assert('error' in outcome); assert.equal(errorCode(outcome.error), 'EXCALIDRAW_PERMISSION_DENIED');
+            assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
+              [workspace.workspaceId, target])).rows[0].n, 0, 'Revoked completion must not bootstrap a scene identity.');
+            assert.equal((await h.admin.query('SELECT status FROM collaboration_excalidraw_creates WHERE workspace_id=$1 AND idempotency_key=$2',
+              [workspace.workspaceId, idempotencyKey])).rows[0].status, 'preparing');
+          } else {
+            assert('value' in outcome); assert.equal(outcome.value.path, target);
+            assert.equal((await h.admin.query('SELECT status FROM collaboration_excalidraw_creates WHERE workspace_id=$1 AND idempotency_key=$2',
+              [workspace.workspaceId, idempotencyKey])).rows[0].status, 'completed');
+          }
+          await assertReleased(waiting);
+          const after = await fs.stat(path.join(workspace.rootPath, target), { bigint: true });
+          assert.equal(after.ino, physical.ino); assert.equal(after.dev, physical.dev);
+          assert.deepEqual(await fs.readFile(path.join(workspace.rootPath, target)), content); assert.equal(publications, 1);
+          if (!revokeWrite && 'value' in outcome) await withSharedReader(async (reader, release) => {
+            const retry = start(() => create({ workspace, actor, path: target, idempotencyKey, beforeComplete }));
+            try {
+              const waiting = await retry.waitForWriter(reader); await release();
+              const replay = await retry.pending; assert('value' in replay); assert.equal(replay.value.documentId, outcome.value.documentId);
+              assert.equal(publications, 1); assert.equal((await fs.stat(path.join(workspace.rootPath, target), { bigint: true })).ino, physical.ino);
+              await assertReleased(waiting);
+            } finally { await release(); await retry.pending; }
+          });
+        });
+      } finally {
+        if (transaction) await connection.run('ROLLBACK');
+        await connection.close(); await request?.pending;
+        if (revokeWrite) await h.admin.query("UPDATE canvas_workspace_members SET can_write=1 WHERE workspace_id=$1 AND user_id='member'", [workspace.workspaceId]);
+      }
+    });
+
     await group('current-rights getDoc waits once for a genuine shared fence and preserves initialized D/L, scene and assets', async () => {
       const target = 'wait-initialized.excalidraw';
       const initialized = await importScene({ workspace, actor, path: target, content: portable('wait-initialized-asset') });
@@ -242,8 +314,8 @@ export async function excalidrawReadAdmissionPostgresTest(): Promise<void> {
       }));
     });
   });
-  assert.equal(groups, 4); completed = true;
-  console.log('Excalidraw read admission: 4 genuine PostgreSQL service groups; controlled shared fence, no original-locker or HTTP-authentication claim.');
+  assert.equal(groups, 6); completed = true;
+  console.log('Excalidraw read admission: 6 genuine PostgreSQL service groups, including create completion and revoked write authority; controlled shared fence, no original-locker or HTTP-authentication claim.');
 }
 
 void excalidrawReadAdmissionPostgresTest().catch(error => {

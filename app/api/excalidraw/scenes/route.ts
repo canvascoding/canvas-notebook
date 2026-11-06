@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     const verify = excalidrawRequestAuthority(request, access, 'canWrite');
     const document = await createExcalidrawDocument({ ...input, workspace: access.workspace,
       actor: { userId: access.session.user.id, actorId: `user:${access.session.user.id}`,
-        actorType: 'user', sessionId: access.session.session.id }, beforeApply: async () => { await verify(); } });
+        actorType: 'user', sessionId: access.session.session.id }, beforeApply: async () => { await verify(); }, beforeComplete: verify });
     return NextResponse.json({ success: true, document }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return excalidrawRouteError(error); }
 }

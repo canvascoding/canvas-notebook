@@ -335,6 +335,30 @@ async function main() {
     assert.equal(attempts().length, 0, 'A blocked/superseded open does not turn a confirmed create into a pending creation.');
     assert.equal(creates().length, 2, 'Opening uses no additional Create request.');
     await unmount();
+    for (const item of [
+      { path: 'docs/confirmed.txt', type: 'file' as const },
+      { path: 'docs/confirmed.excalidraw', type: 'file' as const, template: 'excalidraw' as const },
+      { path: 'docs/confirmed-folder', type: 'directory' as const },
+    ]) {
+      fresh(`confirmed-physical-${item.path}`);
+      useFileStore.setState({ staleDirs: new Set<string>(),
+        refreshDirectory: async () => { throw new Error('Independent physical tree refresh failed'); } });
+      respond = async () => Response.json({ success: true });
+      await assert.doesNotReject(useFileStore.getState().createPath(item.path, item.type,
+        { workspaceId: 'ws-a', ...('template' in item ? { template: item.template } : {}) }),
+      'Confirmed non-Markdown creation must not be returned to the dialog as failed.');
+      assert.equal(creates().length, 1, 'A successful physical creation is not retried after explorer refresh failure.');
+      assert.equal(creates()[0].body?.path, item.path);
+      assert(useFileStore.getState().staleDirs.has('docs'), 'The failed explorer refresh remains explicitly stale.');
+    }
+    fresh('physical-create-denied');
+    let deniedRefreshes = 0;
+    useFileStore.setState({ staleDirs: new Set<string>(), refreshDirectory: async () => { deniedRefreshes++; } });
+    respond = async () => Response.json({ error: 'Creation denied' }, { status: 403 });
+    await assert.rejects(useFileStore.getState().createPath('docs/denied.excalidraw', 'file',
+      { workspaceId: 'ws-a', template: 'excalidraw' }), /Creation denied/u);
+    assert.equal(creates().length, 1); assert.equal(deniedRefreshes, 0);
+    assert.equal(useFileStore.getState().staleDirs.size, 0, 'A rejected creation remains an actual creation error.');
     for (const change of ['workspace', 'session'] as const) {
       reset(); setAuth('alice', `browser-${change}`); useWorkspaceStore.setState({ activeWorkspaceId: 'ws-a' });
       let releaseRefresh!: () => void;
