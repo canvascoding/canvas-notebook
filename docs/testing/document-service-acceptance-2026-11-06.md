@@ -57,6 +57,23 @@ der frühere Klonfehler ist kein weiterhin unbehobener portabler Restore-Fehler.
 Ein Neuaufbau des bereits bestandenen Transfers ist erst bei einer konkret
 betroffenen Prüfgrenze erforderlich.
 
+## Installierte SDK-HTTP-Familien am Stand von PR #224
+
+Die [maschinelle Zuordnung](document-service-sdk-http-evidence-2026-11-06.json)
+bindet die sechs tatsächlich bestandenen HTTP-/PostgreSQL-Familien und deren
+Log-Hashes an CI-Lauf `42222775763`, Produktstand `ff6d683be` und das installierte
+Wheel. Beide Python-Versionen, 3.10.22 und 3.15.2, bestehen jeweils 53 Gruppen:
+Lesen 4, Edit/Status 6, Create/Import 7, Copy 8, Move/Delete 21 und Originalimport 7.
+
+Die ausgeführten Unterbrechungen umfassen verlorene HTTP-Schreibantworten bei
+Edit, Create, Import, Copy, Move, Delete und Originalimport sowie verlorene
+COMMIT-Antworten bei Copy und Move/Delete. Die jeweiligen Suiteberichte bestätigen
+keine automatischen neuen Schreibversuche. Das ist ein bereits vorhandener
+Nachweis, kein zusätzlicher Testlauf und keine bloße Ableitung aus Parserfällen.
+Die Zuordnung ist auf API-Key-HTTP und echte PostgreSQL-Pfade begrenzt; sie ersetzt
+weder die kompilierte Next.js-Abnahme noch OAuth, OS-Keyring oder die verbleibende
+vollständige Rechte-/Linkmatrix.
+
 ## Wiederherstellung derselben Instanz mit installiertem SDK
 
 Am 06.11.2026 besteht der tatsächlich gebaute Produktstand
