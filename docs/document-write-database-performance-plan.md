@@ -47,8 +47,9 @@ Der abgeschlossene Fix-Rollout ersetzt nicht die folgenden Arbeiten:
 3. Inkrementelle Linkmutationen und gemeinsame Schreibwege über alle ausgewiesenen
    Transporte gegen den vollständigen Neuaufbau prüfen, einschließlich Konflikt,
    Abbruch, Wiederaufnahme und aktuellem Rechteentzug.
-4. Verbleibende API-/SDK-Matrix, ausführbare Schreibbeispiele und unterstützten
-   Schreib-Recovery nach Restore schließen. Ein produktiver SDK-OAuth-Test benötigt
+4. Verbleibende API-/SDK-Matrix, ausführbare Schreibbeispiele und unterstützte
+   Schreib-Recovery nach Restore derselben Instanz schließen. Die ältere erfolgreiche
+   portable Übernahme in eine getrennte Instanz ist bereits belegt. Ein produktiver SDK-OAuth-Test benötigt
    weiterhin die ausdrückliche Zustimmung zur tatsächlichen Ausstellung.
 5. Danach die vereinbarten begrenzt live verbundenen Tabs aus 5c implementieren
    und mit lokalen Ressourcen-, Mobil-, Rechte- und Wiederherstellungsfällen abnehmen.
@@ -60,6 +61,9 @@ Private Ergebnisbelege: `release-2026.11.6.3-final-acceptance-summary.json`,
 `release-2026.11.6.3-production-final-verification.json` und
 `release-2026.11.6.3-production-bounded-mcp.json`. Die Remote-Build-, SDK-,
 Desktop- und Benachrichtigungsnachweise sind den Release-Artefakten zugeordnet.
+Der [Abnahmeabgleich vom 06.11.2026](testing/document-service-acceptance-2026-11-06.md)
+ordnet die vorhandenen Nachweise den acht API-/SDK-Prüfbereichen zu und grenzt
+insbesondere den erfolgreichen portablen Transfer vom fehlerhaften rohen Klon ab.
 
 ## Historischer Release-Blocker von Kandidat 2026.11.6.2 (mit 6.3 behoben)
 
