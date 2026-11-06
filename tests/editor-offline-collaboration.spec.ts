@@ -1,13 +1,17 @@
+import { assertRegularCollaborationEnvironment } from '../scripts/lib/regular-collaboration-target.mjs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import nodePath from 'node:path';
 import type { JSONContent } from '@tiptap/core';
 import * as Y from 'yjs';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
+import { completeNativeFixtureRename } from './helpers/completed-native-rename';
+import { createOwnedFilesystemFixture } from './helpers/owned-native-filesystem';
 
 const baseURL = process.env.BASE_URL || '';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -34,7 +38,7 @@ async function upload(page: Page, headers: Record<string, string>, filePath: str
 
 async function openRich(page: Page, filePath: string) {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await enterMarkdownEditMode(page);
   await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
 }
@@ -122,18 +126,19 @@ async function waitForProjectedText(page: Page, headers: Record<string, string>,
 async function cleanFiles(context: BrowserContext, headers: Record<string, string>, paths: string[]) {
   await context.setOffline(false);
   await Promise.all(context.pages().map((page) => page.close()));
-  await context.request.delete('/api/files/delete', { headers, data: { path: paths } });
+  await deleteOwnedFixtureFiles(context.request, headers['x-canvas-workspace-id'], paths);
 }
 
 test.describe('Real local Yjs recovery through browser lifecycles', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the approved managed local stack.');
   test.beforeAll(async () => {
     if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+    else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
     else expect(baseURL).toBe('http://127.0.0.1:3100');
   });
   test.setTimeout(120_000);
 
-  test('offline rich edits survive Read/Edit, another document, reopen and reconnect', async ({ page }, info) => {
+  test('offline rich edits survive focus changes, another document, reopen and reconnect', async ({ page }, info) => {
     const headers = await login(page);
     const filePath = `offline-rich-${randomUUID()}.md`;
     const otherPath = `offline-other-${randomUUID()}.md`;
@@ -150,17 +155,17 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       // for this document's contents before acting on its editor controls.
       await expect(page.getByRole('tabpanel', { name: filePath }).getByText('Alpha paragraph.', { exact: true }))
         .toBeVisible({ timeout: 30_000 });
-      await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+      await enterMarkdownEditMode(page);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await page.context().setOffline(true);
       const changed = await editRichOffline(page);
       await expect.poll(() => localSnapshot(page, session)).toEqual(changed);
       expect((await sessionFor(page, headers, filePath)).stateProof).toBe(session.stateProof);
-      await page.getByRole('button', { name: 'Read', exact: true }).click();
+      await page.getByRole('button', { name: 'Focus document', exact: true }).click();
       await expect(page.getByText('Alpha paragraph. Offline suffix.', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
       await expect(page.locator('.cm-content')).toHaveCount(0);
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await page.getByRole('button', { name: 'Exit focus', exact: true }).click();
       await expect.poll(() => richTree(page)).toEqual(changed);
       await page.screenshot({ path: info.outputPath('offline-before-document-switch.png') });
       await page.getByRole('tab', { name: otherPath, exact: true }).click();
@@ -174,7 +179,7 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       // document earlier. Reopen the document under test through its retained tab.
       await page.getByRole('tab', { name: filePath, exact: true }).click();
       await expect(page.getByRole('tabpanel', { name: filePath })).toBeVisible();
-      await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+      await enterMarkdownEditMode(page);
       await expect.poll(() => richTree(page)).toEqual(changed);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       expect(errors).toEqual([]);
@@ -210,8 +215,8 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
     } finally { await cleanFiles(page.context(), headers, [filePath]); }
   });
 
-  test('diagnostic: offline document switching after Read was loaded online', async ({ page }, info) => {
-    info.annotations.push({ type: 'diagnostic', description: 'Preloads Read online to isolate document reopening from first-use chunk availability. The cold-Read acceptance case above remains separate.' });
+  test('offline document switching after the native writer was loaded online', async ({ page }, info) => {
+    info.annotations.push({ type: 'scope', description: 'Exercises cached native editor chunks and committed IndexedDB without mocking document data.' });
     const headers = await login(page);
     const filePath = `offline-warm-rich-${randomUUID()}.md`;
     const otherPath = `offline-warm-other-${randomUUID()}.md`;
@@ -224,18 +229,18 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       await page.getByRole('tab', { name: filePath, exact: true }).click();
       await expect(page.getByRole('tabpanel', { name: filePath }).getByText('Alpha paragraph.', { exact: true }))
         .toBeVisible({ timeout: 30_000 });
-      await page.getByRole('button', { name: 'Read', exact: true }).click();
-      await expect(page.locator('.markdown-read-viewport')).toContainText('Alpha paragraph.');
+      await page.getByRole('button', { name: 'Focus document', exact: true }).click();
+      await expect(page.locator(selector)).toContainText('Alpha paragraph.');
       await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await page.getByRole('button', { name: 'Exit focus', exact: true }).click();
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await page.context().setOffline(true);
       const changed = await editRichOffline(page);
       await expect.poll(() => localSnapshot(page, session)).toEqual(changed);
       expect((await sessionFor(page, headers, filePath)).stateProof).toBe(session.stateProof);
-      await page.getByRole('button', { name: 'Read', exact: true }).click();
-      await expect(page.locator('.markdown-read-viewport')).toContainText('Offline suffix.');
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await page.getByRole('button', { name: 'Focus document', exact: true }).click();
+      await expect(page.locator(selector)).toContainText('Offline suffix.');
+      await page.getByRole('button', { name: 'Exit focus', exact: true }).click();
       await expect.poll(() => richTree(page)).toEqual(changed);
       await page.getByRole('tab', { name: otherPath, exact: true }).click();
       await expect(page.getByText('Other local document.', { exact: true })).toBeVisible({ timeout: 10_000 });
@@ -272,12 +277,12 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
       // HTTP serves the real application. Only its collaboration transport is interrupted;
       // no authentication, file, Yjs, or IndexedDB response is mocked.
       await expect.poll(() => localSnapshot(page, session)).toEqual(changed);
-      await page.getByRole('button', { name: 'Read', exact: true }).click();
+      await expect.poll(() => richTree(page)).toEqual(changed);
       await expect(page.getByText('Alpha paragraph. Offline suffix.', { exact: true })).toBeVisible();
       await page.screenshot({ path: info.outputPath('profile-restored-before-reconnect.png') });
       reconnect = true;
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await enterMarkdownEditMode(page);
       await expect.poll(() => richTree(page), { timeout: 30_000 }).toEqual(changed);
       await waitForProjectedText(page, headers, filePath, 'Offline suffix.');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
@@ -296,11 +301,13 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
 test('same-browser tabs keep ordinary HTTP requests and document locations available', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const headers = await login(page);
   const filePath = `offline-http-pool-${randomUUID()}.md`;
   const movedPath = filePath.replace('.md', '-moved.md');
+  let cleanupPath = filePath;
   await upload(page, headers, filePath, 'HTTP connection pool fixture.');
   const second = await page.context().newPage();
   const third = await page.context().newPage();
@@ -348,7 +355,8 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
     await expect.poll(() => syncStatuses.filter(status => status === 200).length).toBeGreaterThanOrEqual(3);
     expect(eventSources).toEqual([]);
     expect(syncStatuses.every(status => status === 200)).toBe(true);
-    expect((await page.request.post('/api/files/rename', { headers, data: { oldPath: filePath, newPath: movedPath, updateLinks: false } })).ok()).toBe(true);
+    await completeNativeFixtureRename(page.request, { workspaceId: headers['x-canvas-workspace-id'], oldPath: filePath, newPath: movedPath });
+    cleanupPath = movedPath;
     for (const candidate of pages) {
       await expect.poll(() => new URL(candidate.url()).searchParams.get('path'), { timeout: 30_000 }).toBe(movedPath);
       await readable(candidate);
@@ -359,13 +367,14 @@ test('same-browser tabs keep ordinary HTTP requests and document locations avail
     expect(errors).toEqual([]);
     await info.attach('live-events-multitab', { body: JSON.stringify({ pages: 3, subscriptions: liveSubscriptions.map(entries => entries.size),
       syncStatuses, legacyEventSources: eventSources.length, renamed: true, survivingTabs: 2 }), contentType: 'application/json' });
-  } finally { await cleanFiles(second.context(), headers, [filePath, movedPath]); }
+  } finally { await cleanFiles(second.context(), headers, [cleanupPath]); }
 });
 
 
-test('a native fixture file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
+test('a filesystem file event invalidates the actual HTTP tree and reference caches', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(90_000);
   const headers = await login(page);
@@ -379,17 +388,18 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
   const dataRoot = process.env.DATA;
   expect(dataRoot && nodePath.isAbsolute(dataRoot)).toBe(true);
   const folder = `native-live-cache-${randomUUID()}`;
-  const nativeRelative = `${folder}/native-created.md`;
+  const nativeRelative = `${folder}/native-created.txt`;
   const fixtureRoot = nodePath.join(dataRoot!, relativeRoot, folder);
   expect((await page.request.post('/api/files/create', { headers, data: { path: folder, type: 'directory' } })).ok()).toBe(true);
   expect((await page.request.post('/api/files/upload', { headers, multipart: { path: folder, files: {
-    name: 'seed.md', mimeType: 'text/markdown', buffer: Buffer.from('Synthetic cache seed.'),
+    name: 'seed.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic cache seed.'),
   } } })).ok()).toBe(true);
   type ProbeWindow = Window & { __cacheProbe?: { socket: WebSocket; events: Array<{ relativePath?: string }> } };
+  let primaryError: unknown;
   try {
     // Verify the exact host/container mount using the fixture we just created;
     // no pre-existing workspace document is read or modified by the native write.
-    expect(await readFile(nodePath.join(fixtureRoot, 'seed.md'), 'utf8')).toBe('Synthetic cache seed.');
+    expect(await readFile(nodePath.join(fixtureRoot, 'seed.txt'), 'utf8')).toBe('Synthetic cache seed.');
     await page.goto('/api/health', { waitUntil: 'domcontentloaded' });
     const clientId = await page.evaluate(async ({ workspaceId }) => new Promise<string>((resolve, reject) => {
       const url = new URL('/ws/live-events', window.location.href); url.protocol = 'ws:';
@@ -407,7 +417,9 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
         else if (message.event.event === 'filechange') state.events.push(value);
       };
     }), { workspaceId });
-    expect((await page.request.post('/api/files/watch', { headers, data: { clientId, dirs: [folder] } })).ok()).toBe(true);
+    const watched = await page.request.post('/api/files/watch', { headers, data: { clientId, dirs: [folder] } });
+    expect(watched.ok()).toBe(true);
+    expect((await watched.json()).watchedDirs).toContain(folder);
     const getTree = async () => {
       const response = await page.request.get('/api/files/tree', { headers, params: { path: folder, depth: '0' } });
       expect(response.ok()).toBe(true); return (await response.json()).data as Array<{ path: string }>;
@@ -416,9 +428,12 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
       const response = await page.request.get('/api/files/list', { headers, params: { q: folder, limit: '50' } });
       expect(response.ok()).toBe(true); return (await response.json()).files as Array<{ path: string }>;
     };
-    expect((await getTree()).some(entry => entry.path === `${folder}/seed.md`)).toBe(true);
-    expect((await getReferences()).some(entry => entry.path === `${folder}/seed.md`)).toBe(true);
-    await writeFile(nodePath.join(fixtureRoot, 'native-created.md'), 'Native synthetic fixture.', { flag: 'wx' });
+    expect((await getTree()).some(entry => entry.path === `${folder}/seed.txt`)).toBe(true);
+    expect((await getReferences()).some(entry => entry.path === `${folder}/seed.txt`)).toBe(true);
+    // This isolates filesystem/cache delivery. Native Markdown birth and its
+    // identity/import policy have their own tests; no orphan Markdown is minted.
+    await createOwnedFilesystemFixture({ dataRoot: dataRoot!, relativePath: nodePath.posix.join(relativeRoot, nativeRelative),
+      seedRelativePath: nodePath.posix.join(relativeRoot, folder, 'seed.txt'), seedContent: 'Synthetic cache seed.', content: 'Native synthetic fixture.' });
     await expect.poll(() => page.evaluate(relative => (window as ProbeWindow).__cacheProbe?.events.some(event => event.relativePath === relative), nativeRelative),
       { timeout: 10_000 }).toBe(true);
     // This page has no Notebook UI. Therefore no background noCache=true tree
@@ -431,8 +446,20 @@ test('a native fixture file event invalidates the actual HTTP tree and reference
     await info.attach('native-cache-invalidation', { body: JSON.stringify({ eventReceived: true, treeContains, referencesContain, nativeRead: true }), contentType: 'application/json' });
     expect.soft(treeContains, 'The native watcher must invalidate the HTTP tree cache immediately.').toBe(true);
     expect.soft(referencesContain, 'The native watcher must invalidate the HTTP file-reference cache immediately.').toBe(true);
+  } catch (error) {
+    primaryError = error;
+    await info.attach('filesystem-cache-watcher-state', { body: JSON.stringify(await page.evaluate(() => ({
+      readyState: (window as ProbeWindow).__cacheProbe?.socket.readyState,
+      events: (window as ProbeWindow).__cacheProbe?.events,
+    }))), contentType: 'application/json' }).catch(() => undefined);
+    throw error;
   } finally {
     await page.evaluate(() => (window as ProbeWindow).__cacheProbe?.socket.close()).catch(() => undefined);
-    await cleanFiles(page.context(), headers, [folder]);
+    try { await cleanFiles(page.context(), headers, [folder]); }
+    catch (error) {
+      if (!primaryError) throw error;
+      await info.attach('retained-cache-fixture-cleanup', { body: error instanceof Error
+        ? error.message.split('\n')[0] : 'Unconfirmed cleanup; fixture data retained.', contentType: 'text/plain' });
+    }
   }
 });

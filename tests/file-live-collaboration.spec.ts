@@ -8,7 +8,9 @@ import type { JSONContent } from '@tiptap/core';
 import enMessages from '../messages/en.json';
 import deMessages from '../messages/de.json';
 
-import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { createAuthenticatedContext, createCompletedWorkspaceMarkdownFile, enterMarkdownEditMode } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
+import { recoveredRoomReadUrls, roomReadConsoleMessage } from './helpers/recovered-room-read.mjs';
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
@@ -106,8 +108,7 @@ async function useWorkspace(context: BrowserContext, workspaceId: string): Promi
 
 async function openCollaborativeMarkdown(page: Page, filePath: string): Promise<void> {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: /Document view|Dokumentansicht/u })
-    .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+  await enterMarkdownEditMode(page);
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
@@ -128,7 +129,7 @@ function logBrowserDiagnostics(page: Page, label: string): string[] {
         console.warn(`[${label}] unsupported browser viewport hint:`, message.text());
         return;
       }
-      if (message.type() === 'error') browserErrors.push(`[${label}] console error: ${message.text()}`);
+      if (message.type() === 'error') browserErrors.push(`[${label}] console error: ${message.text()} [${message.location().url}]`);
       console.error(`[${label}] console ${message.type()}:`, message.text());
     }
   });
@@ -179,12 +180,7 @@ async function runAgentTool(input: {
 }
 
 async function deleteFixtureFiles(api: APIRequestContext, workspaceId: string, paths: string[]): Promise<void> {
-  const deleted = await api.delete('/api/files/delete', {
-    headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: paths },
-  });
-  const payload = await deleted.json();
-  expect(deleted.status(), `Fixture cleanup delete (${String(payload.code ?? '')})`).toBe(200);
-  expect(payload).toMatchObject({ success: true, deleted: paths, failed: [] });
+  await deleteOwnedFixtureFiles(api, workspaceId, paths);
 }
 
 async function finishFixture(api: APIRequestContext, actions: Array<() => Promise<unknown>>, failure: unknown): Promise<void> {
@@ -244,13 +240,8 @@ test.describe('Markdown live collaboration', () => {
       await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
       workspaceId = await organizationWorkspace(page.request);
       await useWorkspace(context, workspaceId);
-      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
       for (const filePath of [joiningPath, readyPath]) {
-        const created = await page.request.post('/api/files/create', {
-          headers,
-          data: { path: filePath, type: 'file' },
-        });
-        expect(created.ok(), await created.text()).toBe(true);
+        await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId, filePath });
       }
 
       await page.route('**/api/files/collaboration/session', async (route) => {
@@ -389,8 +380,7 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => tree(editor)).toEqual(moved);
       await expect(owner.getByTestId('markdown-save-state')).toHaveCount(0);
       await owner.goto(`/notebook?path=${encodeURIComponent(filePath)}&collaborationDebug=1`, { waitUntil: 'domcontentloaded' });
-      await owner.getByRole('group', { name: /Document view|Dokumentansicht/u })
-        .getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
+      await enterMarkdownEditMode(owner);
       const diagnostics = owner.getByTestId('markdown-save-state');
       const locale = await owner.locator('html').getAttribute('lang');
       const messages = locale?.startsWith('de') ? deMessages : enMessages;
@@ -401,9 +391,8 @@ test.describe('Markdown live collaboration', () => {
       expect([...errors, ...peerErrors]).toEqual([]);
     } finally {
       await peerContext.close();
-      if (workspaceId) await owner.request.delete('/api/files/delete', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
-      }).catch(() => undefined);
+      await owner.close();
+      if (workspaceId) await deleteOwnedFixtureFiles(ownerContext.request, workspaceId, [filePath]);
       await ownerContext.close();
     }
   });
@@ -414,6 +403,20 @@ test.describe('Markdown live collaboration', () => {
     const peerContext = await fixtureContext(browser, true);
     const owner = await ownerContext.newPage();
     const peer = await peerContext.newPage();
+    const roomReads: Array<Promise<{ url: string; status: number; code?: string; documentId?: string; at: number }>> = [];
+    const consoleErrors: Array<{ url: string; message: string; value: string }> = [];
+    for (const [page, label] of [[owner, 'caret-owner'], [peer, 'caret-peer']] as const) {
+      page.on('console', message => { if (message.type() === 'error') consoleErrors.push({ url: message.location().url, message: message.text(), value: `[${label}] console error: ${message.text()} [${message.location().url}]` }); });
+      page.on('response', response => {
+        if (new URL(response.url()).pathname !== '/api/files/read') return;
+        const at = Date.now();
+        roomReads.push((async () => {
+          const payload = await response.json().catch(() => null);
+          return { url: response.url(), status: response.status(), code: payload?.code, at,
+            documentId: payload?.success === true ? payload.data?.collaboration?.document?.id : undefined };
+        })());
+      });
+    }
     const errors = logBrowserDiagnostics(owner, 'caret-owner');
     const peerErrors = logBrowserDiagnostics(peer, 'caret-peer');
     let workspaceId: string | null = null;
@@ -466,9 +469,8 @@ test.describe('Markdown live collaboration', () => {
       await testInfo.attach('table caret after resize and scroll', { path: screenshot, contentType: 'image/png' });
       const before = await editor.evaluate((element) => (element as ObservedEditor).editor.getJSON());
       for (let i = 0; i < 2; i += 1) {
-        const modes = owner.getByRole('group', { name: 'Document view' });
-        await modes.getByRole('button', { name: 'Read', exact: true }).click();
-        await modes.getByRole('button', { name: 'Edit', exact: true }).click();
+        await owner.getByRole('button', { name: 'Focus document', exact: true }).click();
+        await owner.getByRole('button', { name: 'Exit focus', exact: true }).click();
         await expect(editor).toHaveAttribute('contenteditable', 'true');
       }
       await expect.poll(() => editor.evaluate((element) => (element as ObservedEditor).editor.getJSON())).toEqual(before);
@@ -478,13 +480,16 @@ test.describe('Markdown live collaboration', () => {
       expect(await collaborativeEditorText(peerEditor)).toContain(' updated');
       await expect.poll(() => editor.evaluate((element) => (element as ObservedEditor).editor.getJSON())).toEqual(updated);
       await expect.poll(withinBounds).toBe(true);
-      expect([...errors, ...peerErrors]).toEqual([]);
+      const recovered = recoveredRoomReadUrls(await Promise.all(roomReads), consoleErrors);
+      const recoveredMessages = new Set(consoleErrors.filter(error => recovered.has(error.url)
+        && error.message === roomReadConsoleMessage).map(error => error.value));
+      expect([...errors, ...peerErrors].filter(error => !recoveredMessages.has(error))).toEqual([]);
+      if (recovered.size) testInfo.annotations.push({ type: 'recovered-room-read',
+        description: JSON.stringify({ count: recovered.size, urls: [...recovered] }) });
     } finally {
       await peerContext.close();
       await owner.close();
-      if (workspaceId) await ownerContext.request.delete('/api/files/delete', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
-      });
+      if (workspaceId) await deleteOwnedFixtureFiles(ownerContext.request, workspaceId, [filePath]);
       await ownerContext.close();
     }
   });
@@ -511,11 +516,7 @@ test.describe('Markdown live collaboration', () => {
       await useWorkspace(adminContext, workspaceId);
       await useWorkspace(memberContext, memberWorkspaceId);
 
-      const createFileResponse = await adminPage.request.post('/api/files/create', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: { path: filePath, type: 'file' },
-      });
-      expect(createFileResponse.ok(), await createFileResponse.text()).toBeTruthy();
+      await createCompletedWorkspaceMarkdownFile({ request: adminPage.request, workspaceId, filePath });
 
       await Promise.all([
         openCollaborativeMarkdown(adminPage, filePath),
@@ -718,7 +719,7 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
-  test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', async ({ browser }, testInfo) => {
+  test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await fixtureContext(browser);

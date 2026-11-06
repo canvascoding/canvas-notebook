@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -22,7 +22,7 @@ test(`mobile ${block} moves retain the menu anchor and remain editable after und
   } } })).ok()).toBe(true);
   try {
     await page.goto(`/notebook?path=${filePath}`);
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).tap();
+    await enterMarkdownEditMode(page);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toBeVisible({ timeout: 30_000 });
     // The development badge overlaps the first mobile control; hide it through
@@ -106,7 +106,7 @@ test('mobile list and table deletion keep structure, history and focus during ba
   } } })).ok()).toBe(true);
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).tap();
+    await enterMarkdownEditMode(page);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
     const tree = () => editor.evaluate(element => (element as HTMLElement & { editor: { getJSON(): unknown } }).editor.getJSON());
@@ -148,7 +148,7 @@ test('mobile list and table deletion keep structure, history and focus during ba
     await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     await page.screenshot({ path: info.outputPath('mobile-list-table-delete.png') });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).tap();
+    await enterMarkdownEditMode(page);
     await expect(editor).toBeVisible({ timeout: 30_000 });
     await expect.poll(tree).toEqual(afterCell);
   } finally {

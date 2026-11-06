@@ -56,7 +56,22 @@ const closedAfterExternalMove = closeNotebookDocumentTabsAtPaths({
 assert.deepEqual(closedAfterExternalMove, {
   activePath: 'notes/today.md',
   openPaths: ['notes/today.md'],
-}, 'an externally moved folder must close every affected document tab');
+}, 'a missing folder closes unidentified legacy document tabs');
+
+const identifiedTabs = {
+  activePath: 'project/brief.md',
+  openPaths: ['notes/today.md', 'project/brief.md', 'project/assets/spec.md', 'project/legacy.txt'],
+  documentIds: { 'project/brief.md': 'brief-identity', 'project/assets/spec.md': 'spec-identity' },
+};
+const retained = closeNotebookDocumentTabsAtPaths(identifiedTabs, ['project'], { preserveKnownIdentities: true });
+assert.deepEqual(retained.openPaths, ['notes/today.md', 'project/brief.md', 'project/assets/spec.md']);
+assert.equal(retained.activePath, 'project/brief.md');
+assert.deepEqual(retained.documentIds, identifiedTabs.documentIds, 'a physical unlink must not discard native identities');
+const relocated = adoptNotebookDocumentLocation(retained, 'project/assets/spec.md', 'spec-identity', 'moved/assets/spec.md');
+assert(relocated.openPaths.includes('moved/assets/spec.md'), 'the existing location watcher can adopt the retained inactive identity');
+assert.equal(relocated.documentIds?.['moved/assets/spec.md'], 'spec-identity');
+assert.deepEqual(closeNotebookDocumentTabsAtPaths(identifiedTabs, ['project']).openPaths, ['notes/today.md'],
+  'a completed local deletion still closes all selected document tabs');
 
 let limitedState = emptyNotebookDocumentTabsState();
 for (let index = 0; index < NOTEBOOK_MAX_OPEN_DOCUMENTS; index += 1) {

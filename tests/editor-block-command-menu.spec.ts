@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 
 test('block commands remain above notebook chrome and scroll in short windows', async ({ browser }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
@@ -42,7 +43,9 @@ test('block commands remain above notebook chrome and scroll in short windows', 
       const box = await menu.boundingBox();
       expect(box!.y).toBeGreaterThanOrEqual(0);
       expect(box!.y + box!.height).toBeLessThanOrEqual(height);
-      if (height < 720) {
+      // At 480px the menu legitimately fits below its anchor. The shortest
+      // fixture forces upward placement across the chrome for hit testing.
+      if (height === 360) {
         const toolbar = await page.getByTestId('notebook-toolbar').boundingBox();
         expect(box!.y).toBeLessThan(toolbar!.y + toolbar!.height);
       }
@@ -68,12 +71,9 @@ test('block commands remain above notebook chrome and scroll in short windows', 
       }
     }
   } finally {
-    await page.goto('about:blank');
-    if (workspaceId) {
-      await context.request.delete('/api/files/delete', {
-        headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
-      });
-    }
-    await context.close();
+    try {
+      await page.goto('about:blank');
+      if (workspaceId) await deleteOwnedFixtureFiles(context.request, workspaceId, [filePath]);
+    } finally { await context.close(); }
   }
 });

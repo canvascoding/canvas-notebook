@@ -13,8 +13,8 @@ assert.doesNotMatch(
   'The runtime image must never grant passwordless unrestricted sudo.'
 );
 assert.doesNotMatch(
-  dockerfile,
-  /apt-get install[^\n]*\bsudo\b/,
+  dockerfile.replace(/\\\r?\n/gu, ' '),
+  /(?:apt-get install|node \/usr\/local\/libexec\/debian-package-download\.mjs)[^\n]*\bsudo\b/,
   'The runtime image must not install sudo.'
 );
 assert.doesNotMatch(

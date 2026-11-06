@@ -1229,12 +1229,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [activeWorkspaceId, cancelPendingDocumentOpen, dispatch, replaceDocumentTabs, tNotebook]);
 
   useEffect(() => {
-    const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
+    const closeDocumentTabsAtPaths = (paths: Iterable<string>, confirmed = false) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
       const file = useFileStore.getState().currentFile;
       const closedPaths = Array.from(paths);
       const preservedPath = file?.unavailable ? file.path : null;
-      const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
+      const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths,
+        { preserveKnownIdentities: !confirmed });
       if (preservedPath) {
         const preserved = openNotebookDocumentTab(nextTabs, preservedPath);
         if (preserved.status !== 'limit-reached') replaceDocumentTabs(activeWorkspaceId, preserved.state);
@@ -1258,13 +1259,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'DOCUMENT_CLOSED' });
     };
     const handlePathsDeleted = (event: Event) => {
-      const { paths, workspaceId } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      const { paths, workspaceId, confirmed } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       if (workspaceId) setClosedDocuments((current) => ({
         ...current,
         [workspaceId]: (current[workspaceId] ?? []).filter((path) => !paths.some((root) => isSameOrDescendantPath(path, root))),
       }));
-      closeDocumentTabsAtPaths(paths);
+      closeDocumentTabsAtPaths(paths, confirmed === true);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
