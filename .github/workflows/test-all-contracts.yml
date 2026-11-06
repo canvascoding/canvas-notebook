@@ -3,6 +3,7 @@ name: Test suite orchestration
 on:
   pull_request:
     paths:
+      - scripts/docker-runtime-privilege-policy-test.mjs
       - scripts/debian-*
       - Dockerfile
       - scripts/test-all*
@@ -26,6 +27,7 @@ on:
   push:
     branches: [main]
     paths:
+      - scripts/docker-runtime-privilege-policy-test.mjs
       - scripts/debian-*
       - Dockerfile
       - scripts/test-all*
@@ -97,3 +99,6 @@ jobs:
       - name: Frozen Debian artifact transports and integrity
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: node --test scripts/debian-repository-lock-test.mjs scripts/debian-package-download-test.mjs
+      - name: Runtime image privilege policy
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:docker:privileges
