@@ -49,6 +49,29 @@ cp /tmp/canvas-original-Packages "$index"
 rm -rf /var/lib/apt/lists/*
 apt-get update
 node "$scripts/debian-package-install.mjs" zstd
+
+# Exercise the Dockerfile's exact hash-pinned PGDG block with APT downloads
+# disabled. netbase is a direct client-common dependency that APT previously
+# fetched implicitly. The other libraries are supplied by the runtime packages.
+node "$scripts/debian-package-install.mjs" netbase perl curl libreadline8 liblz4-1 libzstd1 libpq5
+node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const dockerfile = fs.readFileSync('/tmp/canvas-debian-Dockerfile', 'utf8');
+const start = dockerfile.indexOf('  case "$(dpkg --print-architecture)" in');
+const end = dockerfile.indexOf('  rm -f /tmp/*.deb;', start);
+assert(start > 0 && end > start);
+const argumentsText = ['POSTGRES_CLIENT_VERSION', 'POSTGRES_COMMON_VERSION'].map(name => {
+  const value = dockerfile.match(new RegExp(`^ARG ${name}=([^\\n]+)$`, 'mu'))?.[1];
+  assert.match(value ?? '', /^[a-zA-Z0-9.+~-]+$/u);
+  return `${name}='${value}'`;
+}).join('\n');
+const commands = dockerfile.slice(start, end).replaceAll('\\\n', '');
+assert(commands.includes('apt-get --no-download install'));
+fs.writeFileSync('/tmp/canvas-pgdg-install.sh', `set -eu\n${argumentsText}\n${commands}\n`, { flag: 'wx', mode: 0o600 });
+NODE
+sh /tmp/canvas-pgdg-install.sh
+pg_dump --version | grep '18.4'
 node "$scripts/debian-repository-lock.mjs" configure
 rm -rf /usr/local/share/canvas-debian-snapshot
 grep -q 'URIs: https://snapshot.debian.org/' /etc/apt/sources.list.d/debian.sources

@@ -218,7 +218,7 @@ COPY --from=dictation-build /opt/canvas-dictation /app/native/dictation
 
 RUN set -eux; \
   timeout --kill-after=15s 5m apt-get update; \
-  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+  timeout --kill-after=30s 15m node /usr/local/libexec/canvas-debian/debian-package-install.mjs ffmpeg curl wget zstd ca-certificates unzip zip git make netbase python3 python3-pip python3-venv ripgrep poppler-utils procps \
      pandoc libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-draw-nogui \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
