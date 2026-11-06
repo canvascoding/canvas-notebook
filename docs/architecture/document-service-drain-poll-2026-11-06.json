@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "baseSha": "4f88b241ea37b41f28a4e3f7c469acef3d3c9565",
+  "scope": "Source PostgreSQL/HTTP/WebSocket fixture with 10 regular native documents; not compiled-browser or final-budget acceptance.",
+  "candidateSourcePins": {
+    "app/lib/collaboration/room-admission.ts": "497aa6cd34659f8ad8cd9905ffd5d525d818231a2649d7d6620fa007add7c4b7",
+    "app/lib/collaboration/room-owner-options.ts": "b1a9b985404012ea51a71b095c2c412f79bccb6ce9a490d5848d11ba72b62bc7",
+    "scripts/collaboration-drain-poll-postgres-test.ts": "9330ff4eecea5a1273549452681202d5f8445f33453d156892a9156040069a62",
+    "scripts/run-document-read-tool-dispatch-test.mjs": "e98347ec591bdb9e44b83ce45700f61229e78a3a3b2fd8a3da8c842f40d20bc1"
+  },
+  "profiles": [
+    {
+      "when": "before",
+      "label": "cold-session-socket-and-initial-projection",
+      "statements": 515,
+      "checkouts": 100,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 3,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "before",
+      "label": "idle-held-owner-6100ms",
+      "statements": 804,
+      "checkouts": 159,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "when": "before",
+      "label": "warm-save-through-file-checkpoint-1",
+      "statements": 399,
+      "checkouts": 81,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 2,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "before",
+      "label": "warm-save-through-file-checkpoint-2",
+      "statements": 394,
+      "checkouts": 79,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 2,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "before",
+      "label": "warm-session-and-second-real-peer",
+      "statements": 563,
+      "checkouts": 106,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 1,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "after",
+      "label": "cold-session-socket-and-initial-projection",
+      "statements": 526,
+      "checkouts": 99,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 2,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "after",
+      "label": "idle-held-owner-6100ms",
+      "statements": 659,
+      "checkouts": 119,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 0,
+      "openQueriesAtCompletion": 0
+    },
+    {
+      "when": "after",
+      "label": "warm-save-through-file-checkpoint-1",
+      "statements": 383,
+      "checkouts": 70,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 2,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "after",
+      "label": "warm-save-through-file-checkpoint-2",
+      "statements": 446,
+      "checkouts": 81,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 1,
+      "openQueriesAtCompletion": 1
+    },
+    {
+      "when": "after",
+      "label": "warm-session-and-second-real-peer",
+      "statements": 565,
+      "checkouts": 105,
+      "failedStatements": 0,
+      "openConnectionsAtCompletion": 1,
+      "openQueriesAtCompletion": 1
+    }
+  ],
+  "polls": {
+    "before": {
+      "count": 23,
+      "statementsPerPoll": [
+        7
+      ],
+      "checkoutsPerPoll": [
+        2
+      ]
+    },
+    "after": {
+      "count": 24,
+      "statementsPerPoll": [
+        5
+      ],
+      "checkoutsPerPoll": [
+        1
+      ]
+    }
+  },
+  "beforeSha256": "8aad03f928b6337c3c4d61283a7c5af1326ad8b2ba7ba7a322a8565843a805f3",
+  "afterSha256": "b6b77b08dfa534d1e1d2ee6cc15fff73d1114939b8242199854435948987a90c",
+  "limits": [
+    "Concurrent periodic work makes full windows stochastic; cold and second-save counts increased.",
+    "Per-poll SQL and checkout reduction is separately asserted by the actual-PG regression.",
+    "No production CPU-cause, final latency or whole-plan completion claim."
+  ]
+}

@@ -388,7 +388,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/collaboration/room-admission-quiescence.ts', 'app/lib/markdown/native-file-operation-handoff.ts',
     'app/lib/files/workspace-operation-job-lifecycle-owner.ts',
     'app/lib/files/workspace-operation-batch-worker.ts', 'server/collaboration-server.ts',
-    'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/projection-runtime.ts',
+    'app/lib/collaboration/room-owner-options.ts', 'app/lib/collaboration/room-admission.ts', 'app/lib/collaboration/projection-runtime.ts',
     'app/lib/observability/document-operation-metrics.ts'],
   'scripts/document-editor-runtime-baseline-postgres-entry.ts': [entryPoint,
     'scripts/helpers/document-baseline-fixture.ts',
@@ -2069,6 +2069,9 @@ criticalInputsByEntryPoint['scripts/document-link-write-parity-postgres-test.ts'
   'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts', 'app/api/documents/create/route.ts',
   'app/api/documents/edit/route.ts', 'app/api/documents/read/route.ts', 'app/api/markdown/link-index/route.ts',
   'app/lib/markdown/document-link-read-projection.ts', 'app/lib/markdown/document-link-resolution-projection.ts'];
+criticalInputsByEntryPoint['scripts/collaboration-drain-poll-postgres-test.ts'] = [entryPoint,
+  'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/collaboration/room-owner-options.ts',
+  'app/lib/collaboration/room-admission.ts', 'app/lib/collaboration/lifecycle-transaction.ts'];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = [...criticalInputsByEntryPoint[entryPoint]];
 if (['scripts/helpers/document-read-tool-dispatch-fixture.ts', 'scripts/helpers/native-copy-metadata-owner-fixture.ts']

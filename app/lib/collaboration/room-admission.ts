@@ -338,10 +338,11 @@ export async function startCollaborationAdmissionDrainOnConnection(database: Sql
  */
 export function createCollaborationAdmissionService(options: { openConnection: () => Promise<SqlConnection>;
   withMutationTransaction?: RichMigrationTransaction }) {
-  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>, mutation = false) =>
+  const transaction = <T>(execute: (database: SqlConnection) => Promise<T>, recoverCommitted: (value: T) => Promise<T>,
+    mutation = false, statementTimeout: '3s' | '5s' = '5s') =>
     executeLifecycleTransaction({ openConnection: options.openConnection,
       execute: async (database) => {
-        await database.run("SET LOCAL statement_timeout = '5s'");
+        await database.run(statementTimeout === '3s' ? "SET LOCAL statement_timeout = '3s'" : "SET LOCAL statement_timeout = '5s'");
         await database.run("SET LOCAL lock_timeout = '4s'");
         return mutation && options.withMutationTransaction
           ? options.withMutationTransaction(database, () => execute(database)) : execute(database);
@@ -383,9 +384,13 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       }
       if (!fences.length) return Promise.resolve(Object.freeze([]));
       return transaction(async (database) => {
+        // Resolve/lock all three migration relations even for an empty poll.
+        // The zero-row aggregate checks readiness without scanning receipts or
+        // creating a separate backend that must be discarded for session SETs.
         const rows = await database.all(`SELECT r.request_id, r.request_digest, r.status AS request_status,
             t.snapshot_text, t.status, t.release_id
           FROM collaboration_admission_requests r JOIN collaboration_admission_targets t ON t.request_id = r.request_id
+          CROSS JOIN (SELECT count(*) FROM collaboration_room_release_receipts WHERE false) readiness
           WHERE ((r.status = 'draining' AND t.active
               AND ((t.status = 'draining' AND t.quiescence_kind IS NULL AND t.quiescence_text IS NULL)
                 OR (t.status = 'released' AND t.quiescence_kind = 'owner_drain')))
@@ -407,7 +412,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
           pending.push(ticket);
         }
         return Object.freeze(pending);
-      }, async (verified) => verified);
+      }, async (verified) => verified, false, '3s');
     },
     read(input: CollaborationAdmissionRequest) {
       const captured = captureCollaborationAdmissionRequest(input);
