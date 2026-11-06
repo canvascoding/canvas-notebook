@@ -36,14 +36,7 @@ export function createCollaborationRoomOwnerOptions(): CollaborationRoomOwnerRun
     createSession: async onInvalidated => createCollaborationRoomOwnerSession(await connectOwnerClient('owner'), onInvalidated),
     recoverRelease: input => recoverCollaborationRoomRelease({ ...input, createClient: () => connectOwnerClient('release-recovery') }),
     heartbeatMs: 5_000,
-    admission: { pendingDrains: async fences => {
-      const database = await openDb();
-      try {
-        await database.run("SET statement_timeout = '3s'");
-        await database.get('SELECT (SELECT count(*) FROM collaboration_admission_requests WHERE false) AS requests, (SELECT count(*) FROM collaboration_admission_targets WHERE false) AS targets, (SELECT count(*) FROM collaboration_room_release_receipts WHERE false) AS receipts');
-      } finally { await database.close(new Error('Discarding bounded migration readiness probe session.')); }
-      return admission.pendingDrains(fences);
-    }, pollMs: 250,
+    admission: { pendingDrains: admission.pendingDrains, pollMs: 250,
       readDrain: async ticket => {
         const verified = await admission.readDrain(ticket);
         const request = await history.loadRequest(ticket.requestId);

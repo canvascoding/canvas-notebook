@@ -804,6 +804,7 @@
     "test:collaboration:admission-quiescence:postgres": "tsx --conditions react-server scripts/collaboration-room-admission-quiescence-postgres-test.ts",
     "test:collaboration:admission-handoff:postgres": "tsx --conditions react-server scripts/collaboration-room-admission-handoff-postgres-test.ts",
     "test:collaboration:admission-compaction:postgres": "tsx --conditions react-server scripts/collaboration-admission-compaction-postgres-test.ts",
+    "test:collaboration:drain-poll:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/collaboration-drain-poll-postgres-test.ts",
     "test:collaboration:room-release": "tsx --conditions react-server scripts/collaboration-room-release-test.ts && tsx --conditions react-server scripts/collaboration-room-release-proof-test.ts",
     "test:collaboration:room-release:postgres": "tsx --conditions react-server scripts/collaboration-room-release-postgres-test.ts",
     "test:collaboration:room-idle-release:postgres": "tsx --conditions react-server scripts/collaboration-room-idle-release-postgres-test.ts",

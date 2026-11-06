@@ -14,6 +14,15 @@ Das ist noch nicht veröffentlicht und beweist nicht die Ursache des produktiven
 Zugriffs-/Migrationsfehlers. Der Gesamtplan und die offenen Produktionsfälle
 bleiben offen.
 
+Die nächste lokale Bündelung betrifft den periodischen Drain-Poll: Die separate,
+jedes Mal verworfene Bereitschaftsverbindung entfällt zugunsten derselben frischen
+begrenzten Transaktion. Der reale PostgreSQL-Vergleich bestätigt fünf statt sieben
+SQL-Aufrufe und eine statt zwei Ausleihen je Poll; Schemafehler und echte Sperren
+bleiben begrenzt und ablehnend. Bestehende Admission-/Drain-/Migrations-/Recovery-
+Suiten bestehen. [Messwerte und Prüfgrenzen](architecture/document-service-drain-poll-2026-11-06.md)
+halten die noch ausstehende kompilierte UI-/CI-Abnahme und die weiterhin offenen
+Gesamtbudgets ausdrücklich fest. Dieser Stand ist noch nicht veröffentlicht.
+
 ## Aktueller Abschluss: Fix-Release produktiv, Gesamtplan weiterhin offen
 
 Release [`v2026.11.6.3`](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.6.3)

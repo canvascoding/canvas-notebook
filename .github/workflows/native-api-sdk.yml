@@ -71,6 +71,10 @@ jobs:
         run: |
           set -euo pipefail
           node --import tsx --conditions react-server --test scripts/workspace-source-authority-projection-lock-test.ts 2>&1 | tee "$RUNNER_TEMP/source-projection-lock.log"
+      - name: Bounded drain polling with actual PostgreSQL schema locks
+        run: |
+          set -euo pipefail
+          npm run test:collaboration:drain-poll:native 2>&1 | tee "$RUNNER_TEMP/drain-poll-native.log"
       - name: API contracts and UI component tests
         run: |
           set -euo pipefail
@@ -132,6 +136,7 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/source-projection-lock.log
+            ${{ runner.temp }}/drain-poll-native.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log
             ${{ runner.temp }}/native-api.log
