@@ -14,6 +14,7 @@ import { captureRepresentationAdmissionRequest } from './representation-admissio
 import { COLLABORATION_SCHEMA_VERSION } from './types';
 import { tryLockCollaborationAdmissionWorkspace } from './room-admission';
 import type { RichMigrationWriteRequestInput, RichMigrationWriteRequestAccess } from './rich-migration-write-request';
+import type { RichMigrationRequest } from './representation-migration-contract';
 
 /** Domain callback only; the existing owner still controls BEGIN/COMMIT/disposal. */
 export type RichMigrationTransaction = <T>(database: SqlConnection, operation: () => Promise<T>) => Promise<T>;
@@ -150,6 +151,40 @@ export async function readAuthenticatedRichMigrationNative(request: NextRequest,
       }),
       // A pre-close read is no longer a current auth/scope grant. The core has
       // discarded B; fail closed without replay or publishing its old value.
+      recoverCommitted: async () => { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); },
+    }));
+}
+
+export async function readAuthenticatedPendingRichMigration(request: NextRequest, workspaceId: string,
+  path: string): Promise<RichMigrationRequest | null> {
+  const original = captureRichMigrationHttpRequest(request, workspaceId, path);
+  const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
+  return withWorkspaceRequestPrincipal(original, { permission: 'canWrite', workspaceId }, principal =>
+    executeLifecycleTransaction({ openConnection: openDb,
+      execute: database => withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+        const native = await nativeOnConnection(database, access.workspace, path, access.userId, access.sessionId);
+        const rows = await database.all(`SELECT r.intent_text FROM collaboration_admission_requests r
+          JOIN collaboration_admission_scopes s ON s.request_id=r.request_id
+          JOIN collaboration_admission_targets t ON t.request_id=r.request_id
+          WHERE r.status IN ('reserved','draining') AND s.workspace_id=$1 AND s.path=$2 AND s.kind='exact'
+            AND t.document_id=$3 AND t.active AND octet_length(r.intent_text) BETWEEN 1 AND 131072
+            AND r.intent_text::jsonb->>'action'='representation_change' AND r.intent_text::jsonb->>'actorId'=$4
+          ORDER BY r.created_at,r.request_id LIMIT 2`,
+        [workspaceId, path, native.state.documentId, access.userId]) as Array<{ intent_text: string }>;
+        if (rows.length > 1) changed();
+        let migration: RichMigrationRequest | null = null;
+        if (rows.length) {
+          const captured = captureRepresentationAdmissionRequest(JSON.parse(rows[0].intent_text) as CollaborationAdmissionRequest);
+          const expected = captured.document, state = native.state;
+          if (captured.request.actorId !== access.userId || expected.documentId !== state.documentId
+            || expected.workspaceId !== workspaceId || expected.organizationId !== state.organizationId || expected.path !== path
+            || expected.lifecycleGeneration !== state.lifecycleGeneration || expected.schemaVersion !== state.schemaVersion
+            || expected.representation !== state.representation) changed();
+          migration = captured.migration;
+        }
+        await access.assertCurrent();
+        return migration;
+      }),
       recoverCommitted: async () => { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); },
     }));
 }

@@ -142,11 +142,16 @@ export async function POST(request: NextRequest) {
     }, user });
     return responseForGrant(grant, ticket);
   } catch (error) {
+    const nativeErrors = nativeSession ? await import('@/app/lib/collaboration/authenticated-text-session-service') : null;
+    const migration = nativeErrors?.authenticatedTextSessionPendingMigration(error);
+    if (migration) return NextResponse.json({ success: false, migration,
+      error: 'Formatted editing is still being prepared. Poll the same migration request.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store, private' } });
     const code = error && typeof error === 'object' && 'code' in error
       ? String(error.code)
       : '';
-    const status = nativeSession
-      ? (await import('@/app/lib/collaboration/authenticated-text-session-service')).authenticatedTextSessionErrorStatus(error)
+    const status = nativeErrors
+      ? nativeErrors.authenticatedTextSessionErrorStatus(error)
       : error instanceof CollaborationSessionError
       ? error.status
       : code === 'ENOENT' ? 404 : 500;

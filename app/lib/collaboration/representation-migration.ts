@@ -238,7 +238,7 @@ export async function advanceRichRepresentationMigration(input: {
  * with fresh FIXED-canWrite phases for every mutation and final observation. */
 export async function advanceAuthenticatedRichRepresentationMigration(input: {
   request: NextRequest; workspaceId: string; path: string; migration: RichMigrationRequest; cancel?: boolean;
-}): Promise<{ state: PersistedCollaborationState; migration: RichMigrationResult }> {
+}): Promise<{ state: PersistedCollaborationState; migration: RichMigrationResult; lineageId: string }> {
   const request = captureRichMigrationHttpRequest(input.request, input.workspaceId, input.path);
   const workspaceId = input.workspaceId, path = input.path, cancel = input.cancel === true;
   const migration = parseRichMigrationRequest(input.migration);
@@ -250,7 +250,7 @@ export async function advanceAuthenticatedRichRepresentationMigration(input: {
   const result = await advanceRichRepresentationMigration({ workspace: native.workspace, path, state: native.state,
     migration, cancel, authenticatedDomain: domain });
   const current = await domain.read();
-  return { state: current.state, migration: { ...result.migration, documentId: current.state.documentId,
+  return { state: current.state, lineageId: native.lineageId, migration: { ...result.migration, documentId: current.state.documentId,
     lifecycleGeneration: current.state.lifecycleGeneration } };
 }
 
