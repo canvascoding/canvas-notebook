@@ -109,11 +109,16 @@ def verify_installed_wheel(config: dict):
     assert "site-packages" in module.parts
     direct = json.loads(distribution.read_text("direct_url.json") or "null")
     assert isinstance(direct, dict) and direct.get("url") == config["wheelUri"]
-    archive = direct.get("archive_info", {})
-    wheel_sha = archive.get("hashes", {}).get("sha256")
-    if wheel_sha is None:
-        wheel_sha = str(archive.get("hash", "")).removeprefix("sha256=")
-    assert wheel_sha == config["wheelSha256"]
+    archive = direct.get("archive_info")
+    assert isinstance(archive, dict)
+    recorded_sha = archive.get("hashes", {}).get("sha256")
+    if recorded_sha is None and archive.get("hash") is not None:
+        recorded_sha = str(archive["hash"]).removeprefix("sha256=")
+    wheel_sha = config["wheelSha256"]
+    assert isinstance(wheel_sha, str) and re.fullmatch(r"[a-f0-9]{64}", wheel_sha)
+    # Older pip versions omit the optional archive digest. The actual wheel
+    # bytes and every installed runtime file remain mandatory below.
+    assert recorded_sha is None or recorded_sha == wheel_sha
     url = urlsplit(config["wheelUri"])
     assert url.scheme == "file" and not url.netloc and not url.query and not url.fragment
     wheel = pathlib.Path(url2pathname(url.path))

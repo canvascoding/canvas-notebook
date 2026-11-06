@@ -254,9 +254,31 @@ async def main():
                       "scope": "Actual MDX write helpers and installed SDK over HTTP with an issued API key; no OAuth issuance or final matrix claim."})
 
 
+def exception_types(error):
+    """Bounded failure types/codes only; never serialize messages or credentials."""
+    result, seen = [], set()
+
+    def visit(value, depth):
+        if not isinstance(value, BaseException) or id(value) in seen or depth > 6 or len(result) >= 32:
+            return
+        seen.add(id(value))
+        name = type(value).__name__
+        code = getattr(value, "code", None) or getattr(value, "reason", None)
+        if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,47}", code):
+            name = (name + "__" + code)[:79]
+        result.append(name)
+        for child in getattr(value, "exceptions", ()):
+            visit(child, depth + 1)
+        visit(value.__cause__, depth + 1)
+        visit(value.__context__, depth + 1)
+
+    visit(error, 0)
+    return result
+
+
 if __name__ == "__main__":
     try:
         asyncio.run(asyncio.wait_for(main(), 600))
     except Exception as error:
-        emit("probe_failed", stage=stage, kind=type(error).__name__)
+        emit("probe_failed", stage=stage, kind=type(error).__name__, exceptionTypes=exception_types(error))
         sys.exit(1)
