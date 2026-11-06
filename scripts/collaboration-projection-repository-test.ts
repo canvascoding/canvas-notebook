@@ -87,6 +87,37 @@ async function main() {
     await connection.run(`INSERT INTO collaboration_documents (id,workspace_id,organization_id,workspace_type,path,provider,state_version,status,created_at,updated_at)
       VALUES ('doc','workspace','organization','team','note.md','yjs',1,'active',1,1)`);
     await assertCurrentCollaborationProjectionIdentity(state, connection);
+    let identityReads = 0;
+    await assertCurrentCollaborationProjectionIdentity(state, { get: async (...args) => {
+      identityReads++;
+      return connection.get(...args);
+    } });
+    assert.equal(identityReads, 3,
+      'Each projection fence reads current identity/catalogue, original birth and both Copy blockers in three round trips.');
+    for (const missing of [
+      ['collaboration_markdown_create_births'],
+      ['collaboration_native_copy_markdown_births'],
+      ['collaboration_native_copy_receipts', 'collaboration_native_copy_markdown_births'],
+      ['collaboration_markdown_create_births', 'collaboration_native_copy_receipts', 'collaboration_native_copy_markdown_births'],
+    ]) {
+      await connection.run('BEGIN');
+      try {
+        for (const table of missing) await connection.run(`DROP TABLE ${table} CASCADE`);
+        await assertCurrentCollaborationProjectionIdentity(state, connection);
+      } finally { await connection.run('ROLLBACK'); }
+    }
+    for (const missingObservation of ['catalogue', 'publication'] as const) {
+      await assert.rejects(assertCurrentCollaborationProjectionIdentity(state, { get: async (...args) => {
+        const result = await connection.get(...args);
+        if (missingObservation === 'catalogue' && args[0].includes('AS available')) {
+          return { ...result as object, copy_available: null };
+        }
+        if (missingObservation === 'publication' && args[0].includes('AS copy_pending')) {
+          return { ...result as object, copy_pending: null };
+        }
+        return result;
+      } }), /observation is unavailable/u, 'An incomplete fresh observation cannot permit publication.');
+    }
     for (const mutation of ["id='successor'", "organization_id='another'", "workspace_type='personal'",
       "status='archived'", "provider='excalidraw'", "path='another.md'"]) {
       await connection.run('BEGIN');
