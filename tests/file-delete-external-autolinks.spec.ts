@@ -115,7 +115,7 @@ test.describe('Physical deletion with an unrelated native email autolink', () =>
     } catch (error) { primary = error; throw error; }
     finally {
       try {
-        if (signedIn) expect((await context.request.post('/api/auth/sign-out', { headers: { Origin: origin.origin } })).status()).toBe(200);
+        if (signedIn) expect((await context.request.post('/api/auth/sign-out', { headers: { Origin: origin.origin }, data: {} })).status()).toBe(200);
       } catch (error) {
         throw new AggregateError(primary ? [primary, error] : [error], 'Owned image-delete session did not close cleanly.');
       } finally { await context.close(); }
