@@ -1,4 +1,4 @@
-name: Frozen Debian HTTP cache diagnostics
+name: Signed index to verified Debian pool install
 on:
   push:
     branches:
@@ -8,7 +8,7 @@ permissions:
 jobs:
   probe:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -23,15 +23,22 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 26
-      - name: Compare default, revalidation and frozen-cache headers; reads only
+      - name: Install exact signed-index bytes from official pool with APT network
+          disabled
         shell: bash
         run: |
+          set -euo pipefail
           node --input-type=module <<'NODE'
-          import fs from 'node:fs';import{createHash}from'node:crypto';
-          const lock=JSON.parse(fs.readFileSync('docs/compliance/debian-repository-lock.json'));
-          const modes=[['default',undefined],['force-revalidate','max-age=0'],['allow-frozen-cache','max-age=86400']];
-          await Promise.all(lock.repositories.map(async repository=>{
-           const url=repository.uri+'/dists/'+repository.suite+'/InRelease';
-           for(const[mode,cache]of modes){const started=Date.now();try{const response=await fetch(url,{headers:cache?{'cache-control':cache}:{},signal:AbortSignal.timeout(20000)});const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>2*1024*1024)throw Error('Metadata bound');console.log(JSON.stringify({mode,url,status:response.status,finalUrl:response.url,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length,age:response.headers.get('age'),cache:response.headers.get('x-cache'),via:response.headers.get('via'),elapsedMs:Date.now()-started}));}catch(error){console.log(JSON.stringify({mode,url,error:error.message,elapsedMs:Date.now()-started}));}}
-          }));
+          import fs from 'node:fs';import assert from 'node:assert/strict';
+          const docker=fs.readFileSync('Dockerfile','utf8');const prefix=docker.split('FROM canvas-base AS libvips-build')[0];
+          let shell=prefix.split('RUN ')[1].replaceAll(String.fromCharCode(92,10),'');
+          const cleanup='rm -rf /var/lib/apt/lists/* "$task_ca_file"';assert(shell.includes(cleanup));shell=shell.replace(cleanup,'rm -f "$task_ca_file"');
+          shell+="\nnode --input-type=module <<'PLAN'\n"+"\nimport fs from 'node:fs';import assert from 'node:assert/strict';import{execFileSync}from'node:child_process';import{createHash}from'node:crypto';\nconst text=execFileSync('apt-get',['-o','Acquire::ForceHash=SHA256','--print-uris','--download-only','--yes','--no-install-recommends','install','libexif12','libjsoncpp25'],{encoding:'utf8'});\nconst records=text.split('\\n').filter(line=>line.startsWith(\"'\")).map(line=>{const m=/^'([^']+)'\\s+(\\S+)\\s+(\\d+)\\s+(\\S+)$/u.exec(line);assert(m,line);return{url:m[1],filename:m[2],bytes:Number(m[3]),hash:m[4]};});\nconsole.log('APT_PACKAGE_PLAN_OBSERVED '+JSON.stringify({arch:process.arch,records}));\nassert(records.length>=2&&records.length<=30);\nconst results=[];\nfor(const record of records){\n assert(/^SHA256:[a-f0-9]{64}$/u.test(record.hash), 'APT must print the authenticated SHA256 hash');\n assert(/^[A-Za-z0-9][A-Za-z0-9+._:%~-]*\\.deb$/u.test(record.filename));\n const uri=new URL(record.url);assert(uri.protocol==='https:'&&uri.hostname==='snapshot.debian.org');\n const archive=/^\\/archive\\/(debian(?:-security)?)\\/20261105T000000Z\\/(pool\\/.+)$/u.exec(uri.pathname);assert(archive);\n const live='https://deb.debian.org/'+archive[1]+'/'+archive[2];let installed=false;\n for(const url of [live,record.url]){\n  const response=await fetch(url,{signal:AbortSignal.timeout(30000)});\n  if(response.status!==200){console.log('POOL_AVAILABILITY '+JSON.stringify({url,status:response.status}));await response.body?.cancel();continue;}\n  const chunks=[];let bytes=0;for await(const chunk of response.body){bytes+=chunk.byteLength;assert(bytes<=record.bytes);chunks.push(Buffer.from(chunk));}\n  const data=Buffer.concat(chunks),sha256=createHash('sha256').update(data).digest('hex');assert.equal(data.length,record.bytes);assert.equal(sha256,record.hash.slice(7));\n  fs.writeFileSync('/var/cache/apt/archives/'+record.filename,data,{flag:'wx',mode:0o644});\n  results.push({filename:record.filename,bytes,sha256,source:url,live:url===live});installed=true;break;\n }\n assert(installed,'No verified source supplied '+record.filename);\n}\nassert(results.filter(row=>/^(?:libexif12|libjsoncpp25)_/u.test(row.filename)).every(row=>row.live));\nexecFileSync('apt-get',['--no-download','--yes','--no-install-recommends','install','libexif12','libjsoncpp25'],{stdio:'inherit'});\nconsole.log('VERIFIED_LIVE_POOL_INSTALL_PROBE '+JSON.stringify({passed:true,arch:process.arch,results}));\n"+"\nPLAN\n";
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-live-pool-probe.sh',shell);
+          const base=/^ARG NODE_BASE_IMAGE=(.+)$/m.exec(docker)?.[1];assert(base?.includes('@sha256:'));fs.writeFileSync(process.env.RUNNER_TEMP+'/canvas-live-base-image',base);
           NODE
+          docker run --rm --name canvas-debian-live-pool-probe \
+           --mount "type=bind,src=$PWD/docs/compliance/debian-repository-lock.json,dst=/usr/local/share/canvas-debian-repository-lock.json,readonly" \
+           --mount "type=bind,src=$PWD/scripts/debian-repository-lock.mjs,dst=/usr/local/libexec/canvas-debian-repository-lock.mjs,readonly" \
+           --mount "type=bind,src=$RUNNER_TEMP/canvas-live-pool-probe.sh,dst=/tmp/canvas-live-pool-probe.sh,readonly" \
+           "$(cat "$RUNNER_TEMP/canvas-live-base-image")" /bin/sh /tmp/canvas-live-pool-probe.sh
