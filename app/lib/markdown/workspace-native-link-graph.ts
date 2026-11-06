@@ -107,19 +107,32 @@ export function buildWorkspaceMixedImportFinalLinkGraphV4(snapshot: WorkspaceMix
  * grammar. A complete native4/physical4 source positively proves that boundary
  * even when it contains no rendered HTML occurrences. Actual HTML occurrences
  * still require the separate operation assessment; opaque HTML cannot become
- * safe merely because the ordinary source was inspected. Every other gap and
- * every HTML gap without a corresponding inspected source continues to block. */
+ * safe merely because the ordinary source was inspected. Legacy native
+ * unsupported-target gaps are admitted by the evidence decoder only for
+ * positively parsed external autolinks; they also need complete ordinary4
+ * inspection. Every other gap or missing current source continues to block. */
 export function workspaceMixedHtmlBlockingCoverageV5(snapshot: WorkspaceMixedHtmlLinkSnapshotV5): Array<{ code: string; path: string }> {
   const inspected = new Set(snapshot.htmlOccurrences.map(occurrence => occurrence.sourcePath));
+  const nativeOrdinary = new Set<string>(), physicalOrdinary = new Set<string>();
   for (const inventory of snapshot.documents) {
-    if (inventory.parserVersion === 4 && inventory.coverage.complete && inventory.coverage.gaps.length === 0) inspected.add(inventory.document.path);
+    if (inventory.parserVersion === 4 && inventory.coverage.complete && inventory.coverage.gaps.length === 0) {
+      inspected.add(inventory.document.path); nativeOrdinary.add(inventory.document.path);
+    }
   }
   for (const inventory of snapshot.physicalSources) {
     if (inventory.parserVersion === 4 && inventory.htmlInspection.parserVersion === 4
       && inventory.coverage.complete && inventory.coverage.gaps.length === 0
-      && inventory.htmlInspection.occurrences.length === 0) inspected.add(inventory.path);
+      && inventory.htmlInspection.occurrences.length === 0) {
+      inspected.add(inventory.path); physicalOrdinary.add(inventory.path);
+    }
   }
-  return snapshot.coverage.gaps.filter(gap => gap.code !== 'uninspected-html' || !inspected.has(gap.path));
+  return snapshot.coverage.gaps.filter(gap => {
+    // A verified current ordinary source must positively cover every target.
+    // Merely having an HTML occurrence cannot discharge these legacy gaps.
+    if (gap.code === 'unsupported-target' && nativeOrdinary.has(gap.path)) return false;
+    if (gap.code === 'unevaluated-unparsed-target' && physicalOrdinary.has(gap.path)) return false;
+    return gap.code !== 'uninspected-html' || !inspected.has(gap.path);
+  });
 }
 
 /** Facts-only resolution of actual native4 anchors and physical4 spans. It is

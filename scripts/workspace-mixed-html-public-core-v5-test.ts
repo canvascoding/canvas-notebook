@@ -90,6 +90,49 @@ export function workspaceMixedHtmlPublicCoreV5Test(): void {
     assert.deepEqual(workspaceMixedHtmlBlockingCoverageV5({ ...snapshot, coverage: { complete: false,
       gaps: [...snapshot.coverage.gaps, unknownGap] } }), [unknownGap]);
   });
+  family('external autolinks retain legacy gaps while complete current Yjs inspection permits the actual backlink rewrite', () => {
+    const actual = fixture({ native: [['note.md', '# Contact\n**Studio <alex@example.test>**\n[Target](target.md)'],
+      ['target.md', '# Target']], raw: [] });
+    const before = structuredClone(actual.observation.privateNativeStates);
+    const snapshot = workspaceOperationMixedSourceSnapshotV5(actual.evidence);
+    assert.equal(snapshot.coverage.complete, false);
+    assert(snapshot.coverage.gaps.some(gap => gap.code === 'unsupported-target' && gap.path === 'note.md'));
+    assert.equal(snapshot.htmlOccurrences.length, 0);
+    const note = snapshot.documents.find(row => row.document.path === 'note.md')!;
+    assert(note.coverage.complete); assert.deepEqual(note.coverage.gaps, []);
+    assert.equal(note.links.length, 1); assert.equal(note.links[0].targetPathText, 'target.md');
+    assert.deepEqual(workspaceMixedHtmlBlockingCoverageV5(snapshot), []);
+    const result = plan(actual), compiled = compile(actual);
+    assert.equal(result.readiness, 'ready', JSON.stringify(result.issues));
+    assert.equal(compiled.readiness, 'ready', JSON.stringify(compiled.issues));
+    assert.equal(result.mutations.length, 1); assert.equal(result.mutations[0].nextValue, 'renamed.md');
+    assert.equal(compiled.steps[0].linkIntents[0].nextValue, 'renamed.md');
+    assert.deepEqual(result.sourceCoverage[0].coverage, snapshot.coverage);
+    assert.deepEqual(actual.observation.privateNativeStates, before);
+    const incomplete = { ...snapshot, documents: snapshot.documents.map(row => row === note
+      ? { ...row, coverage: { complete: false, gaps: [{ code: 'unsupported-target' as const, path: 'note.md', raw: '<custom:target>' }] } } : row),
+      htmlOccurrences: [{ sourcePath: 'note.md', line: 1, fullyInspected: true, explicitLocalTargets: [] }] };
+    assert(workspaceMixedHtmlBlockingCoverageV5(incomplete).some(gap => gap.code === 'unsupported-target'),
+      'An HTML occurrence cannot replace complete current ordinary inspection.');
+  });
+  family('unrecognized targets and invalid metadata cannot enter the non-executable legacy HTML evidence component', () => {
+    for (const source of ['<custom:target>', '<javascript:alert(1)>', '<https://canvas.example/notebook?path=target.md>',
+      '---\ntitle: Heading: broken\n---\nBody']) {
+      assert.throws(() => fixture({ native: [['note.md', source], ['target.md', '# Target']], raw: [] }),
+        (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'NATIVE_SOURCE_EVIDENCE_INVALID');
+    }
+  });
+  family('complete physical4 autolink inspection covers its original gap without importing or changing original bytes', () => {
+    const actual = fixture({ native: [['target.md', '# Target']], raw: [['contact.md', '# Contact\n<alex@example.test>']] });
+    const snapshot = workspaceOperationMixedSourceSnapshotV5(actual.evidence);
+    assert(snapshot.coverage.gaps.some(gap => gap.code === 'unevaluated-unparsed-target' && gap.path === 'contact.md'));
+    assert.equal(snapshot.coverage.complete, false);
+    assert.equal(snapshot.physicalSources[0].coverage.complete, true);
+    assert.deepEqual(workspaceMixedHtmlBlockingCoverageV5(snapshot), []);
+    assert.equal(plan(actual).readiness, 'ready'); assert.equal(compile(actual).readiness, 'ready');
+    const unknown = fixture({ native: [['target.md', '# Target']], raw: [['contact.md', '<custom:target>']] });
+    assert.equal(plan(unknown).readiness, 'blocked');
+  });
   family('affected native HTML blocks before rehearsal and retains actual source line', () => {
     const actual = fixture({ native: [['note.md', '# One\n\n<img src="target.md">'], ['target.md', '# Target']], raw: [] });
     const result = plan(actual), compiled = compile(actual);

@@ -10,6 +10,7 @@ export const regularCollaborationFiles = [
   'editor-formatting-syntax.spec.ts', 'editor-url-paste.spec.ts',
   'file-live-collaboration.spec.ts', 'editor-offline-collaboration.spec.ts',
   'file-create-confirmation.spec.ts',
+  'file-delete-external-autolinks.spec.ts',
 ];
 
 export const deferredReviewAndUndoFiles = [

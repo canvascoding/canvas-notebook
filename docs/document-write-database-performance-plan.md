@@ -3465,3 +3465,49 @@ Produktionsvorfall erfordert den betroffenen Pfad und Fehlercode. Schutz und
 Dokumentzustände werden nicht umgangen oder gelöscht. Review Center und Undo
 bleiben außerhalb dieses Arbeitspakets. Build, Browserabnahme, PR/CI und
 Veröffentlichung der neuen Korrektur stehen noch aus.
+
+
+### Konkrete Löschblockade: externe Autolinks und Frontmatter (2026-11-06)
+
+PR #230 ist nach 15 erfolgreichen Prüfungen und ohne offene Reviews auf `main`
+(`2c80c6df9`) gemergt. Seine Host-/Linux-Builds und vier kompilierten Browserfälle
+bestehen. Dieser Erstellungsfix ist noch nicht als neues Release deployed.
+
+Eine echte unverändernde Produktionsvorschau liefert nun
+`PATH_SOURCE_INCOMPLETE`: neun Quellen haben ungültiges Frontmatter; eine weitere
+Quelle enthält einen normalen E-Mail-Autolink, den die alte Grammatik als
+`unparsed-target` bewertet. Es entstand kein ausführbarer Plan und keine Datei
+wurde gelöscht. Damit ist ein konkreter globaler Quellenblocker belegt; die drei
+separaten Projektionsfehler sind nicht als alleinige Ursache anzusehen.
+
+Die aktuelle Parser-4-Korrektur erkennt externe CommonMark-Autolinks über den
+tatsächlichen AST. Parser 2/3 und ihre Inventare bleiben unverändert. Historische
+Lücken bleiben als unvollständige Fakten im Beleg erhalten. Ein aktueller Plan
+kann sie nur mit positiv vollständiger aktueller Quellprüfung entlasten; die
+native Belegprüfung akzeptiert dafür ausschließlich tatsächlich geparste externe
+Autolinks. Unbekannte Schemata, echte Notebook-Ziele, ungültiges Frontmatter und
+fehlende aktuelle Quellprüfung bleiben gesperrt. Keine generelle Ignore-Liste und
+keine neue Review-Center-/Undo-Abhängigkeit.
+
+Lokal bestehen zwölf Parsergruppen, zwölf Yjs-Inventargruppen, 19 reine
+Graph-/Planner-/Compilerfamilien, zehn echte PostgreSQL-Preview/Apply/Status/Recover-
+Gruppen und die Grenzen für Busy/Rollback/Close. Der neue physische Delete-Fall
+enthält eine regulär angelegte native E-Mail-Quelle; deren Yjs-/Dateibytes bleiben
+erhalten und die ausgewählten Originalbytes landen unverändert im Papierkorb.
+Zwei zusätzliche Desktop-/Mobilfälle für den normalen Browser-Löschdialog sind
+in der verpflichtenden regulären Kollaborationssuite registriert. Ihre
+kompilierte Browserabnahme und die Builds dieses Parserstands stehen noch aus.
+
+Für die neun Inhaltsfehler sind vollständige Markdown-Kopien und ein konkreter
+Vorschlag privat vorbereitet: achtmal Titel/Alias quotieren, einmal eine Leerzeile
+vor einer Markdown-Trennlinie. Lokal bleiben alle ursprünglichen Textzeichen
+erhalten; anschließend sind alle neun Quellen syntaktisch prüfbar. Es wurde noch
+nichts an Produktionsdokumenten geändert. Die gesondert angefragte Inhaltsänderung
+wartet auf die Benutzerentscheidung; danach sind ein frischer vollständiger
+Backup-Lauf und aktuelle native Versionsprüfungen vor jedem Apply erforderlich.
+
+Die eigenständige SDK-Abnahme läuft weiter: PR #229 enthält den getesteten
+älteren-pip-Prüfer und ausführbare MDX-Beispiele; PR #231 ergänzt echte installierte
+SDK-Lese-Konflikte und Seiten-/Bytebudgets. Beide benötigen ihre abschließende CI
+und Integration. Gesamtmatrix, Endbudgets, Live-Tabs und finale Release-Abnahme
+bleiben offen.

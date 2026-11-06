@@ -4,6 +4,7 @@ import path from 'node:path';
 import * as util from 'node:util';
 import ts from 'typescript';
 import { executeLifecycleTransaction } from '../app/lib/collaboration/lifecycle-transaction';
+import { isWorkspaceExternalMarkdownAutolink } from '../app/lib/markdown/workspace-local-link-parser';
 
 async function workspacePreviewBusyTransactionTest() {
   // Transaction/error-boundary unit fixture; genuine PostgreSQL contention is
@@ -29,6 +30,7 @@ async function workspacePreviewBusyTransactionTest() {
     const mocks: Record<string, unknown> = {
       'server-only': {}, 'node:util': util, '../db': { openDb: async () => database },
       '../collaboration/lifecycle-transaction': { executeLifecycleTransaction },
+      '../markdown/workspace-local-link-parser': { isWorkspaceExternalMarkdownAutolink },
       '../collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => true },
       '../collaboration/room-admission-contract': { isCanonicalAdmissionPath: () => true },
       '../workspaces/request-principal': { WorkspaceRequestPrincipalError: PrincipalError,
