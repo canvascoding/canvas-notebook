@@ -115,6 +115,23 @@ export function MarkdownModeBar({ mode, onChange, sourceAvailable = true, richAv
   </div>;
 }
 
+type MigrationFeedbackKey = 'migrationBlocked' | 'migrationUnavailable' | 'migrationSaving' | 'migrationChanged'
+  | 'migrationUnsupported' | 'migrationAccess' | 'migrationUnconfirmed' | 'migrationFailed' | 'migrationRateLimited' | 'migrationBusy' | 'migrationCancelled';
+
+function migrationFeedbackKey(status: string, reason: unknown): MigrationFeedbackKey {
+  if (status === 'unsupported') return 'migrationUnsupported';
+  switch (reason) {
+    case 'room_active': return 'migrationBlocked';
+    case 'runtime_unavailable': return 'migrationUnavailable';
+    case 'checkpoint_stale': return 'migrationSaving';
+    case 'cancelled': return 'migrationCancelled';
+    case 'state_changed':
+    case 'document_changed':
+    case 'lifecycle_stale': return 'migrationChanged';
+    default: return 'migrationFailed';
+  }
+}
+
 export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onSourceResume, onBusyChange, autoStart = false }: {
   collaboration: CollaborationDocument; filePath: string; onReady: () => void;
   onStart?: () => void; onSourceResume?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
@@ -124,6 +141,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [pending, setPending] = useState(false);
+  const [feedback, setFeedback] = useState<MigrationFeedbackKey | null>(null);
   const migration = useRef<RichMigrationRequest | null>(null);
   const running = useRef(false);
   const autoAttempted = useRef(false);
@@ -133,7 +151,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
   const migrate = useCallback(async (cancel = false) => {
     if (running.current || !canStart) return;
     running.current = true;
-    setBusy(true); setBlocked(false);
+    setBusy(true); setBlocked(false); setFeedback(null);
     onBusyChange?.(true);
     let migrated = false;
     let safeToResume = !migration.current;
@@ -152,6 +170,14 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
           body: JSON.stringify({ path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES,
             migration: migration.current, ...(cancel ? { migrationAction: 'cancel' } : {}) }),
         });
+        if (response.status === 401 || response.status === 403) {
+          if (mounted.current) setFeedback('migrationAccess');
+          break;
+        }
+        if (response.status === 429) {
+          if (mounted.current) setFeedback('migrationRateLimited');
+          break;
+        }
         const result = await response.json();
         const outcome = result.migration;
         const sameRequest = outcome?.requestId === migration.current.requestId;
@@ -163,14 +189,29 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
           && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
           safeToResume = true;
           migration.current = null;
+          if (mounted.current) setFeedback(migrationFeedbackKey(outcome.status, outcome.reason));
           if (mounted.current) onSourceResume?.();
           break;
+        }
+        if (mounted.current && sameRequest && outcome.status === 'pending'
+          && outcome.documentId === migration.current.expectedDocumentId
+          && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
+          setFeedback(outcome.reason === 'permission_denied' ? 'migrationAccess'
+            : outcome.reason === 'outcome_unconfirmed' ? 'migrationUnconfirmed' : 'migrationBusy');
         }
       }
       // Refresh the authoritative session even if the user switched back to Read.
       // The chosen mode belongs to the parent and must not be reset by this request.
-      if (migrated) onReady(); else if (mounted.current) setBlocked(true);
-    } catch { if (mounted.current) setBlocked(true); }
+      if (migrated) onReady(); else if (mounted.current) {
+        setBlocked(true);
+        setFeedback(current => current ?? (safeToResume ? 'migrationFailed' : 'migrationUnconfirmed'));
+      }
+    } catch {
+      if (mounted.current) {
+        setBlocked(true);
+        setFeedback(migration.current ? 'migrationUnconfirmed' : 'migrationFailed');
+      }
+    }
     finally {
       if (!migrated && safeToResume) collaboration.provider?.connect();
       running.current = false;
@@ -191,7 +232,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       void migrate();
     }}>{t(busy ? 'migrationBusy' : 'migration')}</Button>
     {pending && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void migrate(true)}>{common('cancel')}</Button>}
-    {blocked && <span role="status">{t(pending ? 'migrationBusy' : 'migrationBlocked')}</span>}
+    {blocked && <span role="status">{t(feedback ?? (pending ? 'migrationUnconfirmed' : 'migrationFailed'))}</span>}
   </div>;
 }
 

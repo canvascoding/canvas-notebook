@@ -13,6 +13,10 @@ on:
       - scripts/owned-fixture-files-test.mjs
       - scripts/recovered-room-read-test.mjs
       - scripts/completed-native-rename-test.ts
+      - scripts/markdown-rich-migration-feedback-test.tsx
+      - app/components/editor/MarkdownDocumentModes.tsx
+      - messages/en.json
+      - messages/de.json
       - scripts/playwright-suite-discovery-test.mjs
       - tests/**
       - app/lib/notebook/**
@@ -37,6 +41,10 @@ on:
       - scripts/owned-fixture-files-test.mjs
       - scripts/recovered-room-read-test.mjs
       - scripts/completed-native-rename-test.ts
+      - scripts/markdown-rich-migration-feedback-test.tsx
+      - app/components/editor/MarkdownDocumentModes.tsx
+      - messages/en.json
+      - messages/de.json
       - scripts/playwright-suite-discovery-test.mjs
       - tests/**
       - app/lib/notebook/**
@@ -80,6 +88,9 @@ jobs:
       - name: Real-profile admission and safe fixture cleanup contracts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run test:collaboration:regular:contracts
+      - name: Rich migration failure feedback and retained request identity
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:editor:migration-feedback
       - name: Actual discovery and exclusion contracts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run test:browser:discovery
