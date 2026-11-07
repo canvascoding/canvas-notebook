@@ -20,6 +20,7 @@ export const independentTestScripts = [
   'test:collaboration:retention-policy', 'test:collaboration:live-tabs',
   'test:notebook:reveal',
   'test:files:menus',
+  'test:collaboration:agent-observer',
 ];
 export const serverTestScripts = ['test:smoke', 'test:integration', 'test:integration:pi'];
 export const testAllPhaseIds = ['configuration', ...independentTestScripts, 'build', 'server-start',

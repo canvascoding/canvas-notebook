@@ -73,6 +73,7 @@ jobs:
           npm run test:collaboration:live-tabs 2>&1 | tee "$RUNNER_TEMP/document-live-tabs.log"
           npm run test:notebook:reveal 2>&1 | tee "$RUNNER_TEMP/document-tab-open.log"
           npm run test:files:menus 2>&1 | tee "$RUNNER_TEMP/document-file-menus.log"
+          npm run test:collaboration:agent-observer 2>&1 | tee "$RUNNER_TEMP/document-agent-observer.log"
       - name: Allocate owned PostgreSQL 18 fixture database
         run: npm run test:api-keys:ci-database -- create
       - name: Document-open auxiliary permissions and query budgets
@@ -172,6 +173,7 @@ jobs:
             ${{ runner.temp }}/document-live-tabs.log
             ${{ runner.temp }}/document-tab-open.log
             ${{ runner.temp }}/document-file-menus.log
+            ${{ runner.temp }}/document-agent-observer.log
             ${{ runner.temp }}/document-open-auxiliary.log
             ${{ runner.temp }}/principal-read-capture.log
             ${{ runner.temp }}/drain-poll-native.log

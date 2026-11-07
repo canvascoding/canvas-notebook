@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 import {
   loadCollaborationAgentOperations,
@@ -72,6 +73,7 @@ export function CollaborationAgentOperations({
   documentId,
   onOperationsChange,
 }: CollaborationAgentOperationsProps) {
+  const { documentReviewEnabled } = useDocumentReviewAvailability();
   const loadSequence = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -87,6 +89,10 @@ export function CollaborationAgentOperations({
   }, [documentId, onOperationsChange]);
 
   useEffect(() => {
+    if (!documentReviewEnabled) {
+      onOperationsChange?.([]);
+      return;
+    }
     const controller = new AbortController();
     let disposed = false;
     let timeout: number | undefined;
@@ -97,10 +103,11 @@ export function CollaborationAgentOperations({
     void poll();
     return () => {
       disposed = true;
+      loadSequence.current += 1;
       if (timeout !== undefined) window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [load]);
+  }, [documentReviewEnabled, load, onOperationsChange]);
 
   return null;
 }

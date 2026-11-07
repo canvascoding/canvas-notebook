@@ -388,7 +388,7 @@ test('independent plan preserves every original aggregate leaf without executing
     'test:internal:scheduler', 'test:cli:portable', 'test:api-keys', 'test:prompt-builder', 'test:collaboration:regular:contracts',
     'test:notebook:tabs', 'test:notebook:location-lifecycle', 'test:notebook:delete-events',
     'test:collaboration:retention-policy', 'test:collaboration:live-tabs', 'test:notebook:reveal',
-    'test:files:menus'];
+    'test:files:menus', 'test:collaboration:agent-observer'];
   const expected = groups.flatMap(expand);
   const actual = independentTestScripts.flatMap(expand);
   assert.equal(new Set(independentTestScripts).size, independentTestScripts.length);
