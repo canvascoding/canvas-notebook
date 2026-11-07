@@ -80,6 +80,8 @@ jobs:
         run: npm run test:files:open-auxiliary:native 2>&1 | tee "$RUNNER_TEMP/document-open-auxiliary.log"
       - name: Fresh native read capture permissions and query budget
         run: npm run test:workspaces:principal-read-capture:native 2>&1 | tee "$RUNNER_TEMP/principal-read-capture.log"
+      - name: Fresh Cookie and Bearer sessions without implicit JWT issuance
+        run: npm run test:auth:session-jwt:native 2>&1 | tee "$RUNNER_TEMP/auth-session-jwt.log"
       - name: Source observation and projection process coordination
         run: |
           set -euo pipefail
@@ -176,6 +178,7 @@ jobs:
             ${{ runner.temp }}/document-agent-observer.log
             ${{ runner.temp }}/document-open-auxiliary.log
             ${{ runner.temp }}/principal-read-capture.log
+            ${{ runner.temp }}/auth-session-jwt.log
             ${{ runner.temp }}/drain-poll-native.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log

@@ -69,6 +69,19 @@ wiederhergestellt. [Messgrenzen und Vergleichswerte](testing/native-principal-re
 halten die weiterhin erhebliche übrige Hintergrundlast ausdrücklich offen.
 Dieser Stand ist noch nicht veröffentlicht.
 
+Die anschließende Auth-Änderung entfernt den ungenutzten impliziten Session-JWT
+und verwendet für die frische Seat-Prüfung den bestehenden einzelnen Snapshot.
+Der echte Cookie-/Bearer-/PostgreSQL-Test misst 4 statt 9 Session-Abfragen,
+keinen JWK-Zugriff und insgesamt 7 statt 12 Abfragen für den nativen Read-Capture.
+Vier Auth-Prüfgruppen, vier Capture-Gruppen und 37 abhängige native
+Transportgruppen bestehen. Der Vorher-/Nachher-Test reproduziert den Fehler am
+unveränderten Auth-Stand und besteht nach Wiederherstellung des Fixes.
+Sitzungsentzug, Sperre, Seat-Suspendierung, Ablauf, aktuelle Seat-Entscheidungen
+und explizite JWT-/MCP-Audience-/Scope-Prüfungen bleiben erhalten.
+Die [gebundenen Nachweise](testing/auth-session-jwt-2026-11-07.json) ersetzen
+keine kompilierte OAuth-Anmeldung oder neue globale Hintergrundmessung; diese
+Abnahmen und die Veröffentlichung bleiben offen.
+
 Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
 Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten
 Sitzung inaktiv ist. Der exakte Text ist vor Aktivierung in dessen tatsächlichem

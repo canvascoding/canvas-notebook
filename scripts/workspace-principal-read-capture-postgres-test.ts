@@ -41,7 +41,7 @@ async function main() {
       const expected = await requireExistingSelectedRequestWorkspace(request(),
         { workspaceId: fixture.workspaceId, permissions: 'canRead' });
       assert.equal(expected.response, null);
-      await capture(held); // Warm genuine auth/JWK initialization before counting.
+      await capture(held); // Warm genuine authentication before counting.
       const queries: string[] = [], original = Client.prototype.query;
       let capturing = true;
       Client.prototype.query = function (this: Client, ...args: Parameters<typeof original>) {
@@ -59,10 +59,11 @@ async function main() {
         tables: [...sql.matchAll(/\b(?:FROM|JOIN)\s+"?([a-z_][a-z0-9_]*)/giu)].map(match => match[1]),
         workspaceSnapshot: sql.includes('initialized_actor_present'), realmCapture: sql.includes('AS database') && sql.includes('schema_oid'),
       }))));
-      // Nine real auth/seat/JWK statements, one current workspace snapshot,
+      // Four real auth/seat statements, one current workspace snapshot,
       // one fresh Principal license read and one original-realm capture.
-      assert(queries.length > 0 && queries.length <= 12,
-        `Fresh read capture used ${queries.length} statements; budget is 12 including genuine authentication, license and realm capture`);
+      assert(queries.length > 0 && queries.length <= 7,
+        `Fresh read capture used ${queries.length} statements; budget is 7 including genuine authentication, license and realm capture`);
+      assert(!queries.some(sql => /\bjwks\b/iu.test(sql)), 'A session read must not issue an unused JWT');
       assert.equal(queries.filter(sql => sql.includes('initialized_actor_present')).length, 1);
       assert(!queries.some(sql => /^(?:BEGIN|COMMIT|ROLLBACK)\b/iu.test(sql.trim())));
       assert.deepEqual(await fixture.snapshot(), baseline);

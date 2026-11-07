@@ -389,6 +389,7 @@
     "test:collaboration:agent-observer": "tsx scripts/collaboration-agent-observer-ui-test.tsx",
     "test:files:open-auxiliary:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/file-open-auxiliary-http-postgres-test.ts",
     "test:workspaces:principal-read-capture:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/workspace-principal-read-capture-postgres-test.ts",
+    "test:auth:session-jwt:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/auth-session-jwt-postgres-test.ts",
     "test:notebook:path-state": "tsx scripts/notebook-explorer-path-state-test.ts && tsx scripts/workspace-move-controller-test.tsx && tsx scripts/notebook-partial-trash-undo-test.tsx",
     "test:layout-scripts": "tsx scripts/layout-script-test.ts",
     "test:login:hydration": "tsx scripts/login-hydration-test.tsx",
