@@ -5,7 +5,7 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
-## Aktuelle Live-Tab-Abnahme und verbleibender Speicherfix
+## Aktuelle Live-Tab-Abnahme und verbleibender Dateioperationsfix
 
 Der Produktstand `7afd5e42a` besteht alle 15 veröffentlichten PR-Checks,
 inklusive der vollständig heruntergeladenen und gegen den Quellstand geprüften
@@ -52,9 +52,21 @@ Sein anschließender Bildtest ist jedoch nicht abgenommen: Die PNG-Testbytes sin
 ungültig, und das Entfernen der drei eigenen PNGs trifft einen echten
 `PRINCIPAL_EXPIRED`-Fehler bei 200 Dokumenten. Die zwei Quellscans und die reine
 Planberechnung überschreiten die ursprüngliche Fünf-Sekunden-Beobachtung.
-Die frische Autorisierung der einzelnen Lesephasen und die verifizierte API-
-Bereinigung dieser ausschließlich eigenen Testdateien sind der nächste Fix.
-Keine produktive Datei wurde dabei geändert oder gelöscht.
+Der Web-Kandidat authentifiziert nun vor jeder SQL-Lesephase erneut die
+ursprünglichen Zugangsdaten und vergleicht ihre feste Herkunft. Die bestehenden
+Fünf-Sekunden-Grenzen, beide vollständigen Quellscans und sämtliche gehaltenen
+Prüfungen bleiben erhalten. Nach einem fehlgeschlagenen Leseabschnitt beginnt
+innerhalb dieser Beobachtung keine weitere SQL-Phase. Echte Sitzungs-/Rechteentzüge
+behalten ihren Fehlercode und werden für die Webroute mit 401/403 gekennzeichnet.
+Die registrierte PostgreSQL-Suite besteht alle 15 Recovery-/Herkunfts-/Verlustfälle
+und drei neue Fälle mit echter Pause von mehr als fünf Sekunden, einschließlich
+Sitzungsentzug. Der unveränderte Stand scheitert im selben Test mit
+`PRINCIPAL_EXPIRED`; native Zeilen/xmin und Originaldateien bleiben erhalten.
+Die kompilierte Bild-/Löschprüfung und die verifizierte API-Bereinigung der drei
+selbst erzeugten PNGs stehen noch aus. Direkte MCP-Principals wurden dabei nicht
+verändert; aus diesen Web-Nachweisen folgt keine neue große MCP-Abnahme.
+Keine produktive Datei wurde geändert oder gelöscht.
+[Gebundener Vorher-/Nachher-Nachweis](testing/path-preview-fresh-authority-2026-11-07.json).
 
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges

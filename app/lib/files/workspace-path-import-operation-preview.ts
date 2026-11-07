@@ -14,7 +14,7 @@ import { readWorkspaceLinkSourcePreviewObservation, requiresWorkspaceLinkSourceA
 import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
 import { isWorkspaceExternalMarkdownAutolink } from '../markdown/workspace-local-link-parser';
 import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, withWorkspaceRequestPrincipalOriginalOrigin,
-  type WorkspaceRequestPrincipalAccess, type WorkspaceRequestHistoricalOrigin } from '../workspaces/request-principal';
+  type WorkspaceRequestPrincipal, type WorkspaceRequestPrincipalAccess, type WorkspaceRequestHistoricalOrigin } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
@@ -105,19 +105,30 @@ function captureWorkspacePathImportPreviewInput(supplied: Input): Input {
  * Callers retain the projection kernel fence; execution owners reobserve. */
 export async function readWorkspacePathImportPreparationPlan(supplied: Input): Promise<WorkspacePathImportPreparationPreviewPlan> {
   const captured = captureWorkspacePathImportPreviewInput(supplied);
+  return readCapturedWorkspacePathImportPreparationPlan(captured);
+}
+
+type RequestPreviewReadPhase = <T>(read: (principal: WorkspaceRequestPrincipal) => Promise<T>) => Promise<T>;
+
+// Only the fixed Web entry below can supply a fresh phase. Keep this private:
+// public plan data cannot inject an authorizer or replace the original actor.
+async function readCapturedWorkspacePathImportPreparationPlan(captured: Input,
+  requestReadPhase?: RequestPreviewReadPhase): Promise<WorkspacePathImportPreparationPreviewPlan> {
   if (!authenticatedNativeTextSessionEnabled()) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID');
   type Sources = { workspace: Access['workspace']; scope: ReturnType<typeof captureWorkspaceOperationJobScope>;
     observation: Awaited<ReturnType<typeof readWorkspaceLinkSourcePreviewObservation>> };
   const readSources = async (expected?: Sources): Promise<Sources> => {
     let scope: Sources['scope'] | undefined;
     let workspace: Access['workspace'] | undefined;
+    let phaseFailed = false;
     let phaseFailure: unknown;
     let phaseMs = 0, sqlMs = 0, sqlPhases = 0, maxPhaseMs = 0;
     const readPhase = async <T>(operation: (database: SqlConnection) => Promise<T>): Promise<T> => {
+      if (phaseFailed) throw phaseFailure;
       const phaseStarted = performance.now(); sqlPhases++;
       let rollbackClosedError: unknown;
       try {
-        return await executeLifecycleTransaction({
+        const execute = (freshRequestPrincipal?: WorkspaceRequestPrincipal) => executeLifecycleTransaction({
           openConnection: async () => {
             const actual = await openDb().catch(cause => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); });
             return { get: (sql, values) => actual.get(sql, values), all: (sql, values) => actual.all(sql, values),
@@ -149,7 +160,7 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
               await access.assertCurrent(); return value;
             };
             return captured.principal.kind === 'request'
-              ? withWorkspaceRequestPrincipalOnConnection(database, captured.principal.principal, read)
+              ? withWorkspaceRequestPrincipalOnConnection(database, freshRequestPrincipal ?? captured.principal.principal, read)
               : captured.principal.kind === 'move'
                 ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, captured.principal.principal, read)
                 : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, captured.principal.principal, read);
@@ -157,7 +168,12 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           recoverCommitted: async (_value, cause) => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_UNAVAILABLE', { cause }); },
           afterRollbackClosed: error => { rollbackClosedError = error; },
         });
+        // Authenticate before opening this phase's transaction. Parsing and
+        // unrelated authentication must not keep its SQL connection occupied.
+        return await (captured.principal.kind === 'request' && requestReadPhase
+          ? requestReadPhase(principal => execute(principal)) : execute());
       } catch (error) {
+        phaseFailed = true;
         // Keep provenance private until the whole failed factory has unwound.
         // Its poisoned principal is never reused by the fixed Web reader.
         if (error === rollbackClosedError && (error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
@@ -197,7 +213,7 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
         principal_kind: captured.principal.kind, sql_ms: Math.round(sqlMs), authority_phase_ms: Math.round(phaseMs),
         sql_phases: sqlPhases, max_phase_ms: Math.round(maxPhaseMs) }));
     }, () => readWorkspaceLinkSourcePreviewObservation(readOnly, workspace!));
-    if (phaseFailure !== undefined) throw phaseFailure;
+    if (phaseFailed) throw phaseFailure;
     await readPhase(async () => undefined);
     if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)
       || expected && !isDeepStrictEqual(observation, expected.observation)) {
@@ -295,9 +311,15 @@ export async function readRequestWorkspacePathImportPreparationPlan(request: Nex
   for (let attempt = 0; ; attempt++) {
     try {
       return await withWorkspaceRequestPrincipalOriginalOrigin(original, { permission: 'canWrite', workspaceId: captured.workspaceId }, observe,
-        principal => readWorkspacePathImportPreparationPlan({ principal: { kind: 'request', principal },
-          kind: captured.kind, selections: captured.selections }));
+        principal => readCapturedWorkspacePathImportPreparationPlan(captureWorkspacePathImportPreviewInput({
+          principal: { kind: 'request', principal }, kind: captured.kind, selections: captured.selections }),
+        read => withWorkspaceRequestPrincipalOriginalOrigin(original,
+          { permission: 'canWrite', workspaceId: captured.workspaceId }, observe, read)));
     } catch (error) {
+      if (error instanceof WorkspaceRequestPrincipalError
+        && (error.code === 'PRINCIPAL_AUTH_REVOKED' || error.code === 'PRINCIPAL_ACCESS_DENIED')) {
+        throw Object.assign(error, { status: error.code === 'PRINCIPAL_AUTH_REVOKED' ? 401 : 403 });
+      }
       if (!(error instanceof WorkspacePathImportPreviewError) || !retryableRequestPreviewReads.delete(error)
         || !origin || attempt === 2) throw error;
       await new Promise<void>(resolve => setTimeout(resolve, 25));

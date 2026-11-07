@@ -1093,7 +1093,7 @@
     "test:api-keys:compiled:harness": "npm run test:api-keys:compiled:harness:node && npm run test:api-keys:compiled:harness:journal",
     "test:files:preview-busy": "tsx scripts/workspace-preview-busy-client-test.ts && tsx --conditions react-server scripts/workspace-preview-busy-transaction-test.ts",
     "test:files:preview-busy:native": "NODE_ENV=test tsx --conditions react-server scripts/workspace-preview-busy-postgres-test.ts",
-    "test:files:preview-read-recovery:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/workspace-preview-read-recovery-postgres-test.ts",
+    "test:files:preview-read-recovery:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/workspace-preview-read-recovery-postgres-test.ts && NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/workspace-preview-fresh-observation-postgres-test.ts",
     "test:files:path-import:web:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/workspace-path-import-web-routes-postgres-runner-test.ts",
     "test:browser:environment:unit": "tsx scripts/browser-test-environment-test.ts",
     "test:browser:context": "tsx scripts/managed-test-context-contract-test.ts",
