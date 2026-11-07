@@ -1,9 +1,51 @@
 # Plan: zentraler Dokument- und Linkservice
 
-Stand: 06.11.2026, Produktion 2026.11.6.3 seit 12:25 UTC verifiziert. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
+Stand: 07.11.2026, Produktion 2026.11.7.1 seit 06:26 UTC verifiziert. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
+
+## Aktueller Stand nach Release 2026.11.7.1
+
+Das [Fix-Release 2026.11.7.1](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.7.1)
+ist aus `821e034f2a3876eb5e347f57efd3e9d42040ff77` auf `main` veröffentlicht.
+Der zentrale Update-Lauf `7df9155a-19b0-4de0-b3cc-b73de0c2e332` bestätigt am
+07.11.2026 um 06:26:21 UTC den Image-Digest
+`sha256:b022f13f3edc70929c263f757f595ce8665a139333e7cb3be4fa9001d4fd3d16`,
+Exitcode 0, frischen Heartbeat sowie gesunden Container und gesunde Anwendung.
+Der echte Produktions-MCP meldet dieselbe Version und aktuelle Workspace-Rechte.
+
+Die reguläre kompilierte Gesamtabnahme am Produktstand `880ee58a5` besteht:
+335 gewöhnliche Fälle und alle 46 verpflichtenden Kollaborationsfälle, keine
+Fehler oder flaky Ergebnisse; 102 bestehende bedingte Skips bleiben ausgewiesen.
+Vier zusätzliche API-Key-Verwaltungsfälle bestehen. Zum Release unterscheiden
+sich ausschließlich acht Versions-/Changelog-/Lizenzdateien; die Produktbytes
+bleiben gleich. Der ursprüngliche lokale Container, geschützte Zeilen samt
+`xmin`, Dateibytes, Speicheranker und andere Dienste sind nachweislich erhalten.
+`verify:release`, die genaue Tag-/Multiarch-CI, native API-/installierte SDK-CI
+und CodeQL bestehen. Die tatsächlichen CI-Artefakte, sieben Archivprüfsummen,
+Paketidentität und signierten Update-Metadaten sind vor Veröffentlichung geprüft.
+Auch der ausschließlich nachgeholte Desktop-Upload besteht.
+
+Die lesende Produktionsvorschau bestätigt den Parserfix: statt zehn Quellen
+werden noch neun mit ungültigem Frontmatter beanstandet; der vorher abgewiesene
+E-Mail-Autolink ist entlastet. Die Vorschau bleibt `PATH_SOURCE_INCOMPLETE` und
+liefert keinen ausführbaren Plan. Es wurde keine Produktionsdatei gelöscht oder
+inhaltlich repariert; der konkrete Inhaltsvorschlag wartet weiter auf Freigabe.
+Dies ersetzt weder eine vollständige Inventur noch eine produktive Schreibabnahme.
+
+Der Gesamtplan bleibt offen: aktuelle SDK-Lesegrenzen integrieren, vorhandene
+Belege vollständig den Matrixzellen zuordnen und echte Lücken schließen,
+abschließende 10-/200-Quellen-Budgets abnehmen und die begrenzt live verbundenen
+Tabs aus 5c umsetzen. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
+Die folgenden früheren Statusabschnitte sind zeitlich gebundene Nachweise; ihre
+damaligen Offenstände werden nicht als aktueller Release-Status übernommen.
+
+Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
+`release71-native-ci-current-audit.json`, `release71-publication-audit.json`
+und `release71-production-acceptance.json`.
+
+### Historische Vorbereitung vom 06.11.2026
 
 Zusätzlicher Editor-Nachweis vom 06.11.: Die Vorbereitung formatierter Bearbeitung
 meldet Fehler künftig nach ihrem bestätigten Grund, statt jeden Fehler anderen
@@ -23,7 +65,7 @@ Suiten bestehen. [Messwerte und Prüfgrenzen](architecture/document-service-drai
 halten die noch ausstehende kompilierte UI-/CI-Abnahme und die weiterhin offenen
 Gesamtbudgets ausdrücklich fest. Dieser Stand ist noch nicht veröffentlicht.
 
-## Aktueller Abschluss: Fix-Release produktiv, Gesamtplan weiterhin offen
+## Historischer Abschluss: Fix-Release 2026.11.6.3
 
 Release [`v2026.11.6.3`](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.6.3)
 ist aus Produktcommit `0c67bce200f45011f91432b2684b05ec910909e0` veröffentlicht
@@ -3050,6 +3092,19 @@ Die beiden vorherigen Fehlversuche bleiben als solche erhalten: ein falsch
 zugeordnetes externes Bundle-Input und anschließend vom Prüfer verschluckte
 HTTP-Protokollausgaben. Externe MDX-/Python-Eingaben sind nun separat gehasht;
 das Controller-Protokoll bleibt vom ausgeblendeten Beispiel-Feedback getrennt.
+
+**SDK-Lesegrenzen, 06.11.2026 – vier Quell-HTTP-Gruppen bestanden:**
+Der [gezielte installierte SDK-Test](testing/sdk-read-boundaries-2026-11-06.md)
+ergänzt die bei der Zuordnung gefundenen Lücken. Zwei echte native Edits ändern
+das eigene Dokument; ein alter Cursor mit und ohne explizite alte Version wird
+abgewiesen. Eine zwischen tatsächlichen Seitenantworten eingeschobene unabhängige
+SDK-Bearbeitung stoppt `read_all` nach genau zwei Read-Aufrufen. Seiten- und
+Byte-Budget stoppen jeweils nach einer Anfrage und liefern kein unvollständiges
+`CompleteDocument`. Frische Markdown-Reads bestätigen den vollständigen Inhalt
+und die neue Version. 25 echte HTTP-Anfragen, drei vorab journalisierte Mutationen
+und unveränderte geschützte Zeilen/Bytes sind nachgewiesen. Der Fall gehört zum
+Read-Aggregat beider bestehenden Python-CI-Läufe; deren neue Ausführung sowie
+die kompilierte Abnahme und übrige Gesamtmatrix bleiben offen.
 
 **Status am 05.11.2026: reguläre Suite, Tag-CI und API-Key-Browserabnahme
 bestanden. Die Gesamtmatrix ist offen.** Der Umfang umfasst alle in API und
