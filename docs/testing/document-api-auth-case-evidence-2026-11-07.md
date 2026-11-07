@@ -71,6 +71,17 @@ weil ausschließlich bestehende API-Tests erweitert wurden.
 
 ### Weiterhin separat nachzuweisen
 
+Die neue `test_credential_storage.py` ergänzt sechs mechanische Vertragsfälle am
+installierten veröffentlichten Wheel auf Python 3.10: unsichere/Null-Backends ohne
+I/O, fehlende Abhängigkeit, getrennte Endpoint-/Profil-/Registrierungsdaten,
+fremde oder beschädigte Datensätze, UTF-8-Größengrenzen und fehlgeschlagene
+Schreib-/Löschbestätigung ohne Klartext-Fallback. Auch Fehlerketten dürfen den
+Test-Token nicht offenlegen. Alle sechs Fälle bestehen. Die bestehenden frischen
+MCP-Installationsprofile entdecken diese Datei automatisch; Core-only verwendet
+weiterhin ausschließlich seinen Import-Isolationstest. Das sind simulierte
+Backendverträge, keine sechs zusätzlichen HTTP-/PostgreSQL-Gruppen und keine
+Live-Abnahme von Windows Credential Locker, Secret Service oder KWallet.
+
 Diese Zuordnung ersetzt weder die API-Key-UI-Fälle noch tatsächliche OAuth-/
 MCP-Token-Ausstellung, OS-Keyring, Schreib-/Dateioperationen oder Restore.
 Diese Nachweise müssen jeweils an ihre eigenen Quellen und Laufberichte gebunden
