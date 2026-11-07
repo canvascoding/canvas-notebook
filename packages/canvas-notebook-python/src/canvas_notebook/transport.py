@@ -82,8 +82,17 @@ class CanvasMcpTransport:
             # The caller's error belongs to the caller, not the client's IO
             # task groups, which would wrap it in an ExceptionGroup. Close all
             # owned resources normally and let async-with propagate that exact
-            # error. Cleanup failures still propagate with its context intact.
-            await stack.aclose()
+            # error. Cleanup failures still propagate with its cause intact.
+            try:
+                await stack.aclose()
+            except BaseException as cleanup_error:
+                # IO task groups can replace the implicit exception context
+                # while unwinding a cancelled request. Retain the exact caller
+                # error explicitly, including its unknown-outcome key or task
+                # cancellation, without hiding the cleanup failure itself.
+                if exc is not None and cleanup_error is not exc:
+                    raise cleanup_error from exc
+                raise
 
     def _current(self) -> Client:
         if self._client is None:

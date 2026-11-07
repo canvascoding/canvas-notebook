@@ -1,0 +1,68 @@
+{
+  "compiledSourceSha": "2ecbc253da65c106fcc5496f4dbffc9bb496bf07",
+  "imageId": "sha256:a3871cb27c4e3d2c5865493aaa6223019e5684d08304475056e3edd47fa8ccd5",
+  "passed": true,
+  "actualCompiledServerAndBrowser": true,
+  "networkMocking": false,
+  "automaticWriteReplays": 0,
+  "cases": [
+    {
+      "scenario": "disabled-review-observer-with-native-key-sdk-edits",
+      "passed": true,
+      "editorChecks": 16,
+      "cleanupErrors": [],
+      "events": [
+        {
+          "event": "installed",
+          "version": "0.1.2"
+        },
+        {
+          "event": "finished"
+        }
+      ]
+    },
+    {
+      "scenario": "compiled-session-auth-with-issued-oauth-sdk",
+      "passed": true,
+      "editorChecks": 6,
+      "cleanupErrors": [],
+      "events": [
+        {
+          "event": "installed",
+          "version": "0.1.2"
+        },
+        {
+          "event": "authenticated",
+          "realPkceExchangeCompleted": true,
+          "issuerAudienceSessionBound": true
+        },
+        {
+          "event": "refreshed",
+          "actualRefreshGrant": true,
+          "naturalExpiryWait": false
+        },
+        {
+          "event": "finished",
+          "revokedBearerRejected": true
+        }
+      ]
+    }
+  ],
+  "preservation": {
+    "originalRowsXminBytesAndAnchorsPreserved": true,
+    "otherContainersPreserved": true,
+    "sourcePreserved": true
+  },
+  "evidence": [
+    {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794069369727-result.json",
+      "sha256": "de44fa26e7ffc1ea4198b967a3cd6d5e22e3f4aaa9109212dec999d875ed2c19"
+    }
+  ],
+  "limits": [
+    "No natural token expiry wait in this run",
+    "No global SQL/latency benchmark",
+    "No production deployment",
+    "SDK Move/Delete lost-acknowledgement CI remains unresolved"
+  ]
+}

@@ -80,7 +80,33 @@ Sitzungsentzug, Sperre, Seat-Suspendierung, Ablauf, aktuelle Seat-Entscheidungen
 und explizite JWT-/MCP-Audience-/Scope-Prüfungen bleiben erhalten.
 Die [gebundenen Nachweise](testing/auth-session-jwt-2026-11-07.json) ersetzen
 keine kompilierte OAuth-Anmeldung oder neue globale Hintergrundmessung; diese
-Abnahmen und die Veröffentlichung bleiben offen.
+Abnahmen wurden anschließend für Anmeldung und SDK ergänzt: Hostbuild und
+Linux-Image des Produktstands `2ecbc253d` bestehen. Im echten Container bestehen
+API-Key-Erstellung, Rotation, Entzug und SDK-/REST-Schreiben mit zwei offenen
+Editoren einschließlich Reload (16 Editorprüfungen). Eine zweite echte
+Browserprüfung durchläuft PKCE, Consent, Callback und Code-Austausch, erstellt
+und ändert ein Dokument mit dem installierten SDK 0.1.2, bestätigt beide
+Editoren live und nach Reload (6 Prüfungen), verwendet einen echten
+Refresh-Token-Grant und weist den Bearer nach Verbindungsentzug zurück.
+Sie prüft keinen natürlichen Tokenablauf. Ursprünglicher Container, geschützte
+Zeilen/xmin/Dateibytes/Anker sowie andere Container sind bestätigt erhalten;
+eigene Credentials werden entzogen und Einstellungen wiederhergestellt.
+[Gebundene kompilierte Nachweise](testing/compiled-session-auth-sdk-2026-11-07.json).
+Die globale Lastmessung, die aktuelle vollständige Gesamtabnahme und die
+Veröffentlichung bleiben offen. CI meldet außerdem einen noch ungeklärten
+SDK-Move-Fall bei absichtlich verlorenem HTTP-Acknowledgement. Dieser Fall ist
+inzwischen lokal identisch reproduziert und behoben: Ein zusätzlicher IO-Cleanup-
+Fehler verlor die ursprüngliche Caller-Cancellation aus seiner Fehlerkette.
+Der SDK-Exit erhält sie jetzt ausdrücklich als Ursache; der Cleanup-Fehler bleibt
+sichtbar. Der installierte korrigierte SDK-Kandidat besteht alle 21 Move-/Delete-
+HTTP-/PG-Gruppen, einschließlich zwei verlorener HTTP-Antworten und vier verlorener
+Commit-Bestätigungen, mit null automatischen Schreibwiederholungen und erhaltenen
+Originalen/Historien. Sechs frische Wheel-/Source-Abhängigkeitsprofile bestehen
+auf Python 3.10.19; die Adapterprofile jeweils mit 105 Tests ohne Skips. Auch das
+endgültige Source-Archiv besteht frisch installiert seine 105 enthaltenen Tests.
+[Vorher-/Nachher- und Artefaktnachweise](testing/sdk-lost-ack-cancellation-2026-11-07.json).
+Aktuelle Remote-CI, kompilierte Abnahme dieses neueren SDK-Kandidaten und
+Veröffentlichung stehen weiterhin aus.
 
 Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
 Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten

@@ -270,5 +270,11 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except BaseException as error:
-        emit("probe_failed", stage=PROBE_STAGE, kind=type(error).__name__, exceptionTypes=exception_types(error))
+        frame, assertion_line = error.__traceback__, None
+        while frame is not None:
+            if frame.tb_frame.f_code.co_filename == __file__:
+                assertion_line = frame.tb_lineno
+            frame = frame.tb_next
+        emit("probe_failed", stage=PROBE_STAGE, kind=type(error).__name__, exceptionTypes=exception_types(error),
+             assertionLine=assertion_line)
         raise SystemExit(1) from None

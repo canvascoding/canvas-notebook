@@ -3,6 +3,7 @@
 ## 0.1.2 (unreleased)
 
 - Preserve the original application exception when leaving a `CanvasMcpTransport` context. Tool/protocol errors and uncertain mutation outcomes keep their type, code and caller key instead of being wrapped by an MCP IO task group. All owned resources still close; cancellation and cleanup failures remain explicit. No operation is retried.
+- When IO shutdown also fails, retain the exact caller cancellation or uncertain-outcome exception as the cleanup error's explicit cause. Lost acknowledgements keep the original operation identity without suppressing the shutdown failure or repeating the write.
 
 ## 0.1.1
 
