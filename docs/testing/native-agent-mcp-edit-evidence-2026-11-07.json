@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "c281ef5be5467c743efef1288084293e92f4b609",
+  "source": "scripts/native-document-edit-tool-dispatch-postgres-test.ts",
+  "sourceSha256": "b62e6c903a384bd12b180436fd80c54d18eeacd178308dbb95a952da1ade7d7d",
+  "logBasename": "native-edit-tool-dispatch-current-20261107.log",
+  "logSha256": "ca8c3f82cff0ef226338d437154421487bfee9f827b3b43a191710390401a4ca",
+  "exitCode": 0,
+  "caseCount": 9,
+  "passedCases": [
+    "modern registered discovery/list advertises both strict native actions and the preserved legacy branch",
+    "registered MCP edit persists the actual room effect and pure status/read report its full version",
+    "different calls and actual renewed SID B retain the caller key and immutable A operation without replay",
+    "bad supplied API versions/mixed aliases never reach legacy and stale native keys return bounded errors",
+    "real scope/session/tool/grant revocation denies Edit AND historical status without changing any document/operation rows",
+    "actual PI registry preparation/validation/wrapper edits native XML and status remains pure",
+    "PI rejects native selector coercion and rechecks fresh tool/session policy after offering",
+    "complete Markdown replacement persists via real room, deduplicates and rejects stale revisions",
+    "the actual registered legacy path/SHA edit still matches its unchanged advertised output branch"
+  ],
+  "summaries": [
+    {
+      "closure": "native-edit-tool-dispatch",
+      "ownHttpAndWssClosed": true,
+      "dedicatedOwnerBackendsClosed": 1,
+      "fixtureTcpServers": 0,
+      "testOwnedTcpServers": 1
+    },
+    {
+      "fixture": "document-read-tool-dispatch",
+      "schemaRemoved": true,
+      "clientsClosed": true,
+      "dataRemoved": true,
+      "fetches": 0,
+      "tcpServersCreated": 0,
+      "backendDrainChecks": 1
+    },
+    {
+      "suite": "native-document-edit-tool-dispatch",
+      "groups": 9,
+      "actualRegisteredModernMcp": true,
+      "actualPiRegistryWrapper": true,
+      "actualLocalPgRoomOwner": true,
+      "compiledOrOAuthIssuanceE2e": false,
+      "osSandboxAcceptance": false
+    }
+  ],
+  "bundleRemoved": true,
+  "reviewCenterEnabled": false,
+  "compiledNext": false,
+  "browserOAuthIssuance": false,
+  "osSandboxAcceptance": false,
+  "productionWrites": false
+}

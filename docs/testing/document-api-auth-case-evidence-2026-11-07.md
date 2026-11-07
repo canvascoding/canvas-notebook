@@ -69,7 +69,20 @@ genannten CI-Laufs; dessen sechs ursprüngliche HTTP-Gruppen bleiben historische
 Belege. Dieser Lauf benötigt weder einen Container-Build noch eine UI-Abnahme,
 weil ausschließlich bestehende API-Tests erweitert wurden.
 
-### Weiterhin separat nachzuweisen
+### Registrierter Agent-/MCP-Schreibpfad
+
+Der gezielte aktuelle Lauf von
+`scripts/native-document-edit-tool-dispatch-postgres-test.ts` besteht neun
+Gruppen. Die [Einzelfallzuordnung](native-agent-mcp-edit-evidence-2026-11-07.json)
+bindet Quelle, Log und Bereinigung: tatsächliche moderne MCP-Registrierung,
+Pi-Registry inklusive Argumentprüfung und Wrapper, nativer XML-Edit über einen
+echten PostgreSQL-Room-Owner, reine Statusabfragen, ursprüngliche Operations-ID
+bei erneuerter Sitzung, Stale-Konflikte und aktuelle Scope-/Session-/Tool-/Grant-
+Verweigerung. Die bereits vorhandene Suite war nicht im Native-API-/SDK-Workflow
+registriert und erhält dort nun einen eigenen Schritt mit archiviertem Log.
+Dieser Quelllauf ist keine kompilierte Browser-/OAuth- oder OS-Sandbox-Abnahme.
+
+### SDK-Speicherverträge und übrige Matrix
 
 Die neue `test_credential_storage.py` ergänzt sechs mechanische Vertragsfälle am
 installierten veröffentlichten Wheel auf Python 3.10: unsichere/Null-Backends ohne
