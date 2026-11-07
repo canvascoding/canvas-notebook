@@ -2075,6 +2075,10 @@ criticalInputsByEntryPoint['scripts/document-link-write-parity-postgres-test.ts'
 criticalInputsByEntryPoint['scripts/collaboration-drain-poll-postgres-test.ts'] = [entryPoint,
   'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/collaboration/room-owner-options.ts',
   'app/lib/collaboration/room-admission.ts', 'app/lib/collaboration/lifecycle-transaction.ts'];
+criticalInputsByEntryPoint['scripts/api-key-python-sdk-read-boundaries-postgres-test.ts'] = [entryPoint,
+  'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
+  'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts', 'app/lib/api-keys/management.ts',
+  'app/lib/mcp/server/streamable-http.ts', 'app/lib/documents/service.ts', 'app/lib/documents/edit-public-service.ts'];
 criticalInputsByEntryPoint['scripts/sdk-documentation-write-postgres-test.ts'] = [entryPoint,
   'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
   'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts', 'app/lib/mcp/server/streamable-http.ts',
