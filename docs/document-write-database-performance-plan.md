@@ -36,10 +36,24 @@ Dies ersetzt weder eine vollständige Inventur noch eine produktive Schreibabnah
 
 Der Gesamtplan bleibt offen: aktuelle SDK-Lesegrenzen integrieren, vorhandene
 Belege vollständig den Matrixzellen zuordnen und echte Lücken schließen,
-abschließende 10-/200-Quellen-Budgets abnehmen und die begrenzt live verbundenen
-Tabs aus 5c umsetzen. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
+abschließende 10-/200-Quellen-Budgets abnehmen und die inzwischen implementierten,
+begrenzt live verbundenen Tabs aus 5c vollständig abnehmen. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
 Die folgenden früheren Statusabschnitte sind zeitlich gebundene Nachweise; ihre
 damaligen Offenstände werden nicht als aktueller Release-Status übernommen.
+
+Der nächste lokale Schritt nach `1cd45b618` betrifft die frische Vorbereitung
+lesender nativer Principal-Phasen: Diese verwendet bei expliziter Auswahl und
+ursprünglicher Herkunftsbeobachtung den vorhandenen einzelnen Workspace-Snapshot.
+Der echte Auth-/PG-Test misst 12 statt 16 SQL-Anweisungen vor Eintritt in die
+gehaltene Transaktion: neun Auth-/Seat-/JWK-Abfragen, ein Workspace-Snapshot,
+eine aktuelle Principal-Lizenzabfrage und eine ursprüngliche Realm-Beobachtung.
+Schreibprofile, ursprüngliche Credentials und sämtliche gehaltenen Principal-,
+Owner-, Abschluss- und Commit-Prüfungen bleiben erhalten. Sperre, Sitzungsentzug,
+Seat-Suspendierung, Archivierung sowie Entzug zwischen Capture und gehaltener
+Phase werden ausdrücklich geprüft; der Fall ist als eigener nativer CI-Schritt
+registriert. Die bestehenden 36 nativen Cookie-/Bearer-/Team-/Solo-/Lebensdauer-
+Testgruppen bestehen. Dies ist noch keine kompilierte Gesamtmessung oder ein
+veröffentlichter Fix; die dominante übrige Hintergrundlast bleibt offen.
 
 Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
 `release71-native-ci-current-audit.json`, `release71-publication-audit.json`

@@ -387,6 +387,7 @@
     "test:notebook:reveal": "tsx scripts/file-open-flow-test.ts && tsx scripts/chat-file-link-validation-test.ts && tsx scripts/notebook-chat-reveal-test.ts",
     "test:files:menus": "tsx scripts/file-actions-preview-ui-test.tsx",
     "test:files:open-auxiliary:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/file-open-auxiliary-http-postgres-test.ts",
+    "test:workspaces:principal-read-capture:native": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false tsx --conditions react-server scripts/workspace-principal-read-capture-postgres-test.ts",
     "test:notebook:path-state": "tsx scripts/notebook-explorer-path-state-test.ts && tsx scripts/workspace-move-controller-test.tsx && tsx scripts/notebook-partial-trash-undo-test.tsx",
     "test:layout-scripts": "tsx scripts/layout-script-test.ts",
     "test:login:hydration": "tsx scripts/login-hydration-test.tsx",
