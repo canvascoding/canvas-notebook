@@ -13,6 +13,7 @@ import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { recoveredRoomReadUrls, roomReadConsoleMessage } from './helpers/recovered-room-read.mjs';
 import { recoveredRichMigrationErrors } from './helpers/recovered-rich-migration.mjs';
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
+import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 
@@ -859,6 +860,106 @@ test.describe('Markdown live collaboration', () => {
     } catch (error) { failure = error; throw error; }
     finally {
       await finishFixture(cleanupApi, [() => peerContext.close(), () => ownerContext.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
+    }
+  });
+
+  test('releases evicted document memory without losing persisted content or session isolation', async ({ browser }, info) => {
+    test.setTimeout(240_000);
+    info.annotations.push({ type: 'scope', description: 'Actual Chromium GC, eighteen native documents, WeakRef observation only, and fresh authorized reopen.' });
+    expect(browser.browserType().name(), 'The regular collaboration profile must provide Chromium CDP.').toBe('chromium');
+    const suffix = randomUUID(), paths = Array.from({ length: 18 }, (_, index) => `live-tab-gc-${index}-${suffix}.md`);
+    const text = paths.map((_, index) => `Retained content ${index} ${suffix}.`);
+    const context = await fixtureContext(browser), page = await context.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
+    let workspaceId: string | null = null, failure: unknown;
+    const ids: Record<string, string> = {};
+    const observe = (index: number) => page.getByRole('tabpanel', { name: paths[index], exact: true }).locator('.ProseMirror')
+      .evaluate((element, id) => {
+        type Doc = { isDestroyed: boolean };
+        type Live = { doc: Doc; provider?: { isSynced: boolean; configuration: { document: Doc } }; ready: boolean;
+          connection: string; session?: { documentId: string } };
+        type Fiber = { memoizedProps?: Record<string, unknown>; return?: Fiber };
+        const target = window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<Doc>> };
+        for (let node: HTMLElement | null = element as HTMLElement; node; node = node.parentElement) {
+          const key = Object.keys(node).find(name => name.startsWith('__reactFiber$'));
+          let fiber = key ? Reflect.get(node, key) as Fiber : undefined;
+          for (let depth = 0; fiber && depth < 60; depth++, fiber = fiber.return) {
+            const props = fiber.memoizedProps;
+            const live = (props?.collaborationDocument ?? props?.collaboration
+              ?? (props?.externalCollaboration as { document?: unknown } | undefined)?.document) as Live | undefined;
+            if (live?.session?.documentId !== id || !live.ready || live.connection !== 'live'
+              || !live.provider?.isSynced || live.provider.configuration.document !== live.doc) continue;
+            const refs = target.__canvasEvictionE2E ??= new Map(), previous = refs.get(id);
+            if (!previous) refs.set(id, new WeakRef(live.doc));
+            return { ready: true, sameDoc: !previous || previous.deref() === live.doc };
+          }
+        }
+        return null;
+      }, ids[paths[index]]);
+    const activate = async (index: number) => {
+      const tab = page.getByRole('tab', { name: paths[index], exact: true });
+      if (await tab.count()) await tab.click();
+      else {
+        await page.getByTestId('notebook-documents-menu').click();
+        await page.getByRole('menuitem').filter({ hasText: paths[index] }).click();
+      }
+      await expect(page.getByRole('tabpanel', { name: paths[index], exact: true }).locator('.ProseMirror')).toContainText(text[index]);
+    };
+    try {
+      await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(page.request);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(context, workspaceId);
+      for (let index = 0; index < paths.length; index++) {
+        await waitForFileCreateBudget();
+        const upload = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`# Eviction ${index}\n\n${text[index]}\n`),
+        } } });
+        expect(upload.ok(), await upload.text()).toBe(true);
+        const response = await page.request.get(`/api/files/read?path=${encodeURIComponent(paths[index])}`, { headers });
+        expect(response.ok(), await response.text()).toBe(true);
+        const payload = await response.json() as { data: { content: string; nativeSource: { documentId: string } } };
+        expect(payload.data.content).toContain(text[index]);
+        ids[paths[index]] = payload.data.nativeSource.documentId;
+      }
+      await context.addInitScript(({ workspace, paths, ids }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds: ids }));
+      }, { workspace: workspaceId, paths, ids });
+      await openCollaborativeMarkdown(page, paths[0]);
+      for (let index = 0; index < paths.length; index++) {
+        if (index) await activate(index);
+        await expect.poll(() => observe(index), { timeout: 30_000 }).toEqual({ ready: true, sameDoc: true });
+      }
+      await expect.poll(() => page.evaluate(() => {
+        const refs = (window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<{ isDestroyed: boolean }>> }).__canvasEvictionE2E;
+        return [...(refs?.values() ?? [])].filter(ref => { const doc = ref.deref(); return doc && !doc.isDestroyed; }).length;
+      }), { timeout: 15_000 }).toBeLessThanOrEqual(15);
+      await expect.poll(() => page.evaluate(id => {
+        const doc = (window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<{ isDestroyed: boolean }>> })
+          .__canvasEvictionE2E?.get(id)?.deref();
+        return !doc || doc.isDestroyed;
+      }, ids[paths[0]]), { timeout: 15_000 }).toBe(true);
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('HeapProfiler.collectGarbage'); await page.waitForTimeout(50); await cdp.send('HeapProfiler.collectGarbage');
+      expect(await page.evaluate(id => Boolean((window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<object>> })
+        .__canvasEvictionE2E?.get(id)?.deref()), ids[paths[0]]), 'A disposed document must not be kept alive by a cached session callback.').toBe(false);
+      let sessions = 0;
+      page.on('request', value => {
+        if (new URL(value.url()).pathname === '/api/files/collaboration/session' && value.postDataJSON()?.path === paths[1]) sessions++;
+      });
+      await activate(1);
+      await expect.poll(() => observe(1), { timeout: 30_000 }).toEqual({ ready: true, sameDoc: false });
+      expect(sessions, 'Reopening a disposed document requires fresh HTTP authority.').toBeGreaterThan(0);
+      const persisted = await page.request.get(`/api/files/read?path=${encodeURIComponent(paths[1])}`, { headers });
+      expect(persisted.ok(), await persisted.text()).toBe(true);
+      expect((await persisted.json()).data).toMatchObject({ nativeSource: { documentId: ids[paths[1]] } });
+    } catch (error) { failure = error; throw error; }
+    finally {
+      await finishFixture(cleanupApi, [() => context.close(),
         async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
     }
   });

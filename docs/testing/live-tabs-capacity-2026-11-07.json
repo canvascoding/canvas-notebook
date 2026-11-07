@@ -1,0 +1,376 @@
+{
+  "sourceSha": "7afd5e42afe8681c0c8bf1a85cd783977b1537fb",
+  "passed": true,
+  "actualBrowserServerPostgres": true,
+  "networkMocking": false,
+  "cases": [
+    {
+      "sourceCount": 10,
+      "viewport": "desktop",
+      "latency": {
+        "samples": 40,
+        "p50Ms": 80,
+        "p95Ms": 87,
+        "maxMs": 107,
+        "targetMs": 100,
+        "targetPassed": true
+      },
+      "liveCap": {
+        "limit": 5,
+        "openedDocuments": 7,
+        "openSockets": 5,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "browserHeapCheckpoints": [
+        {
+          "name": "before-repeated-warm-switches",
+          "at": "2026-11-07T19:12:21.772Z",
+          "usedHeapBytes": 27073264,
+          "totalHeapBytes": 28966912,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 717,
+            "ScriptDuration": 0.425803,
+            "TaskDuration": 1.012062
+          }
+        },
+        {
+          "name": "after-20-warm-switches",
+          "at": "2026-11-07T19:12:25.338Z",
+          "usedHeapBytes": 29279684,
+          "totalHeapBytes": 30539776,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 725,
+            "ScriptDuration": 1.216965,
+            "TaskDuration": 2.688571
+          }
+        },
+        {
+          "name": "after-40-warm-switches",
+          "at": "2026-11-07T19:12:28.683Z",
+          "usedHeapBytes": 27237076,
+          "totalHeapBytes": 29491200,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 725,
+            "ScriptDuration": 1.953836,
+            "TaskDuration": 4.264121
+          }
+        },
+        {
+          "name": "after-seven-open-documents-and-rejoin",
+          "at": "2026-11-07T19:12:41.561Z",
+          "usedHeapBytes": 28503608,
+          "totalHeapBytes": 30015488,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1351,
+            "Nodes": 766,
+            "ScriptDuration": 2.554144,
+            "TaskDuration": 5.50401
+          }
+        }
+      ],
+      "proof": "compiled-auxiliary-read-10-on-both-1794078668684-result.json",
+      "proofSha256": "52f4dbca0964f654d2cdaf9320bdc8a95086342ec4214dd039da76d34f7f3ef7",
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+    },
+    {
+      "sourceCount": 10,
+      "viewport": "mobile",
+      "latency": {
+        "samples": 40,
+        "p50Ms": 75,
+        "p95Ms": 89,
+        "maxMs": 92,
+        "targetMs": null,
+        "targetPassed": null
+      },
+      "liveCap": {
+        "limit": 2,
+        "openedDocuments": 7,
+        "openSockets": 2,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "browserHeapCheckpoints": [
+        {
+          "name": "before-repeated-warm-switches",
+          "at": "2026-11-07T19:12:45.699Z",
+          "usedHeapBytes": 27220728,
+          "totalHeapBytes": 28966912,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1325,
+            "Nodes": 729,
+            "ScriptDuration": 0.402463,
+            "TaskDuration": 0.87319
+          }
+        },
+        {
+          "name": "after-20-warm-switches",
+          "at": "2026-11-07T19:12:49.043Z",
+          "usedHeapBytes": 29438968,
+          "totalHeapBytes": 31588352,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1325,
+            "Nodes": 737,
+            "ScriptDuration": 1.204315,
+            "TaskDuration": 2.352888
+          }
+        },
+        {
+          "name": "after-40-warm-switches",
+          "at": "2026-11-07T19:12:52.277Z",
+          "usedHeapBytes": 27140272,
+          "totalHeapBytes": 28966912,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1325,
+            "Nodes": 737,
+            "ScriptDuration": 1.941901,
+            "TaskDuration": 3.76223
+          }
+        },
+        {
+          "name": "after-seven-open-documents-and-rejoin",
+          "at": "2026-11-07T19:13:04.701Z",
+          "usedHeapBytes": 28587816,
+          "totalHeapBytes": 30539776,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1335,
+            "Nodes": 778,
+            "ScriptDuration": 2.503548,
+            "TaskDuration": 4.835231
+          }
+        }
+      ],
+      "proof": "compiled-auxiliary-read-10-on-both-1794078668684-result.json",
+      "proofSha256": "52f4dbca0964f654d2cdaf9320bdc8a95086342ec4214dd039da76d34f7f3ef7",
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+    },
+    {
+      "sourceCount": 200,
+      "viewport": "desktop",
+      "latency": {
+        "samples": 40,
+        "p50Ms": 79,
+        "p95Ms": 90,
+        "maxMs": 94,
+        "targetMs": 100,
+        "targetPassed": true
+      },
+      "liveCap": {
+        "limit": 5,
+        "openedDocuments": 7,
+        "openSockets": 5,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "browserHeapCheckpoints": [
+        {
+          "name": "before-repeated-warm-switches",
+          "at": "2026-11-07T19:42:33.158Z",
+          "usedHeapBytes": 27215444,
+          "totalHeapBytes": 28704768,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 717,
+            "ScriptDuration": 0.416865,
+            "TaskDuration": 0.945116
+          }
+        },
+        {
+          "name": "after-20-warm-switches",
+          "at": "2026-11-07T19:42:36.573Z",
+          "usedHeapBytes": 29387300,
+          "totalHeapBytes": 30539776,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 725,
+            "ScriptDuration": 1.206009,
+            "TaskDuration": 2.595404
+          }
+        },
+        {
+          "name": "after-40-warm-switches",
+          "at": "2026-11-07T19:42:39.995Z",
+          "usedHeapBytes": 27086752,
+          "totalHeapBytes": 29229056,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1326,
+            "Nodes": 725,
+            "ScriptDuration": 1.939469,
+            "TaskDuration": 4.17187
+          }
+        },
+        {
+          "name": "after-seven-open-documents-and-rejoin",
+          "at": "2026-11-07T19:42:52.472Z",
+          "usedHeapBytes": 28602592,
+          "totalHeapBytes": 29753344,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1351,
+            "Nodes": 766,
+            "ScriptDuration": 2.542387,
+            "TaskDuration": 5.387496
+          }
+        }
+      ],
+      "proof": "compiled-auxiliary-read-200-on-both-1794080471354-result.json",
+      "proofSha256": "5cd00640114deb09774b5e730e474fe5da2ff0a9b15aca73c7ac511e62248fbf",
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+      "serverAfterLogoutGC": {
+        "nonce": "49b30d678817",
+        "startedAt": "2026-11-07T19:42:53.594Z",
+        "before": {
+          "rss": 1946193920,
+          "heapTotal": 1413287936,
+          "heapUsed": 1304708984,
+          "external": 36960549,
+          "arrayBuffers": 12149686
+        },
+        "pending": false,
+        "passed": true,
+        "finishedAt": "2026-11-07T19:42:53.951Z",
+        "after": {
+          "rss": 1479925760,
+          "heapTotal": 1113944064,
+          "heapUsed": 1074824808,
+          "external": 31587995,
+          "arrayBuffers": 6777132
+        },
+        "loadedRooms": 0,
+        "connections": 0,
+        "collector": "Real main-thread HeapProfiler.collectGarbage; inspector cleanup and heap sampling deferred outside its callback."
+      }
+    },
+    {
+      "sourceCount": 200,
+      "viewport": "mobile",
+      "latency": {
+        "samples": 40,
+        "p50Ms": 77,
+        "p95Ms": 87,
+        "maxMs": 92,
+        "targetMs": null,
+        "targetPassed": null
+      },
+      "liveCap": {
+        "limit": 2,
+        "openedDocuments": 7,
+        "openSockets": 2,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "browserHeapCheckpoints": [
+        {
+          "name": "before-repeated-warm-switches",
+          "at": "2026-11-07T19:42:58.981Z",
+          "usedHeapBytes": 28170600,
+          "totalHeapBytes": 31064064,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1369,
+            "Nodes": 731,
+            "ScriptDuration": 0.412546,
+            "TaskDuration": 0.898453
+          }
+        },
+        {
+          "name": "after-20-warm-switches",
+          "at": "2026-11-07T19:43:02.332Z",
+          "usedHeapBytes": 29536124,
+          "totalHeapBytes": 31588352,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1325,
+            "Nodes": 737,
+            "ScriptDuration": 1.198322,
+            "TaskDuration": 2.363527
+          }
+        },
+        {
+          "name": "after-40-warm-switches",
+          "at": "2026-11-07T19:43:05.645Z",
+          "usedHeapBytes": 27213268,
+          "totalHeapBytes": 28966912,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1325,
+            "Nodes": 737,
+            "ScriptDuration": 1.933897,
+            "TaskDuration": 3.818189
+          }
+        },
+        {
+          "name": "after-seven-open-documents-and-rejoin",
+          "at": "2026-11-07T19:43:16.977Z",
+          "usedHeapBytes": 28729820,
+          "totalHeapBytes": 30801920,
+          "metrics": {
+            "Documents": 2,
+            "JSEventListeners": 1335,
+            "Nodes": 778,
+            "ScriptDuration": 2.534193,
+            "TaskDuration": 4.898395
+          }
+        }
+      ],
+      "proof": "compiled-auxiliary-read-200-on-both-1794080471354-result.json",
+      "proofSha256": "5cd00640114deb09774b5e730e474fe5da2ff0a9b15aca73c7ac511e62248fbf",
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+      "serverAfterLogoutGC": {
+        "nonce": "450777bd319a",
+        "startedAt": "2026-11-07T19:43:17.900Z",
+        "before": {
+          "rss": 1937498112,
+          "heapTotal": 1454338048,
+          "heapUsed": 1346840784,
+          "external": 40143500,
+          "arrayBuffers": 15332637
+        },
+        "pending": false,
+        "passed": true,
+        "finishedAt": "2026-11-07T19:43:18.178Z",
+        "after": {
+          "rss": 1465126912,
+          "heapTotal": 1109348352,
+          "heapUsed": 1077998672,
+          "external": 31653539,
+          "arrayBuffers": 6842676
+        },
+        "loadedRooms": 0,
+        "connections": 0,
+        "collector": "Real main-thread HeapProfiler.collectGarbage; inspector cleanup and heap sampling deferred outside its callback."
+      }
+    }
+  ],
+  "limits": [
+    "Mobile means Chromium mobile viewport on this host, not physical mobile hardware.",
+    "Actual room-map observation samples every two seconds.",
+    "Seven opened documents exercise live caps and authorized warm rejoin, not all warm-count or byte evictions.",
+    "This is not current full regular test:all or production acceptance.",
+    "Remaining lifecycle/resource/credential matrix and release gates remain open."
+  ],
+  "newMemoryCandidateRequiresOwnAcceptance": true
+}

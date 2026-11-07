@@ -5,6 +5,51 @@ für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und nor
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
 
+## Aktuelle Live-Tab-Abnahme und verbleibender Speicherfix
+
+Der Produktstand `7afd5e42a` besteht alle 15 veröffentlichten PR-Checks,
+inklusive der vollständig heruntergeladenen und gegen den Quellstand geprüften
+API-/SDK-CI `42403620408`: zwölf frische Paketprofile auf Python 3.10.22/3.15.2,
+alle acht installierten HTTP-/SDK-Familien und je 24 Link-Paritätsgruppen.
+Die Artefakte behalten die lokal geprüften Wheel-/Source-Prüfsummen.
+[CI-Belege](testing/sdk012-ci-2026-11-07.json).
+
+Die echte kompilierte Fünf-Minuten-/Zwei-Minuten-Abnahme besteht mit null
+`checkConnection`-Timeout-Abbrüchen. Vier echte Kapazitätsläufe bestehen mit je
+40 warmen Wechseln und sieben geöffneten Dokumenten:
+
+| Quellen | Desktop-p95 | Chromium-Mobilansicht-p95 | Live-Limits |
+| --- | --- | --- | --- |
+| 10 | 87 ms | 89 ms | 5 / 2 |
+| 200 | 90 ms | 87 ms | 5 / 2 |
+
+Die Wechsel erhalten Yjs-/Provider-Identität ohne neuen Datei-/Session-/Socket-
+Bootstrap. Geparkte Tabs erhalten beim erneuten Öffnen frische HTTP-Autorität.
+Browser-Heap und Listener zeigen über diese Wiederholungen ein Plateau. Die
+wirkliche Hocuspocus-Room-Map wird beobachtet und mit dem installierten Runtime-
+Callback verglichen; nach den 200er-Profilen sind Rooms und Verbindungen null.
+Der Server-Heap nach GC beträgt im selben Prozess rund 1.025/1.028 MiB.
+Das sind begrenzte Tests auf diesem Host, keine Zusage für physische Mobilgeräte
+oder Langzeitlast. [Kapazitätsbelege](testing/live-tabs-capacity-2026-11-07.json).
+
+Die darüber hinausgehende reale Verdrängungsprüfung mit 18 Dokumenten findet
+noch einen Speicherfehler: 15 logische Dokumente bleiben wie vorgesehen erhalten,
+die ältesten werden zerstört, aber der gespeicherte Session-Accessor hält einen
+zerstörten Y.Doc weiter stark erreichbar. Die Beobachtung verwendet nur WeakRefs
+und zwei echte Browser-GCs. Der aktuelle Clientkandidat hält den Registry-Eintrag
+im Accessor deshalb nur schwach; die Registry hält aktive, warme und wegen einer
+unbestätigten Recovery noch benötigte Einträge weiterhin stark. Sämtliche bisherigen
+Berechtigungs-/Lebensdauer-/Providerprüfungen bleiben erhalten. Die gezielten
+Retention-/Rename-Tests, TypeScript und ESLint bestehen. Die kompilierte
+Nachprüfung und der neue reguläre Browserfall stehen noch aus.
+[Vorher-Beleg und Kandidat](testing/live-tabs-memory-release-2026-11-07.json).
+
+Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
+Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
+reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich
+SDK-/Dokumentationsauslieferung und Produktionsprüfung. Dieser Arbeitsstand ist
+nicht veröffentlicht. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
+
 ## Aktueller Stand nach Release 2026.11.7.1
 
 Das [Fix-Release 2026.11.7.1](https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.11.7.1)

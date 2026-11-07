@@ -347,8 +347,11 @@ export function rememberOpenedCollaborationDocument(document: CollaborationDocum
   entry.tabOwned = currentTabOwnsEntry(entry);
   const stateProof = collaborationStateProof(entry.doc, Y);
   const snapshot = captureAgentStateSnapshot(entry.doc, Y);
+  const retainedEntry = new WeakRef(entry);
   if (stateProof && snapshot) rememberOpenedLiveDocument({ scope: entry.authScope, workspaceId, path: entry.path,
     file, session: entry.session, stateProof, snapshot, connectedSession: () => {
+      const entry = retainedEntry.deref();
+      if (!entry) return null;
       if (!tabRetentionEnabled || !tabRetentionObserved || !entry.tabOwned || !entry.provider || entry.visibilityPaused || !entry.retentionConnectionReady || entry.lifecycle.signal.aborted
         || registry.get(entry.key) !== entry || entry.requests.signal.aborted || entry.requiresFreshSession
         || !entry.clientState.ready || !entry.clientState.remoteSynced || entry.clientState.admissionBusy || entry.clientState.failure

@@ -19,7 +19,7 @@
     "change": "Empty awareness state for inactive live tabs; no canvas/cursor/selection fields. Hidden/parked removal remains null.",
     "redBeforeGreenAfter": true,
     "node24RetentionAndActualProviderPresenceProtocolPassed": true,
-    "compiledRetestPending": true,
+    "compiledRetestPending": false,
     "logs": [
       {
         "name": "live-tab-heartbeat-before-20261107.log",
@@ -36,8 +36,21 @@
     ]
   },
   "remaining": [
-    "Compile and test the candidate with no checkConnection timeout closures",
-    "Complete capacity/resource/lifecycle acceptance",
-    "Current regular test:all, exact-head CI/reviews, merge and release"
-  ]
+    "Eviction memory candidate and remaining lifecycle/byte/global-scope cases",
+    "Current full regular test:all and case-level API/SDK mapping",
+    "Final exact-head CI/review, merge, SDK publication, release and production acceptance"
+  ],
+  "compiledAfter": {
+    "sourceSha": "7afd5e42afe8681c0c8bf1a85cd783977b1537fb",
+    "passed": true,
+    "proof": "compiled-auxiliary-read-10-on-desktop-1794078057260-result.json",
+    "proofSha256": "f7710d74f508e78c99cdf491ae8af9db628df829b7bd836951e1eab3f701b580",
+    "actualFiveMinuteInactiveAndTwoMinuteHiddenBoundaries": true,
+    "falseTimeoutCloses": 0,
+    "localYDocsRetained": true,
+    "freshHTTPOnResume": true,
+    "idleAfterResumeSessionAndFileReads": 0,
+    "sessions": 11,
+    "allOriginalsAndOtherContainersPreserved": true
+  }
 }

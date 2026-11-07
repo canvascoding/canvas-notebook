@@ -1,17 +1,12 @@
 {
-  "runId": 42393380413,
-  "headSha": "14aa48359c87fa0a992f8a3aae9c52bd41642dfe",
-  "all15PublishedChecksSucceeded": true,
-  "actualDownloadedArtifactsAudited": true,
-  "wheelSha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
-  "sdistSha256": "585dfc6847b7983842741a3895b779edba05e1dd169d58d314ecf5752c552eb3",
-  "all8RuntimeFilesEqualCommit": true,
+  "sourceSha": "7afd5e42afe8681c0c8bf1a85cd783977b1537fb",
+  "runId": 42403620408,
+  "passed": true,
   "lanes": [
     {
-      "lane": "3.10",
+      "python": "3.10.22",
       "profiles": [
         {
-          "python": "3.10.22",
           "artifact": "wheel",
           "profile": "core",
           "tests": 1,
@@ -19,7 +14,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.10.22",
           "artifact": "wheel",
           "profile": "mcp",
           "tests": 105,
@@ -27,7 +21,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.10.22",
           "artifact": "wheel",
           "profile": "keyring",
           "tests": 105,
@@ -35,7 +28,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.10.22",
           "artifact": "sdist",
           "profile": "core",
           "tests": 1,
@@ -43,7 +35,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.10.22",
           "artifact": "sdist",
           "profile": "mcp",
           "tests": 105,
@@ -51,7 +42,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.10.22",
           "artifact": "sdist",
           "profile": "keyring",
           "tests": 105,
@@ -59,62 +49,63 @@
           "exitCode": 0
         }
       ],
+      "reportSha256": "26c971abdbd634916140cc468ac47707cc19c81d538f1896d9c10fcdc3908fd0",
       "nativeSuites": [
         {
           "suite": "installed-api-key-sdk-native-http",
           "groups": 4,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-sdk-read-boundaries-http",
           "groups": 4,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-edit-http",
           "groups": 6,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-create-import-http",
           "groups": 7,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-copy-http",
           "groups": 8,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-path-http",
           "groups": 21,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-original-import-http",
           "groups": 7,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "sdk-documentation-write-http",
-          "compiledNext": false
-        },
-        {
-          "suite": "document-link-write-parity",
-          "groups": 24,
+          "passed": true,
           "compiledNext": false
         }
-      ]
+      ],
+      "linkParityGroups": 24,
+      "nativeLogSha256": "2c3ab21990fbf0d577a9b7ebe0317486e2bbb021bd7631f7a0067bfba27f90f8"
     },
     {
-      "lane": "3.15",
+      "python": "3.15.2",
       "profiles": [
         {
-          "python": "3.15.2",
           "artifact": "wheel",
           "profile": "core",
           "tests": 1,
@@ -122,7 +113,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.15.2",
           "artifact": "wheel",
           "profile": "mcp",
           "tests": 105,
@@ -130,7 +120,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.15.2",
           "artifact": "wheel",
           "profile": "keyring",
           "tests": 105,
@@ -138,7 +127,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.15.2",
           "artifact": "sdist",
           "profile": "core",
           "tests": 1,
@@ -146,7 +134,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.15.2",
           "artifact": "sdist",
           "profile": "mcp",
           "tests": 105,
@@ -154,7 +141,6 @@
           "exitCode": 0
         },
         {
-          "python": "3.15.2",
           "artifact": "sdist",
           "profile": "keyring",
           "tests": 105,
@@ -162,62 +148,64 @@
           "exitCode": 0
         }
       ],
+      "reportSha256": "b42455b8cc541d11d3445bba2a86873bfafc97c7a75b1f21b85f06770507d398",
       "nativeSuites": [
         {
           "suite": "installed-api-key-sdk-native-http",
           "groups": 4,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-sdk-read-boundaries-http",
           "groups": 4,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-edit-http",
           "groups": 6,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-create-import-http",
           "groups": 7,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-copy-http",
           "groups": 8,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-native-path-http",
           "groups": 21,
-          "automaticWriteReplays": 0,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "installed-api-key-sdk-original-import-http",
           "groups": 7,
+          "passed": true,
           "compiledNext": false
         },
         {
           "suite": "sdk-documentation-write-http",
-          "compiledNext": false
-        },
-        {
-          "suite": "document-link-write-parity",
-          "groups": 24,
+          "passed": true,
           "compiledNext": false
         }
-      ]
+      ],
+      "linkParityGroups": 24,
+      "nativeLogSha256": "76a269971b6f75e361fd3b6b91b44a4e091953336540b37cf9a5f7fd672b454e"
     }
   ],
-  "limits": [
-    "Source HTTP/PostgreSQL is not compiled Next acceptance",
-    "Dependency profiles are not native Linux/Windows keyring acceptance",
-    "Newer drain-worker and retained-ticket changes require their own CI",
-    "No release or production deployment"
-  ]
+  "wheelSha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+  "sdistSha256": "585dfc6847b7983842741a3895b779edba05e1dd169d58d314ecf5752c552eb3",
+  "allEightRuntimeFilesMatchSourceAndCurrentCheckout": true,
+  "compiledBrowserAcceptance": false,
+  "actualLinuxOrWindowsKeyringBackend": false,
+  "newMemoryCandidateRequiresOwnAcceptance": true
 }

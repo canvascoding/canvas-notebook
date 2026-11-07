@@ -1,0 +1,40 @@
+{
+  "beforeSourceSha": "7afd5e42afe8681c0c8bf1a85cd783977b1537fb",
+  "actualCompiledBefore": {
+    "proof": "compiled-auxiliary-read-200-on-both-1794081407643-result.json",
+    "proofSha256": "1987cf2a331bf449a26f2a06f3db2bd6882b243dd00e1609def3370ac9fe4c6f",
+    "liveAndWarmLogicalLimitPassed": true,
+    "openedDocuments": 18,
+    "retainedLogicalDocuments": 15,
+    "retiredDocumentDestroyedButStillReachableAfterTwoRealBrowserGCs": true,
+    "observerUsesWeakRefsOnly": true,
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+  },
+  "candidate": {
+    "clientSourceSha256": "8340197b90ecd3646b076a902d9a3404b4774f9a00f2c5c29bc236c3e79060e4",
+    "change": "The cached connected-session accessor retains only a WeakRef to the live registry entry. Existing registry/lifecycle/auth/permission/transport checks are unchanged.",
+    "registryStillStronglyOwnsLiveWarmAndUnconfirmedRecoveryEntries": true,
+    "compiledAfterPending": true,
+    "regularBrowserRegression": "releases evicted document memory without losing persisted content or session isolation",
+    "focusedRetentionRenameAndTypesPassed": true,
+    "logs": [
+      {
+        "name": "live-tab-weak-receipt-retention-20261107.log",
+        "sha256": "08bab55f0f34014770308fc63b4d25cd73f0fabbfbe1d31af47d799f4146d871"
+      },
+      {
+        "name": "live-tab-weak-receipt-rename-20261107.log",
+        "sha256": "18c5f63794b3be252644bc232441bd5a163c21144ee4a69e11c70c4ed632a024"
+      },
+      {
+        "name": "live-tab-weak-receipt-e2e-types-20261107.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "limits": [
+    "Actual compiled after-fix eviction and new regular browser case remain required.",
+    "Full remaining 5b/5c matrix, regular test:all and release remain open.",
+    "Review Center and file-operation Undo remain excluded."
+  ]
+}
