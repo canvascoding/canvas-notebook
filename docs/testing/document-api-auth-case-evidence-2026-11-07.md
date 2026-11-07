@@ -51,6 +51,26 @@ kennzeichnet dies ausdrücklich mit `individualCaseLog: false`.
 
 ## Verbleibende Matrixarbeit
 
+### Ergänzte HTTP-Grenzen
+
+Nach diesem CI-Abgleich wurden zwei dort noch nicht vorhandene Fälle ergänzt:
+Kontosperre und Workspace-Archivierung zwischen zwei versionierten Leseseiten.
+Beide prüfen tatsächliche 403-Antworten für Read und Search. Anschließend wird
+der ursprüngliche Cursor nach regulärer Wiederherstellung der aktuellen Rechte
+mit derselben Dokument-ID, Version und dem richtigen Byteoffset fortgesetzt.
+Der abschließende Snapshotvergleich schützt die ursprünglichen Dokument-/Yjs-Daten.
+
+Der gezielte lokale Lauf besteht alle acht HTTP-/PostgreSQL-Gruppen. Der
+[separate lokale Bericht](document-api-read-current-access-2026-11-07.json)
+bindet die geänderte Testquelle und den tatsächlichen Log per SHA-256, einschließlich
+Schema-, Client-, Datei- und Bundle-Bereinigung. ESLint und die gezielte
+TypeScript-Prüfung bestehen. Die neue Quelle ist noch nicht Bestandteil des oben
+genannten CI-Laufs; dessen sechs ursprüngliche HTTP-Gruppen bleiben historische
+Belege. Dieser Lauf benötigt weder einen Container-Build noch eine UI-Abnahme,
+weil ausschließlich bestehende API-Tests erweitert wurden.
+
+### Weiterhin separat nachzuweisen
+
 Diese Zuordnung ersetzt weder die API-Key-UI-Fälle noch tatsächliche OAuth-/
 MCP-Token-Ausstellung, OS-Keyring, Schreib-/Dateioperationen oder Restore.
 Diese Nachweise müssen jeweils an ihre eigenen Quellen und Laufberichte gebunden
