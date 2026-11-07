@@ -16,13 +16,14 @@ import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspa
 import { workspacePathOperationPreview, workspacePathImportPreparationPreview } from '@/app/lib/files/workspace-path-operation-preview';
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { withWorkspaceRequestPrincipal } from '@/app/lib/workspaces/request-principal';
-import { readWorkspacePathImportPreparationPlan } from '@/app/lib/files/workspace-path-import-operation-preview';
+import { readRequestWorkspacePathImportPreparationPlan } from '@/app/lib/files/workspace-path-import-operation-preview';
 import { readRequestWorkspacePathImportOperationHistory } from '@/app/lib/files/workspace-path-import-operation-history';
 import { prepareWorkspacePathImportOperation } from '@/app/lib/files/workspace-path-import-operation';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from '@/app/lib/files/workspace-operation-batch-contract';
 import { prepareWorkspaceImplicitMoveOperation, WorkspaceImplicitMoveOperationError } from '@/app/lib/files/workspace-implicit-move-operation';
 import { workspaceImplicitMoveResponse, workspaceImplicitMoveOperationPublic } from '@/app/lib/files/workspace-implicit-move-response';
+import { captureWorkspaceOperationJobScope } from '@/app/lib/files/workspace-operation-job-scope';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -130,7 +131,9 @@ export async function POST(request: NextRequest): Promise<Response> {
               }
             }
             preparationReadOnly = true;
-            const preview = await readWorkspacePathImportPreparationPlan({ principal: selected,
+            const preview = await readRequestWorkspacePathImportPreparationPlan(original, { workspaceId: fresh.workspace.workspaceId,
+              expected: { userId: fresh.session.user.id, sessionId: fresh.session.session.id,
+                impersonatedBy: Reflect.get(fresh.session.session, 'impersonatedBy') ?? null, scope: captureWorkspaceOperationJobScope(fresh.workspace) },
               kind: input.kind, selections: input.selections });
             if (preview.readiness === 'native-ready') return null;
             if (dryRun) return { mode: 'response' as const, response: jsonSuccess({ dryRun: true,

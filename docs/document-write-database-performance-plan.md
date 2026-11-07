@@ -3673,3 +3673,21 @@ einschließlich Rechteentzug nach Busy und unveränderter Ablehnung unbestätigt
 COMMIT-Ausgänge. Sie ist in die Native-CI aufgenommen. Der Rename-Busy-Fall,
 neue kompilierte Abnahme, Gesamtsuite, aktuelle CI und Release bleiben offen.
 Review Center und Undo bleiben außerhalb der Implementierung.
+
+### Kurzzeitige Vorschau-Sperre im Original-Apply überwinden (2026-11-07)
+
+Die [begrenzte Web-Lesewiederaufnahme](testing/workspace-request-preview-read-recovery-2026-11-07.md)
+behebt den separaten Rename-/Delete-Pfad: Nur die feste Vorschaufrage beginnt nach
+bestätigtem Rollback, Close und Factory-Abschluss eine frische Original-Anmeldung.
+Benutzer, Session, Impersonation, Stamm und ursprünglicher Datenbank-Realm bleiben
+gebunden. Es gibt höchstens drei Beobachtungen; Apply und Importvorbereitung
+werden nie wiederholt. Dauerhafte Sperren, entzogene Rechte, geänderte Ursprünge
+und unbestätigte Abschlüsse bleiben abgewiesen.
+
+13 echte PostgreSQL-Gruppen und neun tatsächliche Web-Handler-/Worker-Gruppen
+bestehen. Rename und Delete überwinden darin je eine kontrollierte echte Sperre,
+ohne ursprüngliche Preview-/Operations-ID oder native Identitäten zu ersetzen.
+Bestehende Busy-/Cleanup-Regressionen bestehen; beide zusätzlichen nativen Gates
+sind in CI aufgenommen. Die gemeinsame kompilierte Abnahme mit dem Raumfreigabe-
+Fix, `test:all`, neue CI, PR-Integration und Release bleiben offen. Review Center
+und Undo bleiben außerhalb des Umfangs.

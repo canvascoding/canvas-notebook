@@ -168,10 +168,20 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
       return { status: response.status, body: JSON.parse(text) as WorkspacePathOperationResponse & {
         success: boolean; code?: string; dryRun?: true; requiresRevalidation?: true; plan?: WorkspacePathImportPreparationPreviewPublic } };
     };
-    const webPathRouteApply = async (job: Job) => {
+    const webPathRouteApply = async (job: Job, injectReadContention = false) => {
       const worker = createWorkspaceOperationBatchWorker(); let finished = false, workerFailure: unknown;
+      let origins = 0, readRollbacks = 0, held = false, contendedClient: unknown;
       const initialStates = new Map<string, { path: string; representation: string; state: Uint8Array; vector: Uint8Array; client: unknown }>();
       const pending = h.withProbe(async event => {
+        // First origin is the original-operation history read. The next is the
+        // actual preview reader, after history selected no previous operation.
+        if (injectReadContention && event.text.includes('AS token_hash') && event.text.includes('database_oid') && ++origins === 2) {
+          contendedClient = event.client; await h.admin.query('BEGIN'); held = true;
+          await h.admin.query("SELECT organization_id FROM canvas_organization_settings WHERE organization_id='principal-org' FOR NO KEY UPDATE");
+        }
+        if (held && event.client === contendedClient && event.text === 'ROLLBACK') {
+          readRollbacks++; await h.admin.query('ROLLBACK'); held = false;
+        }
         if (!/\bINSERT\s+INTO\s+collaboration_yjs_states\s*\(/iu.test(event.text)
           || event.values[1] !== h.source.workspaceId || event.values[3] !== job.source && event.values[3] !== job.incoming) return;
         assert.equal(event.result.command, 'INSERT'); assert.equal(event.result.rowCount, 1); assert.equal(event.values.length, 10);
@@ -191,10 +201,19 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
       })();
       let result: Awaited<typeof pending> | undefined, requestFailure: unknown;
       try { result = await pending; } catch (error) { requestFailure = error; }
-      finally { finished = true; await pump; } // Actual tick owns and drains its real renewal lifecycle.
+      finally {
+        finished = true;
+        if (held) { await h.admin.query('ROLLBACK'); held = false; }
+        await pump;
+      } // Actual tick owns and drains its real renewal lifecycle.
       const failures = [requestFailure, workerFailure].filter(error => error !== undefined);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, 'Web route and default worker failed.');
+      if (injectReadContention) {
+        assert.equal(readRollbacks, 1, 'One actual preview read must roll back before the same original Apply continues.');
+        console.log(JSON.stringify({ suite: 'web-path-preview-read-recovery', kind: job.kind, passed: true, readRollbacks,
+          originalOperationId: job.operationId, originalPreviewIdRetained: true }));
+      }
       assert(result); return { ...result, initialStates };
     };
     const untouched = 'web-untouched-raw.md';
@@ -289,9 +308,9 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
     };
 
     phase = 'pure rename preview then OriginalPreview-ID Apply via real default worker';
-    const moved = await webPathRouteJob('rename', 'rename'), movedResult = await webPathRouteAssertResult(moved, await webPathRouteApply(moved)); groups++;
+    const moved = await webPathRouteJob('rename', 'rename'), movedResult = await webPathRouteAssertResult(moved, await webPathRouteApply(moved, true)); groups++;
     phase = 'pure delete preview then OriginalPreview-ID Apply, native unlink and actual FD trash';
-    const deleted = await webPathRouteJob('delete', 'delete'), deletedResult = await webPathRouteAssertResult(deleted, await webPathRouteApply(deleted)); groups++;
+    const deleted = await webPathRouteJob('delete', 'delete'), deletedResult = await webPathRouteAssertResult(deleted, await webPathRouteApply(deleted, true)); groups++;
 
     phase = 'real SID-B, original preview/key and historical status without current old D2 parsing or DML';
     const oldRequest = await webPathRouteRequest('/api/files/rename', 'POST', { oldPath: moved.source, newPath: moved.destination,

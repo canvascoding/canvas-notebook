@@ -3,6 +3,7 @@ import 'server-only';
 import { isWorkspaceCohortDeleteRequest, createWorkspacePathCohortDeletePreparation, type WorkspacePathCohortDeletePreparation } from './workspace-path-cohort-delete-preparation';
 
 import { isDeepStrictEqual, types } from 'node:util';
+import { NextRequest } from 'next/server';
 import { openDb, type SqlConnection } from '../db';
 import { withWorkspaceSourceScanObserver } from '../observability/workspace-source-scan';
 import { directMcpCorrelationId } from '../mcp/server/diagnostics';
@@ -12,10 +13,11 @@ import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../coll
 import { readWorkspaceLinkSourcePreviewObservation, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
 import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
 import { isWorkspaceExternalMarkdownAutolink } from '../markdown/workspace-local-link-parser';
-import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOnConnection, withWorkspaceRequestPrincipalOriginalOrigin,
+  type WorkspaceRequestPrincipalAccess, type WorkspaceRequestHistoricalOrigin } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
-import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { createWorkspacePathImportPreparationPlanV1,
   type WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import { createWorkspacePathHtmlNoImportPreparationPlanV2,
@@ -24,6 +26,7 @@ import { createWorkspacePathHtmlNativeDeletePreparationPlanV3,
   type WorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
 import { createWorkspacePathHtmlImportPreparationPlanV4, type WorkspacePathHtmlImportPreparationPlanV4 } from './workspace-path-html-import-preparation';
 import type { WorkspacePathImportPreparationPrincipal } from './workspace-path-import-preparation-phase';
+import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 
 type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind: 'move' | 'rename' | 'delete';
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
@@ -40,6 +43,7 @@ export class WorkspacePathImportPreviewError extends Error {
       : code === 'PATH_IMPORT_PREVIEW_ACCESS_DENIED' ? 403 : 503;
   }
 }
+const retryableRequestPreviewReads = new WeakSet<WorkspacePathImportPreviewError>();
 
 /** A known non-HTML coverage gap is a blocked preview, not invalid source
  * evidence. This error carries diagnostics only and never grants a plan. */
@@ -154,10 +158,14 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           afterRollbackClosed: error => { rollbackClosedError = error; },
         });
       } catch (error) {
-        // Only a cleanly rolled-back, disposed read may become retryable. The
-        // failed principal is poisoned; callers must start a fresh request.
-        if (error === rollbackClosedError && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY') {
-          phaseFailure = new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY', { cause: error });
+        // Keep provenance private until the whole failed factory has unwound.
+        // Its poisoned principal is never reused by the fixed Web reader.
+        if (error === rollbackClosedError && (error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
+          || error instanceof WorkspacePathImportPreviewError && error.code === 'PATH_IMPORT_PREVIEW_BUSY')) {
+          const busy = error instanceof WorkspacePathImportPreviewError ? error
+            : new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY', { cause: error });
+          if (captured.principal.kind === 'request') retryableRequestPreviewReads.add(busy);
+          phaseFailure = busy;
         } else {
           phaseFailure = error;
         }
@@ -243,4 +251,56 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
   await readSources(first);
   if (failed) throw failure;
   return plan!;
+}
+
+/** Only the fixed read question may restart, after real rollback/close and
+ * factory completion. Every attempt freshly authenticates the original origin.
+ * No Apply, mutation callback or already-poisoned principal enters this loop. */
+export async function readRequestWorkspacePathImportPreparationPlan(request: NextRequest,
+  supplied: Readonly<{ workspaceId: string; kind: Input['kind']; selections: Input['selections'];
+    expected: Readonly<{ userId: string; sessionId: string; impersonatedBy: string | null;
+      scope: ReturnType<typeof captureWorkspaceOperationJobScope> }> }>
+): Promise<WorkspacePathImportPreparationPreviewPlan> {
+  const invalid = (): never => { throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID'); };
+  if (!(request instanceof NextRequest)) invalid();
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const captured = captureWorkspaceOperationNativePlanData(supplied, invalid, 16 * 1024 * 1024) as typeof supplied;
+  if (!captured || typeof captured !== 'object' || Array.isArray(captured)
+    || Object.keys(captured).length !== 4 || !['workspaceId', 'kind', 'selections', 'expected'].every(key => Object.hasOwn(captured, key))
+    || typeof captured.workspaceId !== 'string' || !captured.workspaceId || captured.workspaceId.length > 256
+    || captured.workspaceId !== captured.workspaceId.trim() || /[\u0000-\u001f\u007f]/u.test(captured.workspaceId)) invalid();
+  const expected = captured.expected;
+  if (!expected || typeof expected !== 'object' || Array.isArray(expected) || Object.keys(expected).length !== 4
+    || !['userId', 'sessionId', 'impersonatedBy', 'scope'].every(key => Object.hasOwn(expected, key))
+    || [expected.userId, expected.sessionId].some(value => typeof value !== 'string' || !value || value.length > 256
+      || value !== value.trim() || /[\u0000-\u001f\u007f]/u.test(value))
+    || expected.impersonatedBy !== null && (typeof expected.impersonatedBy !== 'string' || !expected.impersonatedBy
+      || expected.impersonatedBy.length > 256 || expected.impersonatedBy !== expected.impersonatedBy.trim()
+      || /[\u0000-\u001f\u007f]/u.test(expected.impersonatedBy))) invalid();
+  let expectedScope: ReturnType<typeof parseWorkspaceOperationJobScope>;
+  try { expectedScope = parseWorkspaceOperationJobScope(expected.scope); } catch { return invalid(); }
+  if (expectedScope.workspaceId !== captured.workspaceId) invalid();
+  let origin: WorkspaceRequestHistoricalOrigin | undefined;
+  const observe = (current: WorkspaceRequestHistoricalOrigin): void => {
+    // Expected history is a comparison bound, never an authority replacement.
+    // The genuine factory still validates all current credentials and rights.
+    if (current.userId !== expected.userId || current.sessionId !== expected.sessionId
+      || current.impersonatedBy !== expected.impersonatedBy
+      || Object.entries(expectedScope).some(([key, value]) => key !== 'version' && (Reflect.get(current, key) ?? null) !== value)
+      || origin && !isDeepStrictEqual(origin, current)) {
+      throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+    }
+    origin ??= current;
+  };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await withWorkspaceRequestPrincipalOriginalOrigin(original, { permission: 'canWrite', workspaceId: captured.workspaceId }, observe,
+        principal => readWorkspacePathImportPreparationPlan({ principal: { kind: 'request', principal },
+          kind: captured.kind, selections: captured.selections }));
+    } catch (error) {
+      if (!(error instanceof WorkspacePathImportPreviewError) || !retryableRequestPreviewReads.delete(error)
+        || !origin || attempt === 2) throw error;
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+    }
+  }
 }

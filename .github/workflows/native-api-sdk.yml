@@ -86,6 +86,8 @@ jobs:
           set -euo pipefail
           npm run test:files:preview-busy 2>&1 | tee "$RUNNER_TEMP/preview-busy-contracts.log"
           npm run test:files:preview-busy:native 2>&1 | tee "$RUNNER_TEMP/preview-busy-native.log"
+          npm run test:files:preview-read-recovery:native 2>&1 | tee "$RUNNER_TEMP/preview-read-recovery-native.log"
+          npm run test:files:path-import:web:native 2>&1 | tee "$RUNNER_TEMP/preview-read-recovery-web-routes.log"
       - name: CommonMark autolinks and source-evidence regressions
         run: |
           set -euo pipefail
@@ -152,6 +154,8 @@ jobs:
             ${{ runner.temp }}/drain-poll-native.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log
+            ${{ runner.temp }}/preview-read-recovery-native.log
+            ${{ runner.temp }}/preview-read-recovery-web-routes.log
             ${{ runner.temp }}/native-api.log
             ${{ runner.temp }}/native-excalidraw-admission.log
             ${{ runner.temp }}/native-rich-migration-read.log
