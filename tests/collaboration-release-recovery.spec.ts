@@ -85,7 +85,7 @@ for (const mobile of [false, true]) {
         };
       })).toEqual({ text: `A ${sentence}`, from: 1, to: 1, empty: true, focused: true, domCaret: true });
       await editor.press('Delete');
-      await expect(editor).toHaveText(` ${sentence}`);
+      await expect.poll(() => editor.textContent()).toBe(` ${sentence}`);
       await editor.press('Delete');
       await expect(editor).toHaveText(sentence);
       const candidate = await readNativeRichCandidate(page, selector);
