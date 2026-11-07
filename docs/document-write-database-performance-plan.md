@@ -41,7 +41,7 @@ begrenzt live verbundenen Tabs aus 5c vollständig abnehmen. Review Center und D
 Die folgenden früheren Statusabschnitte sind zeitlich gebundene Nachweise; ihre
 damaligen Offenstände werden nicht als aktueller Release-Status übernommen.
 
-Der nächste lokale Schritt nach `1cd45b618` betrifft die frische Vorbereitung
+Der lokale Produktcommit `221855194` optimiert die frische Vorbereitung
 lesender nativer Principal-Phasen: Diese verwendet bei expliziter Auswahl und
 ursprünglicher Herkunftsbeobachtung den vorhandenen einzelnen Workspace-Snapshot.
 Der echte Auth-/PG-Test misst 12 statt 16 SQL-Anweisungen vor Eintritt in die
@@ -51,9 +51,23 @@ Schreibprofile, ursprüngliche Credentials und sämtliche gehaltenen Principal-,
 Owner-, Abschluss- und Commit-Prüfungen bleiben erhalten. Sperre, Sitzungsentzug,
 Seat-Suspendierung, Archivierung sowie Entzug zwischen Capture und gehaltener
 Phase werden ausdrücklich geprüft; der Fall ist als eigener nativer CI-Schritt
-registriert. Die bestehenden 36 nativen Cookie-/Bearer-/Team-/Solo-/Lebensdauer-
-Testgruppen bestehen. Dies ist noch keine kompilierte Gesamtmessung oder ein
-veröffentlichter Fix; die dominante übrige Hintergrundlast bleibt offen.
+registriert. Inzwischen bestehen 37 native Cookie-/Bearer-/Team-/Solo-/Lebensdauer-
+Testgruppen, einschließlich gültiger Kundenbindungen in Organisations-, Team- und
+Projektworkspaces sowie fester Owner-Beobachtungen. Dafür war kein weiterer
+Produktfix erforderlich.
+
+Host-Produktionsbuild und Linux-Image von `221855194` bestehen. Die echten
+kompilierten 10-/200-Quellen-Vergleiche bestätigen dieselben gehaltenen Yjs-/Provider-
+Objekte ohne neue Session-/Dateiabrufe bei sechs warmen Wechseln: 77–90 beziehungsweise
+76–91 ms. Die separaten fünfsekündigen Diagnosefenster sinken von 596 auf 554
+beziehungsweise 603 auf 556 beobachtete PostgreSQL-Treiberaufrufe. Das ist keine
+exklusive Ursachenquote oder vollständige p95-/Lebensdauer-Abnahme; überlappende
+HTTP-, Socket- und Hintergrundarbeit bleibt im globalen Fenster enthalten.
+Geschützte Originaldaten samt `xmin`, Dateibytes und Speicherankern sowie andere
+Container sind nach beiden Läufen erhalten und der ursprüngliche Container ist
+wiederhergestellt. [Messgrenzen und Vergleichswerte](testing/native-principal-read-capture-2026-11-07.json)
+halten die weiterhin erhebliche übrige Hintergrundlast ausdrücklich offen.
+Dieser Stand ist noch nicht veröffentlicht.
 
 Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
 `release71-native-ci-current-audit.json`, `release71-publication-audit.json`
