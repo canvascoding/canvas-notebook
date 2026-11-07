@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { requireReadRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-helpers';
 import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
@@ -11,7 +11,7 @@ import { normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
 const VIEWS = new Set(['recent', 'favorites', 'frequent', 'all']);
 
 export async function GET(request: NextRequest) {
-  const result = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const result = await requireReadRequestWorkspace(request);
   if (result.response) return result.response;
   const limited = applyRateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'file-quick-access' });
   if (limited) return limited;
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const result = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const result = await requireReadRequestWorkspace(request);
   if (result.response) return result.response;
   const limited = applyRateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'file-visits' });
   if (limited) return limited;

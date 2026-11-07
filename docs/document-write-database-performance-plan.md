@@ -3291,6 +3291,22 @@ Zeilen/Bytes/Anker und andere Container sind nach beiden Läufen erhalten.
 Die Menüregression ist als `test:files:menus` in der unabhängigen Gesamtsuite
 und in der nativen CI registriert. Beleg:
 `docs/testing/live-document-menu-demand-2026-11-07.json`.
+Die folgenden drei Nebenrouten verwenden nun für eine explizite, bereits
+initialisierte Workspace-Auswahl den vorhandenen lesenden Snapshot über den
+neuen gemeinsamen `requireReadRequestWorkspace`: Dateibesuch/-liste,
+Agent-Operations und Marp-Erkennung. Echte Anmeldung, aktuelle Lizenz-/Seat- und
+Workspace-Rechte werden weiter je Anfrage geprüft; Standard-/Legacy-Auswahl
+verwenden ihren bisherigen Zugang. Die neue isolierte PostgreSQL-Quellprüfung
+besteht fünf Gruppen für die vier Handler, einschließlich unabhängiger frischer
+Sessions je Sperrfall und unveränderter nativer Zeilen/xmin. Im Quelltest ergeben
+sich 10/11/10 Statements für Marp/Operations/Dateibesuch, davon neun für echte
+Session-/Lizenz-/Seat-/JWK-Prüfung und eines für den Workspace-Snapshot; dies ist
+keine kompilierte Browser- oder Gesamtbudgetmessung. Der frühere warme Marp-
+Quellaufruf scheitert mit 21 Statements am neuen Budget. Die neue native Prüfung
+ist in der CI registriert. Aktueller Build und kompilierte Nachmessung dieses
+weiteren Fixes stehen noch aus. Beleg:
+`docs/testing/file-open-auxiliary-current-access-2026-11-07.json`.
+
 Weitere Lebenszyklus-/Recovery-Browserfälle, vollständige Ressourcenbudgets und
 aktuelles vollständiges `test:all` bleiben offen. Review Center und Undo bleiben
 außerhalb der Umsetzung.
