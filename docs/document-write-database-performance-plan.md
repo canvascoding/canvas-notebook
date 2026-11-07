@@ -3654,3 +3654,22 @@ Block-ID-, Speicher-, Reload- und Trash-Prüfungen. Keine Auswahl wird gesetzt,
 keine Mutation wiederholt, kein Fehler ignoriert und kein Fall ausgelassen.
 Die gezielte Abnahme dieser strengeren Vorbedingungen und der finale Gesamtlauf
 stehen noch aus. Produktcode, Review Center und Undo bleiben unverändert.
+
+### Belegte Raumfreigabe nicht als Zugriffsverlust melden (2026-11-07)
+
+Die strengeren Erhaltungsfälle bestehen einzeln und im regulären Browserprofil.
+Der anschließende Gesamtlauf endet dort mit 332 Erfolgen, drei Fehlern und 102
+bestehenden bedingten Auslassungen. Zwei Migrationsfeedback-Fälle verlieren nach
+einem simulierten Runtime-Ausfall die Verbindung; ein Rename-Apply meldet
+`PATH_IMPORT_PREVIEW_BUSY`. Das Kollaborationsprofil wurde über den eigenen
+Koordinator beendet und ist unvollständig. Originalstack, geschützte Zeilen samt
+`xmin`, Dateibytes, Speicheranker und fremde Container sind unverändert.
+
+Alle drei Fälle bestehen anschließend einzeln auf demselben Image, ohne Retry
+oder Skip. Ein [kontrollierter echter Socket-Test](testing/native-peer-startup-busy-2026-11-07.md)
+reproduziert jedoch die falsche AuthDenied-Zuordnung des Raum-Aktivitätszauns.
+Die eng begrenzte Serverkorrektur besteht neun echte Socket-/PostgreSQL-Gruppen,
+einschließlich Rechteentzug nach Busy und unveränderter Ablehnung unbestätigter
+COMMIT-Ausgänge. Sie ist in die Native-CI aufgenommen. Der Rename-Busy-Fall,
+neue kompilierte Abnahme, Gesamtsuite, aktuelle CI und Release bleiben offen.
+Review Center und Undo bleiben außerhalb der Implementierung.

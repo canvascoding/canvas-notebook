@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
@@ -11,24 +11,21 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../app/lib/db';
 import type { ExistingNativeSessionIdentity } from '../app/lib/collaboration/native-session-state-reader';
+import { readNativeTestDatabaseConfig, assertNativeTestDatabaseTarget } from './helpers/native-test-database-config';
 
-const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 let stage = 'private configuration';
 async function main(): Promise<void> {
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
-  assert.equal((await stat(privateEnvironment)).mode & 0o077, 0);
-  const connectionString = parse(await readFile(privateEnvironment, 'utf8')).DATABASE_URL; assert(connectionString);
-  const url = new URL(connectionString);
-  assert(['postgres:', 'postgresql:'].includes(url.protocol)); assert(['localhost','127.0.0.1'].includes(url.hostname));
-  assert.equal(url.port,'55433'); assert.equal(url.pathname,'/canvas_notebook'); assert.equal(url.search,'');
+  const config = await readNativeTestDatabaseConfig();
+  const { connectionString } = config;
+  if (config.kind === 'owned-ci') assert(!process.env.CANVAS_TEST_NATIVE_SOCKET_CASE, 'CI must execute every native Socket family.');
   const schema = `native_admission_socket_${crypto.randomUUID().replaceAll('-','')}`;
   assert.match(schema,/^native_admission_socket_[a-f0-9]{32}$/u);
   const workspaceId = `native-transport-${crypto.randomUUID()}`;
@@ -46,7 +43,7 @@ async function main(): Promise<void> {
     let cases = 0;
   try {
     await control.connect();
-    assert.equal(Math.floor(Number((await control.query("SELECT current_setting('server_version_num') AS version")).rows[0].version)/10000),18);
+    await assertNativeTestDatabaseTarget(control, config);
     await control.query(`CREATE SCHEMA "${schema}"`); created = true;
     // Set node-postgres PGOPTIONS BEFORE importing any runtime DB/Auth module.
     // No public fallback, no public-qualified epoch conversion/extension path.
@@ -80,14 +77,12 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      let scopedSql = sql;
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
         assert(sql.trim().endsWith('$main_agent_id_migration$;'));
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        scopedSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(scopedSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert(!sql.includes("table_schema = 'public'"));
       }
-      const result = await admin.query(scopedSql,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -161,6 +156,8 @@ async function main(): Promise<void> {
     const serverDisposals = new Map<import('../app/lib/collaboration/authenticated-native-session-transport').AuthenticatedNativeSessionTransport, Promise<void>>();
     let finishAbort: { documentId: string; fired: boolean; cap?: import('../app/lib/collaboration/authenticated-native-session-transport').AuthenticatedNativeSessionTransport } | undefined;
     const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+    const ownerRuntimeApi = await import('../app/lib/collaboration/room-owner-runtime');
+    let actualOwnerRuntime: ReturnType<typeof ownerRuntimeApi.createCollaborationRoomOwnerRuntime> | undefined;
     const { collaborationAdmissionLockKey } = await import('../app/lib/collaboration/room-admission-contract');
     const { NATIVE_PEER_ADMISSION_BUSY_REASON } = await import('../app/lib/collaboration/failure');
     const mobile = await import('../app/lib/mobile/collaboration-ticket');
@@ -214,7 +211,11 @@ async function main(): Promise<void> {
           await waitUntil(() => authRequests.get(input.claims.documentId)?.signal.aborted ?? false, 'Actual upgrade Request did not abort at helper transfer.');
         }
         return admitted;
-      } } : requireServer(name), { exports: product }, product);
+      } } : name === '@/app/lib/collaboration/room-owner-runtime' ? { ...ownerRuntimeApi,
+        createCollaborationRoomOwnerRuntime: (options: Parameters<typeof ownerRuntimeApi.createCollaborationRoomOwnerRuntime>[0]) => {
+          actualOwnerRuntime = ownerRuntimeApi.createCollaborationRoomOwnerRuntime(options);
+          return actualOwnerRuntime;
+        } } : requireServer(name), { exports: product }, product);
     const server = http.createServer((_request, response) => { response.statusCode = 404; response.end(); });
     const sockets = new Set<WebSocket>(), documents = new Map<string, import('@hocuspocus/server').Document>();
     const ownSockets = new Map<string, WebSocket>(), authRequests = new Map<string, Request>(), createdDocs = new Set<InstanceType<typeof Y.Doc>>();
@@ -271,12 +272,49 @@ async function main(): Promise<void> {
     };
     const hold = async (kind: 'capture'|'join', release: boolean) => {
       const holding = await ownClient(); await holding.query('BEGIN');
-      if (kind === 'capture') await holding.query('LOCK TABLE canvas_project_members IN SHARE MODE');
+      if (kind === 'capture') await holding.query('LOCK TABLE canvas_project_members IN ROW EXCLUSIVE MODE');
       else await holding.query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
       barrier = { kind, release, rollbacks: 0, begins: 0, closes: 0, commits: 0, closedBeforeNext: true, holding };
     };
     const release = async () => { const held = barrier?.holding; barrier = undefined; if (held) { await held.query('ROLLBACK'); await held.end(); clients.delete(held); } };
     try {
+      await check('actual room activity drain reports Busy without revoking access, then admits a fresh peer', async () => {
+        const native = await seed('activity-drain'); await writeFile(path.join(actualRoot, native.identity.path), 'ABC');
+        assert(actualOwnerRuntime);
+        const snapshot = async () => (await control.query(`SELECT to_jsonb(s) AS state,s.xmin::text AS xmin
+          FROM "${schema}".collaboration_yjs_states s WHERE s.document_id=$1`, [native.identity.documentId])).rows;
+        const before = await snapshot();
+        // This is the same genuine in-process barrier used by normal unload;
+        // it neither changes native state nor substitutes authentication.
+        const drain = actualOwnerRuntime.beginActivityDrain(native.identity.documentId);
+        try {
+          await drain.idle;
+          const peer = await authSocket(native.identity);
+          try {
+            assert.equal(peer.denied, NATIVE_PEER_ADMISSION_BUSY_REASON);
+            assert(!documents.has(native.identity.documentId));
+            assert.equal(peer.messages.some(message => message.body?.type === 'access_revoked'), false);
+            assert.deepEqual(await snapshot(), before);
+          } finally { peer.socket.close(); peer.doc.destroy(); }
+        } finally { drain.finish(); }
+        // Busy never authenticates a subsequent attempt. Revoke the actual
+        // original credential before opening another real Socket.
+        await admin.query('UPDATE session SET token=$1 WHERE id=$2', [crypto.randomBytes(32).toString('hex'), 'session-owner']);
+        try {
+          const revoked = await authSocket(native.identity);
+          try {
+            assert(revoked.denied);
+            assert.notEqual(revoked.denied, NATIVE_PEER_ADMISSION_BUSY_REASON);
+            assert(!documents.has(native.identity.documentId));
+            assert.deepEqual(await snapshot(), before);
+          } finally { revoked.socket.close(); revoked.doc.destroy(); }
+        } finally { await admin.query('UPDATE session SET token=$1 WHERE id=$2', [tokens.owner, 'session-owner']); }
+        const resumed = await authSocket(native.identity);
+        try { assert.equal(resumed.denied, undefined); assert.equal(resumed.doc.getText('content').toString(), 'ABC'); }
+        finally { resumed.socket.close(); resumed.doc.destroy(); }
+        await waitUntil(() => !actualRuntime.hocuspocus?.documents.get(native.identity.documentId)?.getConnectionsCount(), 'Own resumed peer did not disconnect.');
+        await product.flushCollaborationDocuments();
+      });
       for (const mobileMode of [false, true]) for (const transient of [true, false]) await check(`actual ${mobileMode?'Mobile single-use':'Web cookie'} ${transient?'transient':'durable'} admission Busy has genuine private Auth wire`, async () => {
         const native = await seed(`admission-${mobileMode}-${transient}`); await writeFile(path.join(actualRoot, native.identity.path), 'ABC');
         let ticket: string|undefined;
@@ -359,6 +397,8 @@ async function main(): Promise<void> {
           assert.throws(() => transportApi.adoptAuthenticatedNativePeerOrigin(finishAbort!.cap!));
         } finally { if (finishAbort?.cap) await transportApi.disposeAuthenticatedNativeSessionTransport(finishAbort.cap); finishAbort = undefined; }
       });
+      if (!process.env.CANVAS_TEST_NATIVE_SOCKET_CASE) assert.equal(cases, 9);
+      else assert(cases > 0, 'The selected native Socket family must actually execute.');
       assert.equal(fetches, 0); console.log(`Native admission actual RawSocket PG18: ${cases} families passed.`);
     } finally {
       await release(); for (const socket of sockets) socket.terminate();
