@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "parentCommit": "1bcd8a32f0ce8c3e602e44097ccb8f501308046e",
+  "source": "scripts/document-link-write-parity-postgres-test.ts",
+  "sourceSha256": "11ee22dcb29ca585590e9ac1ed7e0c635d69f127b98090f61c44875ee5e15d9f",
+  "logBasename": "agent-link-parity-ci-entry-20261107.log",
+  "logSha256": "84f057aafc412fe9853048b8fa72f43ccc0fcac1600fd38571f9e6f52f487222",
+  "exitCode": 0,
+  "selection": "agent-registry",
+  "requiresInstalledPythonForThisProfile": false,
+  "groupsPassed": 6,
+  "phases": [
+    "baseline",
+    "target alias and title changed",
+    "alias became ambiguous",
+    "alias became unique",
+    "previously missing target created",
+    "target title changed again"
+  ],
+  "actualRegisteredAgentTools": [
+    "edit_file",
+    "write"
+  ],
+  "realArgumentValidationAndExecutionWrapper": true,
+  "actualPostgres": true,
+  "fullRebuildParityAfterEachPhase": true,
+  "protectedSourceRowsXminYjsAndFileBytesPreserved": true,
+  "runtimeClosed": true,
+  "bundleRemoved": true,
+  "compiledNext": false,
+  "browserOrModelTurn": false,
+  "reviewCenterEnabled": false,
+  "undoEnabled": false,
+  "productionWrites": false,
+  "schemaRemoved": true,
+  "poolClosed": true,
+  "clientsClosed": true,
+  "dataRemoved": true,
+  "externalFetches": 0
+}

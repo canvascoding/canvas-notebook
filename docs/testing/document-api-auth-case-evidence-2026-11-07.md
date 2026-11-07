@@ -82,6 +82,25 @@ Verweigerung. Die bereits vorhandene Suite war nicht im Native-API-/SDK-Workflow
 registriert und erhält dort nun einen eigenen Schritt mit archiviertem Log.
 Dieser Quelllauf ist keine kompilierte Browser-/OAuth- oder OS-Sandbox-Abnahme.
 
+Der zusätzliche [Agent-Linkabgleich](document-agent-link-parity-evidence-2026-11-07.json)
+besteht sechs Phasen im selben vorhandenen Link-Paritätsprüfer. Ein über die
+reguläre Factory angelegtes persönliches Agent-Profil und eine eigene echte
+Pi-Sitzung verwenden `getPiTools`, Argumentvorbereitung, Schema-Validierung und
+den tatsächlichen Registry-Wrapper. Vier `edit_file`-Mutationen ändern Aliase und
+Titel; `write` legt das zuvor fehlende Ziel an. Nach jeder Phase stimmt der
+inkrementelle HTTP-Linkindex exakt mit dem vollständigen Neuaufbau überein.
+Die verlinkende Quelle bleibt einschließlich nativer Zeilen, `xmin` und Dateibytes
+unverändert. Es gibt keinen Modellaufruf und keinen gemounteten Browsereditor.
+
+Der CI-Einstieg prüft dieses sprachunabhängige Agent-Profil einmal vor den
+Python-Lanes, ohne eine installierte Python-Umgebung vorauszusetzen. Der gezielte
+Lauf dieses exakten Einstiegs besteht; ESLint, TypeScript und Actionlint bestehen.
+Die vier bisherigen Key-REST-/MCP-/SDK-Profile bleiben die unveränderte
+Standardauswahl mit 24 Gruppen pro Python-Lane. `CANVAS_LINK_PARITY_TRANSPORT`
+erlaubt eine ausdrücklich benannte lokale Profilwahl; jeder Bericht nennt die
+tatsächlich ausgeführte Auswahl und Gruppenzahl. Editor-Mutationen und
+Move-/Rename-Parität sind durch diesen Agent-Edit-/Create-Lauf nicht bewiesen.
+
 ### SDK-Speicherverträge und übrige Matrix
 
 Die neue `test_credential_storage.py` ergänzt sechs mechanische Vertragsfälle am
