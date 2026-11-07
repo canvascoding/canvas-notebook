@@ -228,6 +228,9 @@ test('the editor agent entry summarizes status and routes review actions to the 
       actorId: 'agent', actionsAllowed: true, appliedTargetIds: ['target'], targetAnchors: [], conflicts: [] },
   ];
   const ui = await compile<typeof OperationsUi>('app/components/editor/CollaborationAgentOperations.tsx', {
+    '@/app/components/file-version-center/DocumentReviewAvailabilityProvider': {
+      useDocumentReviewAvailability: () => ({ documentReviewEnabled: true }),
+    },
     react: { ...React, useState: (initial: unknown) => {
       const actual = React.useState(initial);
       return Array.isArray(initial) ? [current, () => {}] : actual;

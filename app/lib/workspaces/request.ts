@@ -149,6 +149,16 @@ export async function requireRequestWorkspace(
   return result;
 }
 
+/** Read access to an established selection must not repeat organization setup.
+ * Default and legacy selections retain their original initialization/recovery
+ * path. Every request still authenticates and reads current workspace rights. */
+export async function requireReadRequestWorkspace(request: NextRequest): Promise<RequestWorkspaceResult> {
+  const workspaceId = requestedWorkspaceIdFromRequest(request);
+  return workspaceId && workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID
+    ? requireExistingDocumentReadRequestWorkspace(request, workspaceId)
+    : requireRequestWorkspace(request, { permissions: 'canRead' });
+}
+
 /** Fixed native request path for an explicit, already initialized selection.
  * No caller session/actor/resolver or bootstrap/default-workspace fallback. */
 export async function requireExistingSelectedRequestWorkspace(

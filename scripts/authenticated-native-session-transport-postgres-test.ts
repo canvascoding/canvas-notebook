@@ -195,6 +195,55 @@ async function main(): Promise<void> {
         if (userId === 'member') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'");
       }
     };
+    await check('valid customer bindings retain original transport access across workspace types', async () => {
+      const customerId = `positive-customer-${crypto.randomUUID()}`, projectId = `positive-project-${crypto.randomUUID()}`;
+      const original = (await admin.query('SELECT type,customer_id,project_id FROM canvas_workspaces WHERE id=$1', [workspaceId])).rows[0];
+      await admin.query(`INSERT INTO canvas_customers(id,organization_id,name,slug,status,created_at,updated_at)
+        VALUES($1,'principal-org','Customer access','customer-access','active',100,100)`, [customerId]);
+      await admin.query(`INSERT INTO canvas_projects(id,organization_id,customer_id,name,slug,status,created_at,updated_at)
+        VALUES($1,'principal-org',$2,'Project access','project-access','active',100,100)`, [projectId, customerId]);
+      try {
+        for (const workspaceType of ['organization', 'team', 'project']) {
+          await admin.query('UPDATE canvas_workspaces SET type=$2,customer_id=$3,project_id=$4 WHERE id=$1',
+            [workspaceId, workspaceType, customerId, workspaceType === 'project' ? projectId : null]);
+          await admin.query('UPDATE collaboration_documents SET workspace_type=$2 WHERE workspace_id=$1', [workspaceId, workspaceType]);
+          await admin.query('UPDATE file_collaboration_lineages SET workspace_type=$2 WHERE workspace_id=$1', [workspaceId, workspaceType]);
+          const before = await stored(native.identity);
+          for (const cookie of [false, true]) {
+            stage = `valid customer binding ${workspaceType} ${cookie ? 'Cookie' : 'Bearer'} enrollment`;
+            const cap = await captured('owner', 'canWrite', cookie);
+            try {
+              stage = `valid customer binding ${workspaceType} ${cookie ? 'Cookie' : 'Bearer'} read`;
+              await read(cap, async (doc, access) => {
+                assert.equal(doc.snapshot.documentId, native.identity.documentId);
+                assert.equal(access.workspace.workspaceType, workspaceType);
+                assert.equal(access.workspace.customerId, customerId);
+                assert.equal(access.workspace.projectId ?? null, workspaceType === 'project' ? projectId : null);
+                await access.assertCurrent();
+              });
+            } finally { await dispose(cap); }
+          }
+          assert.deepEqual(await stored(native.identity), before);
+          if (workspaceType === 'organization') await withOwned(async ({ cap, identity, fence }) => {
+            const beforeOwned = await stored(identity);
+            for (const permission of ['canRead', 'canWrite'] as const) {
+              const observed = await transaction(db => ownedTransport.withAuthenticatedOwnedNativeSessionTransportOnConnection(
+                db, cap, { permission, identity, ownerFence: fence }));
+              assert.equal(observed.workspace.customerId, customerId);
+              assert.equal(observed.quarantined, false);
+            }
+            assert.deepEqual(await stored(identity), beforeOwned);
+          });
+        }
+      } finally {
+        await admin.query('UPDATE canvas_workspaces SET type=$2,customer_id=$3,project_id=$4 WHERE id=$1',
+          [workspaceId, original.type, original.customer_id, original.project_id]);
+        await admin.query('UPDATE collaboration_documents SET workspace_type=$2 WHERE workspace_id=$1', [workspaceId, original.type]);
+        await admin.query('UPDATE file_collaboration_lineages SET workspace_type=$2 WHERE workspace_id=$1', [workspaceId, original.type]);
+        await admin.query('DELETE FROM canvas_projects WHERE id=$1', [projectId]);
+        await admin.query('DELETE FROM canvas_customers WHERE id=$1', [customerId]);
+      }
+    });
     await check('fixed owned read/write observations match borrowed results without retaining a facade and use fewer SQL statements', async () => {
       await withOwned(async ({ cap, identity, fence }) => {
         const before = await stored(identity);

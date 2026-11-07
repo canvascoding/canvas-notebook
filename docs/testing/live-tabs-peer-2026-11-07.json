@@ -1,0 +1,125 @@
+{
+  "compiledProductSource": "22185519436e116beda520fddc197886f0132a0b",
+  "checkoutBeforeTestRegistration": "c435613f67ff0451fd3502e01dcfc92348b043f0",
+  "imageId": "sha256:06d257b9dc4a912a4949dae59f07e6fc011e139d9993929e2e5e09e500122394",
+  "networkMocking": false,
+  "productChangesRequiredForTheseCases": false,
+  "sameUserTwoSession": {
+    "passed": true,
+    "evidence": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794058349365-result.json",
+    "evidenceSha256": "ee38625e5d106b6a867247106ed3d37ebd002e54273e1099133f467dbcfc28d3",
+    "inactiveUpdate": {
+      "separateBrowserContexts": true,
+      "separateAuthenticatedSessions": true,
+      "sameUser": true,
+      "primaryStillOnA": true,
+      "inactiveYDocUpdatedBeforeActivation": true,
+      "exactPeerTextInInactiveYDoc": true,
+      "actualUIEdit": true,
+      "actualNativeReadConfirmsPersistedText": true,
+      "samePrimaryYDoc": true,
+      "samePrimaryProvider": true
+    },
+    "cleanup": {
+      "originalNativeTextRestored": true,
+      "unknownMutationReplays": 0
+    },
+    "warmSwitchMs": 88
+  },
+  "twoDistinctFixtureUsers": {
+    "passed": true,
+    "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tab-regular-run-ig773r/report.json",
+    "stats": {
+      "startTime": "2026-11-07T14:07:28.721Z",
+      "duration": 40303.419,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "draftSpecSha256": "5cf0e5d3bbed7c9f80620c60aaa5418aeff70a12116c6a90ae56ea239ca10ee1",
+    "registeredCaseBodySha256": "433fb7b7de5ce3d9d8a6fdb873cee20005f209a10133f2b1f7bf893dc50f6207",
+    "registeredIn": "tests/file-live-collaboration.spec.ts",
+    "selectedByExistingRegularCollaborationProfile": true,
+    "freshLinuxNamedDataVolume": true,
+    "initialStorageBindingVerified": true,
+    "originalRuntimeAndProtectedDataPreserved": true,
+    "wholeControllerPassed": false,
+    "controllerLimit": "After the passing UI case, its Node host health read failed to connect. This is retained as a failed observation and independently verified below; the UI case is not replayed."
+  },
+  "postCaseHealth": {
+    "passed": true,
+    "evidence": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794060855054-result.json",
+    "evidenceSha256": "a9dc7ca56c70e27c1fb10372e2b28b35dba427fb1e44726aa02a1929a4dff0b6",
+    "uiRegressionReplayed": false,
+    "nativeStorageAnchorRoots": "ok",
+    "actualHealthSnapshot": {
+      "status": "healthy",
+      "checks": {
+        "app": "ok",
+        "databaseProvider": "ok",
+        "auth": "ok",
+        "mcp": "ok",
+        "nativeStorageAnchorRoots": "ok",
+        "db": "ok",
+        "collaboration": "ok"
+      },
+      "database": {
+        "provider": "postgres",
+        "requestedProvider": "postgres",
+        "vectorProvider": "pgvector",
+        "runtimeAdapter": "postgres",
+        "postgres": {
+          "databaseUrlConfigured": true,
+          "databaseUrlProtocol": "postgresql",
+          "pgvectorEnabled": true,
+          "imageConfigured": false,
+          "dataVolumeConfigured": false
+        },
+        "blockers": [],
+        "warnings": []
+      },
+      "deployment": {
+        "mode": "team",
+        "teamFeaturesEnabled": true
+      },
+      "collaboration": {
+        "enabled": true,
+        "websocketReady": true,
+        "persistenceReady": true,
+        "excalidrawWebsocketReady": true,
+        "scenePersistenceReady": true,
+        "assetStoreReady": true,
+        "capabilityReady": true,
+        "updatedAt": 1794060920984,
+        "projection": {
+          "active": 1,
+          "identityConflicts": 0,
+          "quarantined": 0,
+          "pending": 0,
+          "binaryPersistenceFailures": 0,
+          "inactiveWorkspaceStates": 0
+        }
+      },
+      "mcp": {
+        "status": "disabled",
+        "code": "MCP_DISABLED"
+      },
+      "timestamp": "2026-11-07T14:15:20.984Z"
+    },
+    "originalRuntimeAndProtectedDataPreserved": true
+  },
+  "limits": [
+    "Two-user timing includes setup and cleanup and is not a tab-switch latency measurement.",
+    "Earlier peer probes exposed cursor-placement and cursor-label observer mistakes; no product repair is inferred from these harness failures.",
+    "The previous macOS-bind Team fixture has mismatching stored root anchors and remains unchanged. New acceptance uses a fresh marked Linux data volume.",
+    "Remaining lifecycle, recovery, authorization/resource and full test:all acceptance remain open.",
+    "Review Center and file-operation Undo remain excluded."
+  ],
+  "goalComplete": false,
+  "uiScreenshot": {
+    "path": "docs/testing/live-tabs-peer-2026-11-07.png",
+    "sha256": "f31f87483871788f20d7b71f1a0cf16f7b195d4c077ecb61fbf04d94ede41b7f",
+    "case": "same-user two-session actual browser after native-confirmed test-text cleanup"
+  }
+}

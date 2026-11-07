@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 await withNativeCopyMetadataOwnerFixture(async h => {
   const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
   const { createCollaborationRoomOwnerOptions } = await import('../app/lib/collaboration/room-owner-options');
+  const { createCollaborationRoomAdmissionWorker } = await import('../app/lib/collaboration/room-admission-worker');
+  const { createCollaborationAdmissionService } = await import('../app/lib/collaboration/room-admission');
   const { openDb } = await import('../app/lib/db');
   const timeouts = async () => {
     const connection = await openDb();
@@ -51,7 +54,52 @@ await withNativeCopyMetadataOwnerFixture(async h => {
     } finally { await h.admin.query('ROLLBACK'); }
     assert.deepEqual(await poll([fence]), [], 'A bounded failed poll must release its transaction and permit the next observation.');
     assert.deepEqual(await timeouts(), initialTimeouts, 'Local poll bounds must not leak into the next pooled transaction.');
-    await owner.release(fence);
+    const state = (await h.admin.query('SELECT yjs_state,state_vector FROM collaboration_yjs_states WHERE document_id=$1',
+      [native.documentId])).rows[0];
+    assert(Buffer.isBuffer(state.yjs_state) && Buffer.isBuffer(state.state_vector));
+    let owned = true;
+    const emptyPolls: number[] = [], workerErrors: unknown[] = [];
+    const worker = createCollaborationRoomAdmissionWorker({
+      pollMs: createCollaborationRoomOwnerOptions().admission.pollMs,
+      getOwnedFences: () => owned ? [fence] : [],
+      pendingDrains: async fences => {
+        const tickets = await poll(fences);
+        if (!tickets.length) emptyPolls.push(performance.now());
+        return tickets;
+      },
+      drain: async ticket => {
+        await owner.release(fence, { releaseId: ticket.releaseId, admission: ticket,
+          yjsState: state.yjs_state, stateVector: state.state_vector });
+        owned = false;
+      },
+      onError: error => { workerErrors.push(error); },
+    });
+    const waitFor = async (probe: () => boolean) => {
+      const deadline = performance.now() + 5000;
+      while (!probe()) {
+        assert(performance.now() < deadline, 'The real durable worker must make bounded progress.');
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    };
+    let observedWithoutWake = false;
+    try {
+      await waitFor(() => emptyPolls.length >= 3);
+      assert(emptyPolls[1] - emptyPolls[0] >= 450 && emptyPolls[2] - emptyPolls[1] >= 900,
+        'Successful empty PostgreSQL observations must reach the bounded idle cadence.');
+      const admission = createCollaborationAdmissionService({ openConnection: openDb });
+      const request = { requestId: randomUUID(), actorId: 'member', action: 'move' as const,
+        actionDigest: 'a'.repeat(64), scopes: [{ workspaceId: fence.scope.workspaceId,
+          organizationId: fence.scope.organizationId, path: fence.scope.path, kind: 'exact' as const }],
+        expectedDocuments: [{ ...fence.scope, status: 'active' as const }] };
+      await admission.reserve(request);
+      const ticket = await admission.startDrain(request, native.documentId);
+      // Deliberately send no wake. Read the real durable queue and release the
+      // genuine owner with its exact native state and atomic receipt/ack.
+      await waitFor(() => !owned);
+      assert.deepEqual(await admission.readDrain(ticket), { ticket, status: 'released' });
+      assert.deepEqual(workerErrors, []);
+      observedWithoutWake = true;
+    } finally { worker.dispose(); }
     const after = (await h.admin.query('SELECT row_to_json(s) AS value FROM collaboration_yjs_states s WHERE document_id=$1',
       [native.documentId])).rows[0].value;
     // Acquiring/releasing the real owner intentionally changes only owner metadata.
@@ -59,8 +107,9 @@ await withNativeCopyMetadataOwnerFixture(async h => {
       delete after[field]; delete before.value[field];
     }
     assert.deepEqual(after, before.value, 'Polling must not alter source bytes, versions, projections or quarantine state.');
-    console.log(JSON.stringify({ suite: 'collaboration-drain-poll-postgres', passed: true, groups: 7,
+    console.log(JSON.stringify({ suite: 'collaboration-drain-poll-postgres', passed: true, groups: 8,
       emptyPollStatements: queries.length, emptyPollClients: clients.size, missingTablesFailClosed: 3,
-      actualSchemaLockTimeout: true, pooledTimeoutsPreserved: true, protectedNativeStatePreserved: true, compiledBrowser: false }));
+      actualSchemaLockTimeout: true, pooledTimeoutsPreserved: true, protectedNativeStatePreserved: true,
+      idleBackoffObservedWithRealPostgres: true, durableDrainWithoutWake: observedWithoutWake, compiledBrowser: false }));
   } finally { await owner.close(); }
 });

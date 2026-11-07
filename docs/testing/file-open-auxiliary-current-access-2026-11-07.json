@@ -1,0 +1,78 @@
+{
+  "baselineSourceSha": "102c8d07f738799b55c438adc84f6081a68a0ed2",
+  "scope": "NextRequest/source handlers with genuine Better Auth and owned PostgreSQL18 fixture; no TCP transport in this test.",
+  "sourceSha256": {
+    "app/lib/workspaces/request.ts": "a1813bb7a825fb74f569511bdcd246604dd7f333ab08b8502a78c1a24a3ecb94",
+    "app/api/files/quick-access/route.ts": "1f8012508bd8c55df49a9f4b2c28347dc786a07bcc30186d357d336aa621ea61",
+    "app/api/files/collaboration/operations/route.ts": "244f58c8ce57430b8da911bba6ed9ecb28f122921c19d147e73cc8bf3380597b",
+    "app/api/files/marp-detect/route.ts": "d7ef95ec87a197140bc272453949652028cddb94b6a40cf0bebe381560a96a96",
+    "scripts/file-open-auxiliary-http-postgres-test.ts": "708fb55ae65f0d458c98b793123c84905d5f693866b60cc91d0973498ae10fdf"
+  },
+  "change": "Use current read-only workspace snapshot for an explicit initialized selection, preserving existing default/legacy resolution. No authentication cache or caller-supplied authority.",
+  "regression": {
+    "command": "npm run test:files:open-auxiliary:native",
+    "groupsPassed": 5,
+    "red": "Warm Marp source-handler call used 21 SQL statements and exceeded its10-statement budget",
+    "sourceFixtureWarmStatements": {
+      "marp": 10,
+      "agentOperations": 11,
+      "recordVisit": 10
+    },
+    "sourceFixtureAuthBoundary": "Nine genuine session/license/seat/JWK statements, one workspace permission snapshot, and one optional operations lookup; no workspace bootstrap transaction",
+    "gates": [
+      "missing session",
+      "unknown workspace",
+      "current ban with independently fresh real session per endpoint",
+      "current seat suspension with independently fresh real session per endpoint",
+      "current workspace archive with independently fresh real session per endpoint",
+      "revoked prior session token",
+      "fresh-session recovery after restoring access",
+      "exact selected/default/legacy WorkspaceContext equivalence",
+      "header precedence over query selection"
+    ],
+    "endpoints": [
+      "GET /api/files/marp-detect",
+      "GET /api/files/collaboration/operations",
+      "POST /api/files/quick-access",
+      "GET /api/files/quick-access"
+    ],
+    "nativeRowsAndXminPreserved": true,
+    "fixtureClosed": {
+      "schemaRemoved": true,
+      "clientsClosed": true,
+      "dataRemoved": true
+    },
+    "logs": {
+      "red": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/file-open-auxiliary-red-20261107-attempt2.log",
+        "sha256": "5bc8ba862fcc1c29b41ec3452f239ea6c6440728ddd9f3e720d6f5917796a52e"
+      },
+      "green": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/file-open-auxiliary-registered-20261107-attempt2.log",
+        "sha256": "88ce42a61d012b224020cf92e21a2135ed0d2480ded4aef7550880c62f4870c3"
+      },
+      "types": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/file-open-auxiliary-types-20261107-attempt3.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "lint": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/file-open-auxiliary-lint-20261107-attempt3.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "ciRegistration": {
+    "workflow": ".github/workflows/native-api-sdk.yml",
+    "step": "Document-open auxiliary permissions and query budgets",
+    "artifact": "document-open-auxiliary.log"
+  },
+  "limits": {
+    "compiledBrowserAfterChange": true,
+    "productionSQLBudgetAfterChangeMeasured": false,
+    "fullTestAllAfterChange": false,
+    "reviewCenterAndUndoChanged": false,
+    "scopeOfCompiledEvidence": "Owned10/200-source local fixtures; production was not measured or modified."
+  },
+  "compiledSourceSha": "620dbc298b36c45164be8db1ed4c4b0edc9e9c10",
+  "compiledBrowserEvidence": "docs/testing/document-open-background-sql-2026-11-07.json"
+}

@@ -1,6 +1,6 @@
 # Canvas Notebook Python
 
-SDK version `0.1.1` targets the native document tools of compatible Canvas Notebook releases. Download the wheel and its checksum from [Notebook and SDK releases](https://github.com/canvascoding/canvas-notebook/releases). The repository’s Sustainable Use License is included in `LICENSE`.
+SDK version `0.1.2` is in development and targets the native document tools of compatible Canvas Notebook releases. The published version remains `0.1.1`; download its wheel and checksum from [Notebook and SDK releases](https://github.com/canvascoding/canvas-notebook/releases). The repository’s Sustainable Use License is included in `LICENSE`.
 
 The package delegates document identity, versions, permissions, Yjs edits, history and link handling to Canvas. It never edits a workspace `.md` projection or constructs Yjs updates.
 

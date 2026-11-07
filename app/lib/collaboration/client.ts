@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { IndexeddbPersistence } from 'y-indexeddb';
@@ -12,12 +12,13 @@ import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from 
 import type { CurrentFile } from '../files/types';
 import { hasStoredLocalDocument } from './local-document';
 import { installCodeMarkConflictPolicy } from './code-mark-policy';
-import { fetchLiveDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, isLocalOpenedDocumentSession,
+import { fetchLiveDocument, findConnectedOpenedDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, isLocalOpenedDocumentSession,
   isOpenedDocumentAuthCurrent, LiveDocumentNetworkError, localOpenedDocumentReceipt, localOpenedDocumentSession,
-  openedDocumentAuthScope, openedDocumentRequestRevision, rememberOpenedLiveDocument, sameOpenedDocumentSession, subscribeOpenedDocumentAuthInvalidation,
+  openedDocumentAuthScope, openedDocumentSessionScope, openedDocumentRequestRevision, rememberOpenedLiveDocument, sameOpenedDocumentSession, subscribeOpenedDocumentAuthInvalidation,
   validateOpenedLiveDocumentSession, hasCurrentOpenedDocumentSessionAuthorization, hasOpenedDocumentLocationSessionReceipt,
   type OpenedDocumentAuthScope } from './opened-document-registry';
 import { createDocumentAwarenessLease } from './document-awareness';
+import { openedDocumentRetentionLimits, planOpenedDocumentRetention, type OpenedDocumentRetentionTier } from './open-document-retention';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
@@ -82,6 +83,14 @@ type RegistryEntry = {
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   parkedAt?: number;
+  tabOwned?: boolean;
+  retentionTier?: OpenedDocumentRetentionTier;
+  lastActivatedAt?: number;
+  backgroundSince?: number;
+  retentionEncodedBytes?: number;
+  retentionConnectionReady?: boolean;
+  retentionReauthenticating?: boolean;
+  visibilityPaused?: boolean;
   cleanupPromise?: Promise<void>;
   startPromise: Promise<void>;
   startProvider?: () => void;
@@ -122,6 +131,178 @@ const registry = new Map<string, RegistryEntry>();
 const PARKED_TEXT_LIMIT = 3;
 const PARKED_TEXT_BYTES = 1024 * 1024;
 const PARKED_TEXT_MS = 15_000;
+let tabOwnership: { workspaceId: string; activePath: string | null; scope: OpenedDocumentAuthScope | null;
+  documents: Readonly<Record<string, string | null | undefined>> } | null = null;
+let tabRetentionObserved = false, tabRetentionEnabled = true, tabRetentionConstrained = false;
+let retentionQueued = false, retentionTimer: ReturnType<typeof setTimeout> | undefined;
+let hiddenSince: number | undefined, stopRetentionObservation: (() => void) | undefined;
+const retentionNow = () => performance.now();
+
+/** Declares UI ownership only. It never opens a tab or authorizes a provider. */
+export function updateOpenedCollaborationTabs(input: {
+  workspaceId: string; activePath: string | null; paths: readonly string[]; documentIds?: Readonly<Record<string, string | null | undefined>>;
+  constrained: boolean; enabled?: boolean;
+}): void {
+  tabRetentionObserved = true; tabRetentionEnabled = input.enabled !== false; tabRetentionConstrained = input.constrained;
+  tabOwnership = { workspaceId: input.workspaceId, activePath: input.activePath, scope: openedDocumentAuthScope(),
+    documents: Object.fromEntries(input.paths.map(path => [path, input.documentIds?.[path]])) };
+  for (const entry of registry.values()) {
+    if (entry.key.split('\0')[0] === input.workspaceId) entry.tabOwned = currentTabOwnsEntry(entry);
+  }
+  if (!stopRetentionObservation && typeof document !== 'undefined') {
+    const visibility = () => { hiddenSince = document.hidden ? hiddenSince ?? retentionNow() : undefined; scheduleDocumentRetention(); };
+    document.addEventListener('visibilitychange', visibility); visibility();
+    const removeAuth = subscribeOpenedDocumentAuthInvalidation(() => {
+      tabOwnership = null;
+      for (const entry of registry.values()) {
+        entry.tabOwned = false;
+        if (entry.authScope && !isOpenedDocumentAuthCurrent(entry.authScope)) {
+          detachEntryTransport(entry);
+          if (entry.session) entry.session = { ...entry.session, permission: 'read' };
+          transition(entry, { type: 'authentication_failed', message: 'The signed-in session changed. Local changes are preserved.' });
+        }
+      }
+      scheduleDocumentRetention();
+    });
+    stopRetentionObservation = () => { document.removeEventListener('visibilitychange', visibility); removeAuth(); };
+  }
+  scheduleDocumentRetention();
+}
+
+export function clearOpenedCollaborationTabs(): void {
+  tabOwnership = null;
+  for (const entry of registry.values()) entry.tabOwned = false;
+  stopRetentionObservation?.(); stopRetentionObservation = undefined;
+  scheduleDocumentRetention();
+}
+
+function currentTabOwnsEntry(entry: RegistryEntry): boolean {
+  return Boolean(tabOwnership && tabOwnership.workspaceId === entry.key.split('\0')[0]
+    && tabOwnership.scope === entry.authScope && isOpenedDocumentAuthCurrent(entry.authScope)
+    && entry.session && tabOwnership.documents[entry.path] === entry.session.documentId);
+}
+
+function currentTabActivatesEntry(entry: RegistryEntry): boolean {
+  return currentTabOwnsEntry(entry) && tabOwnership?.activePath === entry.path;
+}
+
+function detachEntryTransport(entry: RegistryEntry): void {
+  entry.parkedAt ??= Date.now();
+  entry.requests.abort();
+  if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+  entry.tokenRetryTimer = undefined;
+  entry.retentionConnectionReady = false;
+  entry.retentionReauthenticating = false;
+  entry.visibilityPaused = false;
+  entry.provider?.destroy(); entry.provider = null;
+}
+
+/** Retire the old request scope before the existing provider/token path obtains
+ * fresh HTTP authority. Neither a retained Y.Doc nor this helper grants access. */
+function startFreshEntryTransport(entry: RegistryEntry, retentionReauthenticating = false): void {
+  detachEntryTransport(entry);
+  entry.retentionReauthenticating = retentionReauthenticating;
+  entry.parkedAt = undefined;
+  entry.requests = new AbortController();
+  entry.checkpointPromise = undefined;
+  entry.requiresFreshSession = true;
+  entry.startProvider?.();
+}
+
+function restoreEntryPresence(entry: RegistryEntry): void {
+  const session = entry.session;
+  if (!session || !entry.provider) return;
+  entry.provider.setAwarenessField('canvas', { userId: session.user.id, displayName: session.user.name,
+    color: session.user.color, colorLight: session.user.colorLight, activity: session.permission === 'write' ? 'editing' : 'viewing' });
+}
+
+function scheduleDocumentRetention(): void {
+  if (!tabRetentionObserved || retentionQueued) return;
+  retentionQueued = true;
+  queueMicrotask(() => {
+    try { reconcileDocumentRetention(); } finally { retentionQueued = false; }
+  });
+}
+
+function reconcileDocumentRetention(): void {
+  if (retentionTimer) clearTimeout(retentionTimer);
+  retentionTimer = undefined;
+  const entries = [...registry.values()].filter(entry => !entry.lifecycle.signal.aborted);
+  const resumeVisibleEntry = (entry: RegistryEntry) => {
+    if (!entry.visibilityPaused || entry.provider || !entry.session || !isOpenedDocumentAuthCurrent(entry.authScope)
+      || entry.clientState.admissionBusy || entry.clientState.failure || entry.clientState.connection === 'denied') return;
+    entry.visibilityPaused = false;
+    // Old token/checkpoint callbacks were retired at pause. A new provider
+    // obtains fresh HTTP authority while retaining the same local Yjs document.
+    startFreshEntryTransport(entry);
+  };
+  if (!tabRetentionEnabled) {
+    for (const entry of entries) if (entry.refs) resumeVisibleEntry(entry);
+    for (const entry of entries) if (!entry.refs && !entry.cleanupTimer) {
+      detachEntryTransport(entry); entry.retentionTier = 'warm';
+      entry.cleanupTimer = setTimeout(() => { entry.cleanupTimer = undefined; disposeEntry(entry); }, parkTextEntry(entry) ? PARKED_TEXT_MS : 1000);
+    }
+    return;
+  }
+  const now = retentionNow(), limits = openedDocumentRetentionLimits(tabRetentionConstrained);
+  const plan = planOpenedDocumentRetention({ now, hiddenSince, constrained: tabRetentionConstrained, candidates: entries.map(entry => {
+    if (!entry.refs && entry.retentionEncodedBytes === undefined) {
+      try { entry.retentionEncodedBytes = Y.encodeStateAsUpdate(entry.doc).byteLength; }
+      catch { entry.retentionEncodedBytes = Infinity; }
+    }
+    return { key: entry.key, active: entry.refs > 0 || currentTabActivatesEntry(entry), open: entry.tabOwned === true,
+      authCurrent: isOpenedDocumentAuthCurrent(entry.authScope),
+      canKeepWarm: Boolean(entry.session && !entry.session.guestAccess && entry.persistence?.synced && entry.clientState.indexedDbHydrated),
+      // Retention reserves resources during fresh authentication; it cannot
+      // expose an old HTTP receipt or reuse a ticket for a new connection.
+      canKeepLive: Boolean(entry.provider && !entry.requests.signal.aborted
+        && !entry.clientState.admissionBusy && !entry.clientState.failure && entry.clientState.durability !== 'degraded'
+        && entry.session && Number.isFinite(Date.parse(entry.session.expiresAt))),
+      encodedBytes: entry.refs ? 0 : entry.retentionEncodedBytes!,
+      lastActivatedAt: entry.lastActivatedAt ?? now, backgroundSince: entry.backgroundSince ?? now };
+  }) });
+  let nextDeadline = Infinity;
+  for (const decision of plan.decisions) {
+    const entry = registry.get(decision.key); if (!entry || entry.lifecycle.signal.aborted) continue;
+    const previous = entry.retentionTier; entry.retentionTier = decision.tier;
+    if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
+    entry.cleanupTimer = undefined;
+    if (decision.tier === 'active') {
+      if (entry.tabOwned && entry.session && !entry.session.guestAccess) {
+        if (hiddenSince === undefined) resumeVisibleEntry(entry);
+        else if (now - hiddenSince < limits.hiddenLiveMs) nextDeadline = Math.min(nextDeadline, hiddenSince + limits.hiddenLiveMs);
+        else if (entry.provider && !entry.visibilityPaused) {
+          entry.provider.awareness?.setLocalState(null);
+          entry.provider.configuration?.websocketProvider.cancelWebsocketRetry?.();
+          detachEntryTransport(entry);
+          entry.visibilityPaused = true;
+          entry.requiresFreshSession = true;
+          transition(entry, { type: 'provider_status', status: 'disconnected', permission: entry.session.permission });
+        }
+      }
+      continue;
+    }
+    if (decision.tier === 'live') {
+      if (previous !== 'live') entry.provider?.awareness?.setLocalState(null);
+      if (!entry.retentionReauthenticating && (entry.requiresFreshSession || Date.parse(entry.session!.expiresAt) - Date.now() < 30_000)) {
+        // A short handshake ticket must not silently shorten the five-minute
+        // document budget. The ordinary token callback performs the actual
+        // current-user/session/workspace check; stale callbacks are aborted.
+        startFreshEntryTransport(entry, true);
+        entry.provider?.awareness?.setLocalState(null);
+      }
+      nextDeadline = Math.min(nextDeadline, (entry.backgroundSince ?? now) + limits.backgroundLiveMs,
+        entry.retentionReauthenticating ? Infinity : now + Math.max(1, Date.parse(entry.session!.expiresAt) - Date.now() - 29_999),
+        hiddenSince === undefined ? Infinity : hiddenSince + limits.hiddenLiveMs);
+    } else {
+      // Network budgets apply immediately; the existing disposal fence may
+      // retain RAM while an unconfirmed local recovery snapshot commits.
+      if (entry.provider || !entry.requests.signal.aborted) detachEntryTransport(entry);
+      if (decision.tier === 'release') disposeEntry(entry);
+    }
+  }
+  if (Number.isFinite(nextDeadline)) retentionTimer = setTimeout(scheduleDocumentRetention, Math.max(1, nextDeadline - now + 1));
+}
 const guestSessionAuthorizations = new WeakMap<CollaborationSessionResponse,
   { workspaceId: string; path: string; invitationId: string; revision: number }>();
 const guestAuthorizationRevisions = new Map<string, number>();
@@ -161,10 +342,19 @@ export function rememberOpenedCollaborationDocument(document: CollaborationDocum
     || !entry.clientState.ready || !entry.clientState.indexedDbHydrated || entry.clientState.connection === 'denied'
     || entry.clientState.failure?.kind === 'lifecycle' || entry.path !== file.path
     || entry.key.split('\0')[0] !== workspaceId || !isOpenedDocumentAuthCurrent(entry.authScope)) return;
+  entry.tabOwned = currentTabOwnsEntry(entry);
   const stateProof = collaborationStateProof(entry.doc, Y);
   const snapshot = captureAgentStateSnapshot(entry.doc, Y);
   if (stateProof && snapshot) rememberOpenedLiveDocument({ scope: entry.authScope, workspaceId, path: entry.path,
-    file, session: entry.session, stateProof, snapshot });
+    file, session: entry.session, stateProof, snapshot, connectedSession: () => {
+      if (!tabRetentionEnabled || !tabRetentionObserved || !entry.tabOwned || !entry.provider || entry.visibilityPaused || !entry.retentionConnectionReady || entry.lifecycle.signal.aborted
+        || registry.get(entry.key) !== entry || entry.requests.signal.aborted || entry.requiresFreshSession
+        || !entry.clientState.ready || !entry.clientState.remoteSynced || entry.clientState.admissionBusy || entry.clientState.failure
+        || !['live', 'read_only'].includes(entry.clientState.connection) || !isOpenedDocumentAuthCurrent(entry.authScope)) return null;
+      if (!entry.refs && !currentTabActivatesEntry(entry) && (entry.retentionTier !== 'live' || retentionNow() - (entry.backgroundSince ?? 0) >= openedDocumentRetentionLimits(tabRetentionConstrained).backgroundLiveMs
+        || hiddenSince !== undefined && retentionNow() - hiddenSince >= openedDocumentRetentionLimits(tabRetentionConstrained).hiddenLiveMs)) return null;
+      return entry.session;
+    } });
 }
 
 /** Confirm a full local binary backup before creating a potentially lossy recovery copy. */
@@ -300,11 +490,7 @@ function parkTextEntry(entry: RegistryEntry): boolean {
   if (!hasCurrentPersistedSnapshot(entry) && (!isCollaborationStateProof(session.stateProof)
     || session.stateProof !== collaborationStateProof(entry.doc, Y))) return false;
 
-  entry.parkedAt = Date.now();
-  entry.requests.abort();
-  if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
-  entry.provider?.destroy();
-  entry.provider = null;
+  detachEntryTransport(entry);
 
   const parked = [...registry.values()].filter(candidate => candidate.parkedAt !== undefined && candidate !== entry)
     .sort((a, b) => a.parkedAt! - b.parkedAt!);
@@ -318,6 +504,7 @@ function parkTextEntry(entry: RegistryEntry): boolean {
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
   emitReviewReadiness();
+  scheduleDocumentRetention();
 }
 
 function transition(entry: RegistryEntry, event: TextCollaborationClientEvent): void {
@@ -662,7 +849,7 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   // An old view snapshot can never restore write access after a denial.
   if (!revalidate && entry.parkedAt === undefined && entry.path === path
     && !(previous.permission === 'write' && session.permission === 'read')) return;
-  if (entry.clientState.admissionBusy) {
+  if (entry.clientState.admissionBusy && entry.parkedAt === undefined) {
     // Location metadata may advance, but cannot restart this exhausted join.
     // Retain the disconnected provider so local update counts keep observing
     // the same Y.Doc; no fresh request/provider lifetime is created here.
@@ -675,6 +862,9 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   const fresh = hasFreshLocationSession(entry, path, session);
   const wasParked = entry.parkedAt !== undefined;
   if (wasParked && !fresh) throw new Error('The parked document requires current authorization.');
+  if (wasParked && fresh && entry.clientState.admissionBusy) {
+    transition(entry, { type: 'admission_reauthorized', permission: session.permission });
+  }
   const parkedStateIsCurrent = wasParked && !session.degraded && !session.projectionError?.permanent
     && isCollaborationStateProof(session.stateProof)
     && session.stateProof === collaborationStateProof(entry.doc, Y);
@@ -838,6 +1028,7 @@ function createEntry(
       const minimumSnapshot = knownReceipt && sameOpenedDocumentSession(knownReceipt.session, session) ? knownReceipt.snapshot : null;
       assertEntryActive(entry);
       entry.session = session;
+      entry.tabOwned = currentTabOwnsEntry(entry);
       entry.clientState = createInitialTextCollaborationClientState({
         permission: session.permission,
         documentSequence: session.documentSequence,
@@ -935,6 +1126,7 @@ function createEntry(
         return true;
       };
       entry.doc.on('update', () => {
+        entry.retentionEncodedBytes = undefined;
         // Invalidate immediately, before the provider batches/sends the change.
         transition(entry, { type: 'document_changed' });
         if (entry.pendingAuthoritativeSnapshot) reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
@@ -960,7 +1152,8 @@ function createEntry(
       entry.startProvider = () => {
         if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
         entry.tokenRetryTimer = undefined;
-        if (entry.clientState.admissionBusy) return;
+        if (entry.clientState.admissionBusy || entry.requests.signal.aborted) return;
+        if (tabRetentionObserved && tabRetentionEnabled && (entry.refs > 0 || currentTabActivatesEntry(entry))) reconcileDocumentRetention();
         const scope = entry.requests;
         const active = () => !entry.lifecycle.signal.aborted && scope === entry.requests && !scope.signal.aborted;
         const session = entry.session!;
@@ -1003,6 +1196,8 @@ function createEntry(
           flushDelay: 75,
           onStatus: ({ status }) => {
             if (!active()) return;
+            if (status !== 'connected') entry.retentionConnectionReady = false;
+            if (entry.visibilityPaused && status === 'connected') return;
             transition(entry, {
               type: 'provider_status',
               status: status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting' : 'disconnected',
@@ -1010,6 +1205,7 @@ function createEntry(
             });
           },
           onClose: ({ event }) => {
+            if (active()) { entry.retentionConnectionReady = false; entry.requiresFreshSession = true; }
             // Hocuspocus's document CLOSE frame retains this exact reason but
             // reconstructs code 1000; a whole-socket close can retain 1013.
             if (!active() || event.reason !== 'Collaboration document transition' || ![1000, 1013].includes(event.code)) return;
@@ -1020,9 +1216,13 @@ function createEntry(
             provider.configuration?.websocketProvider.cancelWebsocketRetry?.();
             provider.disconnect();
           },
-          onSynced: () => {
-            if (!active() || entry.clientState.admissionBusy) return;
+          onSynced: ({ state } = { state: true }) => {
+            if (!active() || entry.clientState.admissionBusy || entry.visibilityPaused) return;
+            entry.retentionConnectionReady = state;
+            if (state) entry.retentionReauthenticating = false;
+            if (!state) { scheduleDocumentRetention(); return; }
             transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
+            if (entry.refs) restoreEntryPresence(entry);
             markPolicy?.activate();
             if (entry.pendingAuthoritativeSnapshot) {
               reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
@@ -1037,6 +1237,7 @@ function createEntry(
           },
           onAuthenticationFailed: ({ reason }) => {
             if (!active()) return;
+            entry.retentionConnectionReady = false;
             if (reason === NATIVE_PEER_ADMISSION_BUSY_REASON) {
               tokenNetworkFailure = false;
               tokenAdmissionFailureReason = null;
@@ -1058,10 +1259,10 @@ function createEntry(
             if (tokenNetworkFailure) {
               tokenNetworkFailure = false;
               provider.disconnect();
-              if (entry.clientState.admissionBusy) return;
+              if (entry.clientState.admissionBusy || entry.visibilityPaused) return;
               transition(entry, { type: 'provider_status', status: 'disconnected', permission: entry.session!.permission });
               entry.tokenRetryTimer = setTimeout(() => {
-                if (active() && !entry.clientState.admissionBusy && entry.clientState.connection !== 'denied') void provider.connect();
+                if (active() && !entry.visibilityPaused && !entry.clientState.admissionBusy && entry.clientState.connection !== 'denied') void provider.connect();
               }, tokenRetryDelay);
               tokenRetryDelay = Math.min(tokenRetryDelay * 2, 15_000);
               return;
@@ -1160,16 +1361,10 @@ function createEntry(
           const connect = websocketProvider.connect.bind(websocketProvider);
           // Hocuspocus's already queued onClose retry calls this owned method
           // without checking shouldConnect again. Do not create another origin.
-          websocketProvider.connect = () => active() && !entry.clientState.admissionBusy ? connect() : Promise.resolve();
+          websocketProvider.connect = () => active() && !entry.visibilityPaused && !entry.clientState.admissionBusy ? connect() : Promise.resolve();
         }
         entry.provider = provider;
-        provider.setAwarenessField('canvas', {
-          userId: session.user.id,
-          displayName: session.user.name,
-          color: session.user.color,
-          colorLight: session.user.colorLight,
-          activity: session.permission === 'write' ? 'editing' : 'viewing',
-        });
+        restoreEntryPresence(entry);
       };
       entry.requestCheckpoint = () => {
         if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
@@ -1318,6 +1513,8 @@ function takeRetainedEntry(key: string, workspaceId: string, path: string, sessi
   const entry = [...registry.values()].find((candidate) => {
     const previous = candidate.session;
     return candidate.refs === 0 && !candidate.lifecycle.signal.aborted && !candidate.doc.isDestroyed
+      && (previous?.guestAccess || candidate.authScope?.userId === openedDocumentAuthScope()?.userId
+        && candidate.authScope?.sessionId === openedDocumentAuthScope()?.sessionId)
       && candidate.key.split('\0')[0] === workspaceId && previous
       && (candidate.parkedAt === undefined || hasFreshLocationSession(candidate, path, session))
       && previous.user.id === session.user.id
@@ -1351,13 +1548,16 @@ export function useCollaborationDocument(input: {
   const owner = input.enabled && input.workspaceId && input.path
     ? JSON.stringify([input.workspaceId, input.documentKey ?? input.path]) : null;
   const [state, setState] = useState<{
-    owner: string | null; key: string; path: string; document: CollaborationDocument | null;
+    owner: string | null; key: string; path: string; document: CollaborationDocument | null; authPartition: string;
   } | null>(null);
+  const sessionScope = input.session ? openedDocumentSessionScope(input.session) : null;
+  const authPartition = input.session?.guestAccess ? 'guest' : sessionScope?.sessionId
+    ?? (state?.owner === owner ? state.authPartition : 'unverified');
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.documentKey ?? input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.documentKey ?? input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}\0${authPartition}`
       : input.waitForSession ? state?.owner === owner ? state.key : null
-        : `${input.workspaceId}\0${input.path}\0${input.representation}`
+        : `${input.workspaceId}\0${input.path}\0${input.representation}\0${authPartition}`
     : null;
   useEffect(() => {
     if (!key || !input.path || !input.workspaceId) {
@@ -1380,8 +1580,13 @@ export function useCollaborationDocument(input: {
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.cleanupTimer = undefined;
+    const wasInactive = entry.refs === 0;
     entry.refs += 1;
-    const update = () => setState({ owner, key, path: entry.path, document: entry.doc ? snapshot(entry) : null });
+    entry.lastActivatedAt = retentionNow(); entry.backgroundSince = undefined; entry.retentionTier = 'active';
+    entry.tabOwned = currentTabOwnsEntry(entry);
+    if (wasInactive) restoreEntryPresence(entry);
+    scheduleDocumentRetention();
+    const update = () => setState({ owner, key, path: entry.path, document: entry.doc ? snapshot(entry) : null, authPartition });
     entry.listeners.add(update);
     update();
     return () => {
@@ -1392,6 +1597,8 @@ export function useCollaborationDocument(input: {
         // same entry. Wait until its replacement has had a chance to attach.
         queueMicrotask(() => {
           if (entry.refs !== 0 || entry.lifecycle.signal.aborted || entry.cleanupTimer) return;
+          entry.backgroundSince = retentionNow();
+          if (tabRetentionObserved) { scheduleDocumentRetention(); return; }
           const delay = parkTextEntry(entry) ? PARKED_TEXT_MS : 1_000;
           entry.cleanupTimer = setTimeout(() => {
             entry.cleanupTimer = undefined;
@@ -1400,7 +1607,7 @@ export function useCollaborationDocument(input: {
         });
       }
     };
-  }, [input.path, input.representation, input.session, input.workspaceId, key, owner]);
+  }, [authPartition, input.path, input.representation, input.session, input.waitForSession, input.workspaceId, key, owner]);
   return key && state?.key === key && state.owner === owner && state.path === input.path
     && (!input.waitForSession || input.session) ? state.document : null;
 }
@@ -1427,6 +1634,7 @@ export function useTextCollaborationSession(input: {
     ? `${input.workspaceId}\0${input.path}\0${input.expectedDocumentId ?? ''}`
     : null;
   const [attempt, setAttempt] = useState(0);
+  const forceFreshKey = useRef<string | null>(null);
   const [state, setState] = useState<{
     key: string | null;
     attempt: number;
@@ -1441,7 +1649,10 @@ export function useTextCollaborationSession(input: {
     let cancelled = false;
     const controller = new AbortController();
     const authScope = openedDocumentAuthScope();
-    void requestSession(input.path, 'auto', input.workspaceId, controller.signal)
+    const connected = forceFreshKey.current === key ? null
+      : findConnectedOpenedDocument(input.workspaceId, input.path, input.expectedDocumentId, authScope);
+    forceFreshKey.current = null;
+    void (connected ? Promise.resolve(connected.session) : requestSession(input.path, 'auto', input.workspaceId, controller.signal))
       .then((session) => requireTextSession(session))
       .then((session) => {
         if (input.expectedDocumentId && session.documentId !== input.expectedDocumentId) {
@@ -1479,6 +1690,6 @@ export function useTextCollaborationSession(input: {
     session: current.session,
     loading: Boolean(key) && !current.session && !current.error,
     error: current.error,
-    retry: () => setAttempt((currentAttempt) => currentAttempt + 1),
+    retry: () => { forceFreshKey.current = key; setAttempt((currentAttempt) => currentAttempt + 1); },
   };
 }

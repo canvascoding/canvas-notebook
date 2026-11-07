@@ -66,8 +66,22 @@ jobs:
           npm run verify:fd-publication
       - name: Test fixture configuration contract
         run: npm run test:api-keys:ci-config
+      - name: Opened document resource policy
+        run: |
+          set -euo pipefail
+          npm run test:collaboration:retention-policy 2>&1 | tee "$RUNNER_TEMP/document-retention-policy.log"
+          npm run test:collaboration:live-tabs 2>&1 | tee "$RUNNER_TEMP/document-live-tabs.log"
+          npm run test:notebook:reveal 2>&1 | tee "$RUNNER_TEMP/document-tab-open.log"
+          npm run test:files:menus 2>&1 | tee "$RUNNER_TEMP/document-file-menus.log"
+          npm run test:collaboration:agent-observer 2>&1 | tee "$RUNNER_TEMP/document-agent-observer.log"
       - name: Allocate owned PostgreSQL 18 fixture database
         run: npm run test:api-keys:ci-database -- create
+      - name: Document-open auxiliary permissions and query budgets
+        run: npm run test:files:open-auxiliary:native 2>&1 | tee "$RUNNER_TEMP/document-open-auxiliary.log"
+      - name: Fresh native read capture permissions and query budget
+        run: npm run test:workspaces:principal-read-capture:native 2>&1 | tee "$RUNNER_TEMP/principal-read-capture.log"
+      - name: Fresh Cookie and Bearer sessions without implicit JWT issuance
+        run: npm run test:auth:session-jwt:native 2>&1 | tee "$RUNNER_TEMP/auth-session-jwt.log"
       - name: Source observation and projection process coordination
         run: |
           set -euo pipefail
@@ -75,6 +89,7 @@ jobs:
       - name: Bounded drain polling with actual PostgreSQL schema locks
         run: |
           set -euo pipefail
+          node --import tsx --conditions react-server scripts/collaboration-room-admission-worker-test.ts 2>&1 | tee "$RUNNER_TEMP/drain-worker.log"
           npm run test:collaboration:drain-poll:native 2>&1 | tee "$RUNNER_TEMP/drain-poll-native.log"
       - name: API contracts and UI component tests
         run: |
@@ -157,7 +172,16 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/source-projection-lock.log
+            ${{ runner.temp }}/document-retention-policy.log
+            ${{ runner.temp }}/document-live-tabs.log
+            ${{ runner.temp }}/document-tab-open.log
+            ${{ runner.temp }}/document-file-menus.log
+            ${{ runner.temp }}/document-agent-observer.log
+            ${{ runner.temp }}/document-open-auxiliary.log
+            ${{ runner.temp }}/principal-read-capture.log
+            ${{ runner.temp }}/auth-session-jwt.log
             ${{ runner.temp }}/drain-poll-native.log
+            ${{ runner.temp }}/drain-worker.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log
             ${{ runner.temp }}/preview-read-recovery-native.log

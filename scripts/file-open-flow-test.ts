@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { useEditorStore } from '../app/store/editor-store';
-import { useFileStore, type FileNode } from '../app/store/file-store';
+import { useFileStore, type FileNode, type OpenWorkspaceFileOptions } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 import { requestChatFileOpen } from '../app/lib/chat/chat-file-open-service';
+import { invalidateOpenedDocumentAuth, observeOpenedDocumentAuth, openedDocumentAuthScope,
+  rememberOpenedLiveDocument, validateOpenedLiveDocumentSession } from '../app/lib/collaboration/opened-document-registry';
+import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
+import type { CurrentFile } from '../app/lib/files/types';
 
 const originalFetch = globalThis.fetch;
 
@@ -169,7 +173,10 @@ async function testCreatedEmptyFileOpensAfterCreateRefresh() {
     const url = new URL(String(input), 'http://localhost');
     if (url.pathname === '/api/files/create' && init?.method === 'POST') {
       requestOrder.push('create');
-      return Response.json({ success: true });
+      const body = JSON.parse(String(init.body));
+      assert.equal(typeof body.requestId, 'string');
+      return Response.json({ success: true, completion: { status: 'completed',
+        requestId: body.requestId, workspaceId: 'workspace-a', targetPath: body.path } });
     }
     if (url.pathname === '/api/files/tree') {
       requestOrder.push('tree');
@@ -509,7 +516,57 @@ function testExplorerPreferencesAreScopedByWorkspace() {
   }
 }
 
+/** Store-facade mechanics only; the connection and HTTP responses are doubles. */
+async function testConnectedNotebookOpenPreservesFreshReadDefaults() {
+  const workspaceId = 'workspace-live-open', filePath = 'connected.txt', documentId = 'connected-document';
+  const file: CurrentFile = { path: filePath, content: '', collaboration: { path: filePath,
+    strategy: 'crdt_text', crdtCapable: true, sceneCapable: false, lockRequired: false,
+    requiresRevisionCheck: false, latestRevision: null, activeLock: null,
+    document: { id: documentId, provider: 'yjs', status: 'active', stateVersion: 1, snapshotRevisionId: null } } };
+  const session: CollaborationSessionResponse = { success: true, provider: 'yjs', documentId, documentName: documentId,
+    representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+    permission: 'write', token: 'mechanical-connection-double', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    websocketUrl: '/ws/collaboration', user: { id: 'live-owner', name: 'Live owner', color: '#123456', colorLight: '#abcdef' } };
+  const reads: URL[] = [];
+  let connected = true;
+  observeOpenedDocumentAuth({ data: { user: { id: 'live-owner' }, session: { id: 'live-owner-login' } } });
+  const scope = openedDocumentAuthScope();
+  assert(validateOpenedLiveDocumentSession(workspaceId, filePath, session, scope));
+  rememberOpenedLiveDocument({ workspaceId, path: filePath, scope, session, file,
+    stateProof: 'mechanical-receipt-not-a-persistence-proof', snapshot: new Uint8Array(),
+    connectedSession: () => connected ? session : null });
+  globalThis.fetch = async input => {
+    const url = new URL(String(input), 'http://localhost');
+    assert.equal(url.pathname, '/api/files/read'); reads.push(url);
+    return Response.json({ success: true, data: file });
+  };
+  const open = async (options: OpenWorkspaceFileOptions = {}) => {
+    useWorkspaceStore.setState({ activeWorkspaceId: workspaceId });
+    useEditorStore.getState().clear();
+    useFileStore.setState({ currentFile: null, currentFileWorkspaceId: null, currentDirectory: '.',
+      fileTreeWorkspaceId: workspaceId, fileTree: [{ name: filePath, path: filePath, type: 'file' }] });
+    reads.length = 0;
+    const result = await useFileStore.getState().revealAndLoadFile(filePath,
+      { workspaceId, expectedDocumentId: documentId, explorerBehavior: 'preserve', ...options });
+    assert.equal(result.status, 'opened');
+  };
+  try {
+    await open(); assert.equal(reads.length, 1); assert(reads[0].searchParams.has('t'));
+    await open({ preferConnectedDocument: true });
+    assert.equal(reads.length, 0, 'the Notebook facade must permit the authorized connected-document fast path');
+    await open({ preferConnectedDocument: true, forceReload: true });
+    assert.equal(reads.length, 1); assert(reads[0].searchParams.has('t'), 'explicit reload remains fresh');
+    connected = false;
+    await open({ preferConnectedDocument: true });
+    assert.equal(reads.length, 1); assert(reads[0].searchParams.has('t'), 'warm/offline receipts cannot skip the fresh read');
+    connected = true; invalidateOpenedDocumentAuth();
+    await open({ preferConnectedDocument: true });
+    assert.equal(reads.length, 1); assert(reads[0].searchParams.has('t'), 'retired auth scopes cannot skip the fresh read');
+  } finally { invalidateOpenedDocumentAuth(); }
+}
+
 async function main() {
+  observeOpenedDocumentAuth({ data: { user: { id: 'file-open-owner' }, session: { id: 'file-open-login' } } });
   try {
     testIdenticalDraftDoesNotBecomeDirty();
     await testConcurrentDirectoryLoadsShareTheSamePromise();
@@ -523,7 +580,9 @@ async function main() {
     await testFailedOpenDoesNotTriggerMobileTransition();
     await testSamePathInAnotherWorkspaceReloadsContent();
     testExplorerPreferencesAreScopedByWorkspace();
+    await testConnectedNotebookOpenPreservesFreshReadDefaults();
   } finally {
+    invalidateOpenedDocumentAuth();
     globalThis.fetch = originalFetch;
     useEditorStore.getState().clear();
   }

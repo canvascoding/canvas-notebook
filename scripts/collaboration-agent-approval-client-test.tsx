@@ -58,6 +58,9 @@ async function compileUi() {
   }).outputText;
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
+    '@/app/components/file-version-center/DocumentReviewAvailabilityProvider': {
+      useDocumentReviewAvailability: () => ({ documentReviewEnabled: true }),
+    },
     '@/app/lib/collaboration/agent-operations-client': client,
     '@/app/lib/file-version-center/contracts/v1': { FILE_VERSION_CENTER_CONTRACT_VERSION: 1 },
     '@/app/lib/files/client': { workspaceHeaders: () => ({ 'x-workspace-id': 'workspace' }) },

@@ -11,6 +11,8 @@ type OpenedDocument = {
   stateProof: string;
   /** Clocks and DeleteSet only, never document text. */
   snapshot: Uint8Array;
+  /** Resolves an already authenticated connection, never creates one. */
+  connectedSession?: () => CollaborationSessionResponse | null;
 };
 let authScope: OpenedDocumentAuthScope | null = null;
 let epoch = 0;
@@ -52,6 +54,11 @@ export function invalidateOpenedDocumentAuth(): void {
 }
 
 export function openedDocumentAuthScope(): OpenedDocumentAuthScope | null { return authScope; }
+/** Historical HTTP provenance partitions RAM lifetimes. This is not a current
+ * permission check and must never authorize a connection by itself. */
+export function openedDocumentSessionScope(session: CollaborationSessionResponse): OpenedDocumentAuthScope | null {
+  return authorizations.get(session)?.scope ?? null;
+}
 export function isOpenedDocumentAuthCurrent(scope: OpenedDocumentAuthScope | null): boolean {
   return scope !== null && scope === authScope;
 }
@@ -73,6 +80,7 @@ export function sameOpenedDocumentSession(left: CollaborationSessionResponse, ri
 export function rememberOpenedLiveDocument(input: {
   scope: OpenedDocumentAuthScope | null; workspaceId: string; path: string; file: CurrentFile;
   session: CollaborationSessionResponse; stateProof: string; snapshot: Uint8Array;
+  connectedSession?: () => CollaborationSessionResponse | null;
 }): void {
   const authorization = authorizations.get(input.session);
   if (!isOpenedDocumentAuthCurrent(input.scope) || input.session.guestAccess || input.session.user.id !== input.scope!.userId
@@ -95,6 +103,19 @@ export function findOpenedLiveDocument(workspaceId: string, path: string, docume
   if (!documentId || !isOpenedDocumentAuthCurrent(scope)) return null;
   const entry = opened.get(keyFor(workspaceId, path));
   return entry && entry.scope === scope && entry.session.documentId === documentId ? entry : null;
+}
+
+/** A warm/offline receipt alone cannot take this path. The existing provider
+ * must still own a current HTTP authorization in this exact auth partition. */
+export function findConnectedOpenedDocument(workspaceId: string, path: string, documentId: string | null | undefined,
+  scope = authScope): { file: CurrentFile; session: CollaborationSessionResponse } | null {
+  const entry = findOpenedLiveDocument(workspaceId, path, documentId, scope);
+  if (!entry?.connectedSession) return null;
+  const session = entry.connectedSession();
+  if (!session || session.guestAccess || !sameOpenedDocumentSession(entry.session, session)
+    || entry.session.permission !== session.permission || !(Date.parse(session.expiresAt) > Date.now())
+    || !hasCurrentOpenedDocumentSessionAuthorization(workspaceId, path, session, scope)) return null;
+  return { file: entry.file, session };
 }
 
 export function invalidateOpenedLiveDocument(workspaceId: string, input: { path?: string; documentId?: string }, scope = authScope): void {

@@ -78,7 +78,11 @@ export async function withInstalledApiKeySdkMcpFixture(options: Options) {
       const exceptionTypes = value.exceptionTypes;
       if (exceptionTypes !== undefined) assert(Array.isArray(exceptionTypes) && exceptionTypes.length <= 32
         && exceptionTypes.every(item => typeof item === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,79}$/u.test(item)));
-      console.error(JSON.stringify({ suite: 'installed-sdk-probe-failure', stage: value.stage, kind: value.kind, exceptionTypes }));
+      const assertionLine = value.assertionLine;
+      if (assertionLine !== undefined && assertionLine !== null) {
+        assert(Number.isInteger(assertionLine) && Number(assertionLine) > 0 && Number(assertionLine) <= 10000);
+      }
+      console.error(JSON.stringify({ suite: 'installed-sdk-probe-failure', stage: value.stage, kind: value.kind, exceptionTypes, assertionLine }));
       throw new Error('Installed SDK probe failed.');
     }
     if (value.event === 'wheel_verified') {

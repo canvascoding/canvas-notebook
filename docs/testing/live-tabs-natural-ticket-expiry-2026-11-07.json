@@ -1,0 +1,55 @@
+{
+  "compiledBeforeSource": "ebbe02446ec2ec836380baac580913248f91676b",
+  "actualBefore": {
+    "probeExit": 1,
+    "stage": "inactive-natural-ticket-expiry",
+    "assertion": "Both tabs must remain live within their five-minute budget when their short handshake tickets expire.\n\n1 !== 2\n",
+    "yDocLocallyRetained": true,
+    "timeMocking": false,
+    "networkMocking": false,
+    "proof": "compiled-auxiliary-read-10-on-desktop-1794073463477-result.json",
+    "proofSha256": "5f6733b4c97e77275ad84eb9c0b1d988f85b5674b67cb77ff0ba6462054a664e",
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+  },
+  "localClientFix": {
+    "sourceSha256": "171f26dc7b59c2d3a20912bfa8050e33cf84d67b9446a2bdc6fd84a9a6329586",
+    "actualCompiledRetest": false,
+    "mechanicalRegressionPassedOnNode24": true,
+    "existingLocalRetentionRenameRecoveryCasesPassed": true,
+    "properties": [
+      "Short tickets renewed through the existing fresh HTTP/provider path",
+      "Same Y.Doc and local persistence retained; old request scope aborted",
+      "Pending authentication cannot expose an old HTTP receipt",
+      "Concurrent renewal coalesced",
+      "Count/byte/hidden/inactivity/auth-scope rules unchanged"
+    ],
+    "logs": [
+      {
+        "name": "live-ticket-renewal-before-20261107.log",
+        "sha256": "dca6457fcc50e9d8fb1c39e8d7685026278f79aefcee996e05c3ecf4fbaa280a"
+      },
+      {
+        "name": "live-ticket-renewal-node24-final-20261107.log",
+        "sha256": "08bab55f0f34014770308fc63b4d25cd73f0fabbfbe1d31af47d799f4146d871"
+      },
+      {
+        "name": "live-ticket-text-retention-lifecycle-20261107.log",
+        "sha256": "f6874a09c61a937c66e48494e3f31dbfa224e6c6fdb13f2c072ecfa19a25a7c0"
+      },
+      {
+        "name": "live-ticket-client-rename-20261107.log",
+        "sha256": "8e2db5ccea9bc6940aafd7b12b6c9228378ff16dcfd07c85d65b24cf76279c70"
+      },
+      {
+        "name": "live-ticket-local-recovery-20261107.log",
+        "sha256": "4768630cda95453130db21721bea2c6b9e46b51f51ac0ffc7d6a8e5d0be0d13f"
+      }
+    ]
+  },
+  "limits": [
+    "Real compiled natural-ticket-expiry retest remains required",
+    "Real hidden two-minute and visible five-minute app lifetimes remain required",
+    "A browser-only noDefaults preflight proved native visible-hidden-visible, not application acceptance",
+    "No new production release"
+  ]
+}

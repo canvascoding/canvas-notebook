@@ -23,7 +23,7 @@ import { recordDirectMcpOAuthProviderError } from '@/app/lib/mcp/server/diagnost
 import { directMcpOAuthResourceOptions } from '@/app/lib/mcp/server/oauth-resource-config';
 import { observeStartupTask } from '@/app/lib/startup/observed-task';
 import {
-  assertUserSeatAccess,
+  assertUserSeatAccessInSingleSnapshot,
   SeatLimitGuardError,
 } from '@/app/lib/license/seat-limit';
 
@@ -57,6 +57,9 @@ try {
 const directMcpOAuthPlugins = directMcpConfig
   ? [
       jwt({
+        // OAuth issues its own scoped tokens. Session reads must not also
+        // sign an unused JWT and query the signing keys on every check.
+        disableSettingJwtHeader: true,
         jwt: {
           issuer: directMcpConfig.issuer,
         },
@@ -104,6 +107,7 @@ export const auth = betterAuth({
   secret: authSecret,
   baseURL: authBaseURL,
   trustedOrigins,
+  disabledPaths: ['/token'],
   database: drizzleAdapter(db, {
     provider: "pg",
   }),
@@ -135,7 +139,7 @@ export const auth = betterAuth({
         ?? (context.path === "/get-session" ? context.context.session : null);
       if (!seatSession) return;
       try {
-        await assertUserSeatAccess({ userId: seatSession.user.id });
+        await assertUserSeatAccessInSingleSnapshot(seatSession.user.id);
         const returned = context.context.returned as { user?: { id?: string } } | null;
         if (context.path === "/get-session"
           && returned?.user?.id === seatSession.user.id
