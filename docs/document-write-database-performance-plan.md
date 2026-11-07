@@ -32,18 +32,29 @@ Der Server-Heap nach GC beträgt im selben Prozess rund 1.025/1.028 MiB.
 Das sind begrenzte Tests auf diesem Host, keine Zusage für physische Mobilgeräte
 oder Langzeitlast. [Kapazitätsbelege](testing/live-tabs-capacity-2026-11-07.json).
 
-Die reale Verdrängungsprüfung mit 18 Dokumenten findet weiterhin einen
-Speicherfehler: 15 logische Dokumente bleiben wie vorgesehen erhalten, die ältesten
-werden zerstört, bleiben aber nach zwei echten Browser-GCs stark erreichbar.
-Die schwache Session-Accessor-Referenz aus `a28e88149` allein reicht nicht aus.
-Ein privater Heap-Snapshot dieses kompilierten Stands weist zusätzlich die stabilen
-Bild-Vor-/Zurück-Callbacks nach: Sie halten einen alten FileEditor-Render-Kontext
-samt CollaborationDocument. Der nächste Kandidat erzeugt diese Handler außerhalb
-des Render-Kontexts und übergibt ausschließlich Zielpfad und Dateiladefunktion.
-Die vorhandenen Berechtigungs-/Lebensdauer-/Providerprüfungen bleiben erhalten.
-TypeScript und gezieltes ESLint bestehen. Die kompilierte Nachprüfung und der
-reguläre Browserfall müssen die tatsächliche Freigabe erst bestätigen.
-[Vorher-Beleg und Kandidat](testing/live-tabs-memory-release-2026-11-07.json).
+Die reale Verdrängungsprüfung mit 18 Dokumenten ist am Produktstand
+`64a19589b` bestanden: Desktop hält höchstens 15, die Chromium-Mobilansicht
+höchstens sieben lokale Dokumente. Der älteste verdrängte Y.Doc ist nach zwei
+echten Browser-GCs nicht mehr erreichbar. Wiederöffnen erhält native Dokument-ID
+und sichtbaren Inhalt, benötigt frische Session-Autorität und verwendet einen
+neuen lokalen Y.Doc/Provider. Die separate reguläre Browserregression besteht
+mit einem Fall, null Fehlern, null Skips und null Flakes. Ursprünglicher Container,
+geschützte Zeilen/xmin/Dateibytes/Speicheranker und andere Container sind bestätigt
+wiederhergestellt. Die schwache Session-Accessor-Referenz allein war unzureichend;
+der private Heap zeigte zusätzlich stabile Bild-Callbacks, die einen alten
+FileEditor-Kontext hielten. Die Handler entstehen jetzt außerhalb dieses Kontexts.
+[Vorher-/Nachher-Belege](testing/live-tabs-memory-release-2026-11-07.json).
+
+Die getrennten Geräte-Nachweise sind ausdrücklich Teilresultate: Nach dem
+bestandenen Desktop-Fall überschritt der anschließende mobile Fall das gemeinsame
+reale Standortabfragen-Limit. Ein eigener frisch gestarteter mobiler Lauf besteht.
+Sein anschließender Bildtest ist jedoch nicht abgenommen: Die PNG-Testbytes sind
+ungültig, und das Entfernen der drei eigenen PNGs trifft einen echten
+`PRINCIPAL_EXPIRED`-Fehler bei 200 Dokumenten. Die zwei Quellscans und die reine
+Planberechnung überschreiten die ursprüngliche Fünf-Sekunden-Beobachtung.
+Die frische Autorisierung der einzelnen Lesephasen und die verifizierte API-
+Bereinigung dieser ausschließlich eigenen Testdateien sind der nächste Fix.
+Keine produktive Datei wurde dabei geändert oder gelöscht.
 
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
