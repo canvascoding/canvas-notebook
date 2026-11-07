@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.7.1] - 2026-11-07
+
+### Fixed
+
+- Keep successful file creation confirmed when an independent Explorer refresh fails, and complete Excalidraw creation across brief reader contention with fresh write-permission checks.
+- Recognize standard external Markdown email and URI autolinks so they do not block unrelated file deletion. Preserve diagnostics and guards for incomplete sources and malformed frontmatter.
+- Show the confirmed reason when formatted editing cannot start, preserving source content and recovery options.
+- Recover final rich-migration and browser Rename/Delete source observations after confirmed clean rollback and release, without replaying writes or changing operation identities.
+- Treat brief native room shutdown contention as a recoverable reconnect pause while retaining actual access-revocation checks.
+- Acquire workspace locks before queueing room-owner commands, preventing blocked workspace waiters from stalling the shared SQL queue. Keep combined pending and queued work bounded and preserve ownership fences on capacity denial.
+- Wait for confirmed chat completion before fetching its file-change summary.
+
+### Changed
+
+- Co-read projection identity/publication guards and use one bounded transaction for drain readiness. The isolated drain comparison reduces seven SQL calls to five and two pool checkouts to one per poll; broader editor performance remains separately measured.
+
+### Verification
+
+- Host and Linux production builds pass. Exact-image regular `test:all` passes with 381 browser cases, including all 46 mandatory collaboration cases, zero failed or flaky cases and 102 existing conditional skips. Four additional API-key management browser cases pass. The external runtime is built and started separately; those stages are explicitly excluded from the suite's own execution.
+- The original local runtime, protected native rows, file bytes, storage anchors and other services are restored and compared after compiled acceptance.
+- Genuine PostgreSQL/kernel-lock, Mobile receipt, revocation, WebSocket, preview and route/worker regressions pass, including deterministic proof of the former owner queue inversion and the unchanged 256-command capacity.
+- All 15 product PR checks pass. Downloaded Python 3.10/3.15 native CI artifacts verify fresh installed SDK packages, actual HTTP/PostgreSQL writes, executable documentation examples, link parity and complete database cleanup.
+- `npm run verify:release`, including the strict license gate, production build and CLI update/rollback checks, must pass before the release commit and tag. Exact-tag multi-architecture build and verified release-bundle publication follow separately.
+
 ## [2026.11.6.3] - 2026-11-06
 
 ### Fixed
