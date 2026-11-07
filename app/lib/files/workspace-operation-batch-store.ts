@@ -429,8 +429,9 @@ function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
   return input as WorkspaceOperationBatchPlan;
 }
 
-// Only exact stored Cohort6 text reuses a historical parse; every return still
-// passes the unchanged strict decoder. No row, Claim or current authority is held.
+// Only exact stored Physical5/Cohort6 text reuses a historical parse; every
+// return still passes its unchanged strict decoder. Current row/Claim/authority
+// data is never cached.
 const storedCohortPlans = new Map<string, { plan: WorkspaceOperationBatchPlan; bytes: number }>();
 let storedCohortPlanBytes = 0;
 let storedCohortPlanLogging = false;
@@ -482,7 +483,7 @@ function decodeStoredPlanText(planText: string): WorkspaceOperationBatchPlan {
   const input: unknown = previous ? previous.plan : fingerprintApply(parse, json, [planText]);
   try { parsed = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
   const plan = decodeStoredPlan(input);
-  if (reusable && plan.version === 6) {
+  if (reusable && (plan.version === 5 || plan.version === 6)) {
     try { decoded = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
     if (!previous && reusable && storedCohortPlanHooksCurrent(json, parse) && immutableFingerprintPlan(plan)) {
       const bytes = Buffer.byteLength(planText), maximum = 16 * 1024 * 1024;

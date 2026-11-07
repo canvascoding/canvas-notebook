@@ -102,6 +102,32 @@ Der vollständige Lösch-/Recovery-/Bildlauf bleibt offen; reine Plan-Dekodierun
 von rund 14 ms pro Aufruf erklärt den B2-Abbruch allein nicht.
 [Phasen- und Vorher-/Nachher-Beleg](testing/native-path-admission-phases-2026-11-07.json).
 
+Die Datei des verbliebenen Originalauftrags ist im echten Linux-Volume zusätzlich
+verifiziert: Trash-Hash, 68 Bytes und ursprünglicher Inode stimmen; am alten Pfad
+steht kein Ersatz. Ein expliziter Resume mit ursprünglicher echter Sitzung und
+Plan-ID erreicht wieder B2, bleibt jedoch `needs_recovery` mit `PRINCIPAL_EXPIRED`.
+Die reale CPU-Messung über das gesamte rund 27-Sekunden-Recovery-Fenster ordnet
+rund 5.965 ms inklusiv dem Dekodieren gespeicherter Batch-Pläne zu. Das ist keine
+exklusive B2-Zeit und Profilierung kann selbst Aufwand hinzufügen. Statuslesen
+und Worker dekodieren dieselben großen Physical5-Daten bislang wiederholt kalt;
+der vorhandene begrenzte gespeicherte Parse-Cache gilt nur für Cohort6. Der neue
+Kandidat nutzt ihn zusätzlich für Physical5, weiterhin mit exaktem Textschlüssel,
+vier Einträgen/16 MiB und erneutem strengem, getrenntem Decode bei jeder Rückgabe.
+Aktuelle Zeilen, Actor-/Scope-/Claim-/Rechteprüfungen und die atomare B2-Grenze
+werden nicht gecacht oder gelockert. Die Regression scheitert davor am fehlenden
+Physical5-Hit und besteht danach einschließlich aller 28 bisherigen Planfamilien,
+drei Yjs-Repräsentationen, geänderter JSON-Hooks, beschädigter Bytes und aktueller
+Rich-Grammatik. Echte PGlite-Claim-/Worker-Regressionen, Typprüfung und Lint bestehen.
+Der reine 1,25-MB-Planvergleich misst lokal 252 ms für neue gültige Kodierungen und
+18 ms für denselben bereits validierten Plantext; das ersetzt keine kompilierte
+Recovery- oder Ressourcenabnahme. Alle sieben nativen API-Key-Owner-Gruppen,
+die Transaktionsgrenzen-Prüfung sowie die zwei gezielten PostgreSQL-Fälle für
+echte Web-Löschung mit 60 Dokumenten und Rechteentzug/Original-Recovery bestehen.
+Ihre eigenen Schemas, Clients, Pools und Testdaten sind entfernt. Die beiden
+gezielten MCP-Fälle ersetzen keinen aktuellen vollständigen 43er-Lauf. Als Nächstes
+muss der Originalauftrag auf dem neuesten gebauten Image abgeschlossen werden. Originalruntime, ihre geschützten Daten und andere Dienste sind erhalten.
+[CPU-, Plan- und Regressionsevidenz](testing/stored-physical-plan-parse-2026-11-08.json).
+
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
 reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich

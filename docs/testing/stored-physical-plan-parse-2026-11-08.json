@@ -1,0 +1,121 @@
+{
+  "scope": "Reuse bounded exact-text immutable Physical5 historical plan parse before the unchanged strict decoder; no row, permission, session or current-state cache",
+  "parentSourceSha": "361a143534f1ff01eeef63986b5aeb438864a388",
+  "runtimeSource": "app/lib/files/workspace-operation-batch-store.ts",
+  "runtimeSourceSha256": "e12c7e0f314bea8b954d7faad5284f47cc690efbcb7ae4473d248771f666b0a1",
+  "actualCompiledBefore": {
+    "file": "compiled-delete-1794093375431-cpu-audit.json",
+    "sha256": "07902e7f4321385ee12227ac11f3696f6e7457f57f354515bbc8278b90ce3ab4",
+    "sourceSha": "71bb05fedd3e7a216297033e71e33b01138b1ad5",
+    "explicitOriginalResumeAttempts": 1,
+    "newDeleteRequests": 0,
+    "retainedJobStatus": "needs_recovery",
+    "errorCode": "PRINCIPAL_EXPIRED",
+    "sameOriginalTrashHashInodeAndSizeVerifiedBeforeResume": true,
+    "profilerOverheadAndEntireRecoveryWindowNotExclusiveB2Budget": true,
+    "currentOriginalRuntimeProtectedRowsXminBytesAnchorsAndOtherContainersRestored": true
+  },
+  "regression": {
+    "before": {
+      "file": "stored-physical-plan-cache-20261108-before.log",
+      "sha256": "ef92cdac9863221b1a45d97617a051f4d8bf664538b23257f5ba92bbe39dc588"
+    },
+    "beforeFailsMissingPhysical5HistoricalParseReuse": true,
+    "after": {
+      "file": "stored-physical-plan-cache-20261108-after.log",
+      "sha256": "9b220b0269d49ca1719a46e97997e7ada14e9c22744b641e4cb4f0701b0fc1ee"
+    },
+    "afterPassedFamilies": 28,
+    "representations": [
+      "plain_text",
+      "tiptap_xml",
+      "tiptap_blocks"
+    ],
+    "retainedAssertions": [
+      "fresh mutable row status, actor, scope, progress and metadata",
+      "detached recursively frozen decoded plans",
+      "single-byte proof corruption and invalid/truncated JSON reject",
+      "foreign/accessor JSON.parse executes and its actual output is validated",
+      "current rich grammar changes and expired inspection scopes reject"
+    ]
+  },
+  "pureRowBenchmark": {
+    "file": "stored-physical-plan-benchmark-20261108.log",
+    "sha256": "136de3deba8ceef9adcc77a6b457e90dac6bb586d4dd60447bb8925d2a8679b2",
+    "test": "same-owned-201-document-row-pure-stored-decoder",
+    "planBytes": 1246450,
+    "coldDistinctValidEncodingsMs": [
+      302.8364160000001,
+      255.20258300000023,
+      250.85983399999986,
+      251.7980419999999,
+      250.4253749999998
+    ],
+    "warmExactEncodingMs": [
+      19.43258300000025,
+      18.700541000000158,
+      17.124500000000353,
+      17.504625000000033,
+      17.035875000000033
+    ],
+    "coldMedianMs": 251.7980419999999,
+    "warmMedianMs": 17.504625000000033,
+    "freshRowFieldsVerified": true,
+    "currentAuthority": false,
+    "notACompiledRuntimeBudget": true,
+    "importTimeDatabaseInitializationWarningsDoNotConferAnyAuthorityOrDbAcceptance": true
+  },
+  "claimRegression": {
+    "file": "stored-physical-plan-claim-regressions-20261108.log",
+    "sha256": "8a2ec9074401630f927cbd8ef17edeece04f3d92a25e6f6257ec701835db0954",
+    "engine": "PGlite",
+    "passed": true,
+    "cleanupSettled": true
+  },
+  "workerRegression": {
+    "file": "stored-physical-plan-worker-regressions-20261108.log",
+    "sha256": "300157cfd2b46282b075f733cd3c4f55c5f0bfa33d73f35c8a4fdeaaa230385c",
+    "engine": "PGlite",
+    "passed": true,
+    "cleanupSettled": true
+  },
+  "invariants": [
+    "Exact stored text key; changed text is decoded cold.",
+    "At most four historical entries and 16 MiB total stored text, using the existing cache.",
+    "Every return repeats strict detached plan capture and decoding.",
+    "No cached mutable row, authorization, Claim, original bytes or current authority.",
+    "JSON hooks and current rich-link grammar checks retain their original behavior.",
+    "Atomic Delete B2 and all original principal/transaction deadlines remain unchanged.",
+    "Review Center and file-operation Undo remain out of scope."
+  ],
+  "remaining": [
+    "Exact latest compiled 201-document original-job Recovery and normal physical deletion/image navigation.",
+    "Complete remaining plan 5b/5c matrix, final resource budgets, current regular test:all/Recovery UI, exact-head CI/review, merge and release."
+  ],
+  "nativeRegressions": [
+    {
+      "file": "stored-physical-plan-api-key-owners-20261108.log",
+      "sha256": "092b90fbf0e7630be245a92bb8c7c9b1fcb895d229b015c84a563342a3d0e07f",
+      "passedGroups": 7,
+      "ownSchemasPoolsClientsAndTemporaryDataRemoved": true,
+      "focusedMcpRunNotFull43": false
+    },
+    {
+      "file": "stored-physical-plan-mcp-web-delete-20261108.log",
+      "sha256": "07c477b50273b1505955aff7993b89d38fe0d5de17445d0829c7455b26998602",
+      "passedGroups": 1,
+      "ownSchemasPoolsClientsAndTemporaryDataRemoved": true,
+      "focusedMcpRunNotFull43": true
+    },
+    {
+      "file": "stored-physical-plan-mcp-b2-recovery-20261108.log",
+      "sha256": "0035c1d58787e4531672134e928ecb79c2ad7ddfa1789a2993c27331dacd32b9",
+      "passedGroups": 1,
+      "ownSchemasPoolsClientsAndTemporaryDataRemoved": true,
+      "focusedMcpRunNotFull43": true
+    }
+  ],
+  "nativePhaseBoundaryPassed": true,
+  "scopedTypesPassed": true,
+  "scopedLintPassed": true
+}
