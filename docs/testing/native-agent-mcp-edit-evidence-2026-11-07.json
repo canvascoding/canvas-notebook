@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "source": "scripts/native-document-edit-tool-dispatch-postgres-test.ts",
+  "sourceSha256": "dead29fada690cd5b40ebcedd57f26079be5bfd2473d5380e29993245180238b",
+  "logBasename": "native-edit-tool-dispatch-projection-fence-20261107-attempt1.log",
+  "logSha256": "da50532238522d94f5127f128585253d239fd50222b34469adcf9d3e51edb227",
+  "exitCode": 0,
+  "caseCount": 9,
+  "passedCases": [
+    "modern registered discovery/list advertises both strict native actions and the preserved legacy branch",
+    "registered MCP edit persists the actual room effect and pure status/read report its full version",
+    "different calls and actual renewed SID B retain the caller key and immutable A operation without replay",
+    "bad supplied API versions/mixed aliases never reach legacy and stale native keys return bounded errors",
+    "real scope/session/tool/grant revocation denies Edit AND historical status without changing any document/operation rows",
+    "actual PI registry preparation/validation/wrapper edits native XML and status remains pure",
+    "PI rejects native selector coercion and rechecks fresh tool/session policy after offering",
+    "complete Markdown replacement persists via real room, deduplicates and rejects stale revisions",
+    "the actual registered legacy path/SHA edit still matches its unchanged advertised output branch"
+  ],
+  "summaries": [
+    {
+      "closure": "native-edit-tool-dispatch",
+      "ownHttpAndWssClosed": true,
+      "dedicatedOwnerBackendsClosed": 1,
+      "fixtureTcpServers": 0,
+      "testOwnedTcpServers": 1
+    },
+    {
+      "fixture": "document-read-tool-dispatch",
+      "schemaRemoved": true,
+      "clientsClosed": true,
+      "dataRemoved": true,
+      "fetches": 0,
+      "tcpServersCreated": 0,
+      "backendDrainChecks": 1
+    },
+    {
+      "suite": "native-document-edit-tool-dispatch",
+      "groups": 9,
+      "actualRegisteredModernMcp": true,
+      "actualPiRegistryWrapper": true,
+      "actualLocalPgRoomOwner": true,
+      "compiledOrOAuthIssuanceE2e": false,
+      "osSandboxAcceptance": false
+    }
+  ],
+  "bundleRemoved": true,
+  "reviewCenterEnabled": false,
+  "compiledNext": false,
+  "browserOAuthIssuance": false,
+  "osSandboxAcceptance": false,
+  "productionWrites": false,
+  "historicalLocalSourceSha": "c281ef5be5467c743efef1288084293e92f4b609",
+  "parentCommit": "d62f038b46015d0431d60636b468340a678bfd90",
+  "ciProjectionRaceRunId": 42352711451,
+  "nativeOnlyStartProtectedByRealWorkspaceLock": true,
+  "pureReadSnapshotWaitsForFinalizedProjectionReceipts": true,
+  "pureReadSnapshotStillComparesAllRowsAndXmin": true,
+  "freshCiResult": null
+}

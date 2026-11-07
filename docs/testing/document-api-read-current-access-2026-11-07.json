@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "parentCommit": "6814dd1c78c0099b0c7447a2b5a3560a757abe42",
+  "source": "scripts/api-key-document-read-http-postgres-test.ts",
+  "sourceSha256": "94e768bbded5e60711317499c636ae334b91f12e42e5098d54854d4a92c98ba3",
+  "logBasename": "api-read-current-access-20261107.log",
+  "logSha256": "6f1bd9d4db6bf8caa927136c5641e69541170e16e715bb852493f2ccc2a35a9e",
+  "command": "NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/api-key-document-read-http-postgres-test.ts",
+  "exitCode": 0,
+  "groupsPassed": 8,
+  "newCases": [
+    "account suspension between pages denies read and search without poisoning the original cursor",
+    "workspace archival between pages denies read and search until current access is restored"
+  ],
+  "actualPostgresql": true,
+  "actualSourceHttpHandlers": true,
+  "compiledNext": false,
+  "installedSdk": false,
+  "schemaRemoved": true,
+  "clientsClosed": true,
+  "dataRemoved": true,
+  "bundleRemoved": true,
+  "externalFetches": 0,
+  "productionDataModified": false
+}

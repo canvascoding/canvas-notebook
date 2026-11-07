@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "scope": "Plan 5b: API-key management, authentication and read authorization; not full API/SDK completion",
+  "ciRunId": 42347995566,
+  "ciSourceSha": "d39ccba0966a7f9f060ed2d61222a0450587a1af",
+  "mergedSourceSha": "505db489b639d52d8d208195873e04d20483d712",
+  "sourceBindingsVerified": true,
+  "logSha256": "b521d2f71b617f544d57b4276ffb8abd8e8beba04718c8ba8d0776ff2498454b",
+  "caseCount": 28,
+  "cases": [
+    {
+      "case": "real issued credential, current account/seat/workspace and same held backend/xid",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 55,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: real issued credential, current account/seat/workspace and same held backend/xid"
+    },
+    {
+      "case": "current write permission cannot enlarge a read principal",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 70,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: current write permission cannot enlarge a read principal"
+    },
+    {
+      "case": "fake/copied/detached principal and credential do not authorize a consumer",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 77,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: fake/copied/detached principal and credential do not authorize a consumer"
+    },
+    {
+      "case": "fresh action grant, workspace allowlist, account and seat are required",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 86,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: fresh action grant, workspace allowlist, account and seat are required"
+    },
+    {
+      "case": "reentrancy remains fatal even if the inner rejection is caught",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 105,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: reentrancy remains fatal even if the inner rejection is caught"
+    },
+    {
+      "case": "actual replacement transaction, read-only transaction and missing BEGIN fail closed",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 111,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: actual replacement transaction, read-only transaction and missing BEGIN fail closed"
+    },
+    {
+      "case": "logout leaves programmatic access valid; real revocation waits for held phase then blocks the next phase",
+      "layer": "actual-postgresql-principal",
+      "source": "scripts/api-key-document-read-principal-postgres-test.ts",
+      "line": 122,
+      "sourceSha256": "31e6b13985845ca7027628e11520f2d2383a2af1e65fc7d630bd0736e41926b1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read principal passed: logout leaves programmatic access valid; real revocation waits for held phase then blocks the next phase"
+    },
+    {
+      "case": "actual issued key reads native ID and full version through real route/core/auth",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 46,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: actual issued key reads native ID and full version through real route/core/auth"
+    },
+    {
+      "case": "rotation preserves same-integration cursor; another integration cannot borrow it",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 53,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: rotation preserves same-integration cursor; another integration cannot borrow it"
+    },
+    {
+      "case": "progressive search returns every stable native identity and version",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 68,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: progressive search returns every stable native identity and version"
+    },
+    {
+      "case": "malformed and mixed credentials fail without fallback to valid session",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 79,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: malformed and mixed credentials fail without fallback to valid session"
+    },
+    {
+      "case": "current seat, grant and workspace restrictions return sanitized 403",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 89,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: current seat, grant and workspace restrictions return sanitized 403"
+    },
+    {
+      "case": "shared key budget produces bounded 429 and revocation produces 401",
+      "layer": "actual-source-handler-postgresql",
+      "source": "scripts/api-key-document-read-http-postgres-test.ts",
+      "line": 101,
+      "sourceSha256": "a6b8dcb5415e4418ddbbce15a1aaefe750bc24886d37c28327cbf5721191eb11",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key document read HTTP passed: shared key budget produces bounded 429 and revocation produces 401"
+    },
+    {
+      "case": "rotation invalidates the original credential",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 40,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "code('API_KEY_INVALID')",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "mixed bearer and API key rejected",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 62,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "Authorization: 'Bearer unrelated'",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "mixed browser cookie and API key rejected",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 63,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "Cookie: 'better-auth.session_token=unrelated'",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "banned account rejected",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 68,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "code('API_KEY_ACCOUNT_INACTIVE')",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "foreign instance rejected",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 73,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "process.env.CANVAS_INSTANCE_ID = 'foreign-instance'",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "key and user rate limits enforced",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 80,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "code('API_KEY_RATE_LIMITED')",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "warm entry authentication bounded to five statements",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 92,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "assert.equal(warmStatements.length, 5",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "logout does not revoke programmatic credential",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 115,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "Programmatic access is independent of a logged-out browser session.",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "expired credential rejected",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-authentication-test.ts",
+      "line": 116,
+      "sourceSha256": "d8f0811ae02e79e6ff2bb0a23dfed13d24386f472896f905edfdf381842eb8cf",
+      "assertionAnchor": "SET expires_at=created_at+1",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key authentication PostgreSQL passed: real issuance, opaque proof, fresh grants, rotation/revocation/expiry, account/instance checks, mixed credentials, shared key/user limits, bounded usage and browser-logout independence. Document authorization remains a separate required phase.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "parallel issuance commits only one credential",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 83,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "assert.equal(creates.filter",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "stale concurrent grant editors have one winner",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 91,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "assert.equal(changes.filter",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "concurrent rotations leave only one active credential",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 104,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "assert.equal(active.count, 1)",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "lost issuance COMMIT reply is reconciled by original request ID",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 109,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "expectCode('API_KEY_OUTCOME_UNKNOWN')",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "lost rotation reply does not issue a replacement key",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 125,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "assert.equal(history.credentials.length, 3)",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    },
+    {
+      "case": "database rejection rolls back old-key revocation",
+      "layer": "actual-postgresql-service",
+      "source": "scripts/api-key-management-test.ts",
+      "line": 141,
+      "sourceSha256": "026d054fc07078f6244f72ef4e15f170234dc892e9c67597b5736975c355866c",
+      "assertionAnchor": "CHECK (issuance_request_id",
+      "log": "native-api.log",
+      "exactPassedLine": "API-key management PostgreSQL passed: real sessions, additive schema, hash-only storage, strict input/CSRF, owner/instance isolation, issuance/rotation races, lost COMMIT replies, revocation, pagination, shared limits and logout retention.",
+      "individualCaseLog": false
+    }
+  ],
+  "limits": [
+    "Source handlers are not compiled Next.js routes.",
+    "Principal/service checks are not independent network requests.",
+    "Aggregate service success confirms executed assertions; it does not emit individual case events.",
+    "No new OAuth issuance, OS-keyring, browser or production mutation was performed.",
+    "Review Center and Undo excluded."
+  ]
+}

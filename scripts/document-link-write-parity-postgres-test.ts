@@ -4,14 +4,18 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 import { withNativeApiKeyEditRuntime } from './helpers/native-api-key-edit-runtime';
 import { withInstalledApiKeySdkMcpFixture } from './helpers/installed-api-key-sdk-mcp-fixture';
 import type { WorkspaceDocumentLinkIndex } from '../app/lib/markdown/workspace-document-link-index-contract';
 
 async function main() {
+  const transports = ['rest', 'mcp-2025-11-25', 'mcp-2026-07-28', 'installed-sdk', 'agent-registry'] as const;
+  const selectedTransport = process.env.CANVAS_LINK_PARITY_TRANSPORT;
+  assert(selectedTransport === undefined || transports.some(value => value === selectedTransport), 'Select a supported parity transport.');
+  const selectedTransports = transports.filter(value => selectedTransport === undefined ? value !== 'agent-registry' : value === selectedTransport);
   const python = process.env.CANVAS_SDK_TEST_PYTHON, wheel = process.env.CANVAS_SDK_TEST_WHEEL;
-  assert(python && wheel && path.isAbsolute(python) && path.isAbsolute(wheel));
   await withNativeCopyMetadataOwnerFixture(async h => {
     Object.assign(process.env, { FILE_VERSION_CENTER_MODE: 'off', CANVAS_MCP_DIRECT_ENABLED: 'true',
       CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'environment', CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'environment',
@@ -26,6 +30,32 @@ async function main() {
     const { POST: read } = await import('../app/api/documents/read/route');
     const { GET: index } = await import('../app/api/markdown/link-index/route');
     const { handleDirectMcpPost } = await import('../app/lib/mcp/server/streamable-http');
+    const { createAgentProfile } = await import('../app/lib/agents/registry');
+    const { getPiTools } = await import('../app/lib/pi/tool-registry');
+    const { validateToolArguments } = await import('@earendil-works/pi-ai');
+    const agent = await createAgentProfile({ name: 'Link parity agent', agentId: `link-parity-${randomUUID()}`,
+      scopeType: 'user', organizationId: h.source.organizationId, ownerUserId: 'owner', createdByUserId: 'owner',
+      accessPolicy: 'restricted', enabledTools: ['edit_file', 'write'] }, h.connection);
+    const agentSessionId = `link-parity-${randomUUID()}`;
+    const sessionRow = (await h.admin.query(`INSERT INTO pi_sessions(session_id,user_id,agent_id,provider,model,organization_id,workspace_id,
+      workspace_type,workspace_name,workspace_root_relative_path,created_at,updated_at)
+      VALUES($1,'owner',$2,'fixture','fixture',$3,$4,$5,$6,$7,100,100) RETURNING id`,
+    [agentSessionId, agent.agentId, h.source.organizationId, h.source.workspaceId, h.source.workspaceType,
+      h.source.displayName, h.source.rootRelativePath])).rows[0];
+    await h.admin.query(`INSERT INTO pi_messages(pi_session_db_id,role,content,timestamp,sequence) VALUES($1,'user',$2,100,1)`,
+      [sessionRow.id, JSON.stringify({ role: 'user', content: [{ type: 'text', text: 'Update the owned link parity documents.' }], timestamp: 100 })]);
+    let agentTools: AgentTool[] | undefined;
+    const invokeAgent = async (name: 'edit_file' | 'write', args: Record<string, unknown>) => {
+      agentTools ??= await getPiTools('owner', agent.agentId, agentSessionId, { strictAuthorization: true, metadataOnlyExternal: true });
+      const tool = agentTools.find(value => value.name === name); assert(tool);
+      const callId = `link-parity-${randomUUID()}`;
+      const prepared = tool.prepareArguments ? tool.prepareArguments(args) : args;
+      const validated = validateToolArguments(tool, { type: 'toolCall', id: callId, name,
+        arguments: prepared as Parameters<typeof validateToolArguments>[1]['arguments'] });
+      const result = await tool.execute(callId, validated);
+      assert.notEqual(Reflect.get(result, 'isError'), true, `Registered Agent ${name} must succeed`);
+      return result;
+    };
     const manager = new Headers((await h.request(h.source, 'owner')).headers); manager.set('Origin', 'http://localhost');
     const issued = await createApiIntegration(manager, { requestId: randomUUID(), name: 'Link mutation parity',
       workspaceIds: [h.source.workspaceId], actions: ['read', 'create', 'edit', 'status'], expiresAt: Date.now() + 3_600_000 });
@@ -43,7 +73,7 @@ async function main() {
     let groups = 0, indexRateLimitRetries = 0;
     try {
       await withNativeApiKeyEditRuntime(h, async () => {
-        for (const transport of ['rest', 'mcp-2025-11-25', 'mcp-2026-07-28', 'installed-sdk'] as const) {
+        for (const transport of selectedTransports) {
           const directory = transport, sourcePath = `${directory}/source.md`, targetPath = `${directory}/target.md`, otherPath = `${directory}/other.md`;
           const shared = `Shared-${transport}`, renamed = `New-${transport}`, future = `Future-${transport}`;
           const original = `---\naliases: [${shared}]\n---\n# Original title\n`;
@@ -104,7 +134,24 @@ async function main() {
           ];
           const semantic = (markdown: string) => markdown.replace(/^# /gmu, '').trimEnd();
           await verify(0);
-          if (transport === 'installed-sdk') {
+          if (transport === 'agent-registry') {
+            for (const [i, step] of steps.entries()) {
+              if (step.kind === 'create') {
+                await invokeAgent('write', { path: step.path, content: step.text, idempotencyKey: step.idempotencyKey });
+              } else {
+                const before = await post(read, { documentId: step.documentId, format: 'text' });
+                assert.equal(before.fragment, semantic(step.before!));
+                const result = await invokeAgent('edit_file', { apiVersion: 1, action: 'edit', workspaceId: h.source.workspaceId,
+                  documentId: step.documentId, expectedVersion: before.document.version, idempotencyKey: step.idempotencyKey,
+                  patch: { kind: 'native_text_replace', edits: step.edits } });
+                assert.equal(result.content[0]?.type, 'text');
+                const body = JSON.parse((result.content[0] as { text: string }).text);
+                assert.equal(body.state, 'confirmed'); assert.equal(body.persistence.status, 'confirmed');
+              }
+              await verify(i + 1);
+            }
+          } else if (transport === 'installed-sdk') {
+            assert(python && wheel && path.isAbsolute(python) && path.isAbsolute(wheel));
             const result = await withInstalledApiKeySdkMcpFixture({ python, wheel, key: issued.key,
               probe: path.resolve('scripts/helpers/python_sdk_link_mutation_probe.py'), config: { workspaceId: h.source.workspaceId, steps: steps.map(step => step.kind === 'edit' ? { ...step, before: semantic(step.before!), after: semantic(step.after!) } : step) },
               event: async (event, send) => {
@@ -150,9 +197,10 @@ async function main() {
           console.log(JSON.stringify({ suite: 'document-link-write-parity-profile', transport, groups: 6, passed: true }));
         }
       });
-      assert.equal(groups, 24);
+      assert.equal(groups, selectedTransports.length * 6);
       console.log(JSON.stringify({ suite: 'document-link-write-parity', groups, passed: true, actualPostgres: true, indexRateLimitRetries,
-        transports: ['key-rest', 'key-mcp-2025-11-25', 'key-mcp-2026-07-28', 'installed-key-sdk-http'],
+        transports: selectedTransports.map(value => ({ rest: 'key-rest', 'mcp-2025-11-25': 'key-mcp-2025-11-25',
+          'mcp-2026-07-28': 'key-mcp-2026-07-28', 'installed-sdk': 'installed-key-sdk-http', 'agent-registry': 'registered-agent-tools' })[value]),
         fullRebuildParity: true, protectedSourceXminAndBytesPreserved: true, compiledNext: false }));
     } finally { await revokeApiKey(manager, issued.integration.id, { expectedRevision: 1, credentialId: issued.credential.id }); }
   });

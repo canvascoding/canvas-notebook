@@ -73,6 +73,8 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
     const { validateToolArguments } = await import('@earendil-works/pi-ai');
     const { createCollaborationServer, flushCollaborationDocuments } = await import('../server/collaboration-server');
     const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+    const { listPendingCollaborationProjections } = await import('../app/lib/collaboration/projection-repository');
+    const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
     const runtime = await import('../app/lib/db'); const pool = runtime.getPostgresRuntimeQueryable(); assert(pool);
     const schema = String((await admin.query('SELECT current_schema() AS schema')).rows[0].schema);
     assert.match(schema, /^document_tool_dispatch_[a-f0-9]+$/u);
@@ -167,7 +169,17 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
       assert(row); return { row, original: captureNativeDocumentEditOriginal(row.native_edit_original_json) };
     };
     const unchanged = async (action: () => Promise<void>) => {
-      await flushCollaborationDocuments(); const before = await rows(); await action(); assert.deepEqual(await rows(), before);
+      await flushCollaborationDocuments();
+      // Hocuspocus's store flush does not drain the separate file-projection
+      // worker. Do not attribute its preceding legitimate checkpoint to the
+      // status/read under test. Require its actual finalized publication first.
+      const deadline = Date.now() + 12_000;
+      while ((await listPendingCollaborationProjections()).length > 0) {
+        if (Date.now() >= deadline) throw new Error('Owned projections did not finalize before the read-only snapshot.');
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const before = await rows(); await action(); assert.deepEqual(await rows(), before);
+      assert.deepEqual(await listPendingCollaborationProjections(), [], 'A read-only action must not create new projection work.');
     };
     const check = async (name: string, action: () => Promise<void>) => { currentCase = name; await action(); passed++; console.log(`PASS native Edit registered dispatch: ${name}`); };
     const plain = await fixture.seed({ text: 'Target MCP unique 😀 and stable tail.', filePath: 'native-mcp.md' });
@@ -188,7 +200,18 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
     };
     const piSelection = (args: Row): Row => ({ apiVersion: args.api_version, action: args.action, workspaceId: args.workspace_id,
       documentId: args.document_id, expectedVersion: args.expected_version, idempotencyKey: args.idempotency_key, patch: args.patch });
+    let releaseInitialProjection!: () => void, enteredInitialBarrier!: () => void;
+    const initialProjectionGate = new Promise<void>(resolve => { releaseInitialProjection = resolve; });
+    const initialBarrierEntered = new Promise<void>(resolve => { enteredInitialBarrier = resolve; });
+    let initialProjectionBarrier: Promise<void> | undefined;
     try {
+      // Hold the real workspace lock in a separate async lifetime so the
+      // background worker cannot race the native-only starting assertion.
+      // The server is constructed outside that lock's ALS context.
+      initialProjectionBarrier = withWorkspaceMutationLock(workspaceId, async () => {
+        enteredInitialBarrier(); await initialProjectionGate;
+      });
+      await bounded(Promise.race([initialBarrierEntered, initialProjectionBarrier]), 'Initial projection barrier did not enter.');
       Hocuspocus.prototype.hooks = (async function(this: Hocuspocus, name: string, payload: Record<string, unknown>, ...args: unknown[]) {
         ownerRuntime.current = this; return Reflect.apply(originalHooks, this, [name, payload, ...args]);
       }) as typeof originalHooks;
@@ -220,6 +243,7 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
       });
       await check('registered MCP edit persists the actual room effect and pure status/read report its full version', async () => {
         await assert.rejects(lstat(path.join(fixture.workspaceRoot, plain.filePath)), { code: 'ENOENT' });
+        releaseInitialProjection(); await initialProjectionBarrier;
         const before = await read(plain); assert.equal(before.fragment, plain.text);
         originalRequest = selected(plain, before.document.version, 'mcp-caller-key-001', 'Target MCP', 'Changed MCP');
         assert(inputValidator); assert.equal(inputValidator(originalRequest).valid, true);
@@ -375,6 +399,8 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
     } catch (error) { primary = error; }
     finally {
       const cleanup: unknown[] = [];
+      releaseInitialProjection();
+      if (initialProjectionBarrier) try { await bounded(initialProjectionBarrier, 'Initial projection barrier did not close.'); } catch (error) { cleanup.push(error); }
       try { await flushCollaborationDocuments(); } catch (error) { cleanup.push(error); }
       const instance = ownerRuntime.current;
       if (instance) {

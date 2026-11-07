@@ -5,6 +5,14 @@ Er trennt tatsächlich ausgeführte Abnahmen von älteren Teilbelegen und noch
 fehlender Zuordnung. Review Center und Undo bleiben außerhalb des Umfangs.
 Ein offener Gesamtbereich bedeutet nicht, dass seine Implementierung fehlt.
 
+**Ergänzung vom 07.11.2026:** Die
+[Zuordnung von 28 einzelnen API-Zugangsfällen](document-api-auth-case-evidence-2026-11-07.md)
+bindet die tatsächlich ausgeführten Verwaltungs-, Authentifizierungs-, Principal-
+und HTTP-Leseprüfungen an den erfolgreichen PR-CI-Lauf 42347995566. Sie präzisiert
+die unten noch pauschal offenen Zuordnungen, ohne die übrige Matrix abzuschließen.
+Die folgenden Release-Angaben bleiben der historische Stand vom 06.11.; die
+aktuelle Produktion ist 2026.11.7.1, siehe Gesamtplan.
+
 ## Aktueller Produktstand
 
 - Release: `2026.11.6.3`, Produktcommit `0c67bce200f45011f91432b2684b05ec910909e0`.

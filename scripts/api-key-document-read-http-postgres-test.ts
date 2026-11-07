@@ -98,6 +98,38 @@ async function main() {
         workspaceIds: [fixture.workspaceId], actions: ['read'] });
       await failure('read', readInput({ workspaceId: 'different-workspace' }), 403, 'API_KEY_ACCESS_DENIED');
     });
+    await check('account suspension between pages denies read and search without poisoning the original cursor', async () => {
+      const started = await request('read', readInput());
+      assert.equal(started.status, 200); assert(started.body.nextCursor);
+      await fixture.admin.query("UPDATE \"user\" SET banned=1 WHERE id='reader'");
+      try {
+        await failure('read', readInput({ cursor: started.body.nextCursor,
+          expectedVersion: started.body.document.version }), 403, 'API_KEY_ACCOUNT_INACTIVE');
+        await failure('search', searchInput(), 403, 'API_KEY_ACCOUNT_INACTIVE');
+      } finally { await fixture.admin.query("UPDATE \"user\" SET banned=0 WHERE id='reader'"); }
+      const resumed = await request('read', readInput({ cursor: started.body.nextCursor,
+        expectedVersion: started.body.document.version }));
+      assert.equal(resumed.status, 200);
+      assert.equal(resumed.body.byteOffset, started.body.byteLength);
+      assert.equal(resumed.body.document.documentId, document.documentId);
+      assert.equal(resumed.body.document.version, started.body.document.version);
+    });
+    await check('workspace archival between pages denies read and search until current access is restored', async () => {
+      const started = await request('read', readInput());
+      assert.equal(started.status, 200); assert(started.body.nextCursor);
+      await fixture.admin.query("UPDATE canvas_workspaces SET status='archived' WHERE id=$1", [fixture.workspaceId]);
+      try {
+        await failure('read', readInput({ cursor: started.body.nextCursor,
+          expectedVersion: started.body.document.version }), 403, 'API_KEY_ACCESS_DENIED');
+        await failure('search', searchInput(), 403, 'API_KEY_ACCESS_DENIED');
+      } finally { await fixture.admin.query("UPDATE canvas_workspaces SET status='active' WHERE id=$1", [fixture.workspaceId]); }
+      const resumed = await request('read', readInput({ cursor: started.body.nextCursor,
+        expectedVersion: started.body.document.version }));
+      assert.equal(resumed.status, 200);
+      assert.equal(resumed.body.byteOffset, started.body.byteLength);
+      assert.equal(resumed.body.document.documentId, document.documentId);
+      assert.equal(resumed.body.document.version, started.body.document.version);
+    });
     await check('shared key budget produces bounded 429 and revocation produces 401', async () => {
       const current = await management.listApiIntegrationCredentials(sessionHeaders, first.integration.id);
       const credentialId = current.credentials.find(entry => !entry.revokedAt)!.id;
