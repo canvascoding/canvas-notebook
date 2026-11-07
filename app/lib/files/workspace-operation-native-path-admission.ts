@@ -268,9 +268,11 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
         }
         mark('reserve');
         if (!['reserved', 'draining'].includes(reserved.status)) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        if (!existing && original.kind === 'move' && original.authorization.mode === 'api-key') {
+        if (!existing) {
           // The preparation and reservation are durable together. Resume from
           // that exact header in a fresh, fully authorized claim transaction.
+          // Keep the potentially large target cohort out of this first phase;
+          // its proofs must fit their own unchanged transaction deadline.
           finishedCallback = true;
           return Object.freeze({ status: 'prepared' as const, requestId: selected.request.requestId });
         }

@@ -1,0 +1,59 @@
+{
+  "scope": "Native path preparation/reservation separated from target proofs; actual PostgreSQL/auth/claim phases, compiled after-fix pending",
+  "parentSourceSha": "8f49306f21695d418eac68cab3d71b7626015069",
+  "runtimeSource": "app/lib/files/workspace-operation-native-path-admission.ts",
+  "runtimeSourceSha256": "f0a4956cfba12e592a1d072ec11eed2376b78174b7f300dd293a2f5513912785",
+  "actualCompiledBefore": {
+    "sourceSha": "8f49306f21695d418eac68cab3d71b7626015069",
+    "proof": "compiled-auxiliary-read-200-on-desktop-1794088021328-result.json",
+    "sha256": "c638e3f8d2f312b7467d3e6ab569f3eed7b31bb840b1319b3a75d79b76684ae1",
+    "previewScansComplete": true,
+    "nativeDocuments": 201,
+    "callbackBeforeFinalGuardsMs": 4858,
+    "workerResult": "failed/preparing/BATCH_CLAIM_DISPOSAL_UNCONFIRMED",
+    "completedActions": 0,
+    "readOnlyInspection": "no admission requests and zero rows in every batch-specific Delete intent/receipt/Trash table; the failed job is preserved, not replayed",
+    "physicalFilesMustStillBeHashVerifiedBeforeAnyNewOwnedCleanup": true,
+    "protectedOriginalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+  },
+  "controlledBefore": {
+    "log": "native-path-phase-boundary-20261107-before.log",
+    "sha256": "b9bfa71a77efaf3a7e11512ca19a14de0ad7ceeb51a5ac7f2ac2c23f5f249dc2",
+    "rootCode": "25P04",
+    "realTransactionTimeout": true,
+    "sameActualTransactionForBothDelays": true,
+    "originalFileAndNativeStatePreserved": true
+  },
+  "registeredOwnerAggregate": {
+    "command": "npm run test:api-keys:path-owners:native",
+    "log": "native-path-phase-owner-regressions-20261107.log",
+    "sha256": "212ff07e50018caa63f5de5c181009420a9d3b685dc636d0ddf628852bda26fc",
+    "apiKeyOwnerGroupsPassed": 7,
+    "boundaryCasePassed": true,
+    "differentActualTransactions": true,
+    "delayMs": [
+      2603,
+      2602
+    ],
+    "originalFileAndNativeStatePreserved": true
+  },
+  "invariants": [
+    "Preparation and reservation commit together using the existing durable exact request header.",
+    "The next target phase freshly authorizes the same genuine claim and exact request ID.",
+    "Transaction/principal deadlines, room proofs and final guards are unchanged.",
+    "Callback completion is not treated as confirmed COMMIT.",
+    "No automatic replay or clearing of an unconfirmed failed job.",
+    "No Review Center or Undo feature work."
+  ],
+  "limits": [
+    "Current compiled 200-document physical-file deletion and image navigation remain required.",
+    "Remaining plan 5b/5c matrix, regular test:all, exact-head CI/review and release remain open."
+  ],
+  "mcpOwnerRegression": {
+    "log": "native-path-phase-mcp-regressions-20261107.log",
+    "sha256": "9a257161d9300ca123eba02fb63be5e30584967cecb12dc526f3c62e4fd2dd36",
+    "groupsPassed": 43,
+    "schemaPoolClientsAndTemporaryDataRemoved": true,
+    "scope": "Actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD and genuine rooms/sockets/admission tickets and Web rename Request/Response; not OAuth issuance, file-route TCP, SDK or browser"
+  }
+}

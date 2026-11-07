@@ -68,6 +68,24 @@ verändert; aus diesen Web-Nachweisen folgt keine neue große MCP-Abnahme.
 Keine produktive Datei wurde geändert oder gelöscht.
 [Gebundener Vorher-/Nachher-Nachweis](testing/path-preview-fresh-authority-2026-11-07.json).
 
+Der anschließend kompilierte Web-Vorschau-Fix aus `8f49306f2` besteht beide
+Quellscans mit 201 nativen Dokumenten. Die eigentliche PNG-Löschung scheitert
+jedoch im vorbereitenden Worker: Reservierung und sämtliche Zielprüfungen liegen
+noch gemeinsam nahe an der Fünf-Sekunden-Transaktionsgrenze. Der gespeicherte
+Auftrag bleibt `failed/preparing` mit null abgeschlossenen Aktionen; eine rein
+lesende Prüfung findet keinen Admission-Eintrag und keine Delete-/Trash-Belege.
+Der fehlgeschlagene Auftrag wird unverändert erhalten und nicht erneut gesendet.
+Ein neuer echter PostgreSQL-Test reproduziert `25P04` mit zwei realen, jeweils
+kurzen Verzögerungen in derselben Transaktion. Der Kandidat verallgemeinert die
+bereits für API-Key-Moves vorhandene Grenze: bestätigte Vorbereitung/Reservierung,
+danach Zielprüfungen in einer neuen, frisch autorisierten Claim-Transaktion.
+Sie verwenden nachweislich verschiedene echte XIDs, behalten Originaldatei und
+nativen Zustand und bestehen zusammen mit allen sieben API-Key-Owner-Gruppen.
+Der vollständige MCP-Owner-Lauf besteht alle 43 Gruppen; seine eigenen Schemas,
+Verbindungen und Testdaten sind entfernt. Die kompilierte 200er-Abnahme steht
+für diesen neuesten Kandidaten aus.
+[Phasen- und Vorher-/Nachher-Beleg](testing/native-path-admission-phases-2026-11-07.json).
+
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
 reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich
