@@ -3303,9 +3303,37 @@ sich 10/11/10 Statements für Marp/Operations/Dateibesuch, davon neun für echte
 Session-/Lizenz-/Seat-/JWK-Prüfung und eines für den Workspace-Snapshot; dies ist
 keine kompilierte Browser- oder Gesamtbudgetmessung. Der frühere warme Marp-
 Quellaufruf scheitert mit 21 Statements am neuen Budget. Die neue native Prüfung
-ist in der CI registriert. Aktueller Build und kompilierte Nachmessung dieses
-weiteren Fixes stehen noch aus. Beleg:
-`docs/testing/file-open-auxiliary-current-access-2026-11-07.json`.
+ist in der CI registriert. Host- und Linux-Build sowie kompilierte Chromium-
+Läufe mit zehn und 200 regulär hochgeladenen Quellen bestehen am Stand
+`620dbc298`. Warme Wechsel behalten Yjs/Provider und erzeugen keine neue Session
+oder Inhaltsabfrage. Die beiden üblichen Nebenaufrufe sind auf dem beobachteten
+schnellen Pfad zusammen mit 21 HTTP-bezogenen SQL-Anweisungen erfasst; weitere
+asynchrone Arbeit kann in derselben Phase dazukommen. Rechte- und Speichergrenzen
+werden damit nicht als insgesamt abgenommen erklärt.
+
+Die zusätzliche leise Prozess-/Thread-Erfassung zeigt in fünf Sekunden normalem
+Leerlauf 686 beobachtete PostgreSQL-Anweisungen bei zehn Quellen und 646 bei
+200 Quellen. Die HTTP-Anfragen allein ergeben jeweils 52. Separate diagnostische
+Leerlaufphasen liefern 596 beziehungsweise 603 Anweisungen und konkrete Aufrufe
+in `readMemberScopeSnapshot`, `checkIdentity` und Transaktionen des
+`room-admission-worker`. Diese Aufrufklassifikationen können überlappen; daraus
+wird keine exklusive Verursacherquote abgeleitet. Der folgende Arbeitsschritt
+muss diese wiederholten Hintergrundprüfungen untersuchen und reduzieren, ohne
+Rechte-/Realm- oder Raumfreigabefences abzuschwächen. HTTP-Zuordnung und
+zeitbezogene Gesamtbeobachtung haben ausdrücklich unterschiedliche Grenzen.
+Originalruntime, geschützte Zeilen/xmin/Bytes/Anker und andere Container sind nach
+beiden Läufen erhalten. Belege:
+`docs/testing/file-open-auxiliary-current-access-2026-11-07.json` und
+`docs/testing/document-open-background-sql-2026-11-07.json`.
+
+Die CI von PR235 auf dem vorigen Kopf `102c8d07f` besteht einschließlich aller
+15 veröffentlichten Checks. Die Artefakte bestätigen zwölf frische SDK-Profile
+auf Python3.10/3.15, je21 Pfadgruppen ohne automatischen Schreib-Replay, vier
+Lesegrenzgruppen und zwölf ausgeführte MDX-Schreibfunktionen. Die acht SDK-
+Laufzeitdateien stimmen mit dem aktuellen Checkout überein; native OS-Keyring-
+Abnahme wird durch diese Linux-Profile nicht behauptet. Der neue Produktcommit
+`620dbc298` braucht noch seinen eigenen CI-Lauf. Privater Audit:
+`pr235-ci-42364539003-audit.json`.
 
 Weitere Lebenszyklus-/Recovery-Browserfälle, vollständige Ressourcenbudgets und
 aktuelles vollständiges `test:all` bleiben offen. Review Center und Undo bleiben

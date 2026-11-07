@@ -67,9 +67,12 @@
     "artifact": "document-open-auxiliary.log"
   },
   "limits": {
-    "compiledBrowserAfterChange": false,
+    "compiledBrowserAfterChange": true,
     "productionSQLBudgetAfterChangeMeasured": false,
     "fullTestAllAfterChange": false,
-    "reviewCenterAndUndoChanged": false
-  }
+    "reviewCenterAndUndoChanged": false,
+    "scopeOfCompiledEvidence": "Owned10/200-source local fixtures; production was not measured or modified."
+  },
+  "compiledSourceSha": "620dbc298b36c45164be8db1ed4c4b0edc9e9c10",
+  "compiledBrowserEvidence": "docs/testing/document-open-background-sql-2026-11-07.json"
 }

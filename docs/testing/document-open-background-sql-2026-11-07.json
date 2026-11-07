@@ -1,0 +1,353 @@
+{
+  "compiledSourceSha": "620dbc298b36c45164be8db1ed4c4b0edc9e9c10",
+  "imageId": "sha256:1dce77a49c75924e70f5937cdd3736c555a5b598e62c204e63d9c1368e8226ee",
+  "sourceBoundary": "Actual compiled Chromium and actual PostgreSQL; same observer protocol for10 and200 regularly uploaded sources. No network mocking.",
+  "collector": "Silent per-process/thread atomic snapshots in a private outside-DATA mount; every currently running Node process has an actual preload record. Root pg driver instances only; other driver copies or non-preloaded workers are not asserted.",
+  "collectorContractLog": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/file-pg-measurements-contract-20261107.log",
+  "measurementSourceSha256": "f6b2adac11f6a98a9c9ad9d99f72d5667daf3ff694f39de9b6bd45a0968d3300",
+  "cases": [
+    {
+      "sourceCount": 10,
+      "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794051946517-result.json",
+      "reportSha256": "0959ba4e99ebd26b817b728df333a2c4d2477aaff0bc19ccd666ac2bf789e633",
+      "passed": true,
+      "actualNetworkAndServer": true,
+      "nativeDocumentCount": 11,
+      "runtimeNodePidsCovered": [
+        190,
+        260,
+        317
+      ],
+      "missingPreloadPids": [],
+      "phases": [
+        {
+          "name": "cold-A",
+          "visibleAndSyncedMs": 3596,
+          "httpRequests": 110,
+          "httpAttributedSQL": 644,
+          "timeWindowObservedPgSQL": 3292,
+          "timeWindowObservedCheckouts": 1272,
+          "sessionRequests": 1,
+          "fileReadRequests": 1,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "cold-B-same-app",
+          "visibleAndSyncedMs": 1388,
+          "httpRequests": 11,
+          "httpAttributedSQL": 452,
+          "timeWindowObservedPgSQL": 1437,
+          "timeWindowObservedCheckouts": 305,
+          "sessionRequests": 1,
+          "fileReadRequests": 1,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-0",
+          "visibleAndSyncedMs": 83,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 21,
+          "timeWindowObservedCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-0",
+          "visibleAndSyncedMs": 85,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 21,
+          "timeWindowObservedCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-1",
+          "visibleAndSyncedMs": 81,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 26,
+          "timeWindowObservedCheckouts": 14,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-1",
+          "visibleAndSyncedMs": 97,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 21,
+          "timeWindowObservedCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-2",
+          "visibleAndSyncedMs": 96,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 52,
+          "timeWindowObservedCheckouts": 31,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-2",
+          "visibleAndSyncedMs": 91,
+          "httpRequests": 3,
+          "httpAttributedSQL": 27,
+          "timeWindowObservedPgSQL": 9,
+          "timeWindowObservedCheckouts": 5,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "idle-5s",
+          "visibleAndSyncedMs": 5009,
+          "httpRequests": 5,
+          "httpAttributedSQL": 52,
+          "timeWindowObservedPgSQL": 686,
+          "timeWindowObservedCheckouts": 155,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "open-editor-menu",
+          "visibleAndSyncedMs": 255,
+          "httpRequests": 1,
+          "httpAttributedSQL": 10,
+          "timeWindowObservedPgSQL": 15,
+          "timeWindowObservedCheckouts": 7,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "open-tab-menu",
+          "visibleAndSyncedMs": 241,
+          "httpRequests": 1,
+          "httpAttributedSQL": 10,
+          "timeWindowObservedPgSQL": 116,
+          "timeWindowObservedCheckouts": 32,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "idle-diagnostic-5s",
+          "visibleAndSyncedMs": 5011,
+          "httpRequests": 1,
+          "httpAttributedSQL": 11,
+          "timeWindowObservedPgSQL": 596,
+          "timeWindowObservedCheckouts": 134,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        }
+      ],
+      "diagnosticSQLCallsiteMatches": {
+        "readMemberScopeSnapshot": 40,
+        "checkIdentity": 30,
+        "room-admission-worker": 96
+      },
+      "callsiteMatchesMayOverlap": true,
+      "originalProtectedRowsXminBytesAndAnchorsPreserved": true,
+      "otherContainersPreserved": true
+    },
+    {
+      "sourceCount": 200,
+      "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-200-on-desktop-1794052186430-result.json",
+      "reportSha256": "dafdfef3a720011c7f7c308c899d5db6ac8d61e261e4408fc515df4f40f6be8e",
+      "passed": true,
+      "actualNetworkAndServer": true,
+      "nativeDocumentCount": 201,
+      "runtimeNodePidsCovered": [
+        194,
+        267,
+        323
+      ],
+      "missingPreloadPids": [],
+      "phases": [
+        {
+          "name": "cold-A",
+          "visibleAndSyncedMs": 3596,
+          "httpRequests": 110,
+          "httpAttributedSQL": 646,
+          "timeWindowObservedPgSQL": 1416,
+          "timeWindowObservedCheckouts": 436,
+          "sessionRequests": 1,
+          "fileReadRequests": 1,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "cold-B-same-app",
+          "visibleAndSyncedMs": 2374,
+          "httpRequests": 12,
+          "httpAttributedSQL": 473,
+          "timeWindowObservedPgSQL": 1310,
+          "timeWindowObservedCheckouts": 289,
+          "sessionRequests": 1,
+          "fileReadRequests": 1,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-0",
+          "visibleAndSyncedMs": 81,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 26,
+          "timeWindowObservedCheckouts": 14,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-0",
+          "visibleAndSyncedMs": 87,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 55,
+          "timeWindowObservedCheckouts": 31,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-1",
+          "visibleAndSyncedMs": 83,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 21,
+          "timeWindowObservedCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-1",
+          "visibleAndSyncedMs": 93,
+          "httpRequests": 3,
+          "httpAttributedSQL": 42,
+          "timeWindowObservedPgSQL": 47,
+          "timeWindowObservedCheckouts": 21,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-A-2",
+          "visibleAndSyncedMs": 89,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 26,
+          "timeWindowObservedCheckouts": 14,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "warm-B-2",
+          "visibleAndSyncedMs": 89,
+          "httpRequests": 2,
+          "httpAttributedSQL": 21,
+          "timeWindowObservedPgSQL": 21,
+          "timeWindowObservedCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "idle-5s",
+          "visibleAndSyncedMs": 5019,
+          "httpRequests": 5,
+          "httpAttributedSQL": 52,
+          "timeWindowObservedPgSQL": 646,
+          "timeWindowObservedCheckouts": 153,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "open-editor-menu",
+          "visibleAndSyncedMs": 243,
+          "httpRequests": 1,
+          "httpAttributedSQL": 10,
+          "timeWindowObservedPgSQL": 112,
+          "timeWindowObservedCheckouts": 28,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "open-tab-menu",
+          "visibleAndSyncedMs": 241,
+          "httpRequests": 1,
+          "httpAttributedSQL": 10,
+          "timeWindowObservedPgSQL": 15,
+          "timeWindowObservedCheckouts": 7,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "name": "idle-diagnostic-5s",
+          "visibleAndSyncedMs": 5011,
+          "httpRequests": 1,
+          "httpAttributedSQL": 11,
+          "timeWindowObservedPgSQL": 603,
+          "timeWindowObservedCheckouts": 137,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        }
+      ],
+      "diagnosticSQLCallsiteMatches": {
+        "readMemberScopeSnapshot": 40,
+        "checkIdentity": 30,
+        "room-admission-worker": 96
+      },
+      "callsiteMatchesMayOverlap": true,
+      "originalProtectedRowsXminBytesAndAnchorsPreserved": true,
+      "otherContainersPreserved": true
+    }
+  ],
+  "limits": [
+    "HTTP totals are attributed to request issue and response finish. Global pg totals use the acknowledged phase time window. These are different boundaries and must not be summed or treated as identical.",
+    "Idle diagnostic phases capture query fingerprints and stacks; their timings are diagnostic, not latency acceptance.",
+    "Cold app startup includes settings, workspace loading and other bootstrap work. It is not a single endpoint cost.",
+    "High background SQL remains; these results do not close overall performance budgets, lifecycle acceptance or full test:all.",
+    "Review Center and Undo remain excluded."
+  ]
+}
