@@ -1,0 +1,99 @@
+{
+  "date": "2026-11-07",
+  "compiledProductCommit": "22185519436e116beda520fddc197886f0132a0b",
+  "checkoutCommit": "3564d71733ac7d110684552b173f3df3f935d107",
+  "imageId": "sha256:06d257b9dc4a912a4949dae59f07e6fc011e139d9993929e2e5e09e500122394",
+  "actualCompiledServer": true,
+  "actualPlaywright": true,
+  "responseMocking": false,
+  "sdk": {
+    "installedVersion": "0.1.1",
+    "wheelSha256": "b426510be1893811111dcd52cbe828fac19bca16eb8ff003f3e4a4b069948316",
+    "runtimeFilesMatchedToCheckoutAndWheel": 8,
+    "sourceImportSubstitute": false
+  },
+  "offline": {
+    "passed": true,
+    "cases": 2,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "scope": [
+      "rich editing persists offline and synchronizes after reconnection",
+      "offline switching between cached documents preserves edits"
+    ]
+  },
+  "apiKeySdk": {
+    "completedChecks": [
+      "actual session issues workspace-scoped credentials",
+      "API key cannot manage keys or read integration secrets",
+      "installed SDK creates a native document",
+      "installed SDK edit and status confirm durable persistence",
+      "two Yjs-bound visible editors show SDK edits and preserve them after reload",
+      "read-only key can read via REST and SDK and cannot edit",
+      "rotation rejects the old credential in REST and SDK",
+      "rotated key can edit and both editors update",
+      "REST edit appears in both editors and independent installed-SDK readback",
+      "revocation rejects current key in REST and SDK while session editors remain usable"
+    ],
+    "automaticWriteReplays": 0,
+    "remainingFlowEditorChecks": 10,
+    "reloadReadCyclesWithoutError": 5,
+    "acceptanceRunsCombined": true,
+    "oneUnexplainedReadFailureRetained": true,
+    "failureDetails": "The initial flow stopped at the first read-only SDK read after editor reload with ExceptionGroup. No detailed underlying code was captured in that attempt. Separate read diagnosis and five reload/read cycles passed. This is not evidence that the original failure cause has been fixed.",
+    "harnessCorrections": [
+      "workspace creation expects HTTP 201; first attempt performed no document operation",
+      "raw native MCP read diagnostics omit api_version as required by the strict read selector; the initial malformed diagnostic correctly returned INVALID_REQUEST"
+    ]
+  },
+  "preservation": {
+    "allOriginalRowsXminBytesAndAnchorsPreserved": true,
+    "otherContainersPreserved": true,
+    "originalManagedNotebookRestoredAfterEveryRun": true,
+    "onlyOwnFixtureWorkspacesChanged": true,
+    "ownedCredentialsRevoked": true,
+    "mcpSettingsRestored": true,
+    "ownEvidenceDocumentsRetainedInIsolatedFixture": true
+  },
+  "evidence": {
+    "offline": {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794062482517-result.json",
+      "sha256": "8def5a24e7b4869ceb8100fd032eb1808883801a33e01724c57afa63ea5bac0c",
+      "passed": true,
+      "probeSha256": "422eef040e229d6576fe59964cec0dacfb6ea2f079d3f6b48a3615a7f131a9c7"
+    },
+    "initial_key_flow": {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794063236599-result.json",
+      "sha256": "a47fa1c52496a818fb3dcc55e36bdec5db6f4c9f11c72f25022a380ab6a1c184",
+      "passed": false,
+      "probeSha256": "5f48c1cc7037547620826c25484319a15fc2048c71edb9af49bdd2da25e5177e"
+    },
+    "read_diagnosis": {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794063432988-result.json",
+      "sha256": "d6c5f6722acb3cb151cca7243e5ca1cb266318e42ca3b3b7aaa480f654418975",
+      "passed": true,
+      "probeSha256": "f9bbf36522e5bd57ddcf41f8298c371450f1260909cff21453c7c05deb1c9a43"
+    },
+    "remaining_key_flow": {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794063593623-result.json",
+      "sha256": "a1f03f1744cc98cc9d54ba55c1692f641ac857e4c406d3837d2a7fbc97dec754",
+      "passed": true,
+      "probeSha256": "6d2baf4a273590ec39e65ea54871b7472a76022c19127cf39e84250615efec69"
+    },
+    "reload_read_boundary": {
+      "file": "compiled-auxiliary-read-10-on-desktop-1794063780795-result.json",
+      "sha256": "36da0242e49ea43cdc43ec3976a880ab685e9203f461d0982b1b55528718ffd9",
+      "passed": true,
+      "probeSha256": "3bbc03a688ef36a9aeb417a8132713b3e19f8f3a9c2f969eaa3b49dc1f2dff08"
+    }
+  },
+  "limits": [
+    "Not a current full test:all result",
+    "Not a full API/SDK or live-tab lifetime matrix",
+    "The first SDK read failure remains unexplained",
+    "No production writes or production acceptance",
+    "No native Linux/Windows credential-store acceptance",
+    "No new release or deployment"
+  ]
+}

@@ -91,6 +91,27 @@ trennen den bestandenen UI-Fall, die fehlgeschlagene Beobachtung und ihre
 erfolgreiche Nachprüfung. Die übrigen Lebensdauer-/Recovery-/Ressourcenfälle,
 abschließende Gesamtsuite und Veröffentlichung bleiben offen.
 
+Die zusätzliche kompilierte Abnahme vom 07.11. besteht für zwei bestehende
+Offline-Fälle ohne Skip oder Flake: Rich-Text-Änderungen und Offline-Tabwechsel
+bleiben erhalten und synchronisieren nach Wiederverbindung. Der installierte
+veröffentlichte SDK-Stand 0.1.1 stimmt in allen acht Laufzeitdateien mit diesem
+Checkout überein. Tatsächliche Key-Ausstellung, SDK-Anlage/-Edit/-Status,
+REST-Edit und unabhängiges SDK-Lesen sind mit zwei offenen Yjs-Editoren geprüft.
+Ein Leseschlüssel kann lesen, aber nicht bearbeiten; Rotation und Widerruf
+sperren den alten beziehungsweise aktuellen Schlüssel in REST und SDK.
+Die verbleibenden Key-Fälle wurden am erhaltenen eigenen Testdokument fortgesetzt,
+statt bestätigte Schreibvorgänge erneut auszuführen. Eigene Keys sind widerrufen,
+MCP-Einstellungen zurückgestellt und geschützte Originaldaten samt Ankern und
+anderen Containern nach jedem Lauf unverändert; der ursprüngliche Container läuft.
+
+Ein initialer SDK-Read nach Editor-Reload scheiterte einmal mit `ExceptionGroup`;
+der darunterliegende Code wurde in diesem Versuch nicht erfasst. Die gezielte
+Lese-Nachprüfung sowie fünf Reload-/Read-Durchläufe bestehen. Die Ursache des
+Erstfehlers bleibt offen; daraus wird kein behobener Produktfehler abgeleitet.
+[Abnahmegrenzen und gebundene Belege](testing/compiled-api-key-sdk-live-editors-2026-11-07.json)
+trennen diese Ergebnisse von vollständiger Matrix, aktueller Gesamtsuite und
+Produktionsabnahme. Es wurde dafür kein Produktcode geändert oder Release erstellt.
+
 Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
 `release71-native-ci-current-audit.json`, `release71-publication-audit.json`
 und `release71-production-acceptance.json`.
