@@ -1,10 +1,9 @@
 {
   "schemaVersion": 1,
-  "sourceSha": "c281ef5be5467c743efef1288084293e92f4b609",
   "source": "scripts/native-document-edit-tool-dispatch-postgres-test.ts",
-  "sourceSha256": "b62e6c903a384bd12b180436fd80c54d18eeacd178308dbb95a952da1ade7d7d",
-  "logBasename": "native-edit-tool-dispatch-current-20261107.log",
-  "logSha256": "ca8c3f82cff0ef226338d437154421487bfee9f827b3b43a191710390401a4ca",
+  "sourceSha256": "dead29fada690cd5b40ebcedd57f26079be5bfd2473d5380e29993245180238b",
+  "logBasename": "native-edit-tool-dispatch-projection-fence-20261107-attempt1.log",
+  "logSha256": "da50532238522d94f5127f128585253d239fd50222b34469adcf9d3e51edb227",
   "exitCode": 0,
   "caseCount": 9,
   "passedCases": [
@@ -50,5 +49,12 @@
   "compiledNext": false,
   "browserOAuthIssuance": false,
   "osSandboxAcceptance": false,
-  "productionWrites": false
+  "productionWrites": false,
+  "historicalLocalSourceSha": "c281ef5be5467c743efef1288084293e92f4b609",
+  "parentCommit": "d62f038b46015d0431d60636b468340a678bfd90",
+  "ciProjectionRaceRunId": 42352711451,
+  "nativeOnlyStartProtectedByRealWorkspaceLock": true,
+  "pureReadSnapshotWaitsForFinalizedProjectionReceipts": true,
+  "pureReadSnapshotStillComparesAllRowsAndXmin": true,
+  "freshCiResult": null
 }

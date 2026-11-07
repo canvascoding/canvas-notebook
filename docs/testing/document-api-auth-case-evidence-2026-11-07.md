@@ -82,6 +82,19 @@ Verweigerung. Die bereits vorhandene Suite war nicht im Native-API-/SDK-Workflow
 registriert und erhält dort nun einen eigenen Schritt mit archiviertem Log.
 Dieser Quelllauf ist keine kompilierte Browser-/OAuth- oder OS-Sandbox-Abnahme.
 
+Der erste CI-Lauf mit dieser Registrierung (`42352711451`) deckte ein Rennen im
+Prüfer auf: Der Hocuspocus-Store-Flush wartet nicht auf die getrennte
+Hintergrundprojektion. Die Projektion des vorherigen MCP-Edits konnte deshalb
+während des späteren Pi-Status-Snapshotvergleichs regulär Registry-/Yjs-/
+Projektionszeilen ändern. Der Prüfer wartet jetzt vor dem Snapshot auf den
+wirklichen finalisierten Projektionsbeleg anhand des Produktionsprädikats;
+der vollständige Zeilen-/`xmin`-Vergleich bleibt unverändert. Der Native-only-
+Ausgangsfall wird vor dem ersten Edit durch einen echten, separat gehaltenen
+Workspace-Lock vor vorzeitiger Materialisierung geschützt. Keine produktive
+Projektionsfunktion und kein SQL-Ergebnis wird ersetzt. Alle neun Gruppen und
+die vollständige Bereinigung bestehen lokal mit dieser Korrektur. Die neue
+Quell-/Logbindung ersetzt den früheren lokalen Bericht; die frische CI steht aus.
+
 Der zusätzliche [Agent-Linkabgleich](document-agent-link-parity-evidence-2026-11-07.json)
 besteht sechs Phasen im selben vorhandenen Link-Paritätsprüfer. Ein über die
 reguläre Factory angelegtes persönliches Agent-Profil und eine eigene echte
