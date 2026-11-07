@@ -32,16 +32,17 @@ Der Server-Heap nach GC beträgt im selben Prozess rund 1.025/1.028 MiB.
 Das sind begrenzte Tests auf diesem Host, keine Zusage für physische Mobilgeräte
 oder Langzeitlast. [Kapazitätsbelege](testing/live-tabs-capacity-2026-11-07.json).
 
-Die darüber hinausgehende reale Verdrängungsprüfung mit 18 Dokumenten findet
-noch einen Speicherfehler: 15 logische Dokumente bleiben wie vorgesehen erhalten,
-die ältesten werden zerstört, aber der gespeicherte Session-Accessor hält einen
-zerstörten Y.Doc weiter stark erreichbar. Die Beobachtung verwendet nur WeakRefs
-und zwei echte Browser-GCs. Der aktuelle Clientkandidat hält den Registry-Eintrag
-im Accessor deshalb nur schwach; die Registry hält aktive, warme und wegen einer
-unbestätigten Recovery noch benötigte Einträge weiterhin stark. Sämtliche bisherigen
-Berechtigungs-/Lebensdauer-/Providerprüfungen bleiben erhalten. Die gezielten
-Retention-/Rename-Tests, TypeScript und ESLint bestehen. Die kompilierte
-Nachprüfung und der neue reguläre Browserfall stehen noch aus.
+Die reale Verdrängungsprüfung mit 18 Dokumenten findet weiterhin einen
+Speicherfehler: 15 logische Dokumente bleiben wie vorgesehen erhalten, die ältesten
+werden zerstört, bleiben aber nach zwei echten Browser-GCs stark erreichbar.
+Die schwache Session-Accessor-Referenz aus `a28e88149` allein reicht nicht aus.
+Ein privater Heap-Snapshot dieses kompilierten Stands weist zusätzlich die stabilen
+Bild-Vor-/Zurück-Callbacks nach: Sie halten einen alten FileEditor-Render-Kontext
+samt CollaborationDocument. Der nächste Kandidat erzeugt diese Handler außerhalb
+des Render-Kontexts und übergibt ausschließlich Zielpfad und Dateiladefunktion.
+Die vorhandenen Berechtigungs-/Lebensdauer-/Providerprüfungen bleiben erhalten.
+TypeScript und gezieltes ESLint bestehen. Die kompilierte Nachprüfung und der
+reguläre Browserfall müssen die tatsächliche Freigabe erst bestätigen.
 [Vorher-Beleg und Kandidat](testing/live-tabs-memory-release-2026-11-07.json).
 
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/

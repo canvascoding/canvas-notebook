@@ -12,7 +12,7 @@
   },
   "candidate": {
     "clientSourceSha256": "8340197b90ecd3646b076a902d9a3404b4774f9a00f2c5c29bc236c3e79060e4",
-    "change": "The cached connected-session accessor retains only a WeakRef to the live registry entry. Existing registry/lifecycle/auth/permission/transport checks are unchanged.",
+    "change": "The cached connected-session accessor retains only a WeakRef to the live registry entry. Existing registry/lifecycle/auth/permission/transport checks are unchanged. Image navigation callbacks are created in module scope with only target path and loader, avoiding retention of an old component render context.",
     "registryStillStronglyOwnsLiveWarmAndUnconfirmedRecoveryEntries": true,
     "compiledAfterPending": true,
     "regularBrowserRegression": "releases evicted document memory without losing persisted content or session isolation",
@@ -30,11 +30,21 @@
         "name": "live-tab-weak-receipt-e2e-types-20261107.log",
         "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
-    ]
+    ],
+    "editorSourceSha256": "6bc2558917356729d4104b7da9f1a0b0ebefd2088612cf6010cdad96eebb2b13"
   },
   "limits": [
     "Actual compiled after-fix eviction and new regular browser case remain required.",
     "Full remaining 5b/5c matrix, regular test:all and release remain open.",
     "Review Center and file-operation Undo remain excluded."
-  ]
+  ],
+  "afterWeakReceiptOnly": {
+    "sourceSha": "a28e88149bfbab4fd1d5c29b1b3b3eed687cf96d",
+    "proof": "compiled-auxiliary-read-200-on-both-1794083250731-result.json",
+    "proofSha256": "4a9020bb46c380fa9a32c2e9f3e20fe865d8229f6fbb5e1894d85eb0d7db3a8b",
+    "passed": false,
+    "retiredDocumentStillReachableAfterTwoRealBrowserGCs": true,
+    "privateHeapFinding": "Stable image navigation callbacks retain the previous FileEditor render context, including CollaborationDocument.doc. Raw heap stays private.",
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+  }
 }
