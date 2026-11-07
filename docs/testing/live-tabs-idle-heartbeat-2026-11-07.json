@@ -1,0 +1,43 @@
+{
+  "baselineSource": "d85de17100fe65d303fa1df944c047fa2481aa30",
+  "compiledProof": "compiled-auxiliary-read-10-on-desktop-1794076511162-result.json",
+  "compiledProofSha256": "b19c34feba2756d7f93258cb111fc9e5e59337da4b680ce7be0a37e6b62011f0",
+  "compiledImage": "sha256:5ba6ba97dcb604230355ba170b6b042d6f4af6118e2c459c0aa1a0e7bf18770d",
+  "realClockAndVisibility": true,
+  "twoAndFiveMinuteBoundariesPassed": true,
+  "sameLocalYDocOnResume": true,
+  "freshHTTPOnResume": true,
+  "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+  "idleFailure": {
+    "localSocketCloseFromCheckConnection": 13,
+    "observedBackgroundSessionCadenceSeconds": 33,
+    "installedProviderMessageReconnectTimeoutMs": 30000,
+    "cause": "Inactive null awareness stops the standard non-null awareness heartbeat; checkConnection closes the healthy quiet socket."
+  },
+  "candidate": {
+    "sourceSha256": "66aa2ad8a5c192dbb13802c665326f846487e367fb537fcdcc2439d7d28b2c3a",
+    "change": "Empty awareness state for inactive live tabs; no canvas/cursor/selection fields. Hidden/parked removal remains null.",
+    "redBeforeGreenAfter": true,
+    "node24RetentionAndActualProviderPresenceProtocolPassed": true,
+    "compiledRetestPending": true,
+    "logs": [
+      {
+        "name": "live-tab-heartbeat-before-20261107.log",
+        "sha256": "477fd4f708c7ddc9d973a406e1a63d204d1e8d3529077887d7c51bf3d4f1c7f0"
+      },
+      {
+        "name": "live-tab-heartbeat-after-20261107.log",
+        "sha256": "08bab55f0f34014770308fc63b4d25cd73f0fabbfbe1d31af47d799f4146d871"
+      },
+      {
+        "name": "live-tab-heartbeat-awareness-20261107.log",
+        "sha256": "b415f6d2fbe2a5070bae15f5ccd79af06e5f4884ef679a6d628ce6fad3ca1389"
+      }
+    ]
+  },
+  "remaining": [
+    "Compile and test the candidate with no checkConnection timeout closures",
+    "Complete capacity/resource/lifecycle acceptance",
+    "Current regular test:all, exact-head CI/reviews, merge and release"
+  ]
+}

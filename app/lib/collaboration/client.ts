@@ -283,13 +283,15 @@ function reconcileDocumentRetention(): void {
       continue;
     }
     if (decision.tier === 'live') {
-      if (previous !== 'live') entry.provider?.awareness?.setLocalState(null);
+      // Empty presence keeps the provider's normal awareness heartbeat alive.
+      // Null stops it and makes an otherwise healthy idle socket reconnect.
+      if (previous !== 'live') entry.provider?.awareness?.setLocalState({});
       if (!entry.retentionReauthenticating && (entry.requiresFreshSession || Date.parse(entry.session!.expiresAt) - Date.now() < 30_000)) {
         // A short handshake ticket must not silently shorten the five-minute
         // document budget. The ordinary token callback performs the actual
         // current-user/session/workspace check; stale callbacks are aborted.
         startFreshEntryTransport(entry, true);
-        entry.provider?.awareness?.setLocalState(null);
+        entry.provider?.awareness?.setLocalState({});
       }
       nextDeadline = Math.min(nextDeadline, (entry.backgroundSince ?? now) + limits.backgroundLiveMs,
         entry.retentionReauthenticating ? Infinity : now + Math.max(1, Date.parse(entry.session!.expiresAt) - Date.now() - 29_999),

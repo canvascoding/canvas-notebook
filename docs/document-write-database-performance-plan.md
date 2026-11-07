@@ -158,12 +158,25 @@ werden währenddessen nicht wiederverwendet. Budget-, Hidden-/Inaktivitäts-,
 Sperr-/Rechte- und Recovery-Fences bleiben erhalten. Die mechanische Regression
 auf Node24 sowie bestehende Retention-/Rename-/Recovery-Fälle bestehen.
 [Fehler und lokaler Fix](testing/live-tabs-natural-ticket-expiry-2026-11-07.json).
-Der kompilierte natürliche Ticketablauf muss nach dem Clientfix noch erneut
-geprüft werden. Ein frischer eigener Browser ohne Playwright-Fokus-Overrides
-bestätigt echte sichtbare/ausgeblendete/sichtbare Zustände; die Zwei-/Fünf-Minuten-
-App-Abnahme ist dadurch noch nicht erledigt. Übrige Ressourcen-/Lebenszyklusmatrix,
-aktuelles vollständiges `test:all`, aktuelle CI/Reviews und Veröffentlichung
-bleiben offen. Review Center und Undo bleiben ausgeschlossen.
+Der kompilierte Stand `d85de1710` besteht inzwischen die reale Fünf-Minuten-
+Inaktivitäts- und Zwei-Minuten-Hidden-Prüfung: erst zwei, dann eine Verbindung;
+in der tatsächlich ausgeblendeten App danach null, ohne erneutes Öffnen im
+Hintergrund. Beim Rückkehren bleiben dieselben lokalen Yjs-Dokumente erhalten
+und erhalten frische HTTP-Autorität. Die private Browserprobe verwendet einen
+eigenen Chromium-Standardkontext ohne Playwright-Fokus-Overrides und keine
+Uhrzeit-/Sichtbarkeits-/Netzwerkmocks. Originalruntime, geschützte Zeilen/xmin,
+Dateibytes, Anker und andere Container sind bestätigt erhalten.
+Die passive Socket-Beobachtung findet dabei eine verbleibende Ursache unnötiger
+Last: inaktive Tabs mit Awareness `null` verlieren den normalen Heartbeat und
+werden ungefähr alle 33 Sekunden von Hocuspocus `checkConnection` geschlossen.
+Der lokale Fix hält stattdessen Awareness `{}` ohne Canvas-/Cursor-/Selection-
+Felder; beim tatsächlichen Parken/Hidden-Pause bleibt die Entfernung erhalten.
+Die neue mechanische Erwartung schlägt vorher fehl und besteht nach dem Fix;
+auch der echte Provider-/Awareness-Protokollfall besteht auf Node24 ohne Änderung
+der Dokumentbytes. [Befund und Nachweise](testing/live-tabs-idle-heartbeat-2026-11-07.json).
+Die kompilierte Nachprüfung dieses Heartbeat-Fixes, übrige Ressourcen-/
+Lebenszyklusmatrix, aktuelles vollständiges `test:all`, aktuelle CI/Reviews und
+Veröffentlichung bleiben offen. Review Center und Undo bleiben ausgeschlossen.
 
 Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
 Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten

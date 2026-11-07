@@ -13,7 +13,7 @@
   },
   "localClientFix": {
     "sourceSha256": "171f26dc7b59c2d3a20912bfa8050e33cf84d67b9446a2bdc6fd84a9a6329586",
-    "actualCompiledRetest": false,
+    "actualCompiledRetest": true,
     "mechanicalRegressionPassedOnNode24": true,
     "existingLocalRetentionRenameRecoveryCasesPassed": true,
     "properties": [
@@ -47,9 +47,18 @@
     ]
   },
   "limits": [
-    "Real compiled natural-ticket-expiry retest remains required",
-    "Real hidden two-minute and visible five-minute app lifetimes remain required",
-    "A browser-only noDefaults preflight proved native visible-hidden-visible, not application acceptance",
+    "Heartbeat candidate requires its own compiled retest",
+    "Remaining resource/lifecycle matrix and regular test:all remain required",
     "No new production release"
-  ]
+  ],
+  "compiledAfter": {
+    "sourceSha": "d85de17100fe65d303fa1df944c047fa2481aa30",
+    "proof": "compiled-auxiliary-read-10-on-desktop-1794076511162-result.json",
+    "proofSha256": "b19c34feba2756d7f93258cb111fc9e5e59337da4b680ce7be0a37e6b62011f0",
+    "realTicketLifetimesObserved": true,
+    "realFiveMinuteBackgroundAndTwoMinuteHiddenBoundariesPassed": true,
+    "sameLocalYDocAndFreshAuthorityOnResume": true,
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+    "limits": "Functional boundaries pass, but transparent socket instrumentation exposes 33-second idle reconnects. The heartbeat candidate is not yet compiled."
+  }
 }

@@ -138,10 +138,10 @@ async function main() {
     observeOpenedDocumentAuth({ data: { user: { id: user }, session: { id: `login-${user}` } } });
     const a = await open('A'), pa = a.provider as unknown as Provider;
     const b = await open('B'), pb = b.provider as unknown as Provider;
-    assert.equal(pa.destroyed, false); assert.equal(pa.presence, null);
+    assert.equal(pa.destroyed, false); assert.deepEqual(pa.presence, {}, 'Background heartbeat must not announce an active cursor.');
     const count = requests.length, again = await open('A');
     assert.equal(requests.length, count); assert.equal(again.doc, a.doc); assert.equal(again.provider, a.provider);
-    assert(pa.presence); assert.equal(pb.presence, null);
+    assert(pa.presence); assert.deepEqual(pb.presence, {}, 'Background heartbeat must not announce an active cursor.');
 
     // Match the real 90-second ticket lifetime, not a synthetic 15-minute one.
     // The inactive document must retain its budget while obtaining fresh HTTP
