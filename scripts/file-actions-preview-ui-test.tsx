@@ -87,6 +87,7 @@ async function compileUi(controls: {
   multiSelectPaths?: Set<string>;
   clearSelectionCalls?: string[];
   refreshCalls?: unknown[][];
+  interactiveMenu?: boolean;
 }) {
   const filename = path.resolve('app/components/file-browser/FileActionsDropdown.tsx');
   const load = createRequire(filename);
@@ -153,7 +154,10 @@ async function compileUi(controls: {
       DialogTitle: ({ children }: React.PropsWithChildren) => <h2>{children}</h2>,
     },
     '@/components/ui/dropdown-menu': {
-      DropdownMenu: passthrough,
+      DropdownMenu: ({ children, open, onOpenChange }: React.PropsWithChildren<{
+        open?: boolean; onOpenChange?: (value: boolean) => void;
+      }>) => <>{controls.interactiveMenu && <button type="button" data-testid="toggle-file-menu"
+        onClick={() => onOpenChange?.(!open)}>Toggle menu</button>}{children}</>,
       DropdownMenuContent: ({ children }: React.PropsWithChildren) => <div role="menu">{children}</div>,
       DropdownMenuItem: menuItem,
       DropdownMenuLabel: passthrough,
@@ -376,6 +380,74 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     globalNames.forEach((name, index) => {
       const descriptor = prior[index];
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+});
+
+test('Marp detection runs only for an open menu and retires responses from an old workspace', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test' });
+  const globalNames = ['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT', 'fetch'] as const;
+  const prior = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: dom.window.HTMLElement });
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
+  const calls: Array<{ url: string; signal?: AbortSignal | null; resolve: (response: Response) => void }> = [];
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: (url: string, init?: RequestInit) =>
+    new Promise<Response>(resolve => calls.push({ url, signal: init?.signal, resolve })) });
+  const controls = {
+    renameCalls: [] as Array<[string, string, string | null]>, copyCalls: [] as Array<Record<string, unknown>>,
+    errors: [] as string[], mutations: [] as string[], renameApplyCalls: [] as unknown[][],
+    copyApplyCalls: [] as Array<Record<string, unknown>>, activeWorkspaceId: workspaceId, interactiveMenu: true,
+    renamePreview: async () => preview('rename', 'ready'), copyPreview: async () => preview('copy', 'ready'),
+  };
+  const ui = await compileUi(controls);
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(document.getElementById('root')!);
+  const markdown = { name: 'slides.md', path: 'Docs/slides.md', type: 'file' as const };
+  let controlled: boolean | undefined;
+  const changes: boolean[] = [];
+  const render = () => root.render(<ui.FileActionsDropdown node={markdown} open={controlled}
+    onOpenChange={value => { changes.push(value); }} showCreateActions={false}>
+    <button type="button">File actions</button>
+  </ui.FileActionsDropdown>);
+  const toggle = () => document.querySelector<HTMLButtonElement>('[data-testid="toggle-file-menu"]')!.click();
+  const exportVisible = () => [...document.querySelectorAll('[role="menuitem"]')]
+    .some(item => item.textContent?.trim() === translate('exportMarpSlides'));
+  try {
+    await act(async () => render());
+    assert.equal(calls.length, 0, 'mounting a closed uncontrolled menu must not read the document');
+    await act(async () => toggle());
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.includes(encodeURIComponent(markdown.path)));
+    assert.deepEqual(changes, [true]);
+    await act(async () => calls[0].resolve(Response.json({ isMarp: true })));
+    assert.equal(exportVisible(), true, 'frontmatter-based Marp files still expose export');
+    await act(async () => toggle());
+    assert.equal(calls[0].signal?.aborted, true, 'closing retires the request');
+    assert.deepEqual(changes, [true, false]);
+    controlled = false;
+    await act(async () => render());
+    await act(async () => toggle());
+    assert.equal(calls.length, 1, 'a controlled menu waits for its parent to open it');
+    controlled = true;
+    await act(async () => render());
+    assert.equal(calls.length, 2, 'reopening refreshes detection instead of trusting stale content');
+    controls.activeWorkspaceId = 'workspace-two';
+    await act(async () => render());
+    assert.equal(calls[1].signal?.aborted, true);
+    assert.equal(calls.length, 3, 'the same path in another workspace is independently inspected');
+    assert.equal(exportVisible(), false, 'a prior workspace result cannot expose an export action');
+    await act(async () => calls[1].resolve(Response.json({ isMarp: true })));
+    assert.equal(exportVisible(), false, 'a late response cannot cross workspace boundaries');
+    await act(async () => calls[2].resolve(Response.json({ isMarp: false })));
+    assert.equal(exportVisible(), false);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    globalNames.forEach((name, index) => {
+      if (prior[index]) Object.defineProperty(globalThis, name, prior[index]!);
       else Reflect.deleteProperty(globalThis, name);
     });
   }

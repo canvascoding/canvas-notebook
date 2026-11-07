@@ -1,0 +1,31 @@
+{
+  "scope": "Marp menu inspection on actual menu open only",
+  "baselineSource": "6545f2eebfef13680f5d551498b9b15f1810849d",
+  "reason": "Real compiled browser warm switches issued three auxiliary HTTP requests with 61 HTTP-attributed SQL statements; marp-detect alone contributed 20.",
+  "sourceFiles": [
+    "app/components/file-browser/FileActionsDropdown.tsx",
+    "scripts/file-actions-preview-ui-test.tsx"
+  ],
+  "regression": {
+    "command": "npx tsx scripts/file-actions-preview-ui-test.tsx",
+    "red": "Closed uncontrolled menu issued one document read instead of zero",
+    "green": "Five mounted React component cases pass, including controlled/uncontrolled opening, refresh on reopening, abort and late workspace response retirement",
+    "logs": {
+      "red": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/canvas-marp-lazy-red-20261107.log",
+        "sha256": "30d1b71a7e1e68f681fb35f78ae2b890937e3468f3d2ec2ed365961170a991a7"
+      },
+      "green": {
+        "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/canvas-marp-lazy-green-20261107.log",
+        "sha256": "33c2bd466cd3f62f113623b8359e370a281ddb19190fecdc94b02ff21dd59854"
+      }
+    }
+  },
+  "limits": {
+    "testEnvironment": "React/JSDOM with dropdown and HTTP doubles",
+    "currentCompiledBrowserAcceptance": false,
+    "SQLSavingsAfterChangeMeasured": false,
+    "fullTestAllAfterChange": false,
+    "reviewCenterOrUndoChanged": false
+  }
+}

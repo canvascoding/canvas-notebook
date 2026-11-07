@@ -3261,9 +3261,26 @@ Browsertest sind Originalcontainer, geschützte Zeilen/xmin/Dateien und Speicher
 unverändert wiederhergestellt. Quellen und Belege:
 `docs/testing/live-document-tab-open-facade-2026-11-07.json`.
 
-Der korrigierte Aufrufer benötigt noch seinen aktuellen Build und die erneute
-Browserprüfung. Echte Browserprüfungen,
-10-/200-Dokumente-Messungen und vollständiges `test:all` stehen noch aus.
+Der korrigierte Aufrufer `6545f2eeb` besteht inzwischen Host- und Linux-Build
+sowie echte Browserläufe mit zehn Dokumenten auf Desktop und Mobilgerät und mit
+200 Dokumenten auf Desktop. Sechs warme Wechsel pro Lauf verwenden dieselben
+Yjs-/Provider-Objekte ohne neue Session, Datei-Read oder neuen WebSocket. Der
+Originalcontainer sowie geschützte Daten und andere Dienste sind wiederhergestellt.
+Private Belege: `compiled-live-tabs-10-on-desktop-1794045504268-result.json`,
+`compiled-live-tabs-10-on-mobile-1794045738852-result.json` und
+`compiled-live-tabs-200-on-desktop-1794046000749-result.json`.
+
+Der Desktop-Lauf mit zehn Dokumenten zeigt dennoch 61 HTTP-bezogen gemessene
+SQL-Abfragen und 19 Pool-Checkouts je warmem Wechsel: Marp-Erkennung 20/6,
+Agent-Operations 21/7 und Dateibesuch 20/6. Diese Messgrenze umfasst nicht alle
+WebSocket-/Worker-Abfragen. Die Marp-Erkennung wird deshalb erst beim tatsächlichen
+Öffnen des Dateimenüs ausgeführt, mit explizitem Workspace und abgebrochener
+Anfrage bei Kontextwechsel. Fünf gemountete React-Regressionsfälle bestehen;
+der neue kompilierte Browserlauf und die SQL-Nachmessung stehen noch aus.
+Beleg: `docs/testing/live-document-menu-demand-2026-11-07.json`.
+Weitere Lebenszyklus-/Recovery-Browserfälle, vollständige Ressourcenbudgets und
+aktuelles vollständiges `test:all` bleiben offen. Review Center und Undo bleiben
+außerhalb der Umsetzung.
 
 Diese Benutzeranforderung ersetzt
 das bisherige Ziel, jeden inaktiven Transport sofort abzubauen. Der aktuelle
