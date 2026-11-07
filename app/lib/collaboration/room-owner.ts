@@ -119,6 +119,7 @@ export async function createCollaborationRoomOwnerSession(
   let closePromise: Promise<void> | undefined;
   let tail: Promise<unknown> = Promise.resolve();
   let queued = 0;
+  let pendingWorkspaceClaims = 0;
   const rooms = new Map<string, CollaborationRoomOwnerFence>();
   const lockKeys = new Set<string>();
   const invalidate = () => {
@@ -157,7 +158,7 @@ export async function createCollaborationRoomOwnerSession(
   };
   const enqueue = <T>(command: () => Promise<T>): Promise<T> => {
     if (!active) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_LOST'));
-    if (queued >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+    if (queued + pendingWorkspaceClaims >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
     queued += 1;
     const result = tail.then(() => {
       if (!active) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
@@ -186,57 +187,71 @@ export async function createCollaborationRoomOwnerSession(
       || !Number.isSafeInteger(scope.schemaVersion) || scope.schemaVersion < 1) {
       return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED'));
     }
-    return enqueue(() => withWorkspaceMutationLock(scope.workspaceId, async () => {
-      const lock = lockIdentity(scope.documentId);
-      // Also reject a same-session hash collision: PG session locks reenter.
-      if (lockKeys.size >= MAX_ROOMS || rooms.has(scope.documentId) || lockKeys.has(lock.key)) {
-        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
-      }
-      await query('BEGIN');
-      try {
-        const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
-        await tryLockFileLifecycleCollaborationRoomAdmission(admissionQuery, scope);
-        await assertCollaborationAdmissionOpen(admissionQuery, scope);
-      } catch (error) {
-        if (!(error instanceof CollaborationAdmissionError)) throw error;
-        await query('ROLLBACK');
-        throw new CollaborationRoomOwnerError(error.code === 'ADMISSION_CONFLICT' ? 'ROOM_OWNER_BUSY' : 'ROOM_OWNER_SCOPE_CHANGED');
-      }
-      // Never wait for a coordinator's room lock while retaining admission.
-      const acquired = (await query('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key])).rows[0];
-      if (acquired?.locked !== true) {
-        await query('ROLLBACK');
-        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
-      }
-      const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
-      const oldEpoch = Number(row?.room_owner_epoch);
-      if (!row || !matchesScope(row, scope) || !Number.isSafeInteger(oldEpoch) || oldEpoch < 0 || oldEpoch >= Number.MAX_SAFE_INTEGER) {
-        await query('ROLLBACK');
-        const unlocked = (await query('SELECT pg_advisory_unlock($1::bigint) AS unlocked', [lock.key])).rows[0];
-        if (unlocked?.unlocked !== true) { await close(); throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE'); }
-        throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
-      }
-      const fence = Object.freeze({ scope, epoch: oldEpoch + 1, token: randomUUID(), backendPid: identity.pid, backendStart: identity.started });
-      await query(`UPDATE collaboration_yjs_states SET room_owner_epoch = $2, room_owner_token = $3,
-        room_owner_backend_pid = $4, room_owner_backend_start = $5 WHERE document_id = $1`,
-      [scope.documentId, fence.epoch, fence.token, fence.backendPid, fence.backendStart]);
-      await query('COMMIT');
-      rooms.set(scope.documentId, fence);
-      lockKeys.add(lock.key);
-      return fence;
+    if (!active) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_LOST'));
+    if (queued + pendingWorkspaceClaims >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+    // A caller may already own this workspace while awaiting an owner command.
+    // Never put a foreign workspace-lock waiter ahead of it on the shared SQL
+    // session. Reserve bounded capacity, then transfer it to the command queue
+    // only after acquiring the workspace lock in this caller's context.
+    pendingWorkspaceClaims += 1;
+    let waitingForWorkspace = true;
+    return withWorkspaceMutationLock(scope.workspaceId, () => {
+      pendingWorkspaceClaims -= 1;
+      waitingForWorkspace = false;
+      return enqueue(async () => {
+        const lock = lockIdentity(scope.documentId);
+        // Also reject a same-session hash collision: PG session locks reenter.
+        if (lockKeys.size >= MAX_ROOMS || rooms.has(scope.documentId) || lockKeys.has(lock.key)) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        }
+        await query('BEGIN');
+        try {
+          const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
+          await tryLockFileLifecycleCollaborationRoomAdmission(admissionQuery, scope);
+          await assertCollaborationAdmissionOpen(admissionQuery, scope);
+        } catch (error) {
+          if (!(error instanceof CollaborationAdmissionError)) throw error;
+          await query('ROLLBACK');
+          throw new CollaborationRoomOwnerError(error.code === 'ADMISSION_CONFLICT' ? 'ROOM_OWNER_BUSY' : 'ROOM_OWNER_SCOPE_CHANGED');
+        }
+        // Never wait for a coordinator's room lock while retaining admission.
+        const acquired = (await query('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key])).rows[0];
+        if (acquired?.locked !== true) {
+          await query('ROLLBACK');
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        }
+        const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
+        const oldEpoch = Number(row?.room_owner_epoch);
+        if (!row || !matchesScope(row, scope) || !Number.isSafeInteger(oldEpoch) || oldEpoch < 0 || oldEpoch >= Number.MAX_SAFE_INTEGER) {
+          await query('ROLLBACK');
+          const unlocked = (await query('SELECT pg_advisory_unlock($1::bigint) AS unlocked', [lock.key])).rows[0];
+          if (unlocked?.unlocked !== true) { await close(); throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE'); }
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+        }
+        const fence = Object.freeze({ scope, epoch: oldEpoch + 1, token: randomUUID(), backendPid: identity.pid, backendStart: identity.started });
+        await query(`UPDATE collaboration_yjs_states SET room_owner_epoch = $2, room_owner_token = $3,
+          room_owner_backend_pid = $4, room_owner_backend_start = $5 WHERE document_id = $1`,
+        [scope.documentId, fence.epoch, fence.token, fence.backendPid, fence.backendStart]);
+        await query('COMMIT');
+        rooms.set(scope.documentId, fence);
+        lockKeys.add(lock.key);
+        return fence;
+      });
     }).catch(error => {
       const code = (error as { code?: string })?.code;
       if (code === 'FILE_MUTATION_LOCK_TIMEOUT' || code === 'FILE_MUTATION_LOCK_BUSY') {
         throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
       }
       throw error;
-    }));
+    }).finally(() => {
+      if (waitingForWorkspace) pendingWorkspaceClaims -= 1;
+    });
   };
   const release = (fence: CollaborationRoomOwnerFence, input?: CollaborationRoomReleaseSnapshot): Promise<void> => {
     try { assertActive(fence); } catch (error) { return Promise.reject(error); }
     // Reserve capacity before revoking the local handle. A busy caller can
     // retry this exact handle; it must never leave an unreachable held lock.
-    if (queued >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+    if (queued + pendingWorkspaceClaims >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
     // Capture before entering the queue. Buffer.slice() would retain aliases.
     let snapshot: CollaborationRoomReleaseSnapshot | undefined;
     try {

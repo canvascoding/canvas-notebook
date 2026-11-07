@@ -101,6 +101,7 @@ jobs:
           npm run test:collaboration:migration-read-contention:postgres 2>&1 | tee "$RUNNER_TEMP/native-rich-migration-read.log"
           npm run test:collaboration:mobile-replay-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-mobile-admission.log"
           npm run test:collaboration:peer-startup-socket:postgres 2>&1 | tee "$RUNNER_TEMP/native-peer-startup-socket.log"
+          npm run test:collaboration:room-owner-lock-order:postgres 2>&1 | tee "$RUNNER_TEMP/room-owner-lock-order-native.log"
           npm run test:mcp:path-tools:native 2>&1 | tee "$RUNNER_TEMP/native-mcp-paths.log"
           npm run test:pi:workspace-tree:native 2>&1 | tee "$RUNNER_TEMP/native-agent-list.log"
           npm run test:pi:read:native 2>&1 | tee "$RUNNER_TEMP/native-agent-read.log"
@@ -162,6 +163,7 @@ jobs:
             ${{ runner.temp }}/native-chat-file-reference-runtime.log
             ${{ runner.temp }}/native-mobile-admission.log
             ${{ runner.temp }}/native-peer-startup-socket.log
+            ${{ runner.temp }}/room-owner-lock-order-native.log
             ${{ runner.temp }}/native-autolink-*.log
             ${{ runner.temp }}/native-mcp-paths.log
             ${{ runner.temp }}/native-agent-*.log

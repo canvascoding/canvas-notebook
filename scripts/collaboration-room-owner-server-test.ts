@@ -537,6 +537,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
       },
     };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
+    if (name.endsWith('/document-operation-metrics')) return load(name);
     if (name.endsWith('/presence')) return { replaceDocumentPresence() {} };
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };
     if (name.endsWith('/server-runtime')) return { Y };

@@ -3691,3 +3691,37 @@ Bestehende Busy-/Cleanup-Regressionen bestehen; beide zusätzlichen nativen Gate
 sind in CI aufgenommen. Die gemeinsame kompilierte Abnahme mit dem Raumfreigabe-
 Fix, `test:all`, neue CI, PR-Integration und Release bleiben offen. Review Center
 und Undo bleiben außerhalb des Umfangs.
+
+### Gemeinsame Owner-Warteschlange vor Workspace-Wartern schützen (2026-11-07)
+
+Die vollständige Abnahme von `25ab3713b` beendet das reguläre Browserprofil mit
+335 bestanden, 102 bestehenden bedingten Skips, null Fehlern und null flaky Fällen.
+Alle drei zuvor fehlgeschlagenen Migrations-/Rename-Fälle bestehen. Das verpflichtende
+Kollaborationsprofil endet mit 45 bestanden und einem Fehler, ohne Skips oder flaky
+Fälle: Der Mobile-Speicheraufruf des Deep-Link-Lebenszyklustests überschreitet sein
+15-Sekunden-Antwortbudget. Die unveränderte ursprüngliche Umgebung und ihre
+geschützten Daten sind nachweislich wiederhergestellt. Die 15 PR-Checks bestehen;
+die tatsächlichen installierten SDK-/HTTP-/PostgreSQL-Artefakte sind geprüft.
+Diese Ergebnisse ergeben noch keine grüne Gesamtabnahme.
+
+Der gespeicherte Mobile-Operationsbeleg entsteht erst rund 30 Sekunden nach
+Beginn des zweiten Aufrufs. Die beabsichtigten Ersatzbytes liegen im nativen Yjs-
+Zustand vor; der Diagnosepfad wiederholt keinen Schreibaufruf. Der neue
+[PostgreSQL-/Kernel-Sperrtest](testing/room-owner-lock-order-2026-11-07.md)
+reproduziert eine umgekehrte Sperrreihenfolge: Die gemeinsame Owner-SQL-Warteschlange
+wartet auf den Workspace, dessen Besitzer seinerseits einen Owner-Befehl benötigt.
+
+Die lokale Korrektur übernimmt die Workspace-Sperre vor dem Einreihen des SQL-
+Befehls. Wartende Übernahmen zählen weiterhin zur gemeinsamen Grenze von 256;
+die bestehende Grenze von 64 Workspace-Wartern bleibt erhalten. Beide neuen
+echten PostgreSQL-Gruppen bestehen, ebenso der vorhandene Mobile-Receipt-Test und
+alle neun echten WebSocket-/PostgreSQL-Gruppen. Geschützte native Daten samt
+`xmin`, Dateibytes und Ressourcenbereinigung sind geprüft. Es gibt keine neue
+Schreibwiederholung, Timeout-Erhöhung oder Änderung von Owner-/Berechtigungsregeln.
+
+Eine separat ausgeführte alte Startup-Unit-Fixture hat veraltete native Auth- und
+Diagnose-Importe. Ihre Assertions bleiben erhalten; ihr Aggregate wird nicht als
+grün ausgewiesen. Die tatsächliche native Startup-Abnahme ist der bestehende
+RawSocket-/PostgreSQL-Test. Neue Builds, der kompilierte Deep-Link-Fall, die ganze
+aktuelle Gesamtsuite und abschließende PR-/Release-Abnahme bleiben offen.
+Review Center und Dateioperation-Undo werden nicht ausgebaut.
