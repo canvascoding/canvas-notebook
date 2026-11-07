@@ -23,9 +23,216 @@
   },
   "limits": {
     "testEnvironment": "React/JSDOM with dropdown and HTTP doubles",
-    "currentCompiledBrowserAcceptance": false,
-    "SQLSavingsAfterChangeMeasured": false,
+    "currentCompiledBrowserAcceptance": true,
+    "SQLSavingsAfterChangeMeasured": true,
     "fullTestAllAfterChange": false,
-    "reviewCenterOrUndoChanged": false
-  }
+    "reviewCenterOrUndoChanged": false,
+    "SQLBoundary": "HTTP request through response finish only; excludes WebSocket and later background work. Seven open tab metadata entries; two initially connected documents. Not complete performance-budget acceptance."
+  },
+  "compiledSourceSha": "b910229e957fad647eb98da03cc725e7efa77899",
+  "compiledEvidence": [
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-live-tabs-cap-10-on-desktop-1794047207679-result.json",
+      "sha256": "10fa25df45134f84344f0764178c2695007a650a82158cea64d3e84ec6a56477",
+      "viewport": "desktop",
+      "marpMenuDemand": {
+        "closedMenusDuringAllSwitchesAndIdle": 0,
+        "uncontrolledEditorOpen": 1,
+        "controlledTabContextOpen": 1,
+        "actualHTTP200": true,
+        "plainMarkdownExportHidden": true
+      },
+      "liveCap": {
+        "limit": 5,
+        "openedDocuments": 7,
+        "openSockets": 5,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "warmSwitches": [
+        {
+          "phase": "warm-A-0",
+          "visibleAndSyncedMs": 105,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-0",
+          "visibleAndSyncedMs": 109,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-A-1",
+          "visibleAndSyncedMs": 113,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-1",
+          "visibleAndSyncedMs": 105,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-A-2",
+          "visibleAndSyncedMs": 91,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-2",
+          "visibleAndSyncedMs": 92,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        }
+      ],
+      "originalRuntimeAndProtectedDataRestored": true,
+      "otherContainersPreserved": true,
+      "actualBrowserAndServer": true,
+      "networkMocking": false
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-live-tabs-cap-10-on-mobile-1794047400012-result.json",
+      "sha256": "3e643e15c972641b95e0ee91eddd96c9782353fe3992d227ec14647be839d5f9",
+      "viewport": "mobile",
+      "marpMenuDemand": {
+        "closedMenusDuringAllSwitchesAndIdle": 0,
+        "uncontrolledEditorOpen": 1,
+        "controlledTabContextOpen": 1,
+        "actualHTTP200": true,
+        "plainMarkdownExportHidden": true
+      },
+      "liveCap": {
+        "limit": 2,
+        "openedDocuments": 7,
+        "openSockets": 2,
+        "warmRejoinSameYDoc": true,
+        "warmRejoinNewProvider": true,
+        "warmRejoinFreshSession": true,
+        "otherLiveProviderRetained": true
+      },
+      "warmSwitches": [
+        {
+          "phase": "warm-A-0",
+          "visibleAndSyncedMs": 87,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-0",
+          "visibleAndSyncedMs": 83,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-A-1",
+          "visibleAndSyncedMs": 87,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-1",
+          "visibleAndSyncedMs": 84,
+          "httpRequests": 2,
+          "queries": 40,
+          "poolCheckouts": 12,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-A-2",
+          "visibleAndSyncedMs": 77,
+          "httpRequests": 2,
+          "queries": 31,
+          "poolCheckouts": 12,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        },
+        {
+          "phase": "warm-B-2",
+          "visibleAndSyncedMs": 85,
+          "httpRequests": 2,
+          "queries": 41,
+          "poolCheckouts": 13,
+          "sessionRequests": 0,
+          "fileReadRequests": 0,
+          "newSockets": 0,
+          "sameYDoc": true,
+          "sameProvider": true
+        }
+      ],
+      "originalRuntimeAndProtectedDataRestored": true,
+      "otherContainersPreserved": true,
+      "actualBrowserAndServer": true,
+      "networkMocking": false
+    }
+  ],
+  "registeredRunners": [
+    "npm run test:files:menus",
+    "test:all independent leaf",
+    "Native API and SDK workflow opened document resource policy"
+  ]
 }

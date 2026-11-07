@@ -19,6 +19,7 @@ export const independentTestScripts = [
   'test:notebook:tabs', 'test:notebook:location-lifecycle', 'test:notebook:delete-events',
   'test:collaboration:retention-policy', 'test:collaboration:live-tabs',
   'test:notebook:reveal',
+  'test:files:menus',
 ];
 export const serverTestScripts = ['test:smoke', 'test:integration', 'test:integration:pi'];
 export const testAllPhaseIds = ['configuration', ...independentTestScripts, 'build', 'server-start',

@@ -3275,9 +3275,22 @@ SQL-Abfragen und 19 Pool-Checkouts je warmem Wechsel: Marp-Erkennung 20/6,
 Agent-Operations 21/7 und Dateibesuch 20/6. Diese Messgrenze umfasst nicht alle
 WebSocket-/Worker-Abfragen. Die Marp-Erkennung wird deshalb erst beim tatsächlichen
 Öffnen des Dateimenüs ausgeführt, mit explizitem Workspace und abgebrochener
-Anfrage bei Kontextwechsel. Fünf gemountete React-Regressionsfälle bestehen;
-der neue kompilierte Browserlauf und die SQL-Nachmessung stehen noch aus.
-Beleg: `docs/testing/live-document-menu-demand-2026-11-07.json`.
+Anfrage bei Kontextwechsel. Fünf gemountete React-Regressionsfälle und echte
+kompilierte Chromium-Läufe auf Desktop und Mobilgerät bestehen am Stand
+`b910229e9`: keine Marp-Reads bei geschlossenen Menüs, tatsächliche erfolgreiche
+Reads beim Öffnen von Editor- und Tab-Kontextmenü. Sechs gewöhnliche warme
+Wechsel erzeugen jeweils zwei HTTP-Nebenaufrufe mit 41 SQL-Abfragen und 13
+Pool-Checkouts, ohne neue Session, Datei-Read oder Verbindung. Bei sieben
+nacheinander geöffneten Dokumenten halten Desktop und Mobil ihre Grenzen von
+fünf beziehungsweise zwei Verbindungen ein. Ein verdrängter Tab behält das
+Yjs-Dokument und erhält bei Rückkehr eine frische Session sowie einen neuen
+Provider; der Provider eines anderen weiterhin live gehaltenen Tabs bleibt
+erhalten. Der gemessene Desktop-Wechsel liegt bei 91–113 ms und erfüllt das
+100-ms-p95-Ziel in diesem Lauf noch nicht. Originalruntime, geschützte
+Zeilen/Bytes/Anker und andere Container sind nach beiden Läufen erhalten.
+Die Menüregression ist als `test:files:menus` in der unabhängigen Gesamtsuite
+und in der nativen CI registriert. Beleg:
+`docs/testing/live-document-menu-demand-2026-11-07.json`.
 Weitere Lebenszyklus-/Recovery-Browserfälle, vollständige Ressourcenbudgets und
 aktuelles vollständiges `test:all` bleiben offen. Review Center und Undo bleiben
 außerhalb der Umsetzung.
