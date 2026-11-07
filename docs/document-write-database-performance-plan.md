@@ -3626,3 +3626,31 @@ Ein zusätzlich aufgerufener alter Fork-UI-Quellprüfer stoppt vor seinem Render
 einer veralteten Erwartung an `textareaRef.current?.focus()`. Der davon betroffene
 übergeordnete Chat-Code ist gegenüber dem vorherigen Commit bytegleich; dies ist
 kein erfolgreicher zusätzlicher Fork-Nachweis und keine neue Korrektur an Forks.
+
+### Auswahlvorbedingung der nativen Erhaltungsprüfung (2026-11-07)
+
+Am Produktstand `1e7db7310` bestehen alle 15 CI-Checks. Die heruntergeladenen
+Artefakte bestätigen je Python-Version 53 installierte SDK-/HTTP-Gruppen,
+zwölf ausführbare Dokumentationsfunktionen und acht Paketidentitätsfälle.
+Der lokale Gesamtlauf scheitert jedoch in beiden nativen Erhaltungsfällen schon
+vor Speicherung: Nach Select-All, Pfeil links und Delete ist der Testtext leer.
+Der fehlgeschlagene Lauf wurde geordnet beendet; Originale sind unverändert
+wiederhergestellt. Dies ist kein erfolgreicher Gesamtlauf.
+
+Passive Vergleiche erhalten denselben Text auf Desktop und Mobil mit und ohne
+Trace. Auch die ursprünglichen vollständigen Erhaltungstests bestehen auf dem
+zurückbehaltenen fehlgeschlagenen Datensatz mit passiver Auswahlaufzeichnung,
+einschließlich nativer Speicherung, Reload, Blockidentität und Ordner-Trash.
+Die Aufzeichnung bestätigt, dass DOM-Auswahl und Editor-Auswahl nach Pfeil links
+kurz auseinanderliegen können. Die genaue Ursache des abweichenden Gesamtlaufs
+ist damit nicht bewiesen; weder ein Root-DOM-Cursorfehler noch Trace allein
+wurde als Produktursache bestätigt.
+
+Der Test verlangt jetzt zusätzlich vor Delete einen fokussierten, eigenen
+DOM-Cursor und die native leere Auswahl an Position 1 bei unverändertem Text.
+Nach dem ersten Delete muss exakt der erste Buchstabe fehlen. Erst danach
+folgen der zweite Delete und sämtliche bisherigen Inhalts-, nativen Beleg-,
+Block-ID-, Speicher-, Reload- und Trash-Prüfungen. Keine Auswahl wird gesetzt,
+keine Mutation wiederholt, kein Fehler ignoriert und kein Fall ausgelassen.
+Die gezielte Abnahme dieser strengeren Vorbedingungen und der finale Gesamtlauf
+stehen noch aus. Produktcode, Review Center und Undo bleiben unverändert.
