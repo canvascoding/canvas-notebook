@@ -116,5 +116,10 @@
     "Remaining lifecycle, recovery, authorization/resource and full test:all acceptance remain open.",
     "Review Center and file-operation Undo remain excluded."
   ],
-  "goalComplete": false
+  "goalComplete": false,
+  "uiScreenshot": {
+    "path": "docs/testing/live-tabs-peer-2026-11-07.png",
+    "sha256": "f31f87483871788f20d7b71f1a0cf16f7b195d4c077ecb61fbf04d94ede41b7f",
+    "case": "same-user two-session actual browser after native-confirmed test-text cleanup"
+  }
 }
