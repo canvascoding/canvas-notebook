@@ -1,0 +1,68 @@
+{
+  "baseCommit": "14aa48359c87fa0a992f8a3aae9c52bd41642dfe",
+  "workerSourceSha256": "3dde50846f08c77c64e9abf46ea52101b9d99794eda5417f9b48b3cfc3328103",
+  "behavior": {
+    "productionBaseMs": 250,
+    "emptyCadenceMs": [
+      500,
+      1000,
+      1000
+    ],
+    "resetOn": [
+      "work",
+      "wake",
+      "failed observation"
+    ],
+    "durablePollingRetained": true,
+    "noPermissionOrOwnerFenceChange": true
+  },
+  "unitRedGreen": {
+    "beforeFailsAt": "Empty 250 ms poll backs off",
+    "afterScenarios": 3,
+    "passed": true
+  },
+  "nativePostgres": {
+    "suite": "collaboration-drain-poll-postgres",
+    "passed": true,
+    "groups": 8,
+    "emptyPollStatements": 5,
+    "emptyPollClients": 1,
+    "missingTablesFailClosed": 3,
+    "actualSchemaLockTimeout": true,
+    "pooledTimeoutsPreserved": true,
+    "protectedNativeStatePreserved": true,
+    "idleBackoffObservedWithRealPostgres": true,
+    "durableDrainWithoutWake": true,
+    "compiledBrowser": false
+  },
+  "relatedNativeGroups": [
+    "representation admission, actual owner drain and worker recovery",
+    "10 admission drain/handoff boundaries"
+  ],
+  "logs": [
+    {
+      "file": "drain-worker-idle-before-20261107.log",
+      "sha256": "fb966feb9eb7977009dd353b28810e80218ad7604d68082345bee526796fc652"
+    },
+    {
+      "file": "drain-worker-idle-after-20261107.log",
+      "sha256": "c398955c04511cc5951510a590ed2f79868ad6b42e606414c0b88ad66a8649ee"
+    },
+    {
+      "file": "drain-worker-native-poll-20261107.log",
+      "sha256": "639580b9b204c37cdfa53f19d144b23c57eb73b617b710fac4b626944706fc08"
+    },
+    {
+      "file": "drain-worker-native-representation-20261107.log",
+      "sha256": "c1cde8061baa8ec926315681783c72526ecd6ff735d92bc4654218f81b2bbc3f"
+    },
+    {
+      "file": "drain-worker-native-handoff-20261107.log",
+      "sha256": "34467817f220079a1b61f87876597ab32234d81b603eeb9b83518e0cdedd88e6"
+    }
+  ],
+  "limits": [
+    "Compiled server/image and browser performance comparison for this worker change remain pending",
+    "No new production release"
+  ]
+}

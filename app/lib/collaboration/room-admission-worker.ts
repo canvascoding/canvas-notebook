@@ -18,7 +18,9 @@ export type CollaborationRoomAdmissionWorkerOptions = Readonly<{
   onPollSuccess?: () => void;
 }>;
 
-/** Durable polling is authoritative; wake() only coalesces optional hints. */
+/** Durable polling is authoritative; wake() only coalesces optional hints.
+ * Empty polls back off to at most one second (or the configured base interval).
+ * Work, failed observations and wakes restore the original fast cadence. */
 export function createCollaborationRoomAdmissionWorker(options: CollaborationRoomAdmissionWorkerOptions) {
   const pollMs = options.pollMs ?? 1_000;
   if (!Number.isSafeInteger(pollMs) || pollMs < 10 || pollMs > 60_000) {
@@ -27,6 +29,7 @@ export function createCollaborationRoomAdmissionWorker(options: CollaborationRoo
   let disposed = false;
   let running = false;
   let rerun = false;
+  let idlePollMs = pollMs;
   let timer: NodeJS.Timeout | undefined;
   const report = (error: unknown) => {
     try { options.onError?.(error); }
@@ -47,6 +50,7 @@ export function createCollaborationRoomAdmissionWorker(options: CollaborationRoo
       return;
     }
     running = true;
+    let empty = false;
     try {
       const fences = Object.freeze([...options.getOwnedFences()]);
       if (fences.length > 256) throw new Error('Collaboration admission owner set exceeds its bound.');
@@ -69,18 +73,21 @@ export function createCollaborationRoomAdmissionWorker(options: CollaborationRoo
         }
       }
       if (healthy) options.onPollSuccess?.();
+      empty = tickets.length === 0;
     } catch (error) { report(error); }
     finally {
       running = false;
       if (!disposed) {
         const immediate = rerun;
         rerun = false;
-        schedule(immediate ? Math.min(pollMs, 25) : pollMs);
+        idlePollMs = empty && !immediate ? Math.min(Math.max(pollMs, 1_000), idlePollMs * 2) : pollMs;
+        schedule(immediate ? Math.min(pollMs, 25) : idlePollMs);
       }
     }
   };
   const wake = () => {
     if (disposed) return;
+    idlePollMs = pollMs;
     if (running) {
       rerun = true;
       return;

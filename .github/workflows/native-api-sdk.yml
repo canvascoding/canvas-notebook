@@ -89,6 +89,7 @@ jobs:
       - name: Bounded drain polling with actual PostgreSQL schema locks
         run: |
           set -euo pipefail
+          node --import tsx --conditions react-server scripts/collaboration-room-admission-worker-test.ts 2>&1 | tee "$RUNNER_TEMP/drain-worker.log"
           npm run test:collaboration:drain-poll:native 2>&1 | tee "$RUNNER_TEMP/drain-poll-native.log"
       - name: API contracts and UI component tests
         run: |
@@ -180,6 +181,7 @@ jobs:
             ${{ runner.temp }}/principal-read-capture.log
             ${{ runner.temp }}/auth-session-jwt.log
             ${{ runner.temp }}/drain-poll-native.log
+            ${{ runner.temp }}/drain-worker.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log
             ${{ runner.temp }}/preview-read-recovery-native.log

@@ -105,8 +105,32 @@ Originalen/Historien. Sechs frische Wheel-/Source-Abhängigkeitsprofile bestehen
 auf Python 3.10.19; die Adapterprofile jeweils mit 105 Tests ohne Skips. Auch das
 endgültige Source-Archiv besteht frisch installiert seine 105 enthaltenen Tests.
 [Vorher-/Nachher- und Artefaktnachweise](testing/sdk-lost-ack-cancellation-2026-11-07.json).
-Aktuelle Remote-CI, kompilierte Abnahme dieses neueren SDK-Kandidaten und
-Veröffentlichung stehen weiterhin aus.
+Der korrigierte installierte SDK-Kandidat aus `14aa48359` besteht inzwischen
+auch beide kompilierten API-Key-/OAuth-/Editor-Abläufe mit 16 plus 6 Prüfungen,
+echtem Refresh-Grant, Entzug und bestätigter Wiederherstellung. Der Backendstand
+bleibt `2ecbc253d`; exakt sieben SDK-/Test-/Nachweisdateien bilden die geprüfte
+Abweichung. Aktuelle Remote-CI und Veröffentlichung bleiben offen.
+
+Die anschließende gleiche 10-/200-Quellen-Messung am Backend `2ecbc253d`
+misst sechs warme Wechsel mit 75–82 bzw. 79–90 ms, gleichen Yjs-/Provider-Objekten
+und null neuen Datei-/Session-/Socket-Aufrufen. Die normalen fünfsekündigen
+Leerlauffenster zählen 490 bzw. 530 PostgreSQL-Treiberaufrufe (zuvor 608/618);
+die separaten Diagnosefenster 470/505 (zuvor 554/556). Diese globale Beobachtung
+enthält überlappende Hintergrundarbeit und ist keine exklusive Verursacherquote
+oder vollständige p95-/Ressourcenabnahme. [Gebundene Messungen](testing/document-open-auth-background-sql-2026-11-07.json).
+
+Der nächste gezielte Produktfix reduziert leere Drain-Abfragen: nach leeren
+erfolgreichen Beobachtungen 500 ms, dann höchstens eine Sekunde zwischen Polls;
+Arbeit, Fehler und Wake stellen den schnellen Takt wieder her. Dauerhafte DB-
+Beobachtung und alle unveränderten Owner-/Schema-/Rechteprüfungen bleiben erhalten.
+Der neue Timerfall schlägt vorher gezielt fehl und besteht danach. Acht echte
+PostgreSQL-Gruppen prüfen nun auch einen neuen dauerhaften Drain nach erreichtem
+Leerlauftakt ausdrücklich ohne Wake-Signal, mit echter Owner-Freigabe und atomarem
+Receipt/Acknowledgement. Die verwandte Representation-/Drain-/Handoff-Abnahme
+besteht. Der Fall ist in nativer CI registriert. [Nachweise](testing/drain-worker-idle-cadence-2026-11-07.json).
+Build, kompilierter Browservergleich dieses Worker-Fixes, übrige Ressourcen- und
+Lebenszyklusmatrix, vollständiges aktuelles `test:all` und Veröffentlichung bleiben
+offen. Review Center und Undo bleiben ausgeschlossen.
 
 Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
 Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten

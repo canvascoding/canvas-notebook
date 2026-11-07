@@ -64,5 +64,45 @@
     "No global SQL/latency benchmark",
     "No production deployment",
     "SDK Move/Delete lost-acknowledgement CI remains unresolved"
-  ]
+  ],
+  "latestSdkCandidateVerification": {
+    "backendSourceSha": "2ecbc253da65c106fcc5496f4dbffc9bb496bf07",
+    "sdkCheckoutSha": "14aa48359c87fa0a992f8a3aae9c52bd41642dfe",
+    "approvedNonRuntimeDelta": [
+      "docs/document-write-database-performance-plan.md",
+      "docs/testing/compiled-session-auth-sdk-2026-11-07.json",
+      "docs/testing/sdk-lost-ack-cancellation-2026-11-07.json",
+      "packages/canvas-notebook-python/CHANGELOG.md",
+      "packages/canvas-notebook-python/src/canvas_notebook/transport.py",
+      "scripts/helpers/installed-api-key-sdk-mcp-fixture.ts",
+      "scripts/helpers/python_sdk_api_key_path_probe.py"
+    ],
+    "cases": [
+      {
+        "scenario": "disabled-review-observer-with-native-key-sdk-edits",
+        "passed": true,
+        "editorChecks": 16,
+        "cleanupErrors": []
+      },
+      {
+        "scenario": "compiled-session-auth-with-issued-oauth-sdk",
+        "passed": true,
+        "editorChecks": 6,
+        "cleanupErrors": []
+      }
+    ],
+    "preservation": {
+      "originalRowsXminBytesAndAnchorsPreserved": true,
+      "otherContainersPreserved": true,
+      "sourcePreserved": true
+    },
+    "controllerProofSha256": "1f7a1686ca514a820598effb053434f9db7427889b38b17ac2b5f34d8495af33",
+    "limits": [
+      "No new backend image: exact backend source and runtime hashes are unchanged",
+      "No natural expiry wait",
+      "No full regular test:all or final resource matrix acceptance",
+      "No production or SDK publication"
+    ],
+    "wheelSha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe"
+  }
 }
