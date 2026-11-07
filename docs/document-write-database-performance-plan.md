@@ -128,9 +128,42 @@ PostgreSQL-Gruppen prüfen nun auch einen neuen dauerhaften Drain nach erreichte
 Leerlauftakt ausdrücklich ohne Wake-Signal, mit echter Owner-Freigabe und atomarem
 Receipt/Acknowledgement. Die verwandte Representation-/Drain-/Handoff-Abnahme
 besteht. Der Fall ist in nativer CI registriert. [Nachweise](testing/drain-worker-idle-cadence-2026-11-07.json).
-Build, kompilierter Browservergleich dieses Worker-Fixes, übrige Ressourcen- und
-Lebenszyklusmatrix, vollständiges aktuelles `test:all` und Veröffentlichung bleiben
-offen. Review Center und Undo bleiben ausgeschlossen.
+Hostbuild und Linux-Image von `ebbe02446` bestehen. Der gleiche echte
+10-/200-Quellen-Browservergleich misst 75–85 bzw. 77–86 ms für sechs warme Wechsel
+bei gleichem Yjs-Dokument/Provider und ohne neue Datei-/Session-/Socket-Anfrage.
+Im Diagnosefenster sind es fünf statt 19 leere Drain-Beobachtungen; global
+425/430 statt 470/505 PostgreSQL-Treiberaufrufe. Die normalen Fenster messen
+465/467 statt 490/530. Die Messgrenzen und offene übrige Last bleiben ausdrücklich
+erhalten; Originalruntime/Zeilen/xmin/Bytes/Anker und andere Container sind nach
+beiden Läufen bestätigt unverändert.
+
+Die CI `42393380413` von `14aa48359` besteht mit allen 15 veröffentlichten Checks.
+Die heruntergeladenen Artefakte bestätigen zwölf frische SDK-Profile auf
+Python 3.10.22/3.15.2, je 105 Adaptertests ohne Skips, acht native SDK-Familien
+und 24 SDK-Link-Paritätsgruppen je Python-Lane. Alle acht SDK-Laufzeitdateien
+stimmen mit diesem Commit überein; finales Wheel und Source-Archiv sind bytegleich
+mit den lokal geprüften finalen Artefakten. [Audit](testing/sdk012-ci-2026-11-07.json).
+Der neuere Worker- und Clientstand benötigt weiterhin seine eigene CI.
+
+Die anschließende reale Ticket-Warteprüfung findet eine weitere Live-Tab-Lücke:
+Nach dem kurzen Ticket-Lebenszyklus ist nur noch einer von zwei Tabs live, obwohl
+die App sichtbar und die Fünf-Minuten-Grenze nicht erreicht ist. Das lokale
+Yjs-Dokument und alle geschützten Originale bleiben erhalten. Die mechanischen
+Tests hatten synthetische 15-Minuten-Tickets verwendet; sie verwenden jetzt die
+echten 90 Sekunden und prüfen gebündelte Erneuerung und Netzwerk-Reconnect.
+Der lokale Clientfix erhält den vorhandenen Yjs-/IndexedDB-Eintrag und erhält
+über den bisherigen HTTP-/Provider-Authentifizierungsweg neue Autorität, bevor
+das Ticket abläuft. Alte Request-Scopes werden abgebrochen; alte HTTP-Belege
+werden währenddessen nicht wiederverwendet. Budget-, Hidden-/Inaktivitäts-,
+Sperr-/Rechte- und Recovery-Fences bleiben erhalten. Die mechanische Regression
+auf Node24 sowie bestehende Retention-/Rename-/Recovery-Fälle bestehen.
+[Fehler und lokaler Fix](testing/live-tabs-natural-ticket-expiry-2026-11-07.json).
+Der kompilierte natürliche Ticketablauf muss nach dem Clientfix noch erneut
+geprüft werden. Ein frischer eigener Browser ohne Playwright-Fokus-Overrides
+bestätigt echte sichtbare/ausgeblendete/sichtbare Zustände; die Zwei-/Fünf-Minuten-
+App-Abnahme ist dadurch noch nicht erledigt. Übrige Ressourcen-/Lebenszyklusmatrix,
+aktuelles vollständiges `test:all`, aktuelle CI/Reviews und Veröffentlichung
+bleiben offen. Review Center und Undo bleiben ausgeschlossen.
 
 Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
 Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten

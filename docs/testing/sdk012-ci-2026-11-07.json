@@ -1,0 +1,223 @@
+{
+  "runId": 42393380413,
+  "headSha": "14aa48359c87fa0a992f8a3aae9c52bd41642dfe",
+  "all15PublishedChecksSucceeded": true,
+  "actualDownloadedArtifactsAudited": true,
+  "wheelSha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+  "sdistSha256": "585dfc6847b7983842741a3895b779edba05e1dd169d58d314ecf5752c552eb3",
+  "all8RuntimeFilesEqualCommit": true,
+  "lanes": [
+    {
+      "lane": "3.10",
+      "profiles": [
+        {
+          "python": "3.10.22",
+          "artifact": "wheel",
+          "profile": "core",
+          "tests": 1,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.10.22",
+          "artifact": "wheel",
+          "profile": "mcp",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.10.22",
+          "artifact": "wheel",
+          "profile": "keyring",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.10.22",
+          "artifact": "sdist",
+          "profile": "core",
+          "tests": 1,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.10.22",
+          "artifact": "sdist",
+          "profile": "mcp",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.10.22",
+          "artifact": "sdist",
+          "profile": "keyring",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        }
+      ],
+      "nativeSuites": [
+        {
+          "suite": "installed-api-key-sdk-native-http",
+          "groups": 4,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-sdk-read-boundaries-http",
+          "groups": 4,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-edit-http",
+          "groups": 6,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-create-import-http",
+          "groups": 7,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-copy-http",
+          "groups": 8,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-path-http",
+          "groups": 21,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-original-import-http",
+          "groups": 7,
+          "compiledNext": false
+        },
+        {
+          "suite": "sdk-documentation-write-http",
+          "compiledNext": false
+        },
+        {
+          "suite": "document-link-write-parity",
+          "groups": 24,
+          "compiledNext": false
+        }
+      ]
+    },
+    {
+      "lane": "3.15",
+      "profiles": [
+        {
+          "python": "3.15.2",
+          "artifact": "wheel",
+          "profile": "core",
+          "tests": 1,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.15.2",
+          "artifact": "wheel",
+          "profile": "mcp",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.15.2",
+          "artifact": "wheel",
+          "profile": "keyring",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.15.2",
+          "artifact": "sdist",
+          "profile": "core",
+          "tests": 1,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.15.2",
+          "artifact": "sdist",
+          "profile": "mcp",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        },
+        {
+          "python": "3.15.2",
+          "artifact": "sdist",
+          "profile": "keyring",
+          "tests": 105,
+          "skipped": 0,
+          "exitCode": 0
+        }
+      ],
+      "nativeSuites": [
+        {
+          "suite": "installed-api-key-sdk-native-http",
+          "groups": 4,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-sdk-read-boundaries-http",
+          "groups": 4,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-edit-http",
+          "groups": 6,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-create-import-http",
+          "groups": 7,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-copy-http",
+          "groups": 8,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-native-path-http",
+          "groups": 21,
+          "automaticWriteReplays": 0,
+          "compiledNext": false
+        },
+        {
+          "suite": "installed-api-key-sdk-original-import-http",
+          "groups": 7,
+          "compiledNext": false
+        },
+        {
+          "suite": "sdk-documentation-write-http",
+          "compiledNext": false
+        },
+        {
+          "suite": "document-link-write-parity",
+          "groups": 24,
+          "compiledNext": false
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Source HTTP/PostgreSQL is not compiled Next acceptance",
+    "Dependency profiles are not native Linux/Windows keyring acceptance",
+    "Newer drain-worker and retained-ticket changes require their own CI",
+    "No release or production deployment"
+  ]
+}

@@ -83,6 +83,7 @@ async function main() {
     (name: string) => name === '@hocuspocus/provider' ? { HocuspocusProvider: Provider }
       : name === 'y-indexeddb' ? { IndexeddbPersistence: Persistence } : load(name), { exports: exported }, exported);
   const originalFetch = globalThis.fetch;
+  const originalWallClock = Date.now;
   globalThis.fetch = async (input, init) => {
     assert.equal(input, '/api/files/collaboration/session');
     const id = JSON.parse(String(init?.body)).path.replace('.txt', ''), doc = documents.get(id); assert(doc); requests.push(id);
@@ -90,7 +91,7 @@ async function main() {
       representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission,
       documentSequence: 1, checkpointSequence: 1, projectionFinalized: true,
       stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y),
-      token: `synthetic-ticket-${requests.length}`, expiresAt: new Date(Date.now() + 900_000).toISOString(), websocketUrl: '/ws/collaboration',
+      token: `synthetic-ticket-${requests.length}`, expiresAt: new Date(Date.now() + 90_000).toISOString(), websocketUrl: '/ws/collaboration',
       user: { id: user, name: user, color: '#123456', colorLight: '#abcdef' } };
     if (delayNextResponse) {
       delayNextResponse = false;
@@ -141,6 +142,44 @@ async function main() {
     const count = requests.length, again = await open('A');
     assert.equal(requests.length, count); assert.equal(again.doc, a.doc); assert.equal(again.provider, a.provider);
     assert(pa.presence); assert.equal(pb.presence, null);
+
+    // Match the real 90-second ticket lifetime, not a synthetic 15-minute one.
+    // The inactive document must retain its budget while obtaining fresh HTTP
+    // authority; repeated reconciliation must not issue duplicate renewals.
+    const beforeTicketRenewal = requests.length;
+    const preservedB = Y.encodeStateAsUpdate(b.doc);
+    delayNextResponse = true;
+    Date.now = () => originalWallClock() + 61_000;
+    clock += 61_000;
+    await act(async () => exported.flushRetention());
+    await until(() => requests.length === beforeTicketRenewal + 1);
+    assert.equal(requests.at(-1), 'B');
+    const renewedB = providers.filter(provider => provider.options.document === b.doc).at(-1)!;
+    assert.notEqual(renewedB, pb);
+    assert.equal(renewedB.destroyed, false, 'Pending fresh ticket authority retains the inactive document transport slot.');
+    assert.equal(findConnectedOpenedDocument('one', 'B.txt', 'B'), null);
+    await act(async () => exported.flushRetention());
+    assert.equal(requests.length, beforeTicketRenewal + 1, 'An in-flight renewal is coalesced.');
+    await act(async () => { releaseDelayedResponse!(); });
+    await until(() => findConnectedOpenedDocument('one', 'B.txt', 'B') !== null);
+    assert.equal(renewedB.destroyed, false);
+    assert.deepEqual(Y.encodeStateAsUpdate(b.doc), preservedB);
+    const beforeDisconnect = requests.length;
+    delayNextResponse = true;
+    await act(async () => {
+      renewedB.options.onClose({ event: { code: 1006, reason: 'owned network interruption' } });
+      exported.flushRetention();
+    });
+    await until(() => requests.length === beforeDisconnect + 1);
+    assert.equal(renewedB.destroyed, true, 'The old request scope and provider retire before a fresh reconnect.');
+    assert.equal(findConnectedOpenedDocument('one', 'B.txt', 'B'), null,
+      'A reconnect cannot expose the previous HTTP authority while renewal is pending.');
+    await act(async () => { releaseDelayedResponse!(); });
+    await until(() => findConnectedOpenedDocument('one', 'B.txt', 'B') !== null);
+    assert.equal(requests.length, beforeDisconnect + 1);
+    assert(findConnectedOpenedDocument('one', 'B.txt', 'B'));
+    assert.deepEqual(Y.encodeStateAsUpdate(b.doc), preservedB);
+    Date.now = originalWallClock;
 
     constrained = true;
     const c = await open('C', 'two'), pc = c.provider as unknown as Provider;
@@ -270,7 +309,7 @@ async function main() {
     console.log('Live tabs: same provider/Y.Doc without new session, peer updates, global mobile cap, authorized warm/busy reconnect, expiry, hidden-app pause/fresh resume with local edits and current rights, presence, auth isolation, close, read-only connection renewal, rollback and dirty-copy preservation on missing storage/quota failure passed.');
   } finally {
     await act(async () => { root.unmount(); exported.clearOpenedCollaborationTabs(); invalidateOpenedDocumentAuth(); });
-    await tick(); globalThis.fetch = originalFetch;
+    await tick(); globalThis.fetch = originalFetch; Date.now = originalWallClock;
     if (clockDescriptor) Object.defineProperty(performance, 'now', clockDescriptor); else Reflect.deleteProperty(performance, 'now');
     for (const doc of documents.values()) doc.destroy(); dom.window.close();
     for (const [name, descriptor] of globals) {

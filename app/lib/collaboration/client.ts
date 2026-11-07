@@ -89,6 +89,7 @@ type RegistryEntry = {
   backgroundSince?: number;
   retentionEncodedBytes?: number;
   retentionConnectionReady?: boolean;
+  retentionReauthenticating?: boolean;
   visibilityPaused?: boolean;
   cleanupPromise?: Promise<void>;
   startPromise: Promise<void>;
@@ -191,8 +192,21 @@ function detachEntryTransport(entry: RegistryEntry): void {
   if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
   entry.tokenRetryTimer = undefined;
   entry.retentionConnectionReady = false;
+  entry.retentionReauthenticating = false;
   entry.visibilityPaused = false;
   entry.provider?.destroy(); entry.provider = null;
+}
+
+/** Retire the old request scope before the existing provider/token path obtains
+ * fresh HTTP authority. Neither a retained Y.Doc nor this helper grants access. */
+function startFreshEntryTransport(entry: RegistryEntry, retentionReauthenticating = false): void {
+  detachEntryTransport(entry);
+  entry.retentionReauthenticating = retentionReauthenticating;
+  entry.parkedAt = undefined;
+  entry.requests = new AbortController();
+  entry.checkpointPromise = undefined;
+  entry.requiresFreshSession = true;
+  entry.startProvider?.();
 }
 
 function restoreEntryPresence(entry: RegistryEntry): void {
@@ -218,13 +232,9 @@ function reconcileDocumentRetention(): void {
     if (!entry.visibilityPaused || entry.provider || !entry.session || !isOpenedDocumentAuthCurrent(entry.authScope)
       || entry.clientState.admissionBusy || entry.clientState.failure || entry.clientState.connection === 'denied') return;
     entry.visibilityPaused = false;
-    entry.parkedAt = undefined;
-    entry.requests = new AbortController();
-    entry.checkpointPromise = undefined;
     // Old token/checkpoint callbacks were retired at pause. A new provider
     // obtains fresh HTTP authority while retaining the same local Yjs document.
-    entry.requiresFreshSession = true;
-    entry.startProvider?.();
+    startFreshEntryTransport(entry);
   };
   if (!tabRetentionEnabled) {
     for (const entry of entries) if (entry.refs) resumeVisibleEntry(entry);
@@ -243,9 +253,11 @@ function reconcileDocumentRetention(): void {
     return { key: entry.key, active: entry.refs > 0 || currentTabActivatesEntry(entry), open: entry.tabOwned === true,
       authCurrent: isOpenedDocumentAuthCurrent(entry.authScope),
       canKeepWarm: Boolean(entry.session && !entry.session.guestAccess && entry.persistence?.synced && entry.clientState.indexedDbHydrated),
-      canKeepLive: Boolean(entry.provider && !entry.requests.signal.aborted && !entry.requiresFreshSession
+      // Retention reserves resources during fresh authentication; it cannot
+      // expose an old HTTP receipt or reuse a ticket for a new connection.
+      canKeepLive: Boolean(entry.provider && !entry.requests.signal.aborted
         && !entry.clientState.admissionBusy && !entry.clientState.failure && entry.clientState.durability !== 'degraded'
-        && entry.session && Date.parse(entry.session.expiresAt) > Date.now()),
+        && entry.session && Number.isFinite(Date.parse(entry.session.expiresAt))),
       encodedBytes: entry.refs ? 0 : entry.retentionEncodedBytes!,
       lastActivatedAt: entry.lastActivatedAt ?? now, backgroundSince: entry.backgroundSince ?? now };
   }) });
@@ -272,8 +284,15 @@ function reconcileDocumentRetention(): void {
     }
     if (decision.tier === 'live') {
       if (previous !== 'live') entry.provider?.awareness?.setLocalState(null);
+      if (!entry.retentionReauthenticating && (entry.requiresFreshSession || Date.parse(entry.session!.expiresAt) - Date.now() < 30_000)) {
+        // A short handshake ticket must not silently shorten the five-minute
+        // document budget. The ordinary token callback performs the actual
+        // current-user/session/workspace check; stale callbacks are aborted.
+        startFreshEntryTransport(entry, true);
+        entry.provider?.awareness?.setLocalState(null);
+      }
       nextDeadline = Math.min(nextDeadline, (entry.backgroundSince ?? now) + limits.backgroundLiveMs,
-        now + Math.max(0, Date.parse(entry.session!.expiresAt) - Date.now()),
+        entry.retentionReauthenticating ? Infinity : now + Math.max(1, Date.parse(entry.session!.expiresAt) - Date.now() - 29_999),
         hiddenSince === undefined ? Infinity : hiddenSince + limits.hiddenLiveMs);
     } else {
       // Network budgets apply immediately; the existing disposal fence may
@@ -1200,6 +1219,7 @@ function createEntry(
           onSynced: ({ state } = { state: true }) => {
             if (!active() || entry.clientState.admissionBusy || entry.visibilityPaused) return;
             entry.retentionConnectionReady = state;
+            if (state) entry.retentionReauthenticating = false;
             if (!state) { scheduleDocumentRetention(); return; }
             transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
             if (entry.refs) restoreEntryPresence(entry);
