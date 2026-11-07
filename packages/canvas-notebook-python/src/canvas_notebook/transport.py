@@ -79,7 +79,11 @@ class CanvasMcpTransport:
         stack, self._stack = self._stack, None
         self._client = None
         if stack is not None:
-            await stack.__aexit__(exc_type, exc, traceback)
+            # The caller's error belongs to the caller, not the client's IO
+            # task groups, which would wrap it in an ExceptionGroup. Close all
+            # owned resources normally and let async-with propagate that exact
+            # error. Cleanup failures still propagate with its context intact.
+            await stack.aclose()
 
     def _current(self) -> Client:
         if self._client is None:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (unreleased)
+
+- Preserve the original application exception when leaving a `CanvasMcpTransport` context. Tool/protocol errors and uncertain mutation outcomes keep their type, code and caller key instead of being wrapped by an MCP IO task group. All owned resources still close; cancellation and cleanup failures remain explicit. No operation is retried.
+
 ## 0.1.1
 
 - Preserve explicitly requested OAuth scopes and refuse tokens with broader or unverifiable scope. Existing users can authorize a fresh credential profile with the rights their application needs.
