@@ -231,10 +231,29 @@ export function createAuthenticatedRichMigrationDomain(request: NextRequest,
     }));
   };
   const withMutationTransaction: RichMigrationTransaction = (database, operation) => phase(database, () => operation(), true);
-  const read = () => executeLifecycleTransaction({ openConnection: openDb,
-    execute: database => phase(database, native => Promise.resolve(native), false),
-    recoverCommitted: async () => { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); },
-  });
+  const read = async (): Promise<Native> => {
+    for (let attempt = 0; ; attempt++) {
+      let cleanContention = false;
+      try {
+        return await executeLifecycleTransaction({ openConnection: openDb,
+          execute: database => phase(database, native => Promise.resolve(native), false),
+          recoverCommitted: async () => { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); },
+          // This fixed callback only observes native state. Retry neither its
+          // preceding migration nor a lost COMMIT/rollback/connection release.
+          afterRollbackClosed: error => {
+            if (!(error instanceof Error)) return;
+            const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+            cleanContention = code === '55P03' || code === 'PRINCIPAL_BUSY';
+          },
+        });
+      } catch (error) {
+        if (!cleanContention) throw error;
+        if (attempt === 2) throw Object.assign(new CollaborationAdmissionError('ADMISSION_CONFLICT'), { status: 503 });
+        // A new B and genuine write-principal phase must still match original.
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+      }
+    }
+  };
   return {
     withMutationTransaction,
     read,

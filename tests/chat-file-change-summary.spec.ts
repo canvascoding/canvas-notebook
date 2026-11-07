@@ -100,7 +100,7 @@ async function loginWorkspace(page: Page) {
   return workspaceId!;
 }
 
-async function installFixtures(page: Page, workspaceId: string, active = false) {
+async function installFixtures(page: Page, workspaceId: string, active = false, deferInitialStatus = false) {
   const groups = [
     changeGroup(workspaceId, 1, 'write', [FILES[0]]),
     changeGroup(workspaceId, 2, 'edit_file', [FILES[0]]),
@@ -108,6 +108,8 @@ async function installFixtures(page: Page, workspaceId: string, active = false) 
   ];
   let socket: WebSocketRoute | undefined;
   let phase: PiRuntimeStatus['phase'] = active ? 'streaming' : 'idle';
+  let deferStatus = deferInitialStatus;
+  const pendingStatusReplies: Array<() => void> = [];
   const summaryRequests: Array<Record<string, unknown>> = [];
   const widgetRequests: string[] = [];
   let denied = false;
@@ -174,13 +176,22 @@ async function installFixtures(page: Page, workspaceId: string, active = false) 
       if (message.type === 'subscribe_session') webSocket.send(JSON.stringify({
         type: 'subscribe_result', requestId: message.requestId, success: true, sessionId: SESSION_ID,
       }));
-      if (message.type === 'get_status') webSocket.send(JSON.stringify({
-        type: 'status_result', requestId: message.requestId, success: true, status: runtimeStatus(SESSION_ID, phase),
-      }));
+      if (message.type === 'get_status') {
+        const reply = () => webSocket.send(JSON.stringify({
+          type: 'status_result', requestId: message.requestId, success: true, status: runtimeStatus(SESSION_ID, phase),
+        }));
+        if (deferStatus) pendingStatusReplies.push(reply);
+        else reply();
+      }
     });
   });
   return {
     summaryRequests, widgetRequests,
+    hasPendingInitialStatus: () => pendingStatusReplies.length > 0,
+    releaseInitialStatus: () => {
+      deferStatus = false;
+      for (const reply of pendingStatusReplies.splice(0)) reply();
+    },
     denyCurrentStatuses: () => { denied = true; },
     endInternalTurn: () => {
       expect(socket).toBeTruthy();
@@ -252,13 +263,20 @@ test('waits for the full run to finish before displaying the summary, including 
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 390, height: 844 });
   const workspaceId = await loginWorkspace(page);
-  const fixture = await installFixtures(page, workspaceId, true);
+  const fixture = await installFixtures(page, workspaceId, true, true);
   await openFixtureChat(page);
+  await expect(page.getByText('All requested file changes are complete.', { exact: true })).toBeVisible();
+  await expect.poll(fixture.hasPendingInitialStatus).toBe(true);
+  // Hold the real UI's initial runtime observation after persisted messages load.
+  await page.waitForTimeout(250);
   await expect(page.getByTestId('chat-file-references')).toHaveCount(0);
   expect(fixture.summaryRequests).toHaveLength(0);
+  fixture.releaseInitialStatus();
+  await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
   fixture.endInternalTurn();
   await page.waitForTimeout(250);
   await expect(page.getByTestId('chat-file-references')).toHaveCount(0);
+  expect(fixture.summaryRequests).toHaveLength(0);
   fixture.finishRun();
   const card = await assertCollectedSummary(page);
   await expect.poll(() => fixture.summaryRequests.length).toBe(1);

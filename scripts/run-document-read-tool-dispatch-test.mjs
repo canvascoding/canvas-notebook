@@ -1967,6 +1967,9 @@ const criticalInputsByEntryPoint = {
     'app/lib/excalidraw-collaboration/portable-import.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts',
     'app/lib/files/collaboration-repository/transaction.ts', 'app/lib/collaboration/room-admission-contract.ts',
     'app/lib/workspaces/postgres-runtime.ts', 'app/lib/db/index.ts'],
+  'scripts/rich-migration-read-contention-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/collaboration/rich-migration-domain.ts', 'app/lib/collaboration/lifecycle-transaction.ts',
+    'app/lib/collaboration/rich-migration-write-request.ts', 'app/lib/workspaces/request-principal.ts', 'app/lib/db/index.ts'],
   'scripts/workspace-document-tree-test.ts': [entryPoint, 'app/lib/files/workspace-document-tree.ts',
     'app/lib/collaboration/workspace-native-file-read.ts', 'app/lib/collaboration/workspace-document-catalogue.ts',
     'app/lib/collaboration/workspace-scene-catalogue.ts'],
@@ -2076,6 +2079,9 @@ criticalInputsByEntryPoint['scripts/sdk-documentation-write-postgres-test.ts'] =
   'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/helpers/native-api-key-edit-runtime.ts',
   'scripts/helpers/installed-api-key-sdk-mcp-fixture.ts', 'app/lib/mcp/server/streamable-http.ts',
   'app/lib/api-keys/management.ts', 'app/lib/documents/service.ts'];
+criticalInputsByEntryPoint['scripts/room-owner-lock-order-postgres-test.ts'] = [entryPoint,
+  'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'app/lib/collaboration/room-owner.ts',
+  'app/lib/secrets/file-mutation-lock.ts', 'app/lib/files/workspace-mutation-lock.ts'];
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = [...criticalInputsByEntryPoint[entryPoint]];
 if (['scripts/helpers/document-read-tool-dispatch-fixture.ts', 'scripts/helpers/native-copy-metadata-owner-fixture.ts']

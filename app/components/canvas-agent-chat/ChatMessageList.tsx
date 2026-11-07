@@ -432,7 +432,8 @@ export function ChatMessageList({
   const runtimeChanges = useMemo(() => indexChatRuntimeChanges(messages), [messages]);
   const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;
   const fileReferenceGroups = useMemo(() => buildRunFileReferenceProjection(
-    messages, toolOutputScope?.workspaceId, Boolean(runtimePhase && runtimePhase !== 'idle'),
+    // An unobserved runtime is not proof that the current run has ended.
+    messages, toolOutputScope?.workspaceId, runtimePhase !== 'idle',
   ), [messages, toolOutputScope?.workspaceId, runtimePhase]);
 
   return (

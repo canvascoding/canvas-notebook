@@ -66,7 +66,26 @@ for (const mobile of [false, true]) {
       await editor.click();
       await editor.press('ControlOrMeta+A');
       await editor.press('ArrowLeft');
+      // Native selectionchange is asynchronous. Confirm the intended caret
+      // before deleting; a still-selected document is a different operation.
+      await expect.poll(() => editor.evaluate(element => {
+        const current = (element as HTMLElement & { editor: {
+          state: { doc: { textContent: string }; selection: { from: number; to: number; empty: boolean } };
+          view: { hasFocus(): boolean };
+        } }).editor;
+        const selection = element.ownerDocument.getSelection();
+        return {
+          text: current.state.doc.textContent,
+          from: current.state.selection.from,
+          to: current.state.selection.to,
+          empty: current.state.selection.empty,
+          focused: current.view.hasFocus(),
+          domCaret: Boolean(selection?.isCollapsed && selection.anchorNode && selection.focusNode
+            && element.contains(selection.anchorNode) && element.contains(selection.focusNode)),
+        };
+      })).toEqual({ text: `A ${sentence}`, from: 1, to: 1, empty: true, focused: true, domCaret: true });
       await editor.press('Delete');
+      await expect.poll(() => editor.textContent()).toBe(` ${sentence}`);
       await editor.press('Delete');
       await expect(editor).toHaveText(sentence);
       const candidate = await readNativeRichCandidate(page, selector);

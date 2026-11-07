@@ -3562,3 +3562,166 @@ MDX-Beispiele und acht Wheel-Identitätsfälle jeweils unter Python 3.10 und 3.1
 PR #231 hat grüne Prüfungen am bisherigen Head, benötigt nach der Umstellung auf
 `main` aber die Auflösung zweier additiver Konflikte und neue CI am integrierten
 Head. Gesamtmatrix, Endbudgets, Live-Tabs und finale Release-Abnahme bleiben offen.
+
+### Gesamtabnahme und verbleibende Zulassungsfehler (2026-11-06)
+
+PR #232 ist nach zehn erfolgreichen Checks und ohne offene Reviews auf `main`
+(`3758eea90`). Beide Python-Lanes und die heruntergeladenen tatsächlichen
+Paket-/HTTP-/Dokumentationsartefakte sind geprüft. Das ist noch kein neues Release.
+
+Der anschließende vollständige lokale Lauf endet mit 334 regulären Erfolgen,
+einem Fehler und 102 bestehenden bedingten Auslassungen; das verpflichtende
+Kollaborationsprofil erreicht 44 Erfolge und zwei Fehler ohne Skip. Originaldaten,
+Zeilen, Bytes und Speicheranker sind danach unverändert wiederhergestellt.
+Der reguläre Fehler ist eine übersehene alte Testerwartung nach dem präziseren
+Migrationsfeedback: Unsupported darf nicht länger andere Editoren beschuldigen.
+Die korrigierte Erwartung und der benachbarte tatsächliche Room-Active-Fall bestehen.
+
+Ein Kollaborationsfehler ist ein bestätigter PostgreSQL-Lock-Timeout beim aktuellen
+Beobachtungslesen nach einer Migration. Seine [gezielte Korrektur und Grenzen](testing/rich-migration-read-contention-2026-11-06.md)
+bestehen acht tatsächliche PostgreSQL-Gruppen und die bestehenden 61 Migrations-
+und Rechtefamilien. Eine kompilierte Wiederholung des betroffenen Browserfalls
+steht noch aus. Der zweite Kollaborationsfehler ist ein mobiler PUT mit
+`503/COLLABORATION_BUSY` vor der Vorbereitung des Schreibvorgangs; seine erhaltene
+native Ersatzdatei bleibt leer und es existiert kein vorbereiteter mobiler Vorgang.
+Ein kontrollierter tatsächlicher PostgreSQL-Leser bestätigt inzwischen diesen
+vorgesehenen Busy-Vertrag. Nach Freigabe wird derselbe versionierte Request mit
+derselben Idempotenz-ID genau einmal akzeptiert; erneuter Belegabruf erhält native
+Bytes, Historie und spätere Peer-Änderungen. Der Browseraufbau behandelt ausschließlich
+diesen benannten Busy-Fall mit begrenzter Fortsetzung derselben ID. Unbekannte
+HTTP-/Transportfehler bleiben Fehler; die mobile Produkt-Schreiblogik bleibt
+unverändert. Seine kompilierte Abnahme steht aus. `test:all` ist noch nicht grün;
+es wird kein Release daraus abgeleitet.
+
+### Aktuelle Chat-Laufzeit vor der Zusammenfassung bestätigen (2026-11-07)
+
+Die beiden korrigierten Kollaborationsfälle bestehen am Linux-Image von
+`31f4cef92` auf den zurückbehaltenen Daten des vorherigen Gesamtlaufs: zwei
+Erfolge, kein Fehler, Skip oder Flaky-Ergebnis. Der ursprüngliche lokale Stack
+und seine geschützten Daten wurden anschließend unverändert wiederhergestellt.
+Auch die vier API-Key-Verwaltungsfälle bestehen am selben aktuellen Image.
+
+Der folgende reguläre Gesamtlauf findet einen anderen Fehler: Beim Öffnen eines
+laufenden Chats kann die Änderungszusammenfassung bereits vor der initialen
+WebSocket-Statusantwort abgefragt werden. Die aktuelle UI behandelt einen noch
+unbekannten Laufzustand wie bestätigtes Ende. Ein deterministischer Render der
+tatsächlichen `ChatMessageList` mit normalen Read-Belegen zeigt bei unbekanntem
+oder fehlendem Status zwei Abschnitte statt nur des früher abgeschlossenen;
+Streaming und Idle ergeben bereits korrekt einen beziehungsweise zwei Abschnitte.
+Nach diesem Nachweis wurde der fehlgeschlagene Gesamtlauf über seinen eigenen
+SIGINT-/Cleanup-Pfad beendet. Sein Bericht bleibt fehlgeschlagen und unvollständig;
+der ursprüngliche Stack, Datenzeilen, Dateibytes und Speicheranker sind wieder
+gesund und unverändert. Die übrigen Browserfälle gelten dadurch nicht als geprüft.
+
+Die Korrektur verlangt für den aktuellen Abschnitt bestätigtes `idle`; frühere
+abgeschlossene Abschnitte bleiben verfügbar. Die tatsächliche Komponente besteht
+die vier gezielten Unknown-/Null-/Streaming-/Idle-Grenzen. Die bestehenden
+Projektions-, Karten-, Summary- und Summary-API-Prüfungen bestehen ebenfalls.
+Der Browserfall hält die initiale Statusantwort jetzt kontrolliert zurück,
+bevor er Streaming, internes Turn-Ende und vollständigen Abschluss prüft.
+Diese kompilierte Browserabnahme und ein vollständiger finaler Gesamtlauf stehen
+noch aus. Es gibt keine neue Review-Center- oder Undo-Implementierung.
+
+Ein zusätzlich aufgerufener alter Fork-UI-Quellprüfer stoppt vor seinem Render an
+einer veralteten Erwartung an `textareaRef.current?.focus()`. Der davon betroffene
+übergeordnete Chat-Code ist gegenüber dem vorherigen Commit bytegleich; dies ist
+kein erfolgreicher zusätzlicher Fork-Nachweis und keine neue Korrektur an Forks.
+
+### Auswahlvorbedingung der nativen Erhaltungsprüfung (2026-11-07)
+
+Am Produktstand `1e7db7310` bestehen alle 15 CI-Checks. Die heruntergeladenen
+Artefakte bestätigen je Python-Version 53 installierte SDK-/HTTP-Gruppen,
+zwölf ausführbare Dokumentationsfunktionen und acht Paketidentitätsfälle.
+Der lokale Gesamtlauf scheitert jedoch in beiden nativen Erhaltungsfällen schon
+vor Speicherung: Nach Select-All, Pfeil links und Delete ist der Testtext leer.
+Der fehlgeschlagene Lauf wurde geordnet beendet; Originale sind unverändert
+wiederhergestellt. Dies ist kein erfolgreicher Gesamtlauf.
+
+Passive Vergleiche erhalten denselben Text auf Desktop und Mobil mit und ohne
+Trace. Auch die ursprünglichen vollständigen Erhaltungstests bestehen auf dem
+zurückbehaltenen fehlgeschlagenen Datensatz mit passiver Auswahlaufzeichnung,
+einschließlich nativer Speicherung, Reload, Blockidentität und Ordner-Trash.
+Die Aufzeichnung bestätigt, dass DOM-Auswahl und Editor-Auswahl nach Pfeil links
+kurz auseinanderliegen können. Die genaue Ursache des abweichenden Gesamtlaufs
+ist damit nicht bewiesen; weder ein Root-DOM-Cursorfehler noch Trace allein
+wurde als Produktursache bestätigt.
+
+Der Test verlangt jetzt zusätzlich vor Delete einen fokussierten, eigenen
+DOM-Cursor und die native leere Auswahl an Position 1 bei unverändertem Text.
+Nach dem ersten Delete muss exakt der erste Buchstabe fehlen. Erst danach
+folgen der zweite Delete und sämtliche bisherigen Inhalts-, nativen Beleg-,
+Block-ID-, Speicher-, Reload- und Trash-Prüfungen. Keine Auswahl wird gesetzt,
+keine Mutation wiederholt, kein Fehler ignoriert und kein Fall ausgelassen.
+Die gezielte Abnahme dieser strengeren Vorbedingungen und der finale Gesamtlauf
+stehen noch aus. Produktcode, Review Center und Undo bleiben unverändert.
+
+### Belegte Raumfreigabe nicht als Zugriffsverlust melden (2026-11-07)
+
+Die strengeren Erhaltungsfälle bestehen einzeln und im regulären Browserprofil.
+Der anschließende Gesamtlauf endet dort mit 332 Erfolgen, drei Fehlern und 102
+bestehenden bedingten Auslassungen. Zwei Migrationsfeedback-Fälle verlieren nach
+einem simulierten Runtime-Ausfall die Verbindung; ein Rename-Apply meldet
+`PATH_IMPORT_PREVIEW_BUSY`. Das Kollaborationsprofil wurde über den eigenen
+Koordinator beendet und ist unvollständig. Originalstack, geschützte Zeilen samt
+`xmin`, Dateibytes, Speicheranker und fremde Container sind unverändert.
+
+Alle drei Fälle bestehen anschließend einzeln auf demselben Image, ohne Retry
+oder Skip. Ein [kontrollierter echter Socket-Test](testing/native-peer-startup-busy-2026-11-07.md)
+reproduziert jedoch die falsche AuthDenied-Zuordnung des Raum-Aktivitätszauns.
+Die eng begrenzte Serverkorrektur besteht neun echte Socket-/PostgreSQL-Gruppen,
+einschließlich Rechteentzug nach Busy und unveränderter Ablehnung unbestätigter
+COMMIT-Ausgänge. Sie ist in die Native-CI aufgenommen. Der Rename-Busy-Fall,
+neue kompilierte Abnahme, Gesamtsuite, aktuelle CI und Release bleiben offen.
+Review Center und Undo bleiben außerhalb der Implementierung.
+
+### Kurzzeitige Vorschau-Sperre im Original-Apply überwinden (2026-11-07)
+
+Die [begrenzte Web-Lesewiederaufnahme](testing/workspace-request-preview-read-recovery-2026-11-07.md)
+behebt den separaten Rename-/Delete-Pfad: Nur die feste Vorschaufrage beginnt nach
+bestätigtem Rollback, Close und Factory-Abschluss eine frische Original-Anmeldung.
+Benutzer, Session, Impersonation, Stamm und ursprünglicher Datenbank-Realm bleiben
+gebunden. Es gibt höchstens drei Beobachtungen; Apply und Importvorbereitung
+werden nie wiederholt. Dauerhafte Sperren, entzogene Rechte, geänderte Ursprünge
+und unbestätigte Abschlüsse bleiben abgewiesen.
+
+13 echte PostgreSQL-Gruppen und neun tatsächliche Web-Handler-/Worker-Gruppen
+bestehen. Rename und Delete überwinden darin je eine kontrollierte echte Sperre,
+ohne ursprüngliche Preview-/Operations-ID oder native Identitäten zu ersetzen.
+Bestehende Busy-/Cleanup-Regressionen bestehen; beide zusätzlichen nativen Gates
+sind in CI aufgenommen. Die gemeinsame kompilierte Abnahme mit dem Raumfreigabe-
+Fix, `test:all`, neue CI, PR-Integration und Release bleiben offen. Review Center
+und Undo bleiben außerhalb des Umfangs.
+
+### Gemeinsame Owner-Warteschlange vor Workspace-Wartern schützen (2026-11-07)
+
+Die vollständige Abnahme von `25ab3713b` beendet das reguläre Browserprofil mit
+335 bestanden, 102 bestehenden bedingten Skips, null Fehlern und null flaky Fällen.
+Alle drei zuvor fehlgeschlagenen Migrations-/Rename-Fälle bestehen. Das verpflichtende
+Kollaborationsprofil endet mit 45 bestanden und einem Fehler, ohne Skips oder flaky
+Fälle: Der Mobile-Speicheraufruf des Deep-Link-Lebenszyklustests überschreitet sein
+15-Sekunden-Antwortbudget. Die unveränderte ursprüngliche Umgebung und ihre
+geschützten Daten sind nachweislich wiederhergestellt. Die 15 PR-Checks bestehen;
+die tatsächlichen installierten SDK-/HTTP-/PostgreSQL-Artefakte sind geprüft.
+Diese Ergebnisse ergeben noch keine grüne Gesamtabnahme.
+
+Der gespeicherte Mobile-Operationsbeleg entsteht erst rund 30 Sekunden nach
+Beginn des zweiten Aufrufs. Die beabsichtigten Ersatzbytes liegen im nativen Yjs-
+Zustand vor; der Diagnosepfad wiederholt keinen Schreibaufruf. Der neue
+[PostgreSQL-/Kernel-Sperrtest](testing/room-owner-lock-order-2026-11-07.md)
+reproduziert eine umgekehrte Sperrreihenfolge: Die gemeinsame Owner-SQL-Warteschlange
+wartet auf den Workspace, dessen Besitzer seinerseits einen Owner-Befehl benötigt.
+
+Die lokale Korrektur übernimmt die Workspace-Sperre vor dem Einreihen des SQL-
+Befehls. Wartende Übernahmen zählen weiterhin zur gemeinsamen Grenze von 256;
+die bestehende Grenze von 64 Workspace-Wartern bleibt erhalten. Beide neuen
+echten PostgreSQL-Gruppen bestehen, ebenso der vorhandene Mobile-Receipt-Test und
+alle neun echten WebSocket-/PostgreSQL-Gruppen. Geschützte native Daten samt
+`xmin`, Dateibytes und Ressourcenbereinigung sind geprüft. Es gibt keine neue
+Schreibwiederholung, Timeout-Erhöhung oder Änderung von Owner-/Berechtigungsregeln.
+
+Eine separat ausgeführte alte Startup-Unit-Fixture hat veraltete native Auth- und
+Diagnose-Importe. Ihre Assertions bleiben erhalten; ihr Aggregate wird nicht als
+grün ausgewiesen. Die tatsächliche native Startup-Abnahme ist der bestehende
+RawSocket-/PostgreSQL-Test. Neue Builds, der kompilierte Deep-Link-Fall, die ganze
+aktuelle Gesamtsuite und abschließende PR-/Release-Abnahme bleiben offen.
+Review Center und Dateioperation-Undo werden nicht ausgebaut.

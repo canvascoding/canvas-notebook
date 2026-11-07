@@ -23,7 +23,7 @@ import { assertNativeDocumentEditPrecondition } from '@/app/lib/collaboration/na
 import { isNativeDocumentEditWriteAuthority, withNativeDocumentEditWriteAuthorityOnConnection } from '@/app/lib/documents/edit-principal';
 import { DocumentEditError } from '@/app/lib/documents/edit-contracts';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
-import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
+import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined, NATIVE_PEER_ADMISSION_BUSY_REASON } from '@/app/lib/collaboration/failure';
 import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
@@ -874,7 +874,18 @@ export function createCollaborationServer(server: http.Server, options: {
       request.signal.throwIfAborted();
       let releaseRoomAdmission: (() => void) | null = null;
       const releaseAdmission = () => { releaseRoomAdmission?.(); };
-      const activity = roomOwners?.admitActivity(documentName);
+      let activity: ReturnType<NonNullable<typeof roomOwners>['admitActivity']> | undefined;
+      try { activity = roomOwners?.admitActivity(documentName); }
+      catch (error) {
+        // A normal unload can close this synchronous gate between disconnect
+        // and reconnect. No SQL admission or ownership claim has started yet.
+        // Preserve the existing bounded, freshly authorized client rejoin;
+        // this temporary gate must not revoke the user's document access.
+        if (native && error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY') {
+          throw Object.assign(new Error('Native collaboration admission is busy.'), { reason: NATIVE_PEER_ADMISSION_BUSY_REASON });
+        }
+        throw error;
+      }
       const startupActivity = activity && createCollaborationRoomStartupActivity({
         activity,
         onFinished() {

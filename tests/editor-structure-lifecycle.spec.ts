@@ -144,9 +144,27 @@ test.describe('Block and document identity through browser lifecycles', () => {
       expect((await page.request.post('/api/files/create', { headers, data: { path: oldFolder, type: 'directory' } })).ok()).toBe(true);
       await createCompletedWorkspaceMarkdownFile({ request: page.request, workspaceId: headers['x-canvas-workspace-id'], filePath: `${oldFolder}/b.md` });
       const replacement = (await (await page.request.get('/api/mobile/v1/notebook/document', { headers, params: { path: `${oldFolder}/b.md` } })).json()).document;
-      expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
-        path: `${oldFolder}/b.md`, content: 'Replacement at the old path.', expectedSha256: replacement.sha256, baseRevisionId: replacement.revisionId,
-      } })).ok()).toBe(true);
+      const replacementSave = Object.freeze({ path: `${oldFolder}/b.md`, content: 'Replacement at the old path.',
+        expectedSha256: replacement.sha256, baseRevisionId: replacement.revisionId, idempotencyKey: randomUUID() });
+      let appliedOperation: string | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const response = await page.request.put('/api/mobile/v1/notebook/document', { headers, data: replacementSave });
+        const result = await response.json();
+        if (response.ok()) {
+          expect(response.status()).toBe(200); expect(result.success).toBe(true);
+          expect(result.document.saveReceipt).toMatchObject({ applied: true, durable: true, operationId: expect.any(String) });
+          appliedOperation = result.document.saveReceipt.operationId;
+          break;
+        }
+        // Recover only the named admission denial with this exact original
+        // version, body and key. Unknown HTTP/transport failures stay failures.
+        expect(response.status(), `Mobile save (${String(result.code ?? 'unknown')})`).toBe(503);
+        expect(result).toMatchObject({ success: false, code: 'COLLABORATION_BUSY' });
+        expect(attempt, 'Mobile admission must settle within the fixed recovery budget.').toBeLessThan(2);
+        info.annotations.push({ type: 'mobile-admission-same-request', description: `Explicit original-operation recovery ${attempt + 1}/2` });
+        await wait(250);
+      }
+      expect(appliedOperation).toEqual(expect.any(String));
       const replaced = await readNativeFile(`${oldFolder}/b.md`);
       expect(replaced.collaboration.document.id).not.toBe(documentId);
       expect(replaced.content).toBe('Replacement at the old path.');
