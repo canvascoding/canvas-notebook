@@ -64,7 +64,8 @@ import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { requestWorkspaceFileLinkTarget } from '@/app/lib/files/file-link-request';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
 import { CollaborationDocumentLocationRequestError } from '@/app/lib/collaboration/document-location-retry';
-import { findOpenedLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { findConnectedOpenedDocument, findOpenedLiveDocument, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { clearOpenedCollaborationTabs, updateOpenedCollaborationTabs } from '@/app/lib/collaboration/client';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
 import { notebookUrlAfterDocumentMove } from '@/app/lib/notebook/document-location-url';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
@@ -630,6 +631,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const currentDirectoryLabel =
     currentDirectory === '.' ? tNotebook('workspaceRoot') : `/${currentDirectory}`;
 
+  const syncDocumentTabOwnership = useCallback((workspaceId: string, tabs: NotebookDocumentTabsState) => {
+    let enabled = true;
+    try { enabled = window.localStorage.getItem('canvas:live-document-tabs') !== 'off'; } catch {}
+    const connection = (navigator as Navigator & { connection?: EventTarget & { saveData?: boolean } }).connection;
+    updateOpenedCollaborationTabs({ workspaceId, activePath: tabs.activePath, paths: tabs.openPaths, documentIds: tabs.documentIds,
+      constrained: layout.viewportWidth < 768 || connection?.saveData === true, enabled });
+  }, [layout.viewportWidth]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (activeWorkspaceId && documentTabsHydratedFor === activeWorkspaceId) syncDocumentTabOwnership(activeWorkspaceId, documentTabsRef.current);
+    };
+    refresh();
+    const storage = (event: StorageEvent) => { if (event.key === null || event.key === 'canvas:live-document-tabs') refresh(); };
+    window.addEventListener('storage', storage);
+    const connection = (navigator as Navigator & { connection?: EventTarget }).connection;
+    connection?.addEventListener('change', refresh);
+    return () => { window.removeEventListener('storage', storage); connection?.removeEventListener('change', refresh); };
+  }, [activeWorkspaceId, documentTabsHydratedFor, syncDocumentTabOwnership]);
+  useEffect(() => () => clearOpenedCollaborationTabs(), []);
+
   const replaceDocumentTabs = useCallback((
     workspaceId: string,
     nextState: NotebookDocumentTabsState,
@@ -637,6 +659,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (documentTabsWorkspaceIdRef.current !== workspaceId) return;
     const movedLocation = notebookUrlAfterDocumentMove(window.location.href, workspaceId, documentTabsRef.current, nextState);
     documentTabsRef.current = nextState;
+    syncDocumentTabOwnership(workspaceId, nextState);
     tabLocationWatcherRef.current?.track();
     setDocumentTabs(nextState);
     if (movedLocation) {
@@ -655,7 +678,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     } catch {
       // Local UI persistence is non-critical.
     }
-  }, []);
+  }, [syncDocumentTabOwnership]);
 
   const cancelPendingDocumentOpen = useCallback(() => {
     documentOpenGenerationRef.current++;
@@ -718,11 +741,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
     documentTabsWorkspaceIdRef.current = workspaceId;
     documentTabsRef.current = nextState;
+    syncDocumentTabOwnership(workspaceId, nextState);
     tabLocationWatcherRef.current?.track();
     setDocumentTabs(nextState);
     setDocumentTabsHydratedFor(workspaceId);
     return nextState;
-  }, [cancelPendingDocumentOpen]);
+  }, [cancelPendingDocumentOpen, syncDocumentTabOwnership]);
 
   useEffect(() => registerNotebookDocumentOpenGuard(({ path, workspaceId }) => {
     const currentWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
@@ -801,7 +825,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         }
       }
       if (workspaceId && expectedDocumentId && !options.documentId && !options.lineageId && !(before.currentFileWorkspaceId === workspaceId
-        && before.currentFile?.path === normalizedPath && before.currentFile.collaboration?.document?.id === expectedDocumentId)) {
+        && before.currentFile?.path === normalizedPath && before.currentFile.collaboration?.document?.id === expectedDocumentId)
+        && !findConnectedOpenedDocument(workspaceId, normalizedPath, expectedDocumentId)) {
         const controller = new AbortController();
         documentOpenControllerRef.current = controller;
         const authScope = openedDocumentAuthScope();

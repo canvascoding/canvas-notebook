@@ -3220,15 +3220,37 @@ sind in diesen Zahlen nicht enthalten.
 
 #### Erweiterter Plan: begrenzt live verbundene Tabs, 05.11.2026
 
-**Status: Ressourcenpolicy umgesetzt; Provider-/Tab-Integration und Abnahme offen.**
+**Status am 07.11.2026: Ressourcenpolicy und Provider-/Tab-Integration lokal
+umgesetzt; Browser-, Ressourcen- und Gesamtabnahme offen.**
 `open-document-retention.ts` entscheidet rein über vorhandene Lebensdauern und
 erteilt weder Rechte noch neue Verbindungen. Sechs gezielte Gruppen prüfen die
 globalen Desktop-/Mobilgrenzen, LRU, Bytebudgets, Zeitgrenzen und falsche
-Anmeldekontexte. Es gibt noch keinen Aufrufer in der Provider-Verwaltung; daraus
-folgt noch keine Änderung des Produktionsverhaltens. Die bestehende bestätigte
-Persistenz-/Recovery-Sicherung muss vor jeder tatsächlichen Freigabe bestehen
-bleiben. Der Test ist über `test:collaboration:retention-policy` und die Native-
-API-/SDK-CI registriert. Browser-, Ressourcen- und Gesamtabnahme stehen noch aus.
+Anmeldekontexte. Dashboard, Datei-Leser und bestehende Provider-Verwaltung sind
+jetzt verbunden: Bereits verbundene Tabs können dieselbe bestätigte HTTP-/Yjs-
+Lebensdauer verwenden; warme und unterbrochene Verbindungen benötigen weiterhin
+frische HTTP-Autorisierung. Eine vollständig ausgeblendete App pausiert nach zwei
+Minuten auch den aktiven Transport, erhält Yjs und lokale Änderungen und prüft
+beim Fortsetzen die Rechte erneut. Die bestehende bestätigte Persistenz-/Recovery-
+Sicherung bleibt vor jeder tatsächlichen Freigabe bestehen.
+
+Die neue mechanische Prüfung `test:collaboration:live-tabs` besteht mit echten
+React-/Yjs-Lebensdauern und Provider-/IndexedDB-Doubles: A→B→A ohne neuen Session-
+Abruf, Peer-Updates, globale Mobilgrenze über Workspace-Wechsel, warmer und Busy-
+Rejoin, Inaktivität, ausgeblendete App mit lokalen Änderungen und Rechte-Downgrade,
+Logout, eine verspätete Tokenantwort aus dem vor der Pause abgebrochenen Request-
+Kontext, Read-only-Verbindungszustand, explizites Schließen sowie Rückfall auf das
+bisherige Verhalten. Fehlender lokaler Speicher und Quotenfehler erhalten die
+letzte unbestätigte RAM-Kopie; erst nach einem bestätigten Backup wird freigegeben.
+Native-Peer-, Rename-/Revalidation- und Durability-Clientregressionen bestehen
+ebenfalls. Die Quotenfälle belegen noch keine sichtbare Erklärung im echten Browser.
+Quell- und Logbindungen stehen in
+`docs/testing/live-document-tab-lifetimes-2026-11-07.json`.
+
+Beide neuen Prüfungen sind in der Native-API-/SDK-CI und als unabhängige Schritte
+von `test:all` registriert. Die Integration ist noch nicht veröffentlicht. Der
+erste Host-Produktionsbuild besteht; nach der abschließenden Absicherung alter
+Request-Kontexte muss der aktuelle Quellstand erneut gebaut werden. Ein aktueller Container, echte Browserprüfungen,
+10-/200-Dokumente-Messungen und vollständiges `test:all` stehen noch aus.
 
 Diese Benutzeranforderung ersetzt
 das bisherige Ziel, jeden inaktiven Transport sofort abzubauen. Der aktuelle

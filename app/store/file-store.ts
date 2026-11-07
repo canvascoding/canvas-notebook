@@ -3,7 +3,7 @@ import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { reserveWorkspacePathOperationAttempt, abandonWorkspacePathOperationAttempt } from '@/app/lib/files/workspace-path-operation-attempts';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
-import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
+import { findConnectedOpenedDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
   isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import type { OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import type { CollaborationDocumentLocation } from '@/app/lib/collaboration/document-location';
@@ -826,7 +826,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       let data: CurrentFile;
       try {
-        data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId, collaborationBootstrap: isText });
+        const connected = !noCache && isText && workspaceId
+          ? findConnectedOpenedDocument(workspaceId, path, expectedDocumentId, authScope) : null;
+        data = connected?.file ?? await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId, collaborationBootstrap: isText });
       } catch (error) {
         const local = isText && workspaceId && error instanceof LiveDocumentNetworkError
           ? findOpenedLiveDocument(workspaceId, path, expectedDocumentId, authScope) : null;
