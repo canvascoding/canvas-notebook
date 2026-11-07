@@ -69,6 +69,28 @@ wiederhergestellt. [Messgrenzen und Vergleichswerte](testing/native-principal-re
 halten die weiterhin erhebliche übrige Hintergrundlast ausdrücklich offen.
 Dieser Stand ist noch nicht veröffentlicht.
 
+Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
+Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten
+Sitzung inaktiv ist. Der exakte Text ist vor Aktivierung in dessen tatsächlichem
+Yjs-Dokument vorhanden und über den nativen HTTP-Leser bestätigt; der anschließende
+Wechsel dauert 88 ms bei identischem Yjs-/Provider-Objekt und ohne neue Datei-,
+Session- oder Socket-Anforderung. Der eigene Testtext wird bestätigt entfernt.
+Ein zusätzlicher Fall mit zwei verschiedenen Fixture-Benutzern besteht und ist
+wortgleich in der bestehenden regulären Kollaborationssuite registriert. Er
+verwendet echte Anmeldung, UI, HTTP und Sockets sowie die gemeinsame sichere
+Fixture-Bereinigung. Review-/Undo-Spezialfälle bleiben ausgeschlossen.
+
+Der Zwei-Benutzer-Fall läuft auf einem frischen markierten Linux-Datenvolume;
+der ältere Team-Testbestand mit nicht mehr passenden Speicherankern bleibt
+unverändert. Nach dem bestandenen UI-Fall schlug die Node-Gesundheitsbeobachtung
+beim Verbindungsaufbau fehl. Nur die lesende Nachprüfung wurde wiederholt: Derselbe
+neue Bestand startet erneut mit gültigen Ankern und gesunder Team-Kollaboration.
+Die geschützten Originaldaten, der ursprüngliche Container und die anderen
+Dienste sind erhalten. [Peer-Belege und Prüfgrenzen](testing/live-tabs-peer-2026-11-07.json)
+trennen den bestandenen UI-Fall, die fehlgeschlagene Beobachtung und ihre
+erfolgreiche Nachprüfung. Die übrigen Lebensdauer-/Recovery-/Ressourcenfälle,
+abschließende Gesamtsuite und Veröffentlichung bleiben offen.
+
 Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
 `release71-native-ci-current-audit.json`, `release71-publication-audit.json`
 und `release71-production-acceptance.json`.

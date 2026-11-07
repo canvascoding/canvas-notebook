@@ -740,6 +740,129 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
+  test('retains inactive live tabs while another fixture user edits their exact Yjs document', async ({ browser }, info) => {
+    info.annotations.push({ type: 'scope', description: 'Two actual fixture users; real UI, HTTP and sockets; same Y.Doc/provider through an inactive-tab peer update.' });
+    const suffix = randomUUID(), paths = [`live-tab-a-${suffix}.md`, `live-tab-b-${suffix}.md`];
+    const text = ['First retained paragraph.', 'Second retained paragraph.'], marker = ` Peer ${suffix}`;
+    const ownerContext = await fixtureContext(browser), peerContext = await fixtureContext(browser, true);
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await ownerContext.storageState(), timeout: 15_000 });
+    const owner = await ownerContext.newPage(), peer = await peerContext.newPage();
+    const ownerErrors = logBrowserDiagnostics(owner, 'retained-tab-owner'), peerErrors = logBrowserDiagnostics(peer, 'retained-tab-peer');
+    let workspaceId: string | null = null, failure: unknown;
+    const observe = (filePath: string, documentId: string) => owner.getByRole('tabpanel', { name: filePath, exact: true })
+      .locator('.ProseMirror').evaluate((element, id) => {
+        type Doc = { share: Map<string, { toJSON(): unknown }> };
+        type Live = { doc: Doc; provider: { isSynced: boolean }; ready: boolean; connection: string; session: { documentId: string } };
+        type Fiber = { memoizedProps?: Record<string, unknown>; return?: Fiber };
+        const el = element as HTMLElement & { editor?: { extensionManager: { extensions: Array<{ name: string; options: { document?: Doc } }> };
+          storage: { canvasBlockTreeCollaboration?: { binding?: { options: { document?: Doc } } } } } };
+        const editor = el.editor;
+        const doc = editor?.extensionManager.extensions.find(value => value.name === 'collaboration')?.options.document
+          ?? editor?.storage.canvasBlockTreeCollaboration?.binding?.options.document;
+        if (!doc) return null;
+        let live: Live | undefined;
+        for (let node: HTMLElement | null = el; node && !live; node = node.parentElement) {
+          const key = Object.keys(node).find(name => name.startsWith('__reactFiber$'));
+          let fiber = key ? Reflect.get(node, key) as Fiber : undefined;
+          for (let depth = 0; fiber && depth < 60; depth++, fiber = fiber.return) {
+            const props = fiber.memoizedProps;
+            const value = (props?.collaborationDocument ?? props?.collaboration
+              ?? (props?.externalCollaboration as { document?: unknown } | undefined)?.document) as Live | undefined;
+            if (value?.doc === doc && value.session.documentId === id) { live = value; break; }
+          }
+        }
+        if (!live?.provider.isSynced || !live.ready || live.connection !== 'live') return null;
+        const target = window as typeof window & { __canvasRetainedTabE2E?: Map<string, { doc: Doc; provider: object }> };
+        const refs = target.__canvasRetainedTabE2E ??= new Map();
+        const previous = refs.get(id); if (!previous) refs.set(id, { doc, provider: live.provider });
+        return { sameDoc: !previous || previous.doc === doc, sameProvider: !previous || previous.provider === live.provider };
+      }, documentId);
+    try {
+      const ownerId = await login(owner, ADMIN_EMAIL, ADMIN_PASSWORD);
+      expect(await login(peer, SECONDARY_EMAIL, SECONDARY_PASSWORD)).not.toBe(ownerId);
+      workspaceId = await organizationWorkspace(owner.request);
+      expect(await organizationWorkspace(peer.request)).toBe(workspaceId);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(ownerContext, workspaceId); await useWorkspace(peerContext, workspaceId);
+      const documentIds: Record<string, string> = {};
+      for (let index = 0; index < paths.length; index++) {
+        const uploaded = await owner.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`# Retained ${index}\n\n${text[index]}\n`),
+        } } });
+        expect(uploaded.ok(), await uploaded.text()).toBe(true);
+        const response = await owner.request.get(`/api/files/read?path=${encodeURIComponent(paths[index])}`, { headers });
+        expect(response.ok(), await response.text()).toBe(true);
+        const payload = await response.json() as { data: { nativeSource: { documentId: string } } };
+        documentIds[paths[index]] = payload.data.nativeSource.documentId;
+      }
+      await ownerContext.addInitScript(({ workspace, paths, documentIds }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds }));
+      }, { workspace: workspaceId, paths, documentIds });
+      await openCollaborativeMarkdown(owner, paths[0]);
+      await expect.poll(() => observe(paths[0], documentIds[paths[0]]), { timeout: 30_000 })
+        .toEqual({ sameDoc: true, sameProvider: true });
+      await owner.getByRole('tab', { name: paths[1], exact: true }).click(); await enterMarkdownEditMode(owner);
+      await expect.poll(() => observe(paths[1], documentIds[paths[1]]), { timeout: 30_000 })
+        .toEqual({ sameDoc: true, sameProvider: true });
+      await owner.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(owner.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+      await openCollaborativeMarkdown(peer, paths[1]);
+      const peerEditor = peer.locator('.tiptap-editor-shell .ProseMirror');
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toContain(text[1]);
+      const caret = await peerEditor.evaluate((element, value) => {
+        (element as HTMLElement).focus();
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), matches: Node[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent === value) matches.push(node);
+        if (matches.length !== 1) return false;
+        const node = matches[0], range = document.createRange(); range.setStart(node, value.length); range.collapse(true);
+        const selection = window.getSelection(); if (!selection) return false;
+        selection.removeAllRanges(); selection.addRange(range);
+        return document.activeElement === element && selection.anchorNode === node && selection.anchorOffset === value.length;
+      }, text[1]);
+      expect(caret, 'The actual peer caret must be at the end of the fixture paragraph.').toBe(true);
+      await peer.keyboard.insertText(marker);
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toContain(text[1] + marker);
+      await expect.poll(() => owner.evaluate(({ id, marker }) => {
+        const target = window as typeof window & { __canvasRetainedTabE2E?: Map<string, { doc: { share: Map<string, { toJSON(): unknown }> } }> };
+        const doc = target.__canvasRetainedTabE2E?.get(id)?.doc;
+        return Boolean(doc && JSON.stringify([...doc.share].map(([name, value]) => [name, value.toJSON()])).includes(marker));
+      }, { id: documentIds[paths[1]], marker }), { timeout: 15_000 }).toBe(true);
+      await expect(owner.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(async () => {
+        const response = await peer.request.get(`/api/files/read?path=${encodeURIComponent(paths[1])}`, { headers });
+        const payload = await response.json() as { code?: string; data?: { content?: string; nativeSource?: { documentId: string } } };
+        if (response.status() === 503 && payload.code === 'ROOM_OWNER_BUSY') return '';
+        expect(response.ok(), JSON.stringify(payload)).toBe(true);
+        expect(payload.data?.nativeSource?.documentId).toBe(documentIds[paths[1]]);
+        return payload.data?.content ?? '';
+      }, { timeout: 20_000 }).toContain(text[1] + marker);
+      const reloads: string[] = []; let switching = true, newSockets = 0;
+      owner.on('request', value => {
+        if (!switching) return;
+        const url = new URL(value.url());
+        if (url.pathname === '/api/files/read' && url.searchParams.get('path') === paths[1]) reloads.push('file-read');
+        if (url.pathname === '/api/files/collaboration/session' && value.postDataJSON()?.path === paths[1]) reloads.push('session');
+      });
+      owner.on('websocket', value => { if (switching && new URL(value.url()).pathname.includes('/collaboration')) newSockets++; });
+      try {
+        await owner.getByRole('tab', { name: paths[1], exact: true }).click();
+        const editor = owner.getByRole('tabpanel', { name: paths[1], exact: true }).locator('.ProseMirror');
+        await expect.poll(() => collaborativeEditorText(editor)).toContain(text[1] + marker);
+        await expect.poll(() => editor.evaluate(element => (element as HTMLElement & {
+          editor: { state: { doc: { textContent: string } } } }).editor.state.doc.textContent)).toContain(text[1] + marker);
+        expect(await observe(paths[1], documentIds[paths[1]])).toEqual({ sameDoc: true, sameProvider: true });
+      } finally { switching = false; }
+      expect(reloads, 'A retained live tab must show the peer update without file/session reload.').toEqual([]);
+      expect(newSockets).toBe(0); expect([...ownerErrors, ...peerErrors]).toEqual([]);
+    } catch (error) { failure = error; throw error; }
+    finally {
+      await finishFixture(cleanupApi, [() => peerContext.close(), () => ownerContext.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
+    }
+  });
+
   test('two fixture users coauthor while real agent tools create, accept and reject exact legacy reviews', { tag: '@experimental-review' }, async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
