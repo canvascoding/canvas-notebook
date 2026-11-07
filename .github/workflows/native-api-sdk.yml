@@ -66,6 +66,10 @@ jobs:
           npm run verify:fd-publication
       - name: Test fixture configuration contract
         run: npm run test:api-keys:ci-config
+      - name: Opened document resource policy
+        run: |
+          set -euo pipefail
+          npm run test:collaboration:retention-policy 2>&1 | tee "$RUNNER_TEMP/document-retention-policy.log"
       - name: Allocate owned PostgreSQL 18 fixture database
         run: npm run test:api-keys:ci-database -- create
       - name: Source observation and projection process coordination
@@ -157,6 +161,7 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/source-projection-lock.log
+            ${{ runner.temp }}/document-retention-policy.log
             ${{ runner.temp }}/drain-poll-native.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log

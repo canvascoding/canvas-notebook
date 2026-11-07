@@ -3220,7 +3220,17 @@ sind in diesen Zahlen nicht enthalten.
 
 #### Erweiterter Plan: begrenzt live verbundene Tabs, 05.11.2026
 
-**Status: geplant, noch nicht implementiert.** Diese Benutzeranforderung ersetzt
+**Status: Ressourcenpolicy umgesetzt; Provider-/Tab-Integration und Abnahme offen.**
+`open-document-retention.ts` entscheidet rein über vorhandene Lebensdauern und
+erteilt weder Rechte noch neue Verbindungen. Sechs gezielte Gruppen prüfen die
+globalen Desktop-/Mobilgrenzen, LRU, Bytebudgets, Zeitgrenzen und falsche
+Anmeldekontexte. Es gibt noch keinen Aufrufer in der Provider-Verwaltung; daraus
+folgt noch keine Änderung des Produktionsverhaltens. Die bestehende bestätigte
+Persistenz-/Recovery-Sicherung muss vor jeder tatsächlichen Freigabe bestehen
+bleiben. Der Test ist über `test:collaboration:retention-policy` und die Native-
+API-/SDK-CI registriert. Browser-, Ressourcen- und Gesamtabnahme stehen noch aus.
+
+Diese Benutzeranforderung ersetzt
 das bisherige Ziel, jeden inaktiven Transport sofort abzubauen. Der aktuelle
 Client hält höchstens drei geeignete inaktive Yjs-Dokumente für 15 Sekunden und
 höchstens ein MiB je Dokument im RAM; `parkTextEntry` zerstört dabei sofort den
