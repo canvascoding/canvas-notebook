@@ -84,6 +84,22 @@ nativen Zustand und bestehen zusammen mit allen sieben API-Key-Owner-Gruppen.
 Der vollständige MCP-Owner-Lauf besteht alle 43 Gruppen; seine eigenen Schemas,
 Verbindungen und Testdaten sind entfernt. Die kompilierte 200er-Abnahme steht
 für diesen neuesten Kandidaten aus.
+
+Der anschließende Host- und Linux-Build aus `71bb05fed` bestehen. Im echten
+201-Dokumente-Lauf bestehen nun beide Admission-Phasen mit 2.969/3.021 ms;
+die Zielprüfung ist vollständig. Der nächste Schritt ist dennoch nicht abgenommen:
+Die abschließende atomare Delete-B2-Transaktion überschreitet nach 5.440 ms ihre
+unveränderte Grenze (`SQLSTATE_25P04`). Der Auftrag bleibt `needs_recovery` mit
+einem Original-Intent, null Delete-/Trash-Belegen und 201 gehaltenen Admission-
+Zielen. Die physische Verschiebung wurde vor B2 erreicht; ihre Trash-Bytes müssen
+vor der expliziten Recovery zusätzlich geprüft werden. Kein erneutes Delete oder
+neuer Auftrag wird hierfür gesendet. Die ursprüngliche echte Browsersitzung ist
+privat erhalten. Rein lesend stimmen alle 201 nativen Binärhashes, Vektoren,
+Registry-Zustände und Identitäten mit dem Originalplan überein; dies behauptet
+keinen vorliegenden xmin-Vergleich dieser 201 Zeilen. Originalruntime samt ihren
+vier geschützten Zeilen/xmin/Bytes/Ankern und andere Container sind wiederhergestellt.
+Der vollständige Lösch-/Recovery-/Bildlauf bleibt offen; reine Plan-Dekodierung
+von rund 14 ms pro Aufruf erklärt den B2-Abbruch allein nicht.
 [Phasen- und Vorher-/Nachher-Beleg](testing/native-path-admission-phases-2026-11-07.json).
 
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
