@@ -71,6 +71,7 @@ jobs:
           set -euo pipefail
           npm run test:collaboration:retention-policy 2>&1 | tee "$RUNNER_TEMP/document-retention-policy.log"
           npm run test:collaboration:live-tabs 2>&1 | tee "$RUNNER_TEMP/document-live-tabs.log"
+          npm run test:notebook:reveal 2>&1 | tee "$RUNNER_TEMP/document-tab-open.log"
       - name: Allocate owned PostgreSQL 18 fixture database
         run: npm run test:api-keys:ci-database -- create
       - name: Source observation and projection process coordination
@@ -164,6 +165,7 @@ jobs:
             ${{ runner.temp }}/source-projection-lock.log
             ${{ runner.temp }}/document-retention-policy.log
             ${{ runner.temp }}/document-live-tabs.log
+            ${{ runner.temp }}/document-tab-open.log
             ${{ runner.temp }}/drain-poll-native.log
             ${{ runner.temp }}/api-contracts.log
             ${{ runner.temp }}/preview-busy-*.log

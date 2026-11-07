@@ -881,6 +881,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         workspaceId,
         expectedDocumentId,
         expectedLineageId,
+        preferConnectedDocument: true,
         explorerBehavior: options.explorerBehavior,
         isCurrent: canOpen,
       });

@@ -18,6 +18,7 @@ export const independentTestScripts = [
   'test:api-keys:compiled:harness:journal', 'test:prompt-builder', 'test:collaboration:regular:contracts',
   'test:notebook:tabs', 'test:notebook:location-lifecycle', 'test:notebook:delete-events',
   'test:collaboration:retention-policy', 'test:collaboration:live-tabs',
+  'test:notebook:reveal',
 ];
 export const serverTestScripts = ['test:smoke', 'test:integration', 'test:integration:pi'];
 export const testAllPhaseIds = ['configuration', ...independentTestScripts, 'build', 'server-start',

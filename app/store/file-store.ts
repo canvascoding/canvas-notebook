@@ -1179,11 +1179,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       get().currentFileWorkspaceId === workspaceId &&
       matchesWorkspaceFileLinkIdentity(get().currentFile, options)
     );
+    const reuseConnected = options.preferConnectedDocument === true && !options.forceReload
+      && workspaceId !== null && !options.expectedLineageId && documentCapabilities(normalizedPath).text
+      && Boolean(findConnectedOpenedDocument(workspaceId, normalizedPath, options.expectedDocumentId));
     const loadPromise: Promise<FileLoadResult> = alreadyOpen
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
       : get().loadFile(
           normalizedPath,
-          true,
+          !reuseConnected,
           workspaceId,
           options.expectedDocumentId,
           isLatestOpen,

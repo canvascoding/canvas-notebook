@@ -3248,8 +3248,21 @@ Quell- und Logbindungen stehen in
 
 Beide neuen Prüfungen sind in der Native-API-/SDK-CI und als unabhängige Schritte
 von `test:all` registriert. Die Integration ist noch nicht veröffentlicht. Der
-erste Host-Produktionsbuild besteht; nach der abschließenden Absicherung alter
-Request-Kontexte muss der aktuelle Quellstand erneut gebaut werden. Ein aktueller Container, echte Browserprüfungen,
+Host- und Linux-Build am Stand `b87af29ed` bestehen. Die erste echte Desktop-
+Browserprüfung an zehn Quellen zeigt beim warmen Wechsel null Session-Abrufe, aber
+noch einen Datei-Read: `revealAndLoadFile` erzwingt bislang stets `noCache=true`.
+Der Aufrufer erlaubt nun ausdrücklich nur im Notebook die Wiederverwendung eines
+aktuell autorisierten, verbundenen Textdokuments. Ist ein Laden erforderlich,
+behalten Standardöffnungen, explizites Neuladen, Lineage-gebundene sowie warme/offline
+oder widerrufene Lebensdauern den frischen Read. Die Store-Regression reproduziert den Fehler vor dem
+Fix und besteht danach; alle bestehenden Reveal-/Chat-Link-Prüfungen bestehen.
+Sie sind zusätzlich in `test:all` und der Native-CI registriert. Nach dem fehlgeschlagenen
+Browsertest sind Originalcontainer, geschützte Zeilen/xmin/Dateien und Speicheranker
+unverändert wiederhergestellt. Quellen und Belege:
+`docs/testing/live-document-tab-open-facade-2026-11-07.json`.
+
+Der korrigierte Aufrufer benötigt noch seinen aktuellen Build und die erneute
+Browserprüfung. Echte Browserprüfungen,
 10-/200-Dokumente-Messungen und vollständiges `test:all` stehen noch aus.
 
 Diese Benutzeranforderung ersetzt
