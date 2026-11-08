@@ -117,5 +117,15 @@
   ],
   "nativePhaseBoundaryPassed": true,
   "scopedTypesPassed": true,
-  "scopedLintPassed": true
+  "scopedLintPassed": true,
+  "compiledAfter": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794095032704-result.json",
+    "sha256": "9c2d75ea58268e7d60bb89d712b80017df4605b938036b927a10443df3e02f1c",
+    "sourceSha": "605a586d2c8458c975a586b33827b96145749cfc",
+    "hostAndLinuxBuildPassed": true,
+    "functionalRecoveryPassed": false,
+    "domainReachedFinalResultValidation": true,
+    "atomicTransactionStillExceedsFiveSeconds": true,
+    "originalRuntimeAndProtectedDataRestored": true
+  }
 }

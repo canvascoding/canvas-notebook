@@ -1,0 +1,187 @@
+{
+  "scope": "Bounded historical E5 validation reuse only during one fully awaited Original Delete B2; no current-byte/SQL/permission cache",
+  "parentSourceSha": "605a586d2c8458c975a586b33827b96145749cfc",
+  "sourceHashes": {
+    "app/lib/files/workspace-operation-job-lifecycle-owner.ts": "a8dc6313e2464d38c9db9fbd1922c074087b3c7def91bcd141d2a7285c3c2309",
+    "app/lib/files/workspace-operation-mixed-source-evidence-v5.ts": "921a802914f86bbadfdcd6f4a4e34bfb8eec7409f724c2a980ac643d60c48f74",
+    "scripts/workspace-operation-evidence-reuse-test.ts": "a97bea8522d9fa3261ded6b60216aa3a039ca73cbd5b5f16d9c6b47cb9a79b77"
+  },
+  "compiledBefore": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794095032704-result.json",
+    "sha256": "9c2d75ea58268e7d60bb89d712b80017df4605b938036b927a10443df3e02f1c",
+    "sourceSha": "605a586d2c8458c975a586b33827b96145749cfc",
+    "hostBuildPassed": true,
+    "linuxImagePassed": true,
+    "nativeDocuments": 201,
+    "functionalRecoveryPassed": false,
+    "lastDomainStage": "before-result-validation",
+    "domainElapsedMs": 3598,
+    "transactionElapsedMs": 5035,
+    "rootCode": "SQLSTATE_25P04",
+    "commitAttempted": false,
+    "status": "needs_recovery",
+    "physicalPayloadBeforeMatchesOriginalHashInodeAndSize": true,
+    "originalRuntimeProtectedRowsXminBytesAnchorsAndOtherContainersRestored": true,
+    "explicitOriginalResumeOnly": true,
+    "newDeleteRequest": false
+  },
+  "pureRegression": {
+    "file": "evidence-reuse-unit-20261108.log",
+    "sha256": "eda5d3b9d4a5328700636d80fefd159d37428504bf0d7f626ff12094ccda09db",
+    "passed": true,
+    "representations": 3,
+    "transparentRealHashCounting": true,
+    "pureFixtureNotSqlFsAuthority": true,
+    "checks": [
+      "fresh strict capture and detached frozen results",
+      "equal cloned facts eliminate repeated hash work only inside the active frame",
+      "changed evidence and current Yjs bytes reject",
+      "hostile getters/proxies are never invoked",
+      "foreign stringify getters retain cold behavior and exact lookup count",
+      "current rich grammar changes still reject",
+      "nested frames are separate; inherited children after closure validate cold",
+      "four-entry eviction and eight-MiB evidence input rejection",
+      "original failure survives diagnostic failure"
+    ]
+  },
+  "registeredPureRunner": {
+    "file": "evidence-reuse-registered-pure-20261108.log",
+    "sha256": "64ca177ca7df1b2a9bdde7dc616fc2e6a486f310a601e0a6bf8b0027cf33db78",
+    "passed": true,
+    "newTestRegisteredInExistingNativeApiSdkAndRegularRunner": true
+  },
+  "nativeRegressions": [
+    {
+      "file": "evidence-reuse-api-key-owners-20261108.log",
+      "sha256": "0c88cbeb08e44e1ad1bdf5ed3fa2b13d29f473a3ddcd5992117fe873d100a30f",
+      "groupsPassed": 7,
+      "focusedMcpNotFull43": false,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 0,
+          "misses": 0,
+          "bypassed": 0,
+          "entries": 0,
+          "bytes": 0,
+          "cleared": true
+        },
+        {
+          "hits": 0,
+          "misses": 0,
+          "bypassed": 0,
+          "entries": 0,
+          "bytes": 0,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 151773,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 169965,
+          "cleared": true
+        }
+      ]
+    },
+    {
+      "file": "evidence-reuse-mcp-b2-recovery-20261108.log",
+      "sha256": "6bd970205245d2b672b41f27984171b1de889281acdeba8630c0ac8dc3dd7478",
+      "groupsPassed": 1,
+      "focusedMcpNotFull43": true,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 7,
+          "misses": 1,
+          "bypassed": 0,
+          "entries": 1,
+          "bytes": 22038,
+          "cleared": true
+        },
+        {
+          "hits": 21,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 43498,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 61636,
+          "cleared": true
+        }
+      ]
+    },
+    {
+      "file": "evidence-reuse-mcp-archive-rollback-20261108.log",
+      "sha256": "db8f402a5fd411cbf848990323365bda26c3a5a6e4f85d53f5952a7b302e40de",
+      "groupsPassed": 1,
+      "focusedMcpNotFull43": true,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 22,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 51970,
+          "cleared": true
+        },
+        {
+          "hits": 29,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 69981,
+          "cleared": true
+        },
+        {
+          "hits": 22,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 74094,
+          "cleared": true
+        },
+        {
+          "hits": 29,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 103167,
+          "cleared": true
+        }
+      ]
+    }
+  ],
+  "scopedTypesPassed": true,
+  "scopedLintPassed": true,
+  "invariants": [
+    "Only the original Delete B2 opts in; default Copy/Move/read validation is unchanged.",
+    "Strict data/budget capture runs before reuse on every invocation.",
+    "Keys are exact captured JSON encodings, not hashes or caller identities.",
+    "Current rich grammar dependencies are checked for every reused validation.",
+    "At most four entries and sixteen MiB of keys during the one attempt.",
+    "Entries are cleared on success and error; no current row, actor, access, Claim or original bytes are retained.",
+    "Both fresh source observations, all SQL/authority checks, atomic B2 and existing deadlines remain.",
+    "Review Center and file-operation Undo remain excluded."
+  ],
+  "compiledAfterPending": true,
+  "remaining": [
+    "Exact latest 201-document original-job Recovery, normal physical deletion and image navigation.",
+    "Remaining plan 5b/5c acceptance and final budgets; regular test:all/Recovery UI; full exact-head CI/reviews, merge and release."
+  ]
+}

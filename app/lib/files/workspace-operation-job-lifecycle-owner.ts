@@ -1,3 +1,4 @@
+import { withMixedSourceEvidenceValidationReuse } from './workspace-operation-mixed-source-evidence-v5';
 import 'server-only';
 import { decodeWorkspaceOperationCohortDeletePlan, captureWorkspaceOperationCohortDeleteCurrent,
   WorkspaceOperationCohortDeleteError, failCohortDelete } from './workspace-operation-cohort-delete-plan';
@@ -840,7 +841,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
     // Native and physical Delete share fixed grammar for this fully
     // awaited B2 attempt, including rollback/drain. No document facts or
     // current-authority results are cached.
-    return withNativeInspectionSchema(complete).catch(error => poison(captured, error));
+    return withMixedSourceEvidenceValidationReuse(() => withNativeInspectionSchema(complete)).catch(error => poison(captured, error));
   } catch (error) {
     if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
     return Promise.reject(error);

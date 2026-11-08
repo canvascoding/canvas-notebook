@@ -128,6 +128,32 @@ gezielten MCP-Fälle ersetzen keinen aktuellen vollständigen 43er-Lauf. Als Nä
 muss der Originalauftrag auf dem neuesten gebauten Image abgeschlossen werden. Originalruntime, ihre geschützten Daten und andere Dienste sind erhalten.
 [CPU-, Plan- und Regressionsevidenz](testing/stored-physical-plan-parse-2026-11-08.json).
 
+Der kompilierte Stand `605a586d2` besteht Host- und Linux-Build. Die explizite
+201-Dokumente-Recovery ohne CPU-Profiler erreicht nun alle Domain-Belege und
+`before-result-validation` nach 3.598 ms; die gesamte atomare B2-Transaktion
+überschreitet aber anschließend nach 5.035 ms weiterhin ihre Grenze
+(`SQLSTATE_25P04`, kein COMMIT-Versuch). Der Auftrag bleibt erhalten und offen.
+Der nächste Kandidat begrenzt die Wiederverwendung bereits validierter historischer
+E5-Nachweise auf genau einen vollständig abgewarteten Delete-B2-Versuch. Jede
+Eingabe wird weiterhin vollständig und budgetiert erfasst; nur ihre historische
+Analyse kann bei exakt gleicher JSON-Kodierung wiederverwendet werden. Beide
+aktuellen Quellprüfungen, Originalbytes, Rechte-/Claim-/SQL-Prüfungen und die
+atomare Speicherung bleiben frisch beziehungsweise unverändert. Der Versuch
+hält höchstens vier Einträge/16 MiB und leert sie auch beim Fehler. Aktuelle
+Rich-Grammatikabhängigkeiten bleiben wirksam. Andere Copy-/Move-/Leseflüsse
+verwenden ohne diesen expliziten Rahmen ihren bisherigen Weg.
+Die registrierte Suite sowie Typprüfung/Lint bestehen. Neue Prüfungen zählen
+transparent echte Hash-Aufrufe über alle drei Yjs-Repräsentationen und belegen
+getrennte/frische Ergebnisse, geänderte Nachweise/aktuelle Yjs-Bytes, Getter/Proxy-
+Ablehnung, unveränderte fremde JSON-Getter, Rich-Grammatik, verschachtelte und
+abgelaufene Lebensdauern, Eintrags-/Eingabebudgets und erhaltene Originalfehler.
+Sieben echte API-Key-Owner-Gruppen sowie die zwei gezielten PostgreSQL-Fälle für
+Rechteentzug/Recovery und Archivierungs-CAS-Rollback bestehen. Der echte B2-Weg
+zeigt dabei Wiederverwendung und anschließende Bereinigung; eigene Testschemata,
+Clients, Pools und Daten sind entfernt. Die aktuelle kompilierte 201er-Abnahme
+steht für diesen Kandidaten noch aus. Keine Produktionsdaten wurden geändert.
+[Nachweise und Grenzen](testing/delete-b2-evidence-reuse-2026-11-08.json).
+
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
 reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich

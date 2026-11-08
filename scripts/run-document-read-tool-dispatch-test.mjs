@@ -601,6 +601,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/markdown/workspace-native-link-graph.ts',
     'app/lib/files/workspace-operation-native-move-plan.ts'],
   'scripts/workspace-html-public-move-v5-runner-test.ts': [entryPoint,
+    'scripts/workspace-operation-evidence-reuse-test.ts',
     'scripts/workspace-operation-native-delete-html-plan-v4-test.ts',
     'scripts/workspace-operation-original-delete-html-final-graph-test.ts',
     'app/lib/files/workspace-operation-native-delete-html-plan.ts',
