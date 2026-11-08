@@ -506,9 +506,10 @@ function historicalEvidenceText(frame: HistoricalEvidenceValidationFrame | undef
   // additional getter call. Cache keys use exact encoding, never a digest.
   const global = Object.getOwnPropertyDescriptor(globalThis, 'JSON');
   const stringify = Object.getOwnPropertyDescriptor(historicalEvidenceJson, 'stringify');
-  const toString = Object.getOwnPropertyDescriptor(Function.prototype, 'toString');
+  // The captured inspector remains valid when Sentry wraps the prototype
+  // method later; the actual JSON function and encoding hooks must stay current.
   if (global?.value !== historicalEvidenceJson || stringify?.value !== historicalEvidenceStringify
-    || toString?.value !== historicalEvidenceToString || types.isProxy(historicalEvidenceStringify)
+    || types.isProxy(historicalEvidenceToString) || types.isProxy(historicalEvidenceStringify)
     || Object.getPrototypeOf(Array.prototype) !== Object.prototype || Object.getPrototypeOf(Object.prototype) !== null
     || Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON') || Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON')) {
     frame.bypassed++; return undefined;

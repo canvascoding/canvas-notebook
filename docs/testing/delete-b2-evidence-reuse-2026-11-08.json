@@ -183,5 +183,84 @@
   "remaining": [
     "Exact latest 201-document original-job Recovery, normal physical deletion and image navigation.",
     "Remaining plan 5b/5c acceptance and final budgets; regular test:all/Recovery UI; full exact-head CI/reviews, merge and release."
-  ]
+  ],
+  "compiledCandidate": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794097973423-result.json",
+    "sha256": "06144265c085bad9e450c3776c4c319b7c811344aba717b07db44aeb53cddf22",
+    "sourceSha": "c38bf5ac1c109ddcca6c1b0cd5873d1561c9ae4e",
+    "functionalRecoveryPassed": false,
+    "nativeDocuments": 201,
+    "historicalReuse": {
+      "hits": 11,
+      "misses": 8,
+      "bypassed": 19,
+      "entries": 0,
+      "bytes": 0,
+      "cleared": true
+    },
+    "explicitOriginalResumeOnly": true,
+    "physicalPayloadBefore": {
+      "sourceAbsent": true,
+      "trashPayloadHashMatchesOriginal": true,
+      "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+      "bytes": 68,
+      "sameOriginalInode": true
+    },
+    "originalRowsXminBytesAndAnchorsPreserved": true,
+    "otherContainersPreserved": true,
+    "pendingOriginalJobRetained": true
+  },
+  "sentryGuardRegression": {
+    "before": {
+      "file": "sentry-evidence-reuse-20261108-before.log",
+      "sha256": "3e1562fd5a9d3e70cd084399424a2fba4fe3e378425a9a5f9aca1bf11952465f",
+      "passed": false,
+      "additionalHashes": 17
+    },
+    "after": {
+      "file": "sentry-evidence-reuse-20261108-after.log",
+      "sha256": "fdae46bd674020a935ac88c3d5f33ae16fd9ddb3545d5daf5a99bce552e6a43c",
+      "passed": true
+    },
+    "actualInstalledServerIntegration": true,
+    "noSentryClientOrTransportStarted": true,
+    "jsonFunctionsUnchangedByIntegration": true,
+    "checks": "Existing real-hash evidence and all 28 stored-plan test families rerun under the actual Sentry FunctionToString integration; JSON replacement/getter/proxy and current schema cases retained.",
+    "candidate": "Use captured function inspector directly; do not depend on identity of subsequently wrapped prototype method. Actual JSON identities, descriptors and encoding hooks remain guarded.",
+    "compiledCandidateRecoveryAfterGuardFixPending": true,
+    "guardFixValidation": [
+      {
+        "file": "sentry-reuse-registered-20261108.log",
+        "sha256": "f4fe5bf40ee9a69e42f12742573a0ba026f1ac62bceb0e8d671f9628f38ebeef",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-expanded-types-20261108.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-api-key-owners-20261108.log",
+        "sha256": "7e429b025a4ebede1d7a771a9124656b49762ce516201947dbaa1835dd87aa13",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-mcp-b2-recovery-20261108.log",
+        "sha256": "d6ab49938d6cfb437281464bafd9b131545c200a8db6d846e5fa4d35857927e3",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-mcp-archive-rollback-20261108.log",
+        "sha256": "f9e1dfc7afdc5239a98d23eed0640af10ff03a8089671f7b9a92c1bc2c73a27b",
+        "passed": true
+      }
+    ],
+    "scopedLintPassed": true,
+    "nativeScope": "Seven API-key Move/Delete/status groups plus actual phase-boundary regression; two focused MCP cases, each omitting 42 other cases; no full 43-case acceptance claim.",
+    "candidateSourceHashes": {
+      "app/lib/files/workspace-operation-batch-store.ts": "68bb1a8e24696d1b9a72f4e1bf6e76accf466429a8d0e90274fe01a58cfdefaa",
+      "app/lib/files/workspace-operation-mixed-source-evidence-v5.ts": "79aa30528c06440fa7e64f426ed369efa370d0c16f1b6e227141b098a324f8c8",
+      "scripts/workspace-operation-sentry-validation-reuse-test.ts": "5cf521d4ee2ddfda14d8d7c9e62f1ab7797649b919146fd513c233d507d86083"
+    }
+  }
 }

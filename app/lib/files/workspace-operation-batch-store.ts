@@ -443,7 +443,9 @@ function storedCohortPlanHooksCurrent(json: typeof JSON, parse: typeof JSON.pars
   if (json !== fingerprintJson || parse !== storedCohortPlanParseDescriptor?.value
     || typeof parse !== 'function' || types.isProxy(parse)) return false;
   const current = fingerprintDescriptor(json, 'parse'), global = fingerprintDescriptor(globalThis, 'JSON');
-  const toString = fingerprintDescriptor(Function.prototype, 'toString');
+  // Sentry wraps the prototype method after bootstrap. Inspect the actual JSON
+  // function with the captured inspector, independently of that later wrapper.
+  const inspectFunction = storedCohortPlanToStringDescriptor?.value;
   if (!current || !Object.hasOwn(current, 'value') || current.value !== parse
     || current.writable !== storedCohortPlanParseDescriptor?.writable
     || current.enumerable !== storedCohortPlanParseDescriptor?.enumerable
@@ -452,10 +454,9 @@ function storedCohortPlanHooksCurrent(json: typeof JSON, parse: typeof JSON.pars
     || global.writable !== storedCohortPlanGlobalDescriptor?.writable
     || global.enumerable !== storedCohortPlanGlobalDescriptor?.enumerable
     || global.configurable !== storedCohortPlanGlobalDescriptor?.configurable
-    || !toString || !Object.hasOwn(toString, 'value') || typeof toString.value !== 'function'
-    || toString.value !== storedCohortPlanToStringDescriptor?.value) return false;
+    || typeof inspectFunction !== 'function' || types.isProxy(inspectFunction)) return false;
   try {
-    return fingerprintApply(toString.value, parse, []) === 'function parse() { [native code] }'
+    return fingerprintApply(inspectFunction, parse, []) === 'function parse() { [native code] }'
       && fingerprintHooksCurrent(json, fingerprintStringify);
   } catch { return false; }
 }

@@ -154,6 +154,23 @@ Clients, Pools und Daten sind entfernt. Die aktuelle kompilierte 201er-Abnahme
 steht für diesen Kandidaten noch aus. Keine Produktionsdaten wurden geändert.
 [Nachweise und Grenzen](testing/delete-b2-evidence-reuse-2026-11-08.json).
 
+Der kompilierte Stand `c38bf5ac1` besteht Host-/Linux-Build, aber noch nicht
+die echte 201er-Recovery: Der ursprüngliche Auftrag bleibt offen. Die neue
+Diagnose zeigt 19 umgangene textbasierte Wiederverwendungen, null gespeicherte
+Einträge. Der ursprüngliche Payload liegt mit bestätigtem Hash, Inode und Größe
+im Trash; Originalruntime, geschützte Zeilen/xmin/Bytes/Anker und andere Container
+sind wiederhergestellt. Es wurde kein neues Delete gesendet.
+Die tatsächlich installierte Sentry-Integration ersetzt beim Start
+`Function.prototype.toString`, ohne `JSON.parse`/`JSON.stringify` zu verändern.
+Ein neuer Test mit genau dieser Integration reproduziert vor der Korrektur 17
+zusätzliche Hash-Aufrufe. Der Kandidat verwendet den bereits erfassten Inspector
+direkt statt die Identität der später gewrappten Prototypmethode vorauszusetzen.
+Die tatsächlichen JSON-Funktionen, Getter/Proxy-/Prototyphooks und aktuelle
+Grammatik bleiben geprüft. Derselbe Test besteht anschließend einschließlich
+aller 28 historischen Planfamilien; kein Sentry-Client/Transport wird gestartet.
+Die kompilierte Recovery nach dieser Guard-Korrektur steht noch aus.
+[Sentry-Vorher-/Nachher-Beleg](testing/delete-b2-evidence-reuse-2026-11-08.json).
+
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
 reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich
