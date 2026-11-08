@@ -8,6 +8,19 @@ async function login(page: Page) {
   await authenticateManagedTestPage(page, { email: TEST_EMAIL, password: TEST_PASSWORD });
 }
 
+async function openPanelSurface(page: Page, route: string) {
+  const response = await page.request.get('/api/workspaces');
+  expect(response.ok()).toBe(true);
+  const { workspaces } = await response.json() as { workspaces: Array<{
+    id: string; name: string; permissions?: { canRead?: boolean };
+  }> };
+  const workspace = workspaces.find(entry => entry.name === 'Shared Test Workspace' && entry.permissions?.canRead)
+    ?? workspaces.find(entry => entry.permissions?.canRead);
+  expect(workspace?.id, 'Panel input requires an accessible, resolved workspace.').toBeTruthy();
+  await page.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), workspace!.id);
+  await page.goto(`${route}?workspaceId=${encodeURIComponent(workspace!.id)}`);
+}
+
 async function visibleBoundingBox(locator: Locator) {
   let box = { x: 0, y: 0, width: 0, height: 0 };
   await expect.poll(async () => {
@@ -72,7 +85,7 @@ test.describe('panel resizing', () => {
         window.localStorage.setItem('canvas.notebookChatWidth', '420');
       }
     });
-    await page.goto('/en/notebook');
+    await openPanelSurface(page, '/en/notebook');
     const sidebarToggle = page.getByRole('button', { name: /^(Show|Hide) sidebar$/u });
     if (await sidebarToggle.getAttribute('aria-pressed') === 'false') await sidebarToggle.click();
     await expect(sidebarToggle).toHaveAttribute('aria-pressed', 'true');
@@ -125,7 +138,7 @@ test.describe('panel resizing', () => {
         window.localStorage.setItem('studio.chatWidth', '420');
       }
     });
-    await page.goto('/en/studio');
+    await openPanelSurface(page, '/en/studio');
 
     const handle = page.getByTestId('chat-dock-resize-handle');
     const dock = page.getByTestId('chat-dock-desktop');
@@ -148,7 +161,7 @@ test.describe('panel resizing', () => {
         window.localStorage.setItem('todos.chatWidth', '420');
       }
     });
-    await page.goto('/en/todos');
+    await openPanelSurface(page, '/en/todos');
 
     const desktopDock = page.getByTestId('chat-dock-desktop');
     await expect(desktopDock).toHaveAttribute('data-chat-mode', 'responsive-overlay');
@@ -165,7 +178,7 @@ test.describe('panel resizing', () => {
   test('reduced-motion preference removes resize transitions', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/en/studio');
+    await openPanelSurface(page, '/en/studio');
 
     const handle = page.getByTestId('chat-dock-resize-handle');
     const dock = page.getByTestId('chat-dock-desktop');
