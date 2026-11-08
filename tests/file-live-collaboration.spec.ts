@@ -869,7 +869,9 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
-  test('retains a committed offline edit across inactive tabs, authorized reconnect and reload', async ({ browser }, info) => {
+  for (const quota of [false, true]) test(quota
+    ? 'keeps uncommitted offline edits when native IndexedDB quota blocks backup and recovers after storage returns'
+    : 'retains a committed offline edit across inactive tabs, authorized reconnect and reload', async ({ browser }, info) => {
     test.setTimeout(180_000);
     info.annotations.push({ type: 'scope', description: 'Real held tabs, interrupted real sockets and offline browser; committed IndexedDB/native proofs, fresh reconnect authority and reload. No fabricated server responses or persistence acknowledgements.' });
     const suffix = randomUUID(), paths = [`offline-tab-a-${suffix}.md`, `offline-tab-b-${suffix}.md`];
@@ -879,6 +881,28 @@ test.describe('Markdown live collaboration', () => {
     const outage = await installOwnedCollaborationOutage(context);
     const selector = '.tiptap-editor-shell .ProseMirror';
     let workspaceId: string | null = null, failure: unknown;
+    let cdp: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined;
+    const origin = new URL(BASE_URL).origin, pageErrors: string[] = [];
+    if (quota) {
+      info.annotations.push({ type: 'scope', description: 'Native Chromium quota override and actual IDB transaction abort observation; no fabricated storage errors. Dirty RAM and blocked transition remain until a real local backup can commit.' });
+      page.on('pageerror', error => pageErrors.push(error.message));
+      await context.addInitScript(() => {
+        const original = IDBDatabase.prototype.transaction;
+        const target = window as typeof window & { __canvasQuotaAbortEvents?: Array<{ database: string; name: string }> };
+        target.__canvasQuotaAbortEvents = [];
+        IDBDatabase.prototype.transaction = function (...args: Parameters<IDBDatabase['transaction']>) {
+          const transaction = Reflect.apply(original, this, args) as IDBTransaction;
+          // Observe the original browser transaction; never replace its data,
+          // return value, events or persistence acknowledgements.
+          transaction.addEventListener('abort', () => {
+            if (transaction.error?.name !== 'QuotaExceededError') return;
+            const events = target.__canvasQuotaAbortEvents!;
+            if (events.length < 32) events.push({ database: this.name, name: transaction.error.name });
+          }, { once: true });
+          return transaction;
+        };
+      });
+    }
     const ids: Record<string, string> = {};
     const persisted = async () => {
       expect(workspaceId).toBeTruthy();
@@ -929,8 +953,23 @@ test.describe('Markdown live collaboration', () => {
         const current = await persisted(); return { stateProof: current.stateProof, stateVector: current.stateVector };
       }, { timeout: 20_000 }).toEqual({ stateProof: baseline.stateProof, stateVector: baseline.stateVector });
       const identity = await persisted();
+      if (quota) {
+        expect(browser.browserType().name()).toBe('chromium');
+        await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(snapshot(baseline));
+        cdp = await context.newCDPSession(page);
+        // Zero means no limit in Chromium's quota calculation. One byte is
+        // below the existing committed baseline without deleting that baseline.
+        await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 });
+      }
       await outage.block(); await context.setOffline(true);
       expect(await page.evaluate(() => navigator.onLine)).toBe(false);
+      if (quota) {
+        // Chromium retains cached space grants for 30 seconds. Wait real time:
+        // https://chromium.googlesource.com/chromium/src/+/1c9524c5d3627044b0cf0a0b679978e82b702279/content/browser/indexed_db/instance/bucket_context.h
+        await page.waitForTimeout(31_000);
+        const current = await cdp!.send('Storage.getUsageAndQuota', { origin });
+        expect(current.overrideActive).toBe(true); expect(current.quota).toBe(1);
+      }
       await (await nativeRichParagraph(page, selector, texts[0])).click();
       // End stops at the visual line boundary on narrow viewports. Collapse
       // an actual editor selection to the document end and verify the caret.
@@ -947,9 +986,30 @@ test.describe('Markdown live collaboration', () => {
       await expect(page.locator(selector)).toHaveText(texts[0] + marker);
       const offline = await readNativeRichCandidate(page, selector);
       expect(offline.guid).toBe(baseline.guid); expect(offline.stateProof).not.toBe(baseline.stateProof);
+      if (quota) {
+        const databaseName = `canvas:${identity.documentId}:${identity.lifecycleGeneration}:${identity.representation}`;
+        await expect.poll(() => page.evaluate(database => (
+          window as typeof window & { __canvasQuotaAbortEvents?: Array<{ database: string; name: string }> }
+        ).__canvasQuotaAbortEvents?.some(event => event.database === database && event.name === 'QuotaExceededError') ?? false,
+        databaseName), { timeout: 10_000 }).toBe(true);
+        expect(await readNativeRichLocalRecovery(page, identity)).toEqual(snapshot(baseline));
+        expect(await persisted()).toEqual(identity);
+        await page.getByRole('tab', { name: paths[1], exact: true }).click();
+        await expect(page.getByText(enMessages.notebook.collaboration.closeRecoveryBlocked, { exact: true }).first()).toBeVisible();
+        await expect(page.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+        await expect(page.locator(selector)).toHaveText(texts[0] + marker);
+        expect(snapshot(await readNativeRichCandidate(page, selector))).toEqual(snapshot(offline));
+        await page.screenshot({ path: info.outputPath('native-quota-blocked-backup.png') });
+        await cdp!.send('Storage.overrideQuotaForOrigin', { origin });
+        expect((await cdp!.send('Storage.getUsageAndQuota', { origin })).overrideActive).toBe(false);
+        // Retry the actual blocked departure while still offline. The guard
+        // must commit the full local candidate before the other tab can open.
+        await page.getByRole('tab', { name: paths[1], exact: true }).click();
+        await expect(page.getByRole('tab', { name: paths[1], exact: true })).toHaveAttribute('aria-selected', 'true');
+      }
       await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(snapshot(offline));
       expect(await persisted()).toEqual(identity);
-      await page.getByRole('tab', { name: paths[1], exact: true }).click();
+      if (!quota) await page.getByRole('tab', { name: paths[1], exact: true }).click();
       await expect(page.getByRole('tab', { name: paths[1], exact: true })).toHaveAttribute('aria-selected', 'true');
       // The local committed log remains the exact dirty candidate while the
       // editor is inactive; server-native bytes must still be the baseline.
@@ -972,9 +1032,11 @@ test.describe('Markdown live collaboration', () => {
       await expect(page.locator(selector)).toHaveText(texts[0] + marker, { timeout: 30_000 });
       expect(snapshot(await readNativeRichCandidate(page, selector))).toEqual(snapshot(offline));
       await page.screenshot({ path: info.outputPath('retained-offline-reconnect.png') });
+      if (quota) expect(pageErrors, 'Storage exhaustion must remain a handled recovery state.').toEqual([]);
     } catch (error) { failure = error; throw error; }
     finally {
-      await finishFixture(cleanupApi, [() => context.setOffline(false), () => outage.dispose(), () => context.close(),
+      await finishFixture(cleanupApi, [async () => { if (cdp) await cdp.send('Storage.overrideQuotaForOrigin', { origin }); },
+        () => context.setOffline(false), () => outage.dispose(), async () => { if (cdp) await cdp.detach(); }, () => context.close(),
         async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
     }
   });
