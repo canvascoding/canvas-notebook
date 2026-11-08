@@ -1,7 +1,7 @@
 import { assertRegularCollaborationEnvironment } from '../scripts/lib/regular-collaboration-target.mjs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import nodePath from 'node:path';
 import type { JSONContent } from '@tiptap/core';
 import * as Y from 'yjs';
@@ -11,7 +11,7 @@ import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '
 import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { completeNativeFixtureRename } from './helpers/completed-native-rename';
-import { createOwnedFilesystemFixture } from './helpers/owned-native-filesystem';
+import { createOwnedFilesystemFixture, readOwnedFilesystemFixture } from './helpers/owned-native-filesystem';
 
 const baseURL = process.env.BASE_URL || '';
 const selector = '.tiptap-editor-shell .ProseMirror';
@@ -389,7 +389,6 @@ test('a filesystem file event invalidates the actual HTTP tree and reference cac
   expect(dataRoot && nodePath.isAbsolute(dataRoot)).toBe(true);
   const folder = `native-live-cache-${randomUUID()}`;
   const nativeRelative = `${folder}/native-created.txt`;
-  const fixtureRoot = nodePath.join(dataRoot!, relativeRoot, folder);
   expect((await page.request.post('/api/files/create', { headers, data: { path: folder, type: 'directory' } })).ok()).toBe(true);
   expect((await page.request.post('/api/files/upload', { headers, multipart: { path: folder, files: {
     name: 'seed.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic cache seed.'),
@@ -399,7 +398,8 @@ test('a filesystem file event invalidates the actual HTTP tree and reference cac
   try {
     // Verify the exact host/container mount using the fixture we just created;
     // no pre-existing workspace document is read or modified by the native write.
-    expect(await readFile(nodePath.join(fixtureRoot, 'seed.txt'), 'utf8')).toBe('Synthetic cache seed.');
+    expect(await readOwnedFilesystemFixture({ dataRoot: dataRoot!,
+      relativePath: nodePath.posix.join(relativeRoot, folder, 'seed.txt') })).toBe('Synthetic cache seed.');
     await page.goto('/api/health', { waitUntil: 'domcontentloaded' });
     const clientId = await page.evaluate(async ({ workspaceId }) => new Promise<string>((resolve, reject) => {
       const url = new URL('/ws/live-events', window.location.href); url.protocol = 'ws:';
