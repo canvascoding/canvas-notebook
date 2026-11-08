@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "compiled regular aggregate acceptance",
+  "sourceSha": "d5cfc383397b6bcc174727981798b8c65a692e69",
+  "imageDigest": "sha256:25d09731f5134681bb867d990a57623ab7ba5c4cd1e36d61ffd1b162552787d0",
+  "command": "npm run test:all",
+  "target": "single supervised external compiled Linux fixture; independent host build and image acceptance completed first",
+  "status": "passed",
+  "allStagesTerminal": true,
+  "regularBrowser": {
+    "passed": 335,
+    "failed": 0,
+    "skipped": 102,
+    "blocked": 0
+  },
+  "collaborationBrowser": {
+    "passed": 50,
+    "failed": 0,
+    "skipped": 0,
+    "blocked": 0
+  },
+  "apiKeyManagementBrowser": {
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0
+  },
+  "flakyBrowserTests": 0,
+  "postMoveRecoveryCases": 3,
+  "mailtoCases": [
+    {
+      "title": "markdown-mailto-normalization.spec.ts \u203a desktop: mailto source completes a guarded rich upgrade and survives reload",
+      "status": "passed"
+    },
+    {
+      "title": "markdown-mailto-normalization.spec.ts \u203a mobile: mailto source completes a guarded rich upgrade and survives reload",
+      "status": "passed"
+    }
+  ],
+  "originalRowsXminsYjsFilesAndStorageAnchorsPreserved": true,
+  "originalRuntimeRestored": true,
+  "otherManagedContainersPreserved": true,
+  "rawAggregateSha256": "a3e4cd14c4c89b764685dcb58141a0bccf979fb5e94e664fdcc67d1696fb24d4",
+  "controllerResultSha256": "9c97e9357a564f7efa1e3eb0a4e3e73dbf195411935e96b920604054e7c9dedc",
+  "finishedAt": "2026-11-08T11:40:54.491Z",
+  "scopeLimits": [
+    "102 pre-existing conditional browser skips remain separately reported, including private fixture and provider acceptance environments.",
+    "Build/server ownership stages use the supervisor-owned exact compiled image; no second test server.",
+    "This is not a release-image or production deployment acceptance."
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "baseCommit": "2ecbc253da65c106fcc5496f4dbffc9bb496bf07",
+  "transportSha256": "7da42526f2276501bbef1b2ab87bc0e1265562ebf4c435c480e67ca1e6d9a0f1",
+  "before": {
+    "suite": "installed-sdk-probe-failure",
+    "stage": "move_native_http",
+    "kind": "AssertionError",
+    "exceptionTypes": [
+      "AssertionError",
+      "ExceptionGroup",
+      "RemoteProtocolError",
+      "RemoteProtocolError",
+      "CancelledError"
+    ],
+    "assertionLine": 179
+  },
+  "after": {
+    "suite": "installed-api-key-sdk-native-path-http",
+    "passed": true,
+    "groups": 21,
+    "wheelSha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+    "keyHeaderOnlyRequests": 113,
+    "actual401": 2,
+    "nativeOperationsCreated": 14,
+    "droppedHttpAcknowledgements": 2,
+    "lostCommitAcknowledgements": 4,
+    "automaticWriteReplays": 0,
+    "transportOutcomes": {
+      "move_native_http": "cancelled_after_http_failure",
+      "delete_native_http": "cancelled_after_http_failure"
+    },
+    "separateKindNamespacesForSameCallerId": true,
+    "protectedOriginalsAndHistoryRetained": true,
+    "stderrBytes": 0,
+    "compiledNext": false,
+    "oauthIssuance": false,
+    "reviewCenterEnabled": false,
+    "undoEnabled": false
+  },
+  "matrix": {
+    "complete": true,
+    "records": [
+      {
+        "python": "3.10.19",
+        "artifact": "wheel",
+        "profile": "core",
+        "sha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+        "tests": 1,
+        "skipped": 0,
+        "exitCode": 0
+      },
+      {
+        "python": "3.10.19",
+        "artifact": "wheel",
+        "profile": "mcp",
+        "sha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+        "tests": 105,
+        "skipped": 0,
+        "exitCode": 0
+      },
+      {
+        "python": "3.10.19",
+        "artifact": "wheel",
+        "profile": "keyring",
+        "sha256": "36b955030dd7c6226125318ba2fbd5e4197dcf8f79e7a7a3e85f60b3bb96fafe",
+        "tests": 105,
+        "skipped": 0,
+        "exitCode": 0
+      },
+      {
+        "python": "3.10.19",
+        "artifact": "sdist",
+        "profile": "core",
+        "sha256": "80398a9171b841bf3076bf7cd3043ece69f118b3c194868e328400c6d6a5ea7c",
+        "tests": 1,
+        "skipped": 0,
+        "exitCode": 0
+      },
+      {
+        "python": "3.10.19",
+        "artifact": "sdist",
+        "profile": "mcp",
+        "sha256": "80398a9171b841bf3076bf7cd3043ece69f118b3c194868e328400c6d6a5ea7c",
+        "tests": 105,
+        "skipped": 0,
+        "exitCode": 0
+      },
+      {
+        "python": "3.10.19",
+        "artifact": "sdist",
+        "profile": "keyring",
+        "sha256": "80398a9171b841bf3076bf7cd3043ece69f118b3c194868e328400c6d6a5ea7c",
+        "tests": 105,
+        "skipped": 0,
+        "exitCode": 0
+      }
+    ]
+  },
+  "finalWheelEqualsMatrixWheel": true,
+  "finalSourceDistribution": {
+    "passed": true,
+    "freshFinalSdistInstallation": true,
+    "archiveSourceFilesEqualCheckout": true,
+    "generatedPackageMetadataVerified": true,
+    "tests": 105,
+    "skipped": 0,
+    "sha256": "585dfc6847b7983842741a3895b779edba05e1dd169d58d314ecf5752c552eb3",
+    "testsLogSha256": "d7ef2a4a4bbed0eb1d14d1466b94ba3ad0cc309ec1113bb10e963963dabcc75f"
+  },
+  "logs": [
+    {
+      "file": "sdk012-path-lost-ack-diagnosis-20261107.log",
+      "sha256": "7e4d4aba1b1f06d31fd0fc8244f04c9f5c21375b7382e1eedc3fded0eca681de"
+    },
+    {
+      "file": "sdk012-path-lost-ack-fixed-20261107.log",
+      "sha256": "c9e785a80581ddac2720cf9e93e4f2a254d02c3a98592709d5f4b1c1f51e3a9a"
+    }
+  ],
+  "limits": [
+    "Native source HTTP/PostgreSQL acceptance, not compiled Next",
+    "Compiled session OAuth/key acceptance at baseCommit used the previous SDK candidate",
+    "Remote CI for this fix is not yet complete",
+    "No production or SDK publication"
+  ]
+}

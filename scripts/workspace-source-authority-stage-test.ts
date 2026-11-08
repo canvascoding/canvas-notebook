@@ -429,6 +429,9 @@ test('a native peer edit during staged physical reads invalidates the native pro
     const unexpected = () => { throw new Error('Unexpected preparation arm in rejection-only regression.'); };
     const mocks: Record<string, unknown> = {
       'server-only': {}, 'node:util': await import('node:util'), '../db': { openDb: async () => databaseConnection },
+      'next/server': await import('next/server'),
+      '../markdown/workspace-local-link-parser': await import('../app/lib/markdown/workspace-local-link-parser'),
+      './workspace-operation-native-plan-data': await import('../app/lib/files/workspace-operation-native-plan-data'),
       '../collaboration/lifecycle-transaction': transaction,
       '../observability/workspace-source-scan': await import('../app/lib/observability/workspace-source-scan'),
       '../mcp/server/diagnostics': { directMcpCorrelationId: () => undefined },

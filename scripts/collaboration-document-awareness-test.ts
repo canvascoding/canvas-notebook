@@ -40,6 +40,12 @@ try {
     provider.setAwarenessField('canvas', { provider: index });
     applyAwarenessUpdate(peer, encodeAwarenessUpdate(provider.awareness!, [doc.clientID]), 'network');
     assert.deepEqual(peer.getStates().get(doc.clientID)?.canvas, { provider: index });
+    const state = Y.encodeStateAsUpdate(doc);
+    provider.awareness!.setLocalState({});
+    applyAwarenessUpdate(peer, encodeAwarenessUpdate(provider.awareness!, [doc.clientID]), 'network');
+    assert.deepEqual(provider.awareness!.getLocalState(), {}, 'Inactive presence remains non-null for normal heartbeat renewal.');
+    assert.deepEqual(peer.getStates().get(doc.clientID), {}, 'Inactive presence exposes no canvas, cursor, or selection fields.');
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), state, 'Presence lifecycle cannot mutate document bytes.');
     provider.destroy();
     socket.destroy();
     assert.equal(observers(), expected, 'real provider cleanup retains only the document-owned presence listener');

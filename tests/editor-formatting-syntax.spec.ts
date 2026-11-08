@@ -15,6 +15,7 @@ import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
+import { readOwnedFilesystemFixture } from './helpers/owned-native-filesystem';
 import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3100';
@@ -86,11 +87,17 @@ function diskPath(workspace: Workspace, filePath: string) {
   return path.resolve(process.env.DATA!, workspace.rootRelativePath, filePath);
 }
 
+async function readProjection(workspace: Workspace, filePath: string): Promise<string> {
+  const file = diskPath(workspace, filePath);
+  return readOwnedFilesystemFixture({ dataRoot: process.env.DATA!,
+    relativePath: path.relative(process.env.DATA!, file).split(path.sep).join('/') });
+}
+
 async function assertProjected(workspace: Workspace, filePath: string, expected: JSONContent) {
   const manager = createRichMarkdownManager();
   const schema = getSchema(richMarkdownCodecExtensions());
   await expect.poll(async () => {
-    const markdown = await readFile(diskPath(workspace, filePath), 'utf8');
+    const markdown = await readProjection(workspace, filePath);
     return equivalentRichDocument(expected, schema.nodeFromJSON(manager.parse(markdown)).toJSON());
   }, { timeout: 30_000, intervals: [500, 1_000, 2_000] }).toBe(true);
 }
@@ -257,7 +264,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       const cell = page.locator(selector).locator('td p').first();
       await selectContent(cell); await page.keyboard.insertText('odd\\|pipe');
       await assertProjected(workspace, filePath, await richTree(page));
-      const safeMarkdown = await readFile(diskPath(workspace, filePath), 'utf8');
+      const safeMarkdown = await readProjection(workspace, filePath);
       await selectContent(cell);
       await page.getByTestId('markdown-selection-menu').getByRole('button', { name: /^(Inline code|Inline-Code)$/u }).click();
       await expect(cell.locator('code')).toHaveText('odd\\|pipe');
@@ -272,7 +279,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       expect(evidence).toMatchObject({ degraded: false, validationCode: 'roundtrip_unstable', canonicalContent: null });
       expect(evidence.documentSequence).toBeGreaterThan(evidence.checkpointSequence);
       await expect.poll(() => localRichTree(page, identity)).toEqual(invalid);
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
+      expect(await readProjection(workspace, filePath)).toBe(safeMarkdown);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       await phase('native-writer-reopen-preserves-unprojectable-state');
@@ -280,7 +287,7 @@ test.describe('formatting preserves Markdown meaning', () => {
         .getByRole('button', { name: /^(Source|Quelltext)$/u })).toHaveCount(0);
       await expect(page.locator('.cm-editor')).toHaveCount(0);
       await expect.poll(() => localRichTree(page, identity)).toEqual(invalid);
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
+      expect(await readProjection(workspace, filePath)).toBe(safeMarkdown);
       await page.reload({ waitUntil: 'domcontentloaded' });
       await enterMarkdownEditMode(page);
       await expect(page.locator(selector)).toHaveAttribute('contenteditable', 'true');
@@ -292,7 +299,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await expect.poll(async () => (await storage(workspace!, filePath, identity)).richJson,
         { timeout: 30_000, intervals: [1_000, 2_000] }).toEqual(updated);
       await page.screenshot({ path: info.outputPath('table-code-live-while-projection-rejected.png') });
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(safeMarkdown);
+      expect(await readProjection(workspace, filePath)).toBe(safeMarkdown);
       await phase('close-and-reopen-actual-secondary');
       await peerContext.close();
       peerContext = await fixtureContext(browser); peer = await peerContext.newPage();
@@ -363,7 +370,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
       await enterMarkdownEditMode(page);
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original);
+      expect(await readProjection(workspace, filePath)).toBe(original);
       expect(unexpectedMigrations).toBe(0);
       const source = page.locator('.cm-content');
       await expect(source).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
@@ -377,8 +384,8 @@ test.describe('formatting preserves Markdown meaning', () => {
       })).toEqual([original.length, original.length]);
       await page.keyboard.press('Enter'); await page.keyboard.insertText(suffix.slice(1, -1)); await page.keyboard.press('Enter');
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);
-      await expect.poll(() => readFile(diskPath(workspace!, filePath), 'utf8'), { timeout: 30_000 }).toBe(original + suffix);
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original + suffix);
+      await expect.poll(() => readProjection(workspace!, filePath), { timeout: 30_000 }).toBe(original + suffix);
+      expect(await readProjection(workspace, filePath)).toBe(original + suffix);
       await expect(source).toHaveAttribute('contenteditable', 'true');
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Markdown', exact: true }).click();
@@ -387,7 +394,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await expect(page.getByTestId('markdown-source-preservation-warning')).toBeVisible();
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);
       expect((await session(page, workspace, filePath)).representation).toBe('plain_text');
-      expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original + suffix);
+      expect(await readProjection(workspace, filePath)).toBe(original + suffix);
       expect(unexpectedMigrations, 'source-required syntax must never start a rich migration from an empty startup preview').toBe(0);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('source-required-syntax-reopened.png') });

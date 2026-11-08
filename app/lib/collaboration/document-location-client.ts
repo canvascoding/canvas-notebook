@@ -7,8 +7,9 @@ import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/cli
 import { isWorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 import { requestCollaborationDocumentLocation } from './document-location-request';
 import { CollaborationDocumentLocationRequestError, createDocumentLocationRetryBudget, nextDocumentLocationRetryDelay } from './document-location-retry';
-import { openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation } from './opened-document-registry';
-import type { TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
+import { hasCurrentOpenedDocumentSessionAuthorization, openedDocumentAuthScope,
+  subscribeOpenedDocumentAuthInvalidation } from './opened-document-registry';
+import type { CollaborationSessionResponse, TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
 
 export type CollaborationLocationIssue = 'unavailable' | 'generationChanged' | 'lookupFailed';
 
@@ -20,9 +21,26 @@ type LocationInput = {
   lifecycleGeneration?: number;
   representation?: TextCollaborationRepresentation;
   connection?: TextCollaborationConnectionState;
+  /** Exact HTTP session object registered by the existing collaboration client. */
+  session?: CollaborationSessionResponse | null;
+  /** An existing authoritative session read owns ordinary startup. */
+  sessionPending?: boolean;
+  /** Busy admission must recover even when the path already has a fresh receipt. */
+  admissionBusy?: boolean;
   /** Parameterless request owned by the mounted collaboration registry entry. */
   requestAdmissionRejoin?: () => Promise<void>;
 };
+
+/** A fresh session already resolved this exact location. This is not a cached
+ * access grant: local copies, expired tickets and revoked receipts do not count. */
+function hasCurrentSessionLocation(input: LocationInput): boolean {
+  const session = input.session;
+  if (!input.workspaceId || !input.documentId || !input.path || !session || session.guestAccess
+    || session.documentId !== input.documentId || session.lifecycleGeneration !== input.lifecycleGeneration
+    || session.representation !== input.representation || !Number.isFinite(Date.parse(session.expiresAt))
+    || Date.parse(session.expiresAt) <= Date.now() || useFileStore.getState().currentFile?.unavailable) return false;
+  return hasCurrentOpenedDocumentSessionAuthorization(input.workspaceId, input.path, session);
+}
 
 function isCurrentLocationScope(scope: CurrentCollaborationLocationScope): boolean {
   const state = useFileStore.getState();
@@ -42,9 +60,20 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
   const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation]);
   const [issue, setIssue] = useState<{ key: string; value: CollaborationLocationIssue | null } | null>(null);
   const refresh = useRef<(() => void) | null>(null);
+  const refreshStartup = useRef<(() => void) | null>(null);
   const refreshRetained = useRef<(() => void) | null>(null);
   const admissionRejoin = useRef(input.requestAdmissionRejoin);
   useEffect(() => { admissionRejoin.current = input.requestAdmissionRejoin; }, [input.requestAdmissionRejoin]);
+  const session = useRef(input.session);
+  useEffect(() => { session.current = input.session; }, [input.session]);
+  const sessionPending = useRef(input.sessionPending === true);
+  useEffect(() => { sessionPending.current = input.sessionPending === true; }, [input.sessionPending]);
+  const admissionBusy = useRef(input.admissionBusy === true);
+  useEffect(() => { admissionBusy.current = input.admissionBusy === true; }, [input.admissionBusy]);
+  const previousConnection = useRef({ key, connection, sessionPending: input.sessionPending === true, admissionBusy: input.admissionBusy === true });
+  const mustRevalidate = useRef(false);
+  const identityKey = JSON.stringify([workspaceId, documentId, documentKey, path]);
+  useEffect(() => { mustRevalidate.current = false; }, [identityKey]);
 
   useEffect(() => {
     if (!workspaceId || !documentId || !documentKey || !path) return;
@@ -70,8 +99,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       timer = setTimeout(() => { timer = null; void resolve(); }, Math.max(delay,
         retryBudget.nextAt - Date.now(), lastStarted + 1000 - Date.now()));
     };
-    const invalidate = () => {
+    const requestLocation = (required: boolean) => {
       if (!isCurrent()) return;
+      if (required) mustRevalidate.current = true;
       // An elapsed idle window is finished. A later genuine hint may open a new
       // one; hints during an attempt or its backoff cannot replenish it.
       if (retryBudget && Date.now() >= retryBudget.deadline && !active) {
@@ -87,6 +117,8 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       }
       schedule(150);
     };
+    const invalidate = () => requestLocation(true);
+    const startup = () => requestLocation(false);
     const invalidateRetained = () => {
       // A retained file request is a fresh hint, not a new document lifetime or
       // retry budget. Reject its older reply even when fetch ignores abort.
@@ -115,16 +147,16 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       try {
         const location = await requestCollaborationDocumentLocation(workspaceId, documentId, controller.signal);
         if (!canApply()) return;
-        if (!location) { retryBudget = null; requested = false; report('unavailable'); return; }
+        if (!location) { mustRevalidate.current = false; retryBudget = null; requested = false; report('unavailable'); return; }
         if ((lifecycleGeneration !== undefined && location.lifecycleGeneration !== lifecycleGeneration)
           || (representation !== undefined && location.representation !== representation)) {
-          retryBudget = null; requested = false; report('generationChanged'); return;
+          mustRevalidate.current = false; retryBudget = null; requested = false; report('generationChanged'); return;
         }
         if (requestTimeout) clearTimeout(requestTimeout);
         requestTimeout = null;
         if (location.path !== path) {
           if (useFileStore.getState().adoptCurrentCollaborationLocation(scope, location.path)) {
-            report(null); retryBudget = null; requested = false;
+            mustRevalidate.current = false; report(null); retryBudget = null; requested = false;
           } else {
             // A current ID reply does not imply that the mounted editor can
             // adopt it yet. Reobserve within this same finite refresh window.
@@ -148,7 +180,7 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
                 lifecycleGeneration, representation, location,
               });
             }
-            retryBudget = null; requested = false;
+            mustRevalidate.current = false; retryBudget = null; requested = false;
           }
         }
       } catch (error) {
@@ -190,12 +222,17 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     window.addEventListener('focus', invalidate);
     document.addEventListener('visibilitychange', onVisible);
     refresh.current = invalidate;
+    refreshStartup.current = startup;
     refreshRetained.current = invalidateRetained;
     watcher.acquire();
-    invalidate();
+    // The current session request already observed ID, path and generation.
+    // Watcher/recovery hints still revalidate independently of this receipt.
+    if (!sessionPending.current && (admissionBusy.current || mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
+      lifecycleGeneration, representation, session: session.current }))) startup();
     return () => {
       disposed = true;
       if (refresh.current === invalidate) refresh.current = null;
+      if (refreshStartup.current === startup) refreshStartup.current = null;
       if (refreshRetained.current === invalidateRetained) refreshRetained.current = null;
       if (timer) clearTimeout(timer);
       active?.abort();
@@ -215,6 +252,16 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     if (retainedRequestId !== null) refreshRetained.current?.();
   }, [unavailable, retainedRequestId]);
 
-  useEffect(() => { refresh.current?.(); }, [connection]);
+  useEffect(() => {
+    const previous = previousConnection.current;
+    previousConnection.current = { key, connection, sessionPending: input.sessionPending === true, admissionBusy: input.admissionBusy === true };
+    const connectionChanged = previous.key === key && previous.connection !== connection
+      && previous.connection !== undefined && connection !== undefined && connection !== 'live' && connection !== 'read_only';
+    const admissionBecameBusy = previous.key === key && !previous.admissionBusy && input.admissionBusy === true;
+    if (connectionChanged || (admissionBecameBusy && !input.sessionPending)) refresh.current?.();
+    else if (previous.sessionPending && !input.sessionPending
+      && (input.admissionBusy || mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
+        lifecycleGeneration, representation, session: input.session }))) refreshStartup.current?.();
+  }, [connection, key, workspaceId, documentId, path, lifecycleGeneration, representation, input.session, input.sessionPending, input.admissionBusy]);
   return issue?.key === key ? issue.value : null;
 }

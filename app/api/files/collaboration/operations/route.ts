@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
 import { listAgentOperations } from '@/app/lib/collaboration/agent-operations';
-import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import { requireReadRequestWorkspace } from '@/app/lib/workspaces/request';
 
 export async function GET(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const workspaceResult = await requireReadRequestWorkspace(request);
   if (workspaceResult.response) return workspaceResult.response;
   const rateLimitResponse = applyRateLimit(request, {
     limit: 120,

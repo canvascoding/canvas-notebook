@@ -4,6 +4,7 @@ import { readPreparedWorkspacePathTrash, readPreparedWorkspacePathTrashReceipt,
   type PreparedWorkspacePathTrash, type PreparedWorkspacePathTrashReceipt } from '../filesystem/prepared-workspace-path-trash';
 
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
@@ -478,6 +479,62 @@ function validateHtmlBudgets(value: WorkspaceOperationMixedSourceEvidenceV5): vo
 }
 type HistoricalEvidenceValidation = Readonly<{ usedRichLinkAttributeKeys: readonly string[] }>;
 const historicalEvidenceValidations = new WeakMap<object, HistoricalEvidenceValidation>();
+type HistoricalEvidenceValidationFrame = {
+  active: boolean; entries: Map<string, { validation: HistoricalEvidenceValidation; bytes: number }>;
+  bytes: number; hits: number; misses: number; bypassed: number;
+};
+const historicalEvidenceFrames = new AsyncLocalStorage<HistoricalEvidenceValidationFrame>();
+const historicalEvidenceJson = JSON, historicalEvidenceStringify = JSON.stringify;
+const historicalEvidenceToString = Function.prototype.toString, historicalEvidenceApply = Reflect.apply;
+
+/** Pure historical validation only. Each invocation still captures every input
+ * and its budgets; current rows, permissions and native bytes are never stored. */
+export async function withMixedSourceEvidenceValidationReuse<T>(operation: () => T | Promise<T>): Promise<T> {
+  const frame: HistoricalEvidenceValidationFrame = { active: true, entries: new Map(), bytes: 0, hits: 0, misses: 0, bypassed: 0 };
+  try { return await historicalEvidenceFrames.run(frame, operation); }
+  finally {
+    frame.active = false; const entries = frame.entries.size, bytes = frame.bytes;
+    frame.entries.clear(); frame.bytes = 0;
+    try { console.info(`[workspace_operation_evidence_validation] {"hits":${frame.hits},"misses":${frame.misses},"bypassed":${frame.bypassed},"entries":${entries},"bytes":${bytes},"cleared":true}`); }
+    catch { /* Diagnostic sinks cannot replace an operation result or failure. */ }
+  }
+}
+function historicalEvidenceText(frame: HistoricalEvidenceValidationFrame | undefined,
+  value: WorkspaceOperationMixedSourceEvidenceV5): string | undefined {
+  if (!frame?.active) return undefined;
+  // Accessor/replaced intrinsics retain the ordinary cold path without an
+  // additional getter call. Cache keys use exact encoding, never a digest.
+  const global = Object.getOwnPropertyDescriptor(globalThis, 'JSON');
+  const stringify = Object.getOwnPropertyDescriptor(historicalEvidenceJson, 'stringify');
+  // The captured inspector remains valid when Sentry wraps the prototype
+  // method later; the actual JSON function and encoding hooks must stay current.
+  if (global?.value !== historicalEvidenceJson || stringify?.value !== historicalEvidenceStringify
+    || types.isProxy(historicalEvidenceToString) || types.isProxy(historicalEvidenceStringify)
+    || Object.getPrototypeOf(Array.prototype) !== Object.prototype || Object.getPrototypeOf(Object.prototype) !== null
+    || Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON') || Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON')) {
+    frame.bypassed++; return undefined;
+  }
+  try {
+    if (historicalEvidenceApply(historicalEvidenceToString, historicalEvidenceStringify, []) !== 'function stringify() { [native code] }') {
+      frame.bypassed++; return undefined;
+    }
+    const text = historicalEvidenceApply(historicalEvidenceStringify, historicalEvidenceJson, [value]) as string;
+    if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_EVIDENCE_BYTES) { frame.bypassed++; return undefined; }
+    return text;
+  } catch { frame.bypassed++; return undefined; }
+}
+function rememberHistoricalEvidenceText(frame: HistoricalEvidenceValidationFrame | undefined, text: string | undefined,
+  validation: HistoricalEvidenceValidation): void {
+  if (!frame?.active || text === undefined || frame.entries.has(text)) return;
+  const bytes = Buffer.byteLength(text), maximum = 16 * 1024 * 1024;
+  while (frame.entries.size >= 4 || frame.bytes + bytes > maximum) {
+    const oldest = frame.entries.keys().next().value;
+    if (oldest === undefined) break;
+    frame.bytes -= frame.entries.get(oldest)!.bytes; frame.entries.delete(oldest);
+  }
+  frame.entries.set(text, { validation, bytes }); frame.bytes += bytes;
+}
+
 
 /** Only exact immutable PlainJSON references may share historical validation.
  * The complete capture/freeze and all its budgets run BEFORE this predicate. */
@@ -520,11 +577,15 @@ function inspectEvidence(input: unknown): WorkspaceOperationMixedSourceEvidenceV
   const value = freeze(capture<WorkspaceOperationMixedSourceEvidenceV5>(input));
   const cacheable = !!input && typeof input === 'object'
     && (historicalEvidenceValidations.has(input) || isRecursivelyFrozenEvidence(input));
-  const cached = cacheable ? historicalEvidenceValidations.get(input) : undefined;
+  const frame = historicalEvidenceFrames.getStore(), text = historicalEvidenceText(frame, value);
+  const cached = (cacheable ? historicalEvidenceValidations.get(input) : undefined)
+    ?? (frame?.active && text !== undefined ? frame.entries.get(text)?.validation : undefined);
   if (cached && historicalRichLinkAttributesCurrent(cached)) {
-    historicalEvidenceValidations.set(value, cached);
+    if (frame?.active) frame.hits++;
+    historicalEvidenceValidations.set(value, cached); rememberHistoricalEvidenceText(frame, text, cached);
     return value;
   }
+  if (frame?.active) frame.misses++;
   record(value, ['evidenceVersion', 'workspaceScope', 'namespace', 'scope', 'coverage', 'observedStageProof', 'nativeComponent',
     'nativeOrdinarySources4', 'physicalSources4', 'physicalHtmlSources4', 'nativeHtmlSourceLocations', 'physicalHtmlSourceLocations', 'semanticProof', 'evidenceProof']);
   const component = decodeWorkspaceOperationNativeHtmlSourceEvidenceV4(value.nativeComponent);
@@ -592,7 +653,7 @@ function inspectEvidence(input: unknown): WorkspaceOperationMixedSourceEvidenceV
   if (value.semanticProof !== proof(semantic(value)) || evidenceProof !== proof(body)) return reject();
   const validation = freeze({ usedRichLinkAttributeKeys: usedRichLinkAttributeKeys(value) });
   if (cacheable) historicalEvidenceValidations.set(input, validation);
-  historicalEvidenceValidations.set(value, validation);
+  historicalEvidenceValidations.set(value, validation); rememberHistoricalEvidenceText(frame, text, validation);
   return value;
 }
 

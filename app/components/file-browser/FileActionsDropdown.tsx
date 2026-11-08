@@ -220,6 +220,12 @@ export function FileActionsDropdown({
     return error instanceof Error ? error.message : t(fallbackKey);
   };
   const locale = useLocale();
+  const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
+  const menuOpen = open ?? uncontrolledMenuOpen;
+  const handleMenuOpenChange = useCallback((value: boolean) => {
+    setUncontrolledMenuOpen(value);
+    onOpenChange?.(value);
+  }, [onOpenChange]);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveContext, setMoveContext] = useState<{ workspaceId: string | null; path: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState('.');
@@ -241,7 +247,9 @@ export function FileActionsDropdown({
   const renamePreviewRequestId = useRef(0);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [marpExportOpen, setMarpExportOpen] = useState(false);
-  const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
+  const [marpDetection, setMarpDetection] = useState<{
+    workspaceId: string | null; path: string; isMarp: boolean;
+  } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [copyContext, setCopyContext] = useState<{
@@ -317,8 +325,10 @@ export function FileActionsDropdown({
     ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
     : false;
   const hasMarpName = node ? node.type === 'file' && hasMarpFileName(node.name) : false;
+  const marpWorkspaceId = activeWorkspace?.id ?? null;
   const isMarpMarkdown = node
-    ? isMarkdown && (hasMarpName || (marpDetection?.path === node.path && marpDetection.isMarp))
+    ? isMarkdown && (hasMarpName || (marpDetection?.workspaceId === marpWorkspaceId
+      && marpDetection?.path === node.path && marpDetection.isMarp))
     : false;
 
   const isImageFile = node
@@ -350,34 +360,35 @@ export function FileActionsDropdown({
   }, [activeWorkspace?.id, nodePath, copySourceKey]);
 
   useEffect(() => {
-    if (!nodePath || !isMarkdown || hasMarpName) {
+    if (!menuOpen || !nodePath || !isMarkdown || hasMarpName) {
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
 
     fetch(`/api/files/marp-detect?path=${encodeURIComponent(nodePath)}`, {
-      headers: workspaceHeaders(),
+      headers: workspaceHeaders(marpWorkspaceId),
+      signal: controller.signal,
     })
       .then(async (response) => {
         if (!response.ok) return null;
         return response.json() as Promise<{ isMarp?: boolean }>;
       })
       .then((result) => {
-        if (!cancelled) {
-          setMarpDetection({ path: nodePath, isMarp: !!result?.isMarp });
+        if (!controller.signal.aborted) {
+          setMarpDetection({ workspaceId: marpWorkspaceId, path: nodePath, isMarp: !!result?.isMarp });
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setMarpDetection({ path: nodePath, isMarp: false });
+        if (!controller.signal.aborted) {
+          setMarpDetection({ workspaceId: marpWorkspaceId, path: nodePath, isMarp: false });
         }
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [hasMarpName, isMarkdown, nodePath]);
+  }, [hasMarpName, isMarkdown, marpWorkspaceId, menuOpen, nodePath]);
 
   const closeMenu = useCallback(() => {
     onOpenChange?.(false);
@@ -857,7 +868,7 @@ export function FileActionsDropdown({
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={onOpenChange} modal={modal}>
+      <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange} modal={modal}>
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={4} {...contentProps}>
           {showMultiSelectOptions && (

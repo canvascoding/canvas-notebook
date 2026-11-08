@@ -1,3 +1,5 @@
+import { workspaceOperationSentryValidationReuseTest } from './workspace-operation-sentry-validation-reuse-test';
+import { workspaceOperationEvidenceReuseTest } from './workspace-operation-evidence-reuse-test';
 import { workspaceOperationNativeDeleteHtmlPlanV4Test } from './workspace-operation-native-delete-html-plan-v4-test';
 import { workspaceOperationOriginalDeleteHtmlFinalGraphTest } from './workspace-operation-original-delete-html-final-graph-test';
 import { workspaceMixedHtmlPublicCoreV5Test } from './workspace-mixed-html-public-core-v5-test';
@@ -23,4 +25,6 @@ workspacePathHtmlWebPreviewTest();
 await mcpServerWorkspaceHtmlPathContractTest();
 
 await workspaceOperationNativeDeleteHtmlPlanV4Test();
+await workspaceOperationEvidenceReuseTest();
+await workspaceOperationSentryValidationReuseTest();
 workspaceOperationOriginalDeleteHtmlFinalGraphTest();

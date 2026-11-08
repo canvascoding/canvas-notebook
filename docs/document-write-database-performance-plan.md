@@ -1,9 +1,256 @@
 # Plan: zentraler Dokument- und Linkservice
 
+## Aktueller Abnahmeabgleich vom 08.11.2026
+
+Der aktuelle Gesamtlauf auf `d5cfc3833` besteht `npm run test:all`: 335 reguläre
+Browserfälle bestanden, keine Fehler, 102 bestehende bedingte Skips; das zusätzliche
+Collaboration-Profil besteht alle 50 Fälle ohne Skips oder Flakes. Alle vier
+API-Key-Verwaltungsfälle bestehen ebenfalls. Ursprüngliche Laufzeit, geschützte
+Zeilen/Xmins, Yjs-Daten, Dateien und Speicheranker sind anschließend verifiziert
+wiederhergestellt. [Gesamtlauf-Nachweis](testing/compiled-regular-aggregate-2026-11-08.json).
+
+Der vorherige Gesamtlauf auf `227fced6e` endet mit 332 bestandenen, drei fehlgeschlagenen
+und 102 bestehenden bedingten Skips im regulären Browserprofil. Das zusätzliche
+Collaboration-Profil besteht alle 50 Fälle ohne Skips. Die drei Fehler betreffen
+die Wiederverbindung nach dem Verschieben: Ein frischer Session-Beleg unterdrückt
+den Wiederanlauf, obwohl der montierte Client weiterhin Admission-Busy meldet.
+
+Der Fix `26b7f4588` besteht Hostbuild, Linux-Build, die vollständigen Location-Hook-
+Regressionen und genau diese drei echten Browserfälle am identischen kompilierten
+Stand, ohne Wiederholung oder Skips. Initiales und späteres Busy sowie das Ende
+einer laufenden Session-Abfrage wecken den vorhandenen begrenzten Recovery-Ablauf.
+Frische Autorisierung, native Identität, lokale Änderungen und Retry-Grenzen
+bleiben erhalten. Ursprüngliche Laufzeit und geschützte Daten sind wiederhergestellt.
+[Gebundene Nachweise](testing/post-move-admission-recovery-2026-11-08.json).
+
+Der installierte Python-3.10-SDK-Pfadtest besteht alle 21 Gruppen, einschließlich
+einer echten PostgreSQL-Tabellensperre nach verlorener Claim-Commit-Bestätigung.
+Vor einem weiteren expliziten Recover werden unveränderte Zeilen/Xmins und
+Dateibytes sowie ein ausschließlich gelesener Status mit derselben Vorgangs-/
+Plan-ID geprüft. Andere Fehler und unbestätigte Endergebnisse bleiben Fehler;
+das SDK wiederholt keine Schreibvorgänge automatisch. Der frühere CI-Sperrhalter
+ist nicht nachträglich identifiziert. Der äußere Inventarcheck dieses lokalen
+Laufs bleibt separat fehlgeschlagen, weil zwei Container eines anderen Projekts
+hinzukamen; eine eigenständige Nachprüfung bestätigt sämtliche ursprünglichen
+Daten und Container-IDs. [SDK-Sperr-Nachweis](testing/sdk-claim-busy-recovery-2026-11-08.json).
+
+Offen bleiben die finale API-/SDK-/Tab-Lebensdauermatrix, Leistungsbudgets,
+CI/Review am neuen Head, Paketveröffentlichung,
+Release-Image-Abnahme und Produktionsrollout. Die Produktion läuft weiterhin auf
+2026.11.7.1. Der produktive Quelltextmodus des Zertifikate-Dokuments und drei
+wiederkehrende Projektionsfehler sind durch diese lokalen Nachweise nicht behoben.
+Review Center und Dateioperations-Undo bleiben außerhalb des Umfangs.
+
+## Vorheriger Stand
+
 Stand: 07.11.2026, Produktion 2026.11.7.1 seit 06:26 UTC verifiziert. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.
 Bestehende Daten und weiterhin erforderliche Speicherformate werden erhalten.
+
+## Aktuelle Live-Tab-Abnahme und verbleibender Dateioperationsfix
+
+Der Produktstand `7afd5e42a` besteht alle 15 veröffentlichten PR-Checks,
+inklusive der vollständig heruntergeladenen und gegen den Quellstand geprüften
+API-/SDK-CI `42403620408`: zwölf frische Paketprofile auf Python 3.10.22/3.15.2,
+alle acht installierten HTTP-/SDK-Familien und je 24 Link-Paritätsgruppen.
+Die Artefakte behalten die lokal geprüften Wheel-/Source-Prüfsummen.
+[CI-Belege](testing/sdk012-ci-2026-11-07.json).
+
+Die echte kompilierte Fünf-Minuten-/Zwei-Minuten-Abnahme besteht mit null
+`checkConnection`-Timeout-Abbrüchen. Vier echte Kapazitätsläufe bestehen mit je
+40 warmen Wechseln und sieben geöffneten Dokumenten:
+
+| Quellen | Desktop-p95 | Chromium-Mobilansicht-p95 | Live-Limits |
+| --- | --- | --- | --- |
+| 10 | 87 ms | 89 ms | 5 / 2 |
+| 200 | 90 ms | 87 ms | 5 / 2 |
+
+Die Wechsel erhalten Yjs-/Provider-Identität ohne neuen Datei-/Session-/Socket-
+Bootstrap. Geparkte Tabs erhalten beim erneuten Öffnen frische HTTP-Autorität.
+Browser-Heap und Listener zeigen über diese Wiederholungen ein Plateau. Die
+wirkliche Hocuspocus-Room-Map wird beobachtet und mit dem installierten Runtime-
+Callback verglichen; nach den 200er-Profilen sind Rooms und Verbindungen null.
+Der Server-Heap nach GC beträgt im selben Prozess rund 1.025/1.028 MiB.
+Das sind begrenzte Tests auf diesem Host, keine Zusage für physische Mobilgeräte
+oder Langzeitlast. [Kapazitätsbelege](testing/live-tabs-capacity-2026-11-07.json).
+
+Die reale Verdrängungsprüfung mit 18 Dokumenten ist am Produktstand
+`64a19589b` bestanden: Desktop hält höchstens 15, die Chromium-Mobilansicht
+höchstens sieben lokale Dokumente. Der älteste verdrängte Y.Doc ist nach zwei
+echten Browser-GCs nicht mehr erreichbar. Wiederöffnen erhält native Dokument-ID
+und sichtbaren Inhalt, benötigt frische Session-Autorität und verwendet einen
+neuen lokalen Y.Doc/Provider. Die separate reguläre Browserregression besteht
+mit einem Fall, null Fehlern, null Skips und null Flakes. Ursprünglicher Container,
+geschützte Zeilen/xmin/Dateibytes/Speicheranker und andere Container sind bestätigt
+wiederhergestellt. Die schwache Session-Accessor-Referenz allein war unzureichend;
+der private Heap zeigte zusätzlich stabile Bild-Callbacks, die einen alten
+FileEditor-Kontext hielten. Die Handler entstehen jetzt außerhalb dieses Kontexts.
+[Vorher-/Nachher-Belege](testing/live-tabs-memory-release-2026-11-07.json).
+
+Die getrennten Geräte-Nachweise sind ausdrücklich Teilresultate: Nach dem
+bestandenen Desktop-Fall überschritt der anschließende mobile Fall das gemeinsame
+reale Standortabfragen-Limit. Ein eigener frisch gestarteter mobiler Lauf besteht.
+Sein anschließender Bildtest ist jedoch nicht abgenommen: Die PNG-Testbytes sind
+ungültig, und das Entfernen der drei eigenen PNGs trifft einen echten
+`PRINCIPAL_EXPIRED`-Fehler bei 200 Dokumenten. Die zwei Quellscans und die reine
+Planberechnung überschreiten die ursprüngliche Fünf-Sekunden-Beobachtung.
+Der Web-Kandidat authentifiziert nun vor jeder SQL-Lesephase erneut die
+ursprünglichen Zugangsdaten und vergleicht ihre feste Herkunft. Die bestehenden
+Fünf-Sekunden-Grenzen, beide vollständigen Quellscans und sämtliche gehaltenen
+Prüfungen bleiben erhalten. Nach einem fehlgeschlagenen Leseabschnitt beginnt
+innerhalb dieser Beobachtung keine weitere SQL-Phase. Echte Sitzungs-/Rechteentzüge
+behalten ihren Fehlercode und werden für die Webroute mit 401/403 gekennzeichnet.
+Die registrierte PostgreSQL-Suite besteht alle 15 Recovery-/Herkunfts-/Verlustfälle
+und drei neue Fälle mit echter Pause von mehr als fünf Sekunden, einschließlich
+Sitzungsentzug. Der unveränderte Stand scheitert im selben Test mit
+`PRINCIPAL_EXPIRED`; native Zeilen/xmin und Originaldateien bleiben erhalten.
+Die kompilierte Bild-/Löschprüfung und die verifizierte API-Bereinigung der drei
+selbst erzeugten PNGs stehen noch aus. Direkte MCP-Principals wurden dabei nicht
+verändert; aus diesen Web-Nachweisen folgt keine neue große MCP-Abnahme.
+Keine produktive Datei wurde geändert oder gelöscht.
+[Gebundener Vorher-/Nachher-Nachweis](testing/path-preview-fresh-authority-2026-11-07.json).
+
+Der anschließend kompilierte Web-Vorschau-Fix aus `8f49306f2` besteht beide
+Quellscans mit 201 nativen Dokumenten. Die eigentliche PNG-Löschung scheitert
+jedoch im vorbereitenden Worker: Reservierung und sämtliche Zielprüfungen liegen
+noch gemeinsam nahe an der Fünf-Sekunden-Transaktionsgrenze. Der gespeicherte
+Auftrag bleibt `failed/preparing` mit null abgeschlossenen Aktionen; eine rein
+lesende Prüfung findet keinen Admission-Eintrag und keine Delete-/Trash-Belege.
+Der fehlgeschlagene Auftrag wird unverändert erhalten und nicht erneut gesendet.
+Ein neuer echter PostgreSQL-Test reproduziert `25P04` mit zwei realen, jeweils
+kurzen Verzögerungen in derselben Transaktion. Der Kandidat verallgemeinert die
+bereits für API-Key-Moves vorhandene Grenze: bestätigte Vorbereitung/Reservierung,
+danach Zielprüfungen in einer neuen, frisch autorisierten Claim-Transaktion.
+Sie verwenden nachweislich verschiedene echte XIDs, behalten Originaldatei und
+nativen Zustand und bestehen zusammen mit allen sieben API-Key-Owner-Gruppen.
+Der vollständige MCP-Owner-Lauf besteht alle 43 Gruppen; seine eigenen Schemas,
+Verbindungen und Testdaten sind entfernt. Die kompilierte 200er-Abnahme steht
+für diesen neuesten Kandidaten aus.
+
+Der anschließende Host- und Linux-Build aus `71bb05fed` bestehen. Im echten
+201-Dokumente-Lauf bestehen nun beide Admission-Phasen mit 2.969/3.021 ms;
+die Zielprüfung ist vollständig. Der nächste Schritt ist dennoch nicht abgenommen:
+Die abschließende atomare Delete-B2-Transaktion überschreitet nach 5.440 ms ihre
+unveränderte Grenze (`SQLSTATE_25P04`). Der Auftrag bleibt `needs_recovery` mit
+einem Original-Intent, null Delete-/Trash-Belegen und 201 gehaltenen Admission-
+Zielen. Die physische Verschiebung wurde vor B2 erreicht; ihre Trash-Bytes müssen
+vor der expliziten Recovery zusätzlich geprüft werden. Kein erneutes Delete oder
+neuer Auftrag wird hierfür gesendet. Die ursprüngliche echte Browsersitzung ist
+privat erhalten. Rein lesend stimmen alle 201 nativen Binärhashes, Vektoren,
+Registry-Zustände und Identitäten mit dem Originalplan überein; dies behauptet
+keinen vorliegenden xmin-Vergleich dieser 201 Zeilen. Originalruntime samt ihren
+vier geschützten Zeilen/xmin/Bytes/Ankern und andere Container sind wiederhergestellt.
+Der vollständige Lösch-/Recovery-/Bildlauf bleibt offen; reine Plan-Dekodierung
+von rund 14 ms pro Aufruf erklärt den B2-Abbruch allein nicht.
+[Phasen- und Vorher-/Nachher-Beleg](testing/native-path-admission-phases-2026-11-07.json).
+
+Die Datei des verbliebenen Originalauftrags ist im echten Linux-Volume zusätzlich
+verifiziert: Trash-Hash, 68 Bytes und ursprünglicher Inode stimmen; am alten Pfad
+steht kein Ersatz. Ein expliziter Resume mit ursprünglicher echter Sitzung und
+Plan-ID erreicht wieder B2, bleibt jedoch `needs_recovery` mit `PRINCIPAL_EXPIRED`.
+Die reale CPU-Messung über das gesamte rund 27-Sekunden-Recovery-Fenster ordnet
+rund 5.965 ms inklusiv dem Dekodieren gespeicherter Batch-Pläne zu. Das ist keine
+exklusive B2-Zeit und Profilierung kann selbst Aufwand hinzufügen. Statuslesen
+und Worker dekodieren dieselben großen Physical5-Daten bislang wiederholt kalt;
+der vorhandene begrenzte gespeicherte Parse-Cache gilt nur für Cohort6. Der neue
+Kandidat nutzt ihn zusätzlich für Physical5, weiterhin mit exaktem Textschlüssel,
+vier Einträgen/16 MiB und erneutem strengem, getrenntem Decode bei jeder Rückgabe.
+Aktuelle Zeilen, Actor-/Scope-/Claim-/Rechteprüfungen und die atomare B2-Grenze
+werden nicht gecacht oder gelockert. Die Regression scheitert davor am fehlenden
+Physical5-Hit und besteht danach einschließlich aller 28 bisherigen Planfamilien,
+drei Yjs-Repräsentationen, geänderter JSON-Hooks, beschädigter Bytes und aktueller
+Rich-Grammatik. Echte PGlite-Claim-/Worker-Regressionen, Typprüfung und Lint bestehen.
+Der reine 1,25-MB-Planvergleich misst lokal 252 ms für neue gültige Kodierungen und
+18 ms für denselben bereits validierten Plantext; das ersetzt keine kompilierte
+Recovery- oder Ressourcenabnahme. Alle sieben nativen API-Key-Owner-Gruppen,
+die Transaktionsgrenzen-Prüfung sowie die zwei gezielten PostgreSQL-Fälle für
+echte Web-Löschung mit 60 Dokumenten und Rechteentzug/Original-Recovery bestehen.
+Ihre eigenen Schemas, Clients, Pools und Testdaten sind entfernt. Die beiden
+gezielten MCP-Fälle ersetzen keinen aktuellen vollständigen 43er-Lauf. Als Nächstes
+muss der Originalauftrag auf dem neuesten gebauten Image abgeschlossen werden. Originalruntime, ihre geschützten Daten und andere Dienste sind erhalten.
+[CPU-, Plan- und Regressionsevidenz](testing/stored-physical-plan-parse-2026-11-08.json).
+
+Der kompilierte Stand `605a586d2` besteht Host- und Linux-Build. Die explizite
+201-Dokumente-Recovery ohne CPU-Profiler erreicht nun alle Domain-Belege und
+`before-result-validation` nach 3.598 ms; die gesamte atomare B2-Transaktion
+überschreitet aber anschließend nach 5.035 ms weiterhin ihre Grenze
+(`SQLSTATE_25P04`, kein COMMIT-Versuch). Der Auftrag bleibt erhalten und offen.
+Der nächste Kandidat begrenzt die Wiederverwendung bereits validierter historischer
+E5-Nachweise auf genau einen vollständig abgewarteten Delete-B2-Versuch. Jede
+Eingabe wird weiterhin vollständig und budgetiert erfasst; nur ihre historische
+Analyse kann bei exakt gleicher JSON-Kodierung wiederverwendet werden. Beide
+aktuellen Quellprüfungen, Originalbytes, Rechte-/Claim-/SQL-Prüfungen und die
+atomare Speicherung bleiben frisch beziehungsweise unverändert. Der Versuch
+hält höchstens vier Einträge/16 MiB und leert sie auch beim Fehler. Aktuelle
+Rich-Grammatikabhängigkeiten bleiben wirksam. Andere Copy-/Move-/Leseflüsse
+verwenden ohne diesen expliziten Rahmen ihren bisherigen Weg.
+Die registrierte Suite sowie Typprüfung/Lint bestehen. Neue Prüfungen zählen
+transparent echte Hash-Aufrufe über alle drei Yjs-Repräsentationen und belegen
+getrennte/frische Ergebnisse, geänderte Nachweise/aktuelle Yjs-Bytes, Getter/Proxy-
+Ablehnung, unveränderte fremde JSON-Getter, Rich-Grammatik, verschachtelte und
+abgelaufene Lebensdauern, Eintrags-/Eingabebudgets und erhaltene Originalfehler.
+Sieben echte API-Key-Owner-Gruppen sowie die zwei gezielten PostgreSQL-Fälle für
+Rechteentzug/Recovery und Archivierungs-CAS-Rollback bestehen. Der echte B2-Weg
+zeigt dabei Wiederverwendung und anschließende Bereinigung; eigene Testschemata,
+Clients, Pools und Daten sind entfernt. Die aktuelle kompilierte 201er-Abnahme
+steht für diesen Kandidaten noch aus. Keine Produktionsdaten wurden geändert.
+[Nachweise und Grenzen](testing/delete-b2-evidence-reuse-2026-11-08.json).
+
+Der kompilierte Stand `c38bf5ac1` besteht Host-/Linux-Build, aber noch nicht
+die echte 201er-Recovery: Der ursprüngliche Auftrag bleibt offen. Die neue
+Diagnose zeigt 19 umgangene textbasierte Wiederverwendungen, null gespeicherte
+Einträge. Der ursprüngliche Payload liegt mit bestätigtem Hash, Inode und Größe
+im Trash; Originalruntime, geschützte Zeilen/xmin/Bytes/Anker und andere Container
+sind wiederhergestellt. Es wurde kein neues Delete gesendet.
+Die tatsächlich installierte Sentry-Integration ersetzt beim Start
+`Function.prototype.toString`, ohne `JSON.parse`/`JSON.stringify` zu verändern.
+Ein neuer Test mit genau dieser Integration reproduziert vor der Korrektur 17
+zusätzliche Hash-Aufrufe. Der Kandidat verwendet den bereits erfassten Inspector
+direkt statt die Identität der später gewrappten Prototypmethode vorauszusetzen.
+Die tatsächlichen JSON-Funktionen, Getter/Proxy-/Prototyphooks und aktuelle
+Grammatik bleiben geprüft. Derselbe Test besteht anschließend einschließlich
+aller 28 historischen Planfamilien; kein Sentry-Client/Transport wird gestartet.
+Die kompilierte Recovery am Produktstand `4edc2fc30` besteht jetzt auf genau
+demselben Originalauftrag: `applied`, unveränderte Trash-Bytes/Inode/Größe,
+alle 201 nativen Zeilen/xmin/Bytes erhalten. Die abschließende Transaktion bleibt
+mit 3.849 ms unter der unveränderten Fünf-Sekunden-Grenze; die E5-Wiederverwendung
+zeigt 18 Hits, zwei Misses, null Bypässe und anschließende Bereinigung. Das ist
+eine funktionale HTTP-Recovery mit ursprünglicher Sitzung, keine vollständige
+Recovery-UI- oder globale SQL-/Ressourcenbudget-Abnahme.
+Ein weiterer frisch erstellter Container mit demselben kompilierten Stand besteht
+anschließend fünf reguläre PNG-Löschungen (zwei exakt bekannte Alt-Fixtures und
+drei neu hochgeladene gültige PNGs) sowie sieben echte Chromium-Navigationsfälle
+mit Buttons, Pfeiltasten und Grenzen. Alle fünf neuen Trash-Payloads behalten
+Hash/Inode/Größe. Die beiden früheren Aufträge bleiben erhalten, die Batchzahl
+steigt ausschließlich um fünf von zwei auf sieben, aktive Admissions sind null.
+Die ursprünglichen 201 nativen Dokumente einschließlich Zeilen/xmin/Bytes sowie
+Originalruntime, Schutzdaten und andere Container sind nach beiden Tests erhalten.
+[Geprüfte Bildnavigation](testing/physical-png-navigation-2026-11-08.png).
+[Sentry-Vorher-/Nachher-Beleg](testing/delete-b2-evidence-reuse-2026-11-08.json).
+
+Der zusätzliche registrierte Offline-Fall besteht inzwischen im tatsächlichen
+Desktop-Browser am Teststand `4bb0ec703` und in mobiler Chromium-Ansicht mit
+korrigierter Cursorprüfung am Teststand `50eb74158`, jeweils gegen Produktimage
+`4edc2fc30`. Nur Belege und Testcode unterscheiden diese Quellen. Echte Sockets
+werden geschlossen, der Browser wird offline gesetzt, und ein echter Tastaturedit
+wird mit vollständigem lokalem IndexedDB-Commit nachgewiesen. Während des
+inaktiven Tabwechsels bleiben die Servernachweise unverändert. Nach erfolgreicher
+frischer Session-Antwort erhält derselbe Yjs-Zustand den Edit; native
+Servernachweise und anschließender Reload stimmen exakt überein. Beide Läufe
+haben einen Fall, null Skips/Fehler/Flakes; Originalruntime und Schutzdaten sind
+wiederhergestellt. Der erste mobile Lauf scheiterte an `End` am visuellen
+Zeilenumbruch; jetzt bestätigen echte Auswahl-/Pfeiltasten und die PM-/DOM-
+Cursorprüfung die Einfügestelle. Der korrigierte Desktop-Fall wird im aktuellen
+Gesamtlauf geprüft. Reale Speicherfehler/Quota und die weiteren Byte-/Lebenszyklus-
+und Ressourcenbudgetfälle bleiben separat offen.
+[Offline-Nachweise](testing/live-tabs-offline-recovery-2026-11-08.json).
+
+Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
+Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
+reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich
+SDK-/Dokumentationsauslieferung und Produktionsprüfung. Dieser Arbeitsstand ist
+nicht veröffentlicht. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
 
 ## Aktueller Stand nach Release 2026.11.7.1
 
@@ -36,10 +283,190 @@ Dies ersetzt weder eine vollständige Inventur noch eine produktive Schreibabnah
 
 Der Gesamtplan bleibt offen: aktuelle SDK-Lesegrenzen integrieren, vorhandene
 Belege vollständig den Matrixzellen zuordnen und echte Lücken schließen,
-abschließende 10-/200-Quellen-Budgets abnehmen und die begrenzt live verbundenen
-Tabs aus 5c umsetzen. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
+abschließende 10-/200-Quellen-Budgets abnehmen und die inzwischen implementierten,
+begrenzt live verbundenen Tabs aus 5c vollständig abnehmen. Review Center und Dateioperation-Undo bleiben ausgeschlossen.
 Die folgenden früheren Statusabschnitte sind zeitlich gebundene Nachweise; ihre
 damaligen Offenstände werden nicht als aktueller Release-Status übernommen.
+
+Der lokale Produktcommit `221855194` optimiert die frische Vorbereitung
+lesender nativer Principal-Phasen: Diese verwendet bei expliziter Auswahl und
+ursprünglicher Herkunftsbeobachtung den vorhandenen einzelnen Workspace-Snapshot.
+Der echte Auth-/PG-Test misst 12 statt 16 SQL-Anweisungen vor Eintritt in die
+gehaltene Transaktion: neun Auth-/Seat-/JWK-Abfragen, ein Workspace-Snapshot,
+eine aktuelle Principal-Lizenzabfrage und eine ursprüngliche Realm-Beobachtung.
+Schreibprofile, ursprüngliche Credentials und sämtliche gehaltenen Principal-,
+Owner-, Abschluss- und Commit-Prüfungen bleiben erhalten. Sperre, Sitzungsentzug,
+Seat-Suspendierung, Archivierung sowie Entzug zwischen Capture und gehaltener
+Phase werden ausdrücklich geprüft; der Fall ist als eigener nativer CI-Schritt
+registriert. Inzwischen bestehen 37 native Cookie-/Bearer-/Team-/Solo-/Lebensdauer-
+Testgruppen, einschließlich gültiger Kundenbindungen in Organisations-, Team- und
+Projektworkspaces sowie fester Owner-Beobachtungen. Dafür war kein weiterer
+Produktfix erforderlich.
+
+Host-Produktionsbuild und Linux-Image von `221855194` bestehen. Die echten
+kompilierten 10-/200-Quellen-Vergleiche bestätigen dieselben gehaltenen Yjs-/Provider-
+Objekte ohne neue Session-/Dateiabrufe bei sechs warmen Wechseln: 77–90 beziehungsweise
+76–91 ms. Die separaten fünfsekündigen Diagnosefenster sinken von 596 auf 554
+beziehungsweise 603 auf 556 beobachtete PostgreSQL-Treiberaufrufe. Das ist keine
+exklusive Ursachenquote oder vollständige p95-/Lebensdauer-Abnahme; überlappende
+HTTP-, Socket- und Hintergrundarbeit bleibt im globalen Fenster enthalten.
+Geschützte Originaldaten samt `xmin`, Dateibytes und Speicherankern sowie andere
+Container sind nach beiden Läufen erhalten und der ursprüngliche Container ist
+wiederhergestellt. [Messgrenzen und Vergleichswerte](testing/native-principal-read-capture-2026-11-07.json)
+halten die weiterhin erhebliche übrige Hintergrundlast ausdrücklich offen.
+Dieser Stand ist noch nicht veröffentlicht.
+
+Die anschließende Auth-Änderung entfernt den ungenutzten impliziten Session-JWT
+und verwendet für die frische Seat-Prüfung den bestehenden einzelnen Snapshot.
+Der echte Cookie-/Bearer-/PostgreSQL-Test misst 4 statt 9 Session-Abfragen,
+keinen JWK-Zugriff und insgesamt 7 statt 12 Abfragen für den nativen Read-Capture.
+Vier Auth-Prüfgruppen, vier Capture-Gruppen und 37 abhängige native
+Transportgruppen bestehen. Der Vorher-/Nachher-Test reproduziert den Fehler am
+unveränderten Auth-Stand und besteht nach Wiederherstellung des Fixes.
+Sitzungsentzug, Sperre, Seat-Suspendierung, Ablauf, aktuelle Seat-Entscheidungen
+und explizite JWT-/MCP-Audience-/Scope-Prüfungen bleiben erhalten.
+Die [gebundenen Nachweise](testing/auth-session-jwt-2026-11-07.json) ersetzen
+keine kompilierte OAuth-Anmeldung oder neue globale Hintergrundmessung; diese
+Abnahmen wurden anschließend für Anmeldung und SDK ergänzt: Hostbuild und
+Linux-Image des Produktstands `2ecbc253d` bestehen. Im echten Container bestehen
+API-Key-Erstellung, Rotation, Entzug und SDK-/REST-Schreiben mit zwei offenen
+Editoren einschließlich Reload (16 Editorprüfungen). Eine zweite echte
+Browserprüfung durchläuft PKCE, Consent, Callback und Code-Austausch, erstellt
+und ändert ein Dokument mit dem installierten SDK 0.1.2, bestätigt beide
+Editoren live und nach Reload (6 Prüfungen), verwendet einen echten
+Refresh-Token-Grant und weist den Bearer nach Verbindungsentzug zurück.
+Sie prüft keinen natürlichen Tokenablauf. Ursprünglicher Container, geschützte
+Zeilen/xmin/Dateibytes/Anker sowie andere Container sind bestätigt erhalten;
+eigene Credentials werden entzogen und Einstellungen wiederhergestellt.
+[Gebundene kompilierte Nachweise](testing/compiled-session-auth-sdk-2026-11-07.json).
+Die globale Lastmessung, die aktuelle vollständige Gesamtabnahme und die
+Veröffentlichung bleiben offen. CI meldet außerdem einen noch ungeklärten
+SDK-Move-Fall bei absichtlich verlorenem HTTP-Acknowledgement. Dieser Fall ist
+inzwischen lokal identisch reproduziert und behoben: Ein zusätzlicher IO-Cleanup-
+Fehler verlor die ursprüngliche Caller-Cancellation aus seiner Fehlerkette.
+Der SDK-Exit erhält sie jetzt ausdrücklich als Ursache; der Cleanup-Fehler bleibt
+sichtbar. Der installierte korrigierte SDK-Kandidat besteht alle 21 Move-/Delete-
+HTTP-/PG-Gruppen, einschließlich zwei verlorener HTTP-Antworten und vier verlorener
+Commit-Bestätigungen, mit null automatischen Schreibwiederholungen und erhaltenen
+Originalen/Historien. Sechs frische Wheel-/Source-Abhängigkeitsprofile bestehen
+auf Python 3.10.19; die Adapterprofile jeweils mit 105 Tests ohne Skips. Auch das
+endgültige Source-Archiv besteht frisch installiert seine 105 enthaltenen Tests.
+[Vorher-/Nachher- und Artefaktnachweise](testing/sdk-lost-ack-cancellation-2026-11-07.json).
+Der korrigierte installierte SDK-Kandidat aus `14aa48359` besteht inzwischen
+auch beide kompilierten API-Key-/OAuth-/Editor-Abläufe mit 16 plus 6 Prüfungen,
+echtem Refresh-Grant, Entzug und bestätigter Wiederherstellung. Der Backendstand
+bleibt `2ecbc253d`; exakt sieben SDK-/Test-/Nachweisdateien bilden die geprüfte
+Abweichung. Aktuelle Remote-CI und Veröffentlichung bleiben offen.
+
+Die anschließende gleiche 10-/200-Quellen-Messung am Backend `2ecbc253d`
+misst sechs warme Wechsel mit 75–82 bzw. 79–90 ms, gleichen Yjs-/Provider-Objekten
+und null neuen Datei-/Session-/Socket-Aufrufen. Die normalen fünfsekündigen
+Leerlauffenster zählen 490 bzw. 530 PostgreSQL-Treiberaufrufe (zuvor 608/618);
+die separaten Diagnosefenster 470/505 (zuvor 554/556). Diese globale Beobachtung
+enthält überlappende Hintergrundarbeit und ist keine exklusive Verursacherquote
+oder vollständige p95-/Ressourcenabnahme. [Gebundene Messungen](testing/document-open-auth-background-sql-2026-11-07.json).
+
+Der nächste gezielte Produktfix reduziert leere Drain-Abfragen: nach leeren
+erfolgreichen Beobachtungen 500 ms, dann höchstens eine Sekunde zwischen Polls;
+Arbeit, Fehler und Wake stellen den schnellen Takt wieder her. Dauerhafte DB-
+Beobachtung und alle unveränderten Owner-/Schema-/Rechteprüfungen bleiben erhalten.
+Der neue Timerfall schlägt vorher gezielt fehl und besteht danach. Acht echte
+PostgreSQL-Gruppen prüfen nun auch einen neuen dauerhaften Drain nach erreichtem
+Leerlauftakt ausdrücklich ohne Wake-Signal, mit echter Owner-Freigabe und atomarem
+Receipt/Acknowledgement. Die verwandte Representation-/Drain-/Handoff-Abnahme
+besteht. Der Fall ist in nativer CI registriert. [Nachweise](testing/drain-worker-idle-cadence-2026-11-07.json).
+Hostbuild und Linux-Image von `ebbe02446` bestehen. Der gleiche echte
+10-/200-Quellen-Browservergleich misst 75–85 bzw. 77–86 ms für sechs warme Wechsel
+bei gleichem Yjs-Dokument/Provider und ohne neue Datei-/Session-/Socket-Anfrage.
+Im Diagnosefenster sind es fünf statt 19 leere Drain-Beobachtungen; global
+425/430 statt 470/505 PostgreSQL-Treiberaufrufe. Die normalen Fenster messen
+465/467 statt 490/530. Die Messgrenzen und offene übrige Last bleiben ausdrücklich
+erhalten; Originalruntime/Zeilen/xmin/Bytes/Anker und andere Container sind nach
+beiden Läufen bestätigt unverändert.
+
+Die CI `42393380413` von `14aa48359` besteht mit allen 15 veröffentlichten Checks.
+Die heruntergeladenen Artefakte bestätigen zwölf frische SDK-Profile auf
+Python 3.10.22/3.15.2, je 105 Adaptertests ohne Skips, acht native SDK-Familien
+und 24 SDK-Link-Paritätsgruppen je Python-Lane. Alle acht SDK-Laufzeitdateien
+stimmen mit diesem Commit überein; finales Wheel und Source-Archiv sind bytegleich
+mit den lokal geprüften finalen Artefakten. [Audit](testing/sdk012-ci-2026-11-07.json).
+Der neuere Worker- und Clientstand benötigt weiterhin seine eigene CI.
+
+Die anschließende reale Ticket-Warteprüfung findet eine weitere Live-Tab-Lücke:
+Nach dem kurzen Ticket-Lebenszyklus ist nur noch einer von zwei Tabs live, obwohl
+die App sichtbar und die Fünf-Minuten-Grenze nicht erreicht ist. Das lokale
+Yjs-Dokument und alle geschützten Originale bleiben erhalten. Die mechanischen
+Tests hatten synthetische 15-Minuten-Tickets verwendet; sie verwenden jetzt die
+echten 90 Sekunden und prüfen gebündelte Erneuerung und Netzwerk-Reconnect.
+Der lokale Clientfix erhält den vorhandenen Yjs-/IndexedDB-Eintrag und erhält
+über den bisherigen HTTP-/Provider-Authentifizierungsweg neue Autorität, bevor
+das Ticket abläuft. Alte Request-Scopes werden abgebrochen; alte HTTP-Belege
+werden währenddessen nicht wiederverwendet. Budget-, Hidden-/Inaktivitäts-,
+Sperr-/Rechte- und Recovery-Fences bleiben erhalten. Die mechanische Regression
+auf Node24 sowie bestehende Retention-/Rename-/Recovery-Fälle bestehen.
+[Fehler und lokaler Fix](testing/live-tabs-natural-ticket-expiry-2026-11-07.json).
+Der kompilierte Stand `d85de1710` besteht inzwischen die reale Fünf-Minuten-
+Inaktivitäts- und Zwei-Minuten-Hidden-Prüfung: erst zwei, dann eine Verbindung;
+in der tatsächlich ausgeblendeten App danach null, ohne erneutes Öffnen im
+Hintergrund. Beim Rückkehren bleiben dieselben lokalen Yjs-Dokumente erhalten
+und erhalten frische HTTP-Autorität. Die private Browserprobe verwendet einen
+eigenen Chromium-Standardkontext ohne Playwright-Fokus-Overrides und keine
+Uhrzeit-/Sichtbarkeits-/Netzwerkmocks. Originalruntime, geschützte Zeilen/xmin,
+Dateibytes, Anker und andere Container sind bestätigt erhalten.
+Die passive Socket-Beobachtung findet dabei eine verbleibende Ursache unnötiger
+Last: inaktive Tabs mit Awareness `null` verlieren den normalen Heartbeat und
+werden ungefähr alle 33 Sekunden von Hocuspocus `checkConnection` geschlossen.
+Der lokale Fix hält stattdessen Awareness `{}` ohne Canvas-/Cursor-/Selection-
+Felder; beim tatsächlichen Parken/Hidden-Pause bleibt die Entfernung erhalten.
+Die neue mechanische Erwartung schlägt vorher fehl und besteht nach dem Fix;
+auch der echte Provider-/Awareness-Protokollfall besteht auf Node24 ohne Änderung
+der Dokumentbytes. [Befund und Nachweise](testing/live-tabs-idle-heartbeat-2026-11-07.json).
+Die kompilierte Nachprüfung dieses Heartbeat-Fixes, übrige Ressourcen-/
+Lebenszyklusmatrix, aktuelles vollständiges `test:all`, aktuelle CI/Reviews und
+Veröffentlichung bleiben offen. Review Center und Undo bleiben ausgeschlossen.
+
+Die echte Peer-Abnahme ist inzwischen erweitert: Eine zweite Sitzung desselben
+Benutzers schreibt über den sichtbaren Editor, während der Zieltab in der ersten
+Sitzung inaktiv ist. Der exakte Text ist vor Aktivierung in dessen tatsächlichem
+Yjs-Dokument vorhanden und über den nativen HTTP-Leser bestätigt; der anschließende
+Wechsel dauert 88 ms bei identischem Yjs-/Provider-Objekt und ohne neue Datei-,
+Session- oder Socket-Anforderung. Der eigene Testtext wird bestätigt entfernt.
+Ein zusätzlicher Fall mit zwei verschiedenen Fixture-Benutzern besteht und ist
+wortgleich in der bestehenden regulären Kollaborationssuite registriert. Er
+verwendet echte Anmeldung, UI, HTTP und Sockets sowie die gemeinsame sichere
+Fixture-Bereinigung. Review-/Undo-Spezialfälle bleiben ausgeschlossen.
+
+Der Zwei-Benutzer-Fall läuft auf einem frischen markierten Linux-Datenvolume;
+der ältere Team-Testbestand mit nicht mehr passenden Speicherankern bleibt
+unverändert. Nach dem bestandenen UI-Fall schlug die Node-Gesundheitsbeobachtung
+beim Verbindungsaufbau fehl. Nur die lesende Nachprüfung wurde wiederholt: Derselbe
+neue Bestand startet erneut mit gültigen Ankern und gesunder Team-Kollaboration.
+Die geschützten Originaldaten, der ursprüngliche Container und die anderen
+Dienste sind erhalten. [Peer-Belege und Prüfgrenzen](testing/live-tabs-peer-2026-11-07.json)
+trennen den bestandenen UI-Fall, die fehlgeschlagene Beobachtung und ihre
+erfolgreiche Nachprüfung. Die übrigen Lebensdauer-/Recovery-/Ressourcenfälle,
+abschließende Gesamtsuite und Veröffentlichung bleiben offen.
+
+Die zusätzliche kompilierte Abnahme vom 07.11. besteht für zwei bestehende
+Offline-Fälle ohne Skip oder Flake: Rich-Text-Änderungen und Offline-Tabwechsel
+bleiben erhalten und synchronisieren nach Wiederverbindung. Der installierte
+veröffentlichte SDK-Stand 0.1.1 stimmt in allen acht Laufzeitdateien mit diesem
+Checkout überein. Tatsächliche Key-Ausstellung, SDK-Anlage/-Edit/-Status,
+REST-Edit und unabhängiges SDK-Lesen sind mit zwei offenen Yjs-Editoren geprüft.
+Ein Leseschlüssel kann lesen, aber nicht bearbeiten; Rotation und Widerruf
+sperren den alten beziehungsweise aktuellen Schlüssel in REST und SDK.
+Die verbleibenden Key-Fälle wurden am erhaltenen eigenen Testdokument fortgesetzt,
+statt bestätigte Schreibvorgänge erneut auszuführen. Eigene Keys sind widerrufen,
+MCP-Einstellungen zurückgestellt und geschützte Originaldaten samt Ankern und
+anderen Containern nach jedem Lauf unverändert; der ursprüngliche Container läuft.
+
+Ein initialer SDK-Read nach Editor-Reload scheiterte einmal mit `ExceptionGroup`;
+der darunterliegende Code wurde in diesem Versuch nicht erfasst. Die gezielte
+Lese-Nachprüfung sowie fünf Reload-/Read-Durchläufe bestehen. Die Ursache des
+Erstfehlers bleibt offen; daraus wird kein behobener Produktfehler abgeleitet.
+[Abnahmegrenzen und gebundene Belege](testing/compiled-api-key-sdk-live-editors-2026-11-07.json)
+trennen diese Ergebnisse von vollständiger Matrix, aktueller Gesamtsuite und
+Produktionsabnahme. Es wurde dafür kein Produktcode geändert oder Release erstellt.
 
 Private aktuelle Belege: `pr233-full-compiled-880ee58a5-20261107-audit.json`,
 `release71-native-ci-current-audit.json`, `release71-publication-audit.json`
@@ -3220,7 +3647,126 @@ sind in diesen Zahlen nicht enthalten.
 
 #### Erweiterter Plan: begrenzt live verbundene Tabs, 05.11.2026
 
-**Status: geplant, noch nicht implementiert.** Diese Benutzeranforderung ersetzt
+**Status am 07.11.2026: Ressourcenpolicy und Provider-/Tab-Integration lokal
+umgesetzt; Browser-, Ressourcen- und Gesamtabnahme offen.**
+`open-document-retention.ts` entscheidet rein über vorhandene Lebensdauern und
+erteilt weder Rechte noch neue Verbindungen. Sechs gezielte Gruppen prüfen die
+globalen Desktop-/Mobilgrenzen, LRU, Bytebudgets, Zeitgrenzen und falsche
+Anmeldekontexte. Dashboard, Datei-Leser und bestehende Provider-Verwaltung sind
+jetzt verbunden: Bereits verbundene Tabs können dieselbe bestätigte HTTP-/Yjs-
+Lebensdauer verwenden; warme und unterbrochene Verbindungen benötigen weiterhin
+frische HTTP-Autorisierung. Eine vollständig ausgeblendete App pausiert nach zwei
+Minuten auch den aktiven Transport, erhält Yjs und lokale Änderungen und prüft
+beim Fortsetzen die Rechte erneut. Die bestehende bestätigte Persistenz-/Recovery-
+Sicherung bleibt vor jeder tatsächlichen Freigabe bestehen.
+
+Die neue mechanische Prüfung `test:collaboration:live-tabs` besteht mit echten
+React-/Yjs-Lebensdauern und Provider-/IndexedDB-Doubles: A→B→A ohne neuen Session-
+Abruf, Peer-Updates, globale Mobilgrenze über Workspace-Wechsel, warmer und Busy-
+Rejoin, Inaktivität, ausgeblendete App mit lokalen Änderungen und Rechte-Downgrade,
+Logout, eine verspätete Tokenantwort aus dem vor der Pause abgebrochenen Request-
+Kontext, Read-only-Verbindungszustand, explizites Schließen sowie Rückfall auf das
+bisherige Verhalten. Fehlender lokaler Speicher und Quotenfehler erhalten die
+letzte unbestätigte RAM-Kopie; erst nach einem bestätigten Backup wird freigegeben.
+Native-Peer-, Rename-/Revalidation- und Durability-Clientregressionen bestehen
+ebenfalls. Die Quotenfälle belegen noch keine sichtbare Erklärung im echten Browser.
+Quell- und Logbindungen stehen in
+`docs/testing/live-document-tab-lifetimes-2026-11-07.json`.
+
+Beide neuen Prüfungen sind in der Native-API-/SDK-CI und als unabhängige Schritte
+von `test:all` registriert. Die Integration ist noch nicht veröffentlicht. Der
+Host- und Linux-Build am Stand `b87af29ed` bestehen. Die erste echte Desktop-
+Browserprüfung an zehn Quellen zeigt beim warmen Wechsel null Session-Abrufe, aber
+noch einen Datei-Read: `revealAndLoadFile` erzwingt bislang stets `noCache=true`.
+Der Aufrufer erlaubt nun ausdrücklich nur im Notebook die Wiederverwendung eines
+aktuell autorisierten, verbundenen Textdokuments. Ist ein Laden erforderlich,
+behalten Standardöffnungen, explizites Neuladen, Lineage-gebundene sowie warme/offline
+oder widerrufene Lebensdauern den frischen Read. Die Store-Regression reproduziert den Fehler vor dem
+Fix und besteht danach; alle bestehenden Reveal-/Chat-Link-Prüfungen bestehen.
+Sie sind zusätzlich in `test:all` und der Native-CI registriert. Nach dem fehlgeschlagenen
+Browsertest sind Originalcontainer, geschützte Zeilen/xmin/Dateien und Speicheranker
+unverändert wiederhergestellt. Quellen und Belege:
+`docs/testing/live-document-tab-open-facade-2026-11-07.json`.
+
+Der korrigierte Aufrufer `6545f2eeb` besteht inzwischen Host- und Linux-Build
+sowie echte Browserläufe mit zehn Dokumenten auf Desktop und Mobilgerät und mit
+200 Dokumenten auf Desktop. Sechs warme Wechsel pro Lauf verwenden dieselben
+Yjs-/Provider-Objekte ohne neue Session, Datei-Read oder neuen WebSocket. Der
+Originalcontainer sowie geschützte Daten und andere Dienste sind wiederhergestellt.
+Private Belege: `compiled-live-tabs-10-on-desktop-1794045504268-result.json`,
+`compiled-live-tabs-10-on-mobile-1794045738852-result.json` und
+`compiled-live-tabs-200-on-desktop-1794046000749-result.json`.
+
+Der Desktop-Lauf mit zehn Dokumenten zeigt dennoch 61 HTTP-bezogen gemessene
+SQL-Abfragen und 19 Pool-Checkouts je warmem Wechsel: Marp-Erkennung 20/6,
+Agent-Operations 21/7 und Dateibesuch 20/6. Diese Messgrenze umfasst nicht alle
+WebSocket-/Worker-Abfragen. Die Marp-Erkennung wird deshalb erst beim tatsächlichen
+Öffnen des Dateimenüs ausgeführt, mit explizitem Workspace und abgebrochener
+Anfrage bei Kontextwechsel. Fünf gemountete React-Regressionsfälle und echte
+kompilierte Chromium-Läufe auf Desktop und Mobilgerät bestehen am Stand
+`b910229e9`: keine Marp-Reads bei geschlossenen Menüs, tatsächliche erfolgreiche
+Reads beim Öffnen von Editor- und Tab-Kontextmenü. Sechs gewöhnliche warme
+Wechsel erzeugen jeweils zwei HTTP-Nebenaufrufe mit 41 SQL-Abfragen und 13
+Pool-Checkouts, ohne neue Session, Datei-Read oder Verbindung. Bei sieben
+nacheinander geöffneten Dokumenten halten Desktop und Mobil ihre Grenzen von
+fünf beziehungsweise zwei Verbindungen ein. Ein verdrängter Tab behält das
+Yjs-Dokument und erhält bei Rückkehr eine frische Session sowie einen neuen
+Provider; der Provider eines anderen weiterhin live gehaltenen Tabs bleibt
+erhalten. Der gemessene Desktop-Wechsel liegt bei 91–113 ms und erfüllt das
+100-ms-p95-Ziel in diesem Lauf noch nicht. Originalruntime, geschützte
+Zeilen/Bytes/Anker und andere Container sind nach beiden Läufen erhalten.
+Die Menüregression ist als `test:files:menus` in der unabhängigen Gesamtsuite
+und in der nativen CI registriert. Beleg:
+`docs/testing/live-document-menu-demand-2026-11-07.json`.
+Die folgenden drei Nebenrouten verwenden nun für eine explizite, bereits
+initialisierte Workspace-Auswahl den vorhandenen lesenden Snapshot über den
+neuen gemeinsamen `requireReadRequestWorkspace`: Dateibesuch/-liste,
+Agent-Operations und Marp-Erkennung. Echte Anmeldung, aktuelle Lizenz-/Seat- und
+Workspace-Rechte werden weiter je Anfrage geprüft; Standard-/Legacy-Auswahl
+verwenden ihren bisherigen Zugang. Die neue isolierte PostgreSQL-Quellprüfung
+besteht fünf Gruppen für die vier Handler, einschließlich unabhängiger frischer
+Sessions je Sperrfall und unveränderter nativer Zeilen/xmin. Im Quelltest ergeben
+sich 10/11/10 Statements für Marp/Operations/Dateibesuch, davon neun für echte
+Session-/Lizenz-/Seat-/JWK-Prüfung und eines für den Workspace-Snapshot; dies ist
+keine kompilierte Browser- oder Gesamtbudgetmessung. Der frühere warme Marp-
+Quellaufruf scheitert mit 21 Statements am neuen Budget. Die neue native Prüfung
+ist in der CI registriert. Host- und Linux-Build sowie kompilierte Chromium-
+Läufe mit zehn und 200 regulär hochgeladenen Quellen bestehen am Stand
+`620dbc298`. Warme Wechsel behalten Yjs/Provider und erzeugen keine neue Session
+oder Inhaltsabfrage. Die beiden üblichen Nebenaufrufe sind auf dem beobachteten
+schnellen Pfad zusammen mit 21 HTTP-bezogenen SQL-Anweisungen erfasst; weitere
+asynchrone Arbeit kann in derselben Phase dazukommen. Rechte- und Speichergrenzen
+werden damit nicht als insgesamt abgenommen erklärt.
+
+Die zusätzliche leise Prozess-/Thread-Erfassung zeigt in fünf Sekunden normalem
+Leerlauf 686 beobachtete PostgreSQL-Anweisungen bei zehn Quellen und 646 bei
+200 Quellen. Die HTTP-Anfragen allein ergeben jeweils 52. Separate diagnostische
+Leerlaufphasen liefern 596 beziehungsweise 603 Anweisungen und konkrete Aufrufe
+in `readMemberScopeSnapshot`, `checkIdentity` und Transaktionen des
+`room-admission-worker`. Diese Aufrufklassifikationen können überlappen; daraus
+wird keine exklusive Verursacherquote abgeleitet. Der folgende Arbeitsschritt
+muss diese wiederholten Hintergrundprüfungen untersuchen und reduzieren, ohne
+Rechte-/Realm- oder Raumfreigabefences abzuschwächen. HTTP-Zuordnung und
+zeitbezogene Gesamtbeobachtung haben ausdrücklich unterschiedliche Grenzen.
+Originalruntime, geschützte Zeilen/xmin/Bytes/Anker und andere Container sind nach
+beiden Läufen erhalten. Belege:
+`docs/testing/file-open-auxiliary-current-access-2026-11-07.json` und
+`docs/testing/document-open-background-sql-2026-11-07.json`.
+
+Die CI von PR235 auf dem vorigen Kopf `102c8d07f` besteht einschließlich aller
+15 veröffentlichten Checks. Die Artefakte bestätigen zwölf frische SDK-Profile
+auf Python3.10/3.15, je21 Pfadgruppen ohne automatischen Schreib-Replay, vier
+Lesegrenzgruppen und zwölf ausgeführte MDX-Schreibfunktionen. Die acht SDK-
+Laufzeitdateien stimmen mit dem aktuellen Checkout überein; native OS-Keyring-
+Abnahme wird durch diese Linux-Profile nicht behauptet. Der neue Produktcommit
+`620dbc298` braucht noch seinen eigenen CI-Lauf. Privater Audit:
+`pr235-ci-42364539003-audit.json`.
+
+Weitere Lebenszyklus-/Recovery-Browserfälle, vollständige Ressourcenbudgets und
+aktuelles vollständiges `test:all` bleiben offen. Review Center und Undo bleiben
+außerhalb der Umsetzung.
+
+Diese Benutzeranforderung ersetzt
 das bisherige Ziel, jeden inaktiven Transport sofort abzubauen. Der aktuelle
 Client hält höchstens drei geeignete inaktive Yjs-Dokumente für 15 Sekunden und
 höchstens ein MiB je Dokument im RAM; `parkTextEntry` zerstört dabei sofort den
@@ -3780,3 +4326,65 @@ grün ausgewiesen. Die tatsächliche native Startup-Abnahme ist der bestehende
 RawSocket-/PostgreSQL-Test. Neue Builds, der kompilierte Deep-Link-Fall, die ganze
 aktuelle Gesamtsuite und abschließende PR-/Release-Abnahme bleiben offen.
 Review Center und Dateioperation-Undo werden nicht ausgebaut.
+
+### Großdokumente: quadratische E-Mail-Startsuche beseitigen (2026-11-08)
+
+Der Bytebudget-Test trifft beim echten API-Lesen eines bereits bestätigten,
+755.119 Byte großen Rich-Yjs-Zustands auf HTTP 503 `DOCUMENT_READ_UNAVAILABLE`.
+Eine unabhängige lesende Prüfung bestätigt vollständige Zustände und passende
+Zustandsvektoren für alle 16 eigenen Testdokumente. Die Checkpoints ziehen ohne
+registrierten Projektionsfehler nach. Der ursprüngliche Test hat die native
+Größenmessung fälschlich vom späteren Dateicheckpoint abhängig gemacht; die
+Abschlussprüfung des Exports bleibt als eigene Bedingung erhalten.
+
+Das CPU-Profil der tatsächlichen Dokumentdaten zeigt die ungebundene Suche nach
+E-Mail-Adressen als Engpass: Markdown-Verarbeitung benötigt 27,9 Sekunden,
+profiliert 28,4 Sekunden. Die Startsuche prüft jetzt jeden zusammenhängenden
+lokalen Adressteil einmal und das zugehörige Domainmuster an einer festen Position.
+Die gleiche native Quelle wird damit in 51 Millisekunden verarbeitet. Die
+bestehende Adresstokenisierung, Berechtigungsgrenzen und Zeitlimits bleiben gleich.
+
+Die [gezielten Quellcodebelege](testing/markdown-bare-email-performance-2026-11-08.json)
+enthalten die tatsächlichen Messungen und deren Grenzen. Alle fünf Hint-Tests
+und der bestehende Markdown-Roundtrip-Test bestehen. Neue kompilierte API- und
+Browserprüfungen, die endgültige Gesamtabnahme und Veröffentlichung stehen aus;
+die Quellcodemessung ersetzt diese Schritte nicht.
+
+### Zusätzliche Ortungsaufrufe beim Editorstart begrenzen (2026-11-08)
+
+Das neue Image von `bf2838461` besteht 72 tatsächliche native API-Leseantworten
+mit HTTP 200, maximal 195 Millisekunden. Desktop-Byteverdrängung sowie eine
+separate mobile Abnahme bestehen; alle 16 eigenen Dokumentinhalte und finalisierten
+Exportbelege bleiben erhalten. Der anschließende Wechsel zwischen Desktop- und
+Mobil-Sitzungen im selben Serverlauf bleibt zunächst rot.
+
+Die passive Beobachtung des tatsächlichen Browser-Stores und der HTTP-Antworten
+belegt HTTP 429 auf `/api/files/collaboration/location`: 74 Ortungsantworten im
+Desktop-Profil und 66 im Mobil-Profil, davon vier gedrosselt. Der tatsächliche
+Klick trifft den richtigen Tab. Danach beginnen weder ein neuer Öffnungsauftrag
+noch ein neuer Dateiladevorgang; das bisherige Dokument bleibt ausgewählt. Die
+Hypothese einer versehentlichen Überholung durch einen Hintergrund-Refresh wird
+durch diese Messung nicht bestätigt.
+
+Der Editor erhält jetzt das genaue Session-Objekt seines bestehenden
+Kollaborationsclients. Nur dessen registrierter, aktueller und nicht abgelaufener
+HTTP-Beleg für dieselbe Identität und denselben Pfad ersetzt die zusätzliche
+Start-Ortung. Metadatenkopien und lokale Offline-Belege reichen nicht. Watcher-
+Hinweise, Reconnects und die Wiederherstellung nicht verfügbarer Dokumente prüfen
+weiterhin frisch. Das Serverlimit von 120 Aufrufen pro Minute wird nicht erhöht.
+
+Die [Belege und offenen Abnahmegrenzen](testing/document-location-rate-pressure-2026-11-08.json)
+halten den Fehler und die Quellcodekorrektur getrennt fest. Die erweiterten
+Location-Client-Tests, die bestehenden Notebook-Lebenszyklustests und alle 19
+CI-Konfigurationsprüfungen bestehen. Die neuen Markdown- und Location-Regressionen
+laufen künftig auch im verpflichtenden API-/SDK-CI-Job. Die erste kompilierte
+Korrektur von `56a21c632` reicht noch nicht: 72 Desktop-Ortungsantworten und ein
+weiterer HTTP 429 im Mobilprofil. Dieser Lauf bleibt fehlgeschlagen.
+
+Der Folgefix stimmt die initiale Ortung mit der bereits laufenden Session-Anfrage
+ab und verwendet deren registrierten Beleg schon vor dem Aufbau des Yjs-Editors.
+Änderungshinweise während dieses Wartens bleiben über die eintreffende native
+Generation und Darstellung hinweg erhalten und werden weiterhin frisch gelesen.
+Die neuen Tests für laufende und fehlgeschlagene Session-Anfragen sowie verspätete
+Hint-Antworten bestehen. Ein neues Image und die tatsächliche Wiederholung der
+zuvor fehlgeschlagenen Sequenz stehen noch aus.

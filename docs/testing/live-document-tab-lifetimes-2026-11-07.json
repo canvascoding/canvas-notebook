@@ -1,0 +1,62 @@
+{
+  "parentCommit": "12a8e8c4f2c63dd8a23d7cca941539a90746fdce",
+  "scope": "Source mechanics only. React and Yjs are real; provider and IndexedDB are doubles. No browser, real server transport, resource benchmark or production acceptance claim.",
+  "sourceSha256": {
+    "app/lib/collaboration/open-document-retention.ts": "59a9c89f8f324e0f3ee89e7ffd35032cdc791b0eda2c91ae84f2c40795e010de",
+    "app/lib/collaboration/client.ts": "05e9eddc6573ef3b7aa968d3628ae32b796ea2dc5c0fe907c8965f09312e6b81",
+    "app/lib/collaboration/opened-document-registry.ts": "ab46658cfba8890252d99435700d8786a6388cabfae0d60ebaf60f346a88cf7e",
+    "app/components/DashboardShell.tsx": "6be18c1d053a8fd90ea4de08c72d60e754d53d01d10819ff3659501eff03de77",
+    "app/store/file-store.ts": "6e158a8e511652558a79a5e2d9c8435ed31ac09d73467d73312eb999526be430",
+    "scripts/collaboration-live-tabs-test.tsx": "d1a8381eecee75c4ec4b710ca2c14a91757bc52e640ccac2236ce0e6908996e1"
+  },
+  "logs": [
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-lifecycles-20261107-attempt2.log",
+      "sha256": "b11782db5dbdf8f71f03c6654e43ab3d65bd3f3eb0b965ac6e3e5fbda8bfe830",
+      "exitCode": 0
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-regression-native-peer-20261107-attempt2.log",
+      "sha256": "f490630d720b170bcda47926adef140220535a01cf7f908807016d140b60bcfb",
+      "exitCode": 0
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-regression-rename-20261107-attempt2.log",
+      "sha256": "834d64741609e5f2a9ed1be9dee64cffcaea95fca36cab40647b02564f0d8048",
+      "exitCode": 0
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-regression-durability-20261107-attempt2.log",
+      "sha256": "61fa6cd756fbed23e936f117b197aac235fdfd43e6354fa37a50f837fae0f667",
+      "exitCode": 0
+    }
+  ],
+  "targetedTypecheck": {
+    "exitCode": 0,
+    "config": "/private/tmp/canvas-live-tabs-client-tsconfig.json"
+  },
+  "eslint": {
+    "exitCode": 0,
+    "scope": "Four product integration files, live-tabs harness and test:all orchestration helpers"
+  },
+  "hostBuild": {
+    "status": "required-after-transport-retirement-fix",
+    "priorBuild": {
+      "exitCode": 0,
+      "log": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-host-build-20261107-attempt1.log",
+      "scope": "Previous integration state before final hidden-pause scope retirement. Not current-source build acceptance."
+    }
+  },
+  "browserAcceptance": false,
+  "performance10And200": false,
+  "regularTestAllAtThisSource": false,
+  "productionDeployed": false,
+  "remaining": [
+    "Real browser authorization, offline/close/recovery and visible storage failure handling",
+    "Actual desktop/mobile connection, heap, CPU and idle load measurements at 10/200 documents",
+    "Current compiled container and full regular test:all",
+    "Full plan PR, terminal CI and release/deployment acceptance"
+  ],
+  "hiddenPauseRetiresOldTokenAndCheckpointScope": true,
+  "latePrePauseWritePermissionResponseRejectedAfterReadDowngrade": true
+}

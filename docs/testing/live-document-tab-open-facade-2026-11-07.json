@@ -1,0 +1,60 @@
+{
+  "parentCommit": "b87af29ed9662ac85c5522db074196fdc77996bd",
+  "problem": "revealAndLoadFile always forced noCache=true, preventing the connected-document metadata path while the session/provider path already avoided a new session request.",
+  "scope": "Store/registry mechanics with connection and HTTP doubles; actual compiled browser baseline is separately bound and failed.",
+  "sourceSha256": {
+    "app/components/DashboardShell.tsx": "8101752a3853c7ac3db2d8829192fb4814ac08ecdfd8cb801a499734e5f993fd",
+    "app/store/file-store.ts": "eabcf4dd21f042be8403b0249d66fed9dee8b06eb51b52dc3a94d67338042e5d",
+    "app/lib/files/types.ts": "776a6e76df74abdf4afaae13bacab29dae2351e92c5db74ff19fac14c4ed3d44",
+    "scripts/file-open-flow-test.ts": "21fb6007c82fc7140daf4e40054e43c46687759461ee67975c8897d9d49f15b2",
+    "scripts/helpers/test-all-results.mjs": "75cb78762da960ebb9cb2b3f390119b0593573903e7c740f9e49bd6207013476",
+    "scripts/test-all-orchestration-test.mjs": "b505b591605ac4440ca8f4d8cc1532d1aa4d2c3151326e9253b37a85ebd65a0f",
+    ".github/workflows/native-api-sdk.yml": "4be12e48d4d6acc0f19a2190f908f6e69067deac057aade0352843e6c3276754"
+  },
+  "logs": [
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-file-open-facade-red-20261107-attempt2.log",
+      "sha256": "b890c4d913cfbc6638c8893968edb553cc773069d82569aec8118cfe2cfbe98a",
+      "exitCode": 1
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-file-open-facade-green-20261107-attempt2.log",
+      "sha256": "855d1a4486ec7b438f67bf8664055ae5b37b4ecb2dde3d107d6dc286756c5775",
+      "exitCode": 0
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-notebook-reveal-20261107-attempt2.log",
+      "sha256": "2d4928e0e1d63360ff44fe1082343bf421dc28ef5e875ef85e90fd7f6f02c0a8",
+      "exitCode": 0
+    }
+  ],
+  "assertions": [
+    "default open retains fresh read",
+    "explicit Notebook opt-in reuses current authorized connected text receipt",
+    "forceReload retains fresh read",
+    "warm/offline receipt retains fresh read",
+    "retired authentication scope retains fresh read"
+  ],
+  "existingMarkdownCreateFixtureUpdated": "Observe an explicit auth session and return the current completion receipt matched to the actual request ID and path; existing creation assertions retained.",
+  "targetedTypecheckPassed": true,
+  "targetedTypecheckConfig": "/private/tmp/canvas-live-tabs-file-open-tsconfig.json",
+  "eslintPassed": true,
+  "actionlintVersion": "1.7.7",
+  "actionlintPassed": true,
+  "independentPlanExactLeafTestPassed": true,
+  "registeredInRegularTestAllAndNativeCi": true,
+  "compiledBrowserBaseline": {
+    "sourceSha": "b87af29ed9662ac85c5522db074196fdc77996bd",
+    "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-live-tabs-10-on-desktop-1794043527453-result.json",
+    "reportSha256": "e5655d02e7fed638d124ee7e8531207fcf2efef50caaeae53744aadcc4aeda34",
+    "passed": false,
+    "stage": "warm-A-0",
+    "sessionRequests": 0,
+    "fileReadRequests": 1,
+    "remainingIdentityAssertionsNotReached": true,
+    "originalRestored": true,
+    "currentRuntimeProof": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-live-tabs-10-on-desktop-1794043527453-restored-runtime-result.json"
+  },
+  "currentFixCompiledBrowserAcceptance": false,
+  "productionDeployed": false
+}

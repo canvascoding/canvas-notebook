@@ -16,8 +16,27 @@ export const CANVAS_MARKDOWN_INDENTATION = {
 } as const;
 
 const BARE_EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
-const BARE_EMAIL_START_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
+const BARE_EMAIL_LOCAL_CHARACTER = /[A-Z0-9._%+-]/iu;
 type TiptapMarkedInstance = NonNullable<MarkdownExtensionOptions['marked']>;
+
+/** Try each complete local-part run once. An unanchored greedy email regex
+ * retries every suffix of ordinary long words, even when no @ is present. */
+function findBareEmailStart(source: string): number | undefined {
+  const domain = /@[A-Z0-9.-]+\.[A-Z]{2,}/iyu;
+  let localStart: number | undefined;
+  for (let index = 0; index < source.length; index++) {
+    if (BARE_EMAIL_LOCAL_CHARACTER.test(source[index])) {
+      localStart ??= index;
+      continue;
+    }
+    if (source[index] === '@' && localStart !== undefined) {
+      domain.lastIndex = index;
+      if (domain.test(source)) return localStart;
+    }
+    localStart = undefined;
+  }
+  return undefined;
+}
 
 /**
  * Creates an isolated parser so editor instances and server-side codecs cannot
@@ -65,7 +84,7 @@ export function createCanvasMarkedInstance(): TiptapMarkedInstance {
       name: 'canvasBareEmailText',
       level: 'inline',
       start(source) {
-        return source.match(BARE_EMAIL_START_PATTERN)?.index;
+        return findBareEmailStart(source);
       },
       tokenizer(source) {
         const match = source.match(BARE_EMAIL_PATTERN);

@@ -206,7 +206,29 @@ async def main():
             assert observed["completion"]["status"] == ("not_confirmed" if job["phase"] == "claim" else "confirmed")
             emit("commit_status", name=job["name"])
             receive()
-            completed((await invoke(notebook, workspace, job, "recover")).require_success(), job, True)
+            # This acceptance caller explicitly reconciles each real busy denial.
+            # The installed SDK still sends once and never retries mutations.
+            for attempt in range(4):
+                try:
+                    recovered = (await invoke(notebook, workspace, job, "recover")).require_success()
+                except CanvasToolError as error:
+                    if job["phase"] != "claim" or error.code != "PATH_BUSY" or attempt == 3:
+                        raise
+                    failure = error.result.structured_content
+                    assert error.operation_id == job["operationId"]
+                    assert failure == {"apiVersion": 1, "success": False, "code": "PATH_BUSY",
+                                       "operationId": job["operationId"]}
+                    emit("recover_busy", name=job["name"], attempt=attempt + 1)
+                    assert receive()["readOnlyVerified"] is True
+                    await asyncio.sleep(0.25)
+                    status = (await invoke(notebook, workspace, job, "status")).require_success()["operation"]
+                    assert status["operationId"] == job["operationId"] and status["planId"] == job["planId"]
+                    assert status["completion"]["status"] == "not_confirmed"
+                    emit("recover_busy_status", name=job["name"])
+                    assert receive()["readOnlyVerified"] is True
+                    continue
+                completed(recovered, job, True)
+                break
         emit("commit_recovered", name=job["name"])
         receive()
         groups += 1
@@ -270,5 +292,11 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except BaseException as error:
-        emit("probe_failed", stage=PROBE_STAGE, kind=type(error).__name__, exceptionTypes=exception_types(error))
+        frame, assertion_line = error.__traceback__, None
+        while frame is not None:
+            if frame.tb_frame.f_code.co_filename == __file__:
+                assertion_line = frame.tb_lineno
+            frame = frame.tb_next
+        emit("probe_failed", stage=PROBE_STAGE, kind=type(error).__name__, exceptionTypes=exception_types(error),
+             assertionLine=assertion_line)
         raise SystemExit(1) from None

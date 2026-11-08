@@ -1,0 +1,67 @@
+{
+  "scope": "Standalone React harness launch configuration only. Mechanical UI/registry tests and orchestrator contracts; no new compiled browser/server or full aggregate green claim.",
+  "baseSourceSha": "5af2b805a586a470d450a0b1ea4e20b40496e161",
+  "recordedAt": "2026-11-08T01:54:06.432590+00:00",
+  "beforePackageSha256": "86ffcb47411b6bdb2cb0cc2d555c4682e085f1dd95da17e16bb011e343b4e382",
+  "afterPackageSha256": "d670922f89116686d08455e10fa24b56a949d5f53e549bc12c04eff602185ec6",
+  "onlyChangedScriptKeys": [
+    "test:collaboration:live-tabs",
+    "test:files:menus",
+    "test:collaboration:agent-observer"
+  ],
+  "allOtherPackageMetadataIdentical": true,
+  "actualAggregateBefore": [
+    {
+      "file": "test-collaboration-live-tabs.log",
+      "sha256": "d64ee462e59df7bb875db3a5e08eb45a5720ef09f306fa832b750684b2c31e72",
+      "exitCode": 1,
+      "rootFailure": "React act is not a function with inherited NODE_ENV=production"
+    },
+    {
+      "file": "test-files-menus.log",
+      "sha256": "4acecc0cd5930d4026048c4770b2673ce567c7b2c57182b399a8fcdfccd3ba24",
+      "exitCode": 1,
+      "rootFailure": "React act is not a function with inherited NODE_ENV=production"
+    },
+    {
+      "file": "test-collaboration-agent-observer.log",
+      "sha256": "01645c282cb5bd0305621c6f9ff67d81ad7a02224ecd6e5a8e1eab938d4b2b52",
+      "exitCode": 1,
+      "rootFailure": "React act is not a function with inherited NODE_ENV=production"
+    }
+  ],
+  "actualNpmCommandsAfter": [
+    {
+      "file": "test-all-react-live-tabs-fixed-node24-20261108.log",
+      "sha256": "e3b518aeba6fb64278e31395fcd70e13f0648ef7a6a0f8501ebcddcc14819393",
+      "exitCode": 0,
+      "parentNodeEnv": "production",
+      "nodeVersion": "24.18.0"
+    },
+    {
+      "file": "test-all-react-menus-fixed-node24-20261108.log",
+      "sha256": "cbada6726d1dae51c72315374449f0a5af43865aa7236f65d0c94fa48a1606e0",
+      "exitCode": 0,
+      "parentNodeEnv": "production",
+      "nodeVersion": "24.18.0"
+    },
+    {
+      "file": "test-all-react-observer-fixed-node24-20261108.log",
+      "sha256": "1bcf6cb4f3c4638a9e37247bfbe4ef5c46ffda3c8dce359595831480fdb2a516",
+      "exitCode": 0,
+      "parentNodeEnv": "production",
+      "nodeVersion": "24.18.0"
+    }
+  ],
+  "orchestrationContracts": {
+    "file": "test-all-react-launch-orchestration-fixed-20261108.log",
+    "sha256": "d04e8b344c0a95d86481cfec0a03ba6fda2c83c50c7f384f3f31c8640695474b",
+    "nodeVersion": "26.7.0",
+    "passed": 30,
+    "failed": 0,
+    "skipped": 0
+  },
+  "noApplicationDependencyOrAssertionChange": true,
+  "mainCheckoutAndActiveAggregateUnchanged": true,
+  "fullCurrentAggregateAndRemainingPlanStillRequired": true
+}

@@ -12,7 +12,7 @@ type Phase = 'baseline' | 'http' | 'claim' | 'completion';
 type Native = { documentId: string; sourcePath: string; state: Buffer; vector: Buffer; generation: number };
 type Job = { name: string; kind: Kind; profile: Profile; phase: Phase; sourcePath: string; destinationPath: string; operationId: string;
   planId: string; batchId?: string; native: Native[]; physical: { sourcePath: string; bytes: Buffer }[];
-  incoming?: { documentId: string; sequence: number }; rows?: unknown; completionRows?: unknown };
+  incoming?: { documentId: string; sequence: number }; rows?: unknown; completionRows?: unknown; recoveryRows?: unknown };
 let stage = 'setup';
 async function main() {
   const python = process.env.CANVAS_SDK_TEST_PYTHON, wheel = process.env.CANVAS_SDK_TEST_WHEEL; assert(python && wheel);
@@ -136,12 +136,15 @@ async function main() {
     let armedHttp: Job | undefined, armedCommit: Job | undefined, commitClient: MetadataSqlEvent['client'] | undefined, commitRows: unknown;
     const httpDrops = new Set<string>(), commitLosses = new Set<string>(), calls = new Map<string, number>();
     const transportOutcomes: Record<string, string> = {};
+    const recoveryBusy = new Map<string, number>();
+    let contentionHeld = false, controlledContentionVerified = false;
     let finalRows: unknown;
     const selectedJob = (value: Record<string, unknown>) => {
       assert(typeof value.name === 'string'); const j = byName.get(value.name); assert(j); return j;
     };
     const readPlan = (j: Job, value: Record<string, unknown>) => { assert(typeof value.planId === 'string'); assert.match(value.planId, /^[a-f0-9]{64}$/u); j.planId = value.planId; };
-    const probe = await h.withProbe(async event => {
+    let probe: Awaited<ReturnType<typeof withInstalledApiKeySdkMcpFixture>>;
+    try { probe = await h.withProbe(async event => {
       const j = armedCommit; if (!j) return;
       const table = j.phase === 'claim' ? 'workspace_file_operation_batches' : `workspace_file_operation_${j.kind}_receipts`;
       if (!commitClient && /^\s*INSERT\s+INTO\b/iu.test(event.text) && event.text.includes(table)) {
@@ -203,7 +206,34 @@ async function main() {
           const j = selectedJob(value); assert.deepEqual(await snapshot(), j.rows);
           if (j.phase === 'claim') assert.equal((await h.admin.query("UPDATE workspace_file_operation_batches SET lease_expires_at=1 WHERE batch_id=$1 AND status='applying' RETURNING batch_id", [j.batchId])).rowCount, 1);
           else j.completionRows = await receiptRows(j);
+          j.recoveryRows = await snapshot();
+          // Real contention, not a fabricated MCP result: maintenance also uses
+          // SHARE UPDATE EXCLUSIVE, which conflicts with the claim's NOWAIT lock.
+          if (j.name === 'delete_native_claim') {
+            await h.admin.query('BEGIN'); contentionHeld = true;
+            await h.admin.query("SET LOCAL lock_timeout='2000ms'");
+            await h.admin.query('LOCK TABLE workspace_file_operation_batches IN SHARE UPDATE EXCLUSIVE MODE');
+          }
           send({ ready: true });
+        } else if (stage === 'recover_busy' || stage === 'recover_busy_status') {
+          const j = selectedJob(value); assert.equal(j.phase, 'claim');
+          assert.deepEqual(await snapshot(), j.recoveryRows);
+          for (const file of j.physical) assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, file.sourcePath)), file.bytes);
+          assert.equal(calls.get(`${j.kind}_knowledge_source:${j.operationId}:apply`), 1);
+          if (stage === 'recover_busy') {
+            const attempt = (recoveryBusy.get(j.name) ?? 0) + 1;
+            assert.equal(value.attempt, attempt); assert(attempt <= 3); recoveryBusy.set(j.name, attempt);
+            assert.equal(calls.get(`${j.kind}_knowledge_source:${j.operationId}:recover`), attempt);
+            if (contentionHeld) {
+              assert.equal(j.name, 'delete_native_claim');
+              assert.equal((await h.admin.query(`SELECT count(*)::int AS n FROM pg_catalog.pg_locks
+                WHERE pid=pg_catalog.pg_backend_pid() AND relation='workspace_file_operation_batches'::regclass
+                  AND mode='ShareUpdateExclusiveLock' AND granted`)).rows[0].n, 1);
+              await h.admin.query('ROLLBACK'); contentionHeld = false; controlledContentionVerified = true;
+              assert.deepEqual(await snapshot(), j.recoveryRows);
+            }
+          }
+          send({ ready: true, readOnlyVerified: true });
         } else if (stage === 'commit_recovered') {
           const j = selectedJob(value); await verify(j); if (j.phase === 'completion') assert.deepEqual(await receiptRows(j), j.completionRows); send({ ready: true });
         } else if (stage === 'ready_rotate') {
@@ -233,18 +263,21 @@ async function main() {
           const j = selectedJob(value); console.log(JSON.stringify({ suite: 'installed-key-path-group', name: j.name, stage, passed: true }));
         }
       },
-    }));
+    })); } finally { if (contentionHeld) { await h.admin.query('ROLLBACK'); contentionHeld = false; } }
     assert.equal(httpDrops.size, 2); assert.equal(commitLosses.size, 4); assert.equal(probe.droppedAcknowledgements, 2);
+    assert(controlledContentionVerified); assert((recoveryBusy.get('delete_native_claim') ?? 0) >= 1);
     for (const j of jobs) {
       const key = `${j.kind}_knowledge_source:${j.operationId}`;
       assert.equal(probe.pathCalls[`${key}:apply`], j.phase === 'baseline' ? 2 : 1);
-      assert.equal(probe.pathCalls[`${key}:recover`], j.name === 'move_native' || j.name === 'delete_native' ? 3 : 1);
+      assert.equal(probe.pathCalls[`${key}:recover`], j.name === 'move_native' || j.name === 'delete_native' ? 3 : 1 + (recoveryBusy.get(j.name) ?? 0));
     }
     assert.equal(await count(), initialCount + jobs.length); assert.deepEqual(await snapshot(), finalRows);
     assert(probe.deniedMethods.length >= 2); assert(probe.deniedMethods.every(method => ['tools/call', 'server/discover', 'initialize'].includes(method)));
     console.log(JSON.stringify({ suite: 'installed-api-key-sdk-native-path-http', passed: true, groups: 21, wheelSha256: probe.wheelSha256,
       keyHeaderOnlyRequests: probe.keyHeaderOnlyRequests, actual401: probe.deniedMethods.length, nativeOperationsCreated: jobs.length,
       droppedHttpAcknowledgements: httpDrops.size, lostCommitAcknowledgements: commitLosses.size, automaticWriteReplays: 0,
+      controlledTableContentionVerified: controlledContentionVerified,
+      explicitRecoveryRetriesAfterUnchangedRowsAndReadOnlyStatus: [...recoveryBusy.values()].reduce((sum, count) => sum + count, 0),
       transportOutcomes,
       separateKindNamespacesForSameCallerId: true, protectedOriginalsAndHistoryRetained: true, stderrBytes: probe.stderrBytes,
       compiledNext: false, oauthIssuance: false, reviewCenterEnabled: false, undoEnabled: false }));

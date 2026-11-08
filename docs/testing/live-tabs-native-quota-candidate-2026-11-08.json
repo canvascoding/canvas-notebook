@@ -1,0 +1,144 @@
+{
+  "scope": "Browser-engine capability plus pending registered application regression. No Canvas login/document mutation during capability probes. No actual app quota acceptance claim yet.",
+  "acceptedCapabilityProbe": {
+    "file": "browser-storage-quota-capability-20261108-attempt6.json",
+    "sha256": "ba829ff0f7606ae38190b701f7a18110de5451a5e4cb0b3ca49fa0c9c6436b03",
+    "observations": {
+      "persistentProfile": false,
+      "scope": "Isolated browser capability probe only; no Canvas login or document mutation, no application quota/UI acceptance.",
+      "passed": true,
+      "requestedQuotaBytes": 1,
+      "attemptedRandomWriteBytes": 65536,
+      "browserVersion": "149.0.7827.55",
+      "browserProtocol": {
+        "protocolVersion": "1.3",
+        "product": "HeadlessChrome/149.0.7827.55",
+        "revision": "@3188f8a607ae7e067593be8aab7f02d2451fec07",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+        "jsVersion": "14.9.207.21"
+      },
+      "quotaCacheWaitMs": 31000,
+      "quotaBefore": {
+        "usage": 1586,
+        "quota": 1,
+        "overrideActive": true,
+        "usageBreakdown": [
+          {
+            "storageType": "file_systems",
+            "usage": 0
+          },
+          {
+            "storageType": "indexeddb",
+            "usage": 1586
+          },
+          {
+            "storageType": "cache_storage",
+            "usage": 0
+          },
+          {
+            "storageType": "service_workers",
+            "usage": 0
+          }
+        ]
+      },
+      "windowOrigin": {
+        "origin": "http://127.0.0.1:3100",
+        "estimateAvailable": true
+      },
+      "actualWrite": {
+        "committed": false,
+        "errorName": "QuotaExceededError"
+      },
+      "quotaAfter": {
+        "usage": 1586,
+        "quota": 1,
+        "overrideActive": true,
+        "usageBreakdown": [
+          {
+            "storageType": "file_systems",
+            "usage": 0
+          },
+          {
+            "storageType": "indexeddb",
+            "usage": 1586
+          },
+          {
+            "storageType": "cache_storage",
+            "usage": 0
+          },
+          {
+            "storageType": "service_workers",
+            "usage": 0
+          }
+        ]
+      },
+      "navigatorEstimate": {
+        "quota": 10737419826,
+        "usage": 1586,
+        "usageDetails": {
+          "indexedDB": 1586
+        }
+      },
+      "browser": "149.0.7827.55",
+      "nativeQuotaExceededError": true,
+      "baselineRetainedAndNoPartialWrite": true,
+      "writeSucceedsAfterReset": true,
+      "quotaReset": true,
+      "ownDatabaseRemoved": true
+    }
+  },
+  "earlierFailedProbes": [
+    {
+      "file": "browser-storage-quota-capability-20261108.json",
+      "sha256": "7311c8a97e17256d6cb218e69d7673a82476cd987d7a8ac6c5156672b1c50a96",
+      "passed": false,
+      "quotaResetAndOwnDatabaseRemoved": true
+    },
+    {
+      "file": "browser-storage-quota-capability-20261108-attempt2.json",
+      "sha256": "d995ff77ab1d9d91928ca113ed84a394e9829cbf3996703e623b557a3d8a6e27",
+      "passed": false,
+      "quotaResetAndOwnDatabaseRemoved": true
+    },
+    {
+      "file": "browser-storage-quota-capability-20261108-attempt3.json",
+      "sha256": "d8a42c901158fac6ad589be84ce48112a5fc03e8cde5234f1c5b1106ed198b7f",
+      "passed": false,
+      "quotaResetAndOwnDatabaseRemoved": true
+    },
+    {
+      "file": "browser-storage-quota-capability-20261108-attempt4.json",
+      "sha256": "456eb1a4de545d5fd7cad3ee61fc3b314050777761b5ebf202d578a3b7835117",
+      "passed": false,
+      "quotaResetAndOwnDatabaseRemoved": true
+    }
+  ],
+  "cacheCause": "Immediate writes used Chromium cached space grants even while diagnostics showed the low override. Waiting 31 real seconds produced a native QuotaExceededError in the ordinary incognito context; no physical disk was filled.",
+  "primarySource": "https://chromium.googlesource.com/chromium/src/+/1c9524c5d3627044b0cf0a0b679978e82b702279/content/browser/indexed_db/instance/bucket_context.h",
+  "candidateTestSha256": "f0323c4047dbece0db4b7a33f7f7e413f6d217045392bb0ca47dac4e452be087",
+  "validation": [
+    {
+      "file": "live-tabs-native-quota-types-20261108.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exitCode": 0
+    },
+    {
+      "file": "live-tabs-native-quota-selection-20261108.log",
+      "sha256": "70119b4563b1568134b9b47ae32a9fdf22e218750a261ddba02f1f6fe73a9b71",
+      "exitCode": 0
+    }
+  ],
+  "scopedLintPassed": true,
+  "regularSelectionCount": 50,
+  "applicationE2ePending": true,
+  "candidateAsserts": [
+    "native app IDB transaction emits QuotaExceededError without fabricated errors",
+    "previous committed native log and server proof remain baseline",
+    "dirty RAM remains visible; departure blocked with explanation",
+    "restored native quota allows full offline recovery backup and departure",
+    "fresh authority, server convergence and reload retain exact candidate",
+    "quota scope reset and owned contexts/files cleaned"
+  ],
+  "applicationFunctionsChanged": false,
+  "reviewCenterAndFileOperationUndoExcluded": true
+}

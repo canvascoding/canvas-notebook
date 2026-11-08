@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 
 import { admissionDrainTicketForTarget } from '../app/lib/collaboration/room-admission-drain';
 import { createCollaborationRoomAdmissionWorker } from '../app/lib/collaboration/room-admission-worker';
@@ -105,10 +106,81 @@ async function testPeriodicRetryAndDispose() {
   assert.equal(drainCalls, callsAtDispose, 'dispose cancels future polling without a busy loop');
 }
 
+async function testIdleBackoffRetainsBoundedDurableFallback() {
+  const { fence, ticket } = fixture('idle');
+  let calls = 0, drains = 0, errors = 0;
+  let needsDrain = false, failNext = false;
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const advance = async (milliseconds: number) => {
+    mock.timers.tick(milliseconds);
+    // The real worker awaits IO and drains before scheduling its next timer.
+    for (let index = 0; index < 20; index++) await Promise.resolve();
+  };
+  const worker = createCollaborationRoomAdmissionWorker({
+    pollMs: 250,
+    getOwnedFences: () => [fence],
+    pendingDrains: async () => {
+      calls++;
+      if (failNext) { failNext = false; throw new Error('owned poll failure'); }
+      return needsDrain ? [ticket] : [];
+    },
+    drain: async () => { drains++; needsDrain = false; },
+    onError: () => { errors++; },
+  });
+  try {
+    await advance(0);
+    assert.equal(calls, 1);
+    await advance(499);
+    assert.equal(calls, 1, 'An empty 250 ms poll backs off instead of querying every 250 ms.');
+    await advance(1);
+    assert.equal(calls, 2);
+    await advance(999);
+    assert.equal(calls, 2);
+    await advance(1);
+    assert.equal(calls, 3);
+    // No wake is delivered. The durable queue must still be observed within
+    // one second; no hint or retained empty result authorizes skipping IO.
+    needsDrain = true;
+    await advance(999);
+    assert.equal(drains, 0);
+    await advance(1);
+    assert.equal(calls, 4);
+    assert.equal(drains, 1);
+    await advance(249);
+    assert.equal(calls, 4);
+    await advance(1);
+    assert.equal(calls, 5, 'Observed work restores the original fast interval.');
+
+    needsDrain = true;
+    worker.wake();
+    await advance(0);
+    assert.equal(calls, 6, 'A wake interrupts the idle timer immediately.');
+    assert.equal(drains, 2);
+    await advance(250);
+    await advance(500);
+    assert.equal(calls, 8);
+    failNext = true;
+    await advance(1000);
+    assert.equal(calls, 9);
+    assert.equal(errors, 1);
+    await advance(249);
+    assert.equal(calls, 9);
+    await advance(1);
+    assert.equal(calls, 10, 'Failed observations retry at the fast interval.');
+    worker.dispose();
+    await advance(10000);
+    assert.equal(calls, 10, 'Dispose cancels a backed-off timer as well.');
+  } finally {
+    worker.dispose();
+    mock.timers.reset();
+  }
+}
+
 async function main() {
   await testSerialDedupAndWakeCoalescing();
   await testPeriodicRetryAndDispose();
-  console.log('collaboration room admission worker tests passed (2 scenarios)');
+  await testIdleBackoffRetainsBoundedDurableFallback();
+  console.log('collaboration room admission worker tests passed (3 scenarios)');
 }
 
 main().catch((error: unknown) => {

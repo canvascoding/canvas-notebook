@@ -429,8 +429,9 @@ function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
   return input as WorkspaceOperationBatchPlan;
 }
 
-// Only exact stored Cohort6 text reuses a historical parse; every return still
-// passes the unchanged strict decoder. No row, Claim or current authority is held.
+// Only exact stored Physical5/Cohort6 text reuses a historical parse; every
+// return still passes its unchanged strict decoder. Current row/Claim/authority
+// data is never cached.
 const storedCohortPlans = new Map<string, { plan: WorkspaceOperationBatchPlan; bytes: number }>();
 let storedCohortPlanBytes = 0;
 let storedCohortPlanLogging = false;
@@ -442,7 +443,9 @@ function storedCohortPlanHooksCurrent(json: typeof JSON, parse: typeof JSON.pars
   if (json !== fingerprintJson || parse !== storedCohortPlanParseDescriptor?.value
     || typeof parse !== 'function' || types.isProxy(parse)) return false;
   const current = fingerprintDescriptor(json, 'parse'), global = fingerprintDescriptor(globalThis, 'JSON');
-  const toString = fingerprintDescriptor(Function.prototype, 'toString');
+  // Sentry wraps the prototype method after bootstrap. Inspect the actual JSON
+  // function with the captured inspector, independently of that later wrapper.
+  const inspectFunction = storedCohortPlanToStringDescriptor?.value;
   if (!current || !Object.hasOwn(current, 'value') || current.value !== parse
     || current.writable !== storedCohortPlanParseDescriptor?.writable
     || current.enumerable !== storedCohortPlanParseDescriptor?.enumerable
@@ -451,10 +454,9 @@ function storedCohortPlanHooksCurrent(json: typeof JSON, parse: typeof JSON.pars
     || global.writable !== storedCohortPlanGlobalDescriptor?.writable
     || global.enumerable !== storedCohortPlanGlobalDescriptor?.enumerable
     || global.configurable !== storedCohortPlanGlobalDescriptor?.configurable
-    || !toString || !Object.hasOwn(toString, 'value') || typeof toString.value !== 'function'
-    || toString.value !== storedCohortPlanToStringDescriptor?.value) return false;
+    || typeof inspectFunction !== 'function' || types.isProxy(inspectFunction)) return false;
   try {
-    return fingerprintApply(toString.value, parse, []) === 'function parse() { [native code] }'
+    return fingerprintApply(inspectFunction, parse, []) === 'function parse() { [native code] }'
       && fingerprintHooksCurrent(json, fingerprintStringify);
   } catch { return false; }
 }
@@ -482,7 +484,7 @@ function decodeStoredPlanText(planText: string): WorkspaceOperationBatchPlan {
   const input: unknown = previous ? previous.plan : fingerprintApply(parse, json, [planText]);
   try { parsed = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
   const plan = decodeStoredPlan(input);
-  if (reusable && plan.version === 6) {
+  if (reusable && (plan.version === 5 || plan.version === 6)) {
     try { decoded = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
     if (!previous && reusable && storedCohortPlanHooksCurrent(json, parse) && immutableFingerprintPlan(plan)) {
       const bytes = Buffer.byteLength(planText), maximum = 16 * 1024 * 1024;

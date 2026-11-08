@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "installed API-key SDK claim recovery under real owned PostgreSQL contention",
+  "productSourceSha": "d5cfc383397b6bcc174727981798b8c65a692e69",
+  "testSourceHashes": {
+    "scripts/api-key-python-sdk-path-postgres-test.ts": "358f3c14360026062f8b3ad3d2d153d3028391b24a8c2321473083af5e1f2259",
+    "scripts/helpers/python_sdk_api_key_path_probe.py": "a17ea5c0ff49eef555f7afd236cf2fa76f781114839db2aa24263325dfcc2077"
+  },
+  "wheelSha256": "1f86c43c9147a48f1218b46741af285fe38daf8540f4d5809cd79cd75a3b4c4a",
+  "python": "3.10.19",
+  "sdkVersion": "0.1.2",
+  "registeredRealSourceRunner": true,
+  "actualMcpHttp": true,
+  "actualPostgres": true,
+  "result": {
+    "suite": "installed-api-key-sdk-native-path-http",
+    "passed": true,
+    "groups": 21,
+    "wheelSha256": "1f86c43c9147a48f1218b46741af285fe38daf8540f4d5809cd79cd75a3b4c4a",
+    "keyHeaderOnlyRequests": 115,
+    "actual401": 2,
+    "nativeOperationsCreated": 14,
+    "droppedHttpAcknowledgements": 2,
+    "lostCommitAcknowledgements": 4,
+    "automaticWriteReplays": 0,
+    "controlledTableContentionVerified": true,
+    "explicitRecoveryRetriesAfterUnchangedRowsAndReadOnlyStatus": 1,
+    "transportOutcomes": {
+      "move_native_http": "cancelled_after_http_failure",
+      "delete_native_http": "cancelled_after_http_failure"
+    },
+    "separateKindNamespacesForSameCallerId": true,
+    "protectedOriginalsAndHistoryRetained": true,
+    "stderrBytes": 0,
+    "compiledNext": false,
+    "oauthIssuance": false,
+    "reviewCenterEnabled": false,
+    "undoEnabled": false
+  },
+  "controlledLock": {
+    "mode": "ShareUpdateExclusiveLock",
+    "conflictsWith": "claim ShareRowExclusiveLock NOWAIT",
+    "actualSqlstate": "55P03",
+    "heldBy": "private fixture admin, independently observed in pg_locks",
+    "historicalCiLockHolderIdentified": false
+  },
+  "recoveryGuards": [
+    "Exact API-key error envelope and original caller operation ID.",
+    "Only claim-phase PATH_BUSY is considered; at most three explicit recovery retries.",
+    "Full owned collaboration/file/operation row bytes and xmins remain unchanged.",
+    "Original physical source bytes remain unchanged.",
+    "Explicit read-only Status must retain operation/plan IDs and report not_confirmed.",
+    "Release the controlled lock before deliberate same-request Recover.",
+    "All other errors and non-confirmed final results fail; SDK/product retry behavior is unchanged."
+  ],
+  "originalRowsXminsYjsFilesAndAnchorsPreserved": true,
+  "ownedFixtureSchemaPoolClientsAndDataClosed": true,
+  "allPreexistingContainerIdsPreserved": true,
+  "outerController": {
+    "exitCode": 1,
+    "passed": false,
+    "reason": "Global inventory guard detected two new unrelated project containers.",
+    "postRunAuditPassed": true,
+    "newUnrelatedContainers": 2,
+    "testReexecutedToReconcile": false
+  },
+  "logSha256": "54ec6216387be18e0eb718605d27cb83473e8830f778f79c876884b0beb08f1c",
+  "postRunAuditSha256": "fb07bf8daf8f7e34694ad728bbe0f355ea5e630b5daaabbc80877a0d25c16457",
+  "finishedAt": "2026-11-08T12:03:24.282Z",
+  "limits": [
+    "Original CI 55P03 lock holder remains unknown; the controlled case proves the contention/reconciliation contract.",
+    "This is the installed Python 3.10 path family, not the complete two-Python CI matrix.",
+    "No production data or deployment was changed."
+  ]
+}

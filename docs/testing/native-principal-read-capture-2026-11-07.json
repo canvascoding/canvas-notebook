@@ -1,0 +1,548 @@
+{
+  "compiledSourceSha": "22185519436e116beda520fddc197886f0132a0b",
+  "imageId": "sha256:06d257b9dc4a912a4949dae59f07e6fc011e139d9993929e2e5e09e500122394",
+  "scope": "Actual compiled Chromium, real Better Auth and PostgreSQL; two open documents; unchanged silent global observer and unchanged browser measurement protocol.",
+  "outerReadCapture": {
+    "beforeDriverQueryCalls": 16,
+    "afterDriverQueryCalls": 12,
+    "boundary": "Fresh original-origin explicit canRead preparation before held B. Nine auth/seat/JWK queries, one workspace snapshot, one Principal license read, one original-realm capture. Held and final guards unchanged.",
+    "freshAuthenticationPostgresGroups": 4,
+    "protectedNativeRowsAndXminPreserved": true
+  },
+  "cases": [
+    {
+      "sourceCount": 10,
+      "before": {
+        "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794051946517-result.json",
+        "sha256": "0959ba4e99ebd26b817b728df333a2c4d2477aaff0bc19ccd666ac2bf789e633",
+        "sourceSha": "620dbc298b36c45164be8db1ed4c4b0edc9e9c10",
+        "passed": true,
+        "allOriginalDataAndOtherContainersPreserved": true,
+        "missingPreloadPids": [],
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 3596,
+            "observedPgDriverQueryCalls": 3292,
+            "observedPoolCheckouts": 1272,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 1388,
+            "observedPgDriverQueryCalls": 1437,
+            "observedPoolCheckouts": 305,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 83,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 85,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 81,
+            "observedPgDriverQueryCalls": 26,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 97,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 96,
+            "observedPgDriverQueryCalls": 52,
+            "observedPoolCheckouts": 31,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 91,
+            "observedPgDriverQueryCalls": 9,
+            "observedPoolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5009,
+            "observedPgDriverQueryCalls": 686,
+            "observedPoolCheckouts": 155,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 255,
+            "observedPgDriverQueryCalls": 15,
+            "observedPoolCheckouts": 7,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 241,
+            "observedPgDriverQueryCalls": 116,
+            "observedPoolCheckouts": 32,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5011,
+            "observedPgDriverQueryCalls": 596,
+            "observedPoolCheckouts": 134,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          }
+        ]
+      },
+      "after": {
+        "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794056258875-result.json",
+        "sha256": "27035b54c56cfb83a7e9abf878c078248937250e8643f14ed7a382f81dbe217d",
+        "sourceSha": "22185519436e116beda520fddc197886f0132a0b",
+        "passed": true,
+        "allOriginalDataAndOtherContainersPreserved": true,
+        "missingPreloadPids": [],
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 4002,
+            "observedPgDriverQueryCalls": 3271,
+            "observedPoolCheckouts": 1275,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 1386,
+            "observedPgDriverQueryCalls": 1340,
+            "observedPoolCheckouts": 290,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 90,
+            "observedPgDriverQueryCalls": 26,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 78,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 80,
+            "observedPgDriverQueryCalls": 57,
+            "observedPoolCheckouts": 35,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 80,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 82,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 77,
+            "observedPgDriverQueryCalls": 26,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5016,
+            "observedPgDriverQueryCalls": 608,
+            "observedPoolCheckouts": 153,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 255,
+            "observedPgDriverQueryCalls": 15,
+            "observedPoolCheckouts": 7,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 260,
+            "observedPgDriverQueryCalls": 58,
+            "observedPoolCheckouts": 7,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5022,
+            "observedPgDriverQueryCalls": 554,
+            "observedPoolCheckouts": 133,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          }
+        ]
+      }
+    },
+    {
+      "sourceCount": 200,
+      "before": {
+        "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-200-on-desktop-1794052186430-result.json",
+        "sha256": "dafdfef3a720011c7f7c308c899d5db6ac8d61e261e4408fc515df4f40f6be8e",
+        "sourceSha": "620dbc298b36c45164be8db1ed4c4b0edc9e9c10",
+        "passed": true,
+        "allOriginalDataAndOtherContainersPreserved": true,
+        "missingPreloadPids": [],
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 3596,
+            "observedPgDriverQueryCalls": 1416,
+            "observedPoolCheckouts": 436,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 2374,
+            "observedPgDriverQueryCalls": 1310,
+            "observedPoolCheckouts": 289,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 81,
+            "observedPgDriverQueryCalls": 26,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 87,
+            "observedPgDriverQueryCalls": 55,
+            "observedPoolCheckouts": 31,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 83,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 93,
+            "observedPgDriverQueryCalls": 47,
+            "observedPoolCheckouts": 21,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 89,
+            "observedPgDriverQueryCalls": 26,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 89,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5019,
+            "observedPgDriverQueryCalls": 646,
+            "observedPoolCheckouts": 153,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 243,
+            "observedPgDriverQueryCalls": 112,
+            "observedPoolCheckouts": 28,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 241,
+            "observedPgDriverQueryCalls": 15,
+            "observedPoolCheckouts": 7,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5011,
+            "observedPgDriverQueryCalls": 603,
+            "observedPoolCheckouts": 137,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          }
+        ]
+      },
+      "after": {
+        "report": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-200-on-desktop-1794056435319-result.json",
+        "sha256": "fa40e769976c43d7bd52ea68db396b9fb186786a68735cf1105deae29230a705",
+        "sourceSha": "22185519436e116beda520fddc197886f0132a0b",
+        "passed": true,
+        "allOriginalDataAndOtherContainersPreserved": true,
+        "missingPreloadPids": [],
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 3458,
+            "observedPgDriverQueryCalls": 1453,
+            "observedPoolCheckouts": 462,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 2372,
+            "observedPgDriverQueryCalls": 1083,
+            "observedPoolCheckouts": 252,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 88,
+            "observedPgDriverQueryCalls": 99,
+            "observedPoolCheckouts": 31,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 85,
+            "observedPgDriverQueryCalls": 93,
+            "observedPoolCheckouts": 22,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 83,
+            "observedPgDriverQueryCalls": 56,
+            "observedPoolCheckouts": 14,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 76,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 91,
+            "observedPgDriverQueryCalls": 21,
+            "observedPoolCheckouts": 13,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 87,
+            "observedPgDriverQueryCalls": 47,
+            "observedPoolCheckouts": 21,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5010,
+            "observedPgDriverQueryCalls": 618,
+            "observedPoolCheckouts": 155,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 248,
+            "observedPgDriverQueryCalls": 99,
+            "observedPoolCheckouts": 28,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 237,
+            "observedPgDriverQueryCalls": 19,
+            "observedPoolCheckouts": 11,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5020,
+            "observedPgDriverQueryCalls": 556,
+            "observedPoolCheckouts": 134,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "sameYDoc": true,
+            "sameProvider": true
+          }
+        ]
+      }
+    }
+  ],
+  "limits": [
+    "Global windows include overlapping HTTP, sockets and background processes; not exclusive caller attribution.",
+    "Diagnostic windows capture stacks and are not latency measurements.",
+    "Six observed warm switches per fixture do not establish the complete p95, lifecycle, peer, mobile or resource acceptance matrix.",
+    "Remaining hundreds of idle driver calls are unresolved. No claim that the complete performance budget is achieved.",
+    "Review Center and file-operation Undo remain excluded."
+  ],
+  "goalComplete": false
+}

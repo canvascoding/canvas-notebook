@@ -748,12 +748,15 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
     assert.throws(()=>decodeWorkspaceOperationCohortDeletePlan(hostile));assert.equal(reads,0);
     for(const version of [1,2,3,5])assert.throws(()=>decodeWorkspaceOperationCohortDeletePlan({...plan,version}));
     // Additive historical-details regression; all original negative assertions above remain.
-    const make = (representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks') => {
-      const actual = fixture({ native: [['folder/note.md', '# Original'], ['incoming.md', '[**Target**](folder/note.md)\n\nUnchanged']], raw: [], extra: [] });
-      actual.input.actions[0].selections = [{ sourcePath: 'folder' }];
+    const make = (representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks', kind: 'cohort' | 'physical' = 'cohort') => {
+      const target = kind === 'physical' ? 'folder/picture.png' : 'folder/note.md';
+      const content = `[**Target**](${target})\n\nUnchanged`;
+      const actual = fixture({ native: [['folder/note.md', '# Original'], ['incoming.md', content]], raw: [],
+        extra: kind === 'physical' ? [{ path: target, kind: 'file' }] : [] });
+      actual.input.actions[0].selections = [{ sourcePath: kind === 'physical' ? target : 'folder' }];
       if (representation !== 'plain_text') {
         const state = actual.input.observation.privateNativeStates.find(row => row.path === 'incoming.md')!;
-        const doc = createRichMarkdownYDoc('[**Target**](folder/note.md)\n\nUnchanged', representation);
+        const doc = createRichMarkdownYDoc(content, representation);
         try { state.representation = representation; state.yjsState = Y.encodeStateAsUpdate(doc); state.stateVector = Y.encodeStateVector(doc); }
         finally { doc.destroy(); }
         const inventory = inspectPersistedDocumentLinks(state);
@@ -814,9 +817,11 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
       }
     }
     // Pure stored-row decoding must keep every current row field outside the
-    // exact-text historical Plan6 reuse. This supplies no Claim or actor rights.
+    // exact-text historical Plan5/6 reuse. This supplies no Claim or actor rights.
+    for (const kind of ['cohort', 'physical'] as const)
     for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) await withNativeInspectionSchema(async () => {
-      const actual = make(representation), original = createWorkspaceOperationCohortDeletePlan(actual.input);
+      const actual = make(representation, kind), original = kind === 'physical'
+        ? createWorkspaceOperationPhysicalDeleteBatchPlanV5(actual.input) : createWorkspaceOperationCohortDeletePlan(actual.input);
       const planText = JSON.stringify(original);
       const actor = { mode: 'direct', actorType: 'user', actorUserId: 'stored-fixture-user', actorId: 'stored-fixture-user',
         actorDisplayName: 'Stored fixture', requestHash: proof({ planId: original.planId }), jobScope: actual.jobScope };
@@ -825,8 +830,17 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
         review_ids_json: '[]', review_refs_json: '[]', reviewer_user_id: null, reviewer_display_name: null,
         status: 'queued', action_mode: 'apply', completed_actions: 0, total_actions: workspaceOperationBatchTotalActions(original),
         phase: 'preparing', error_code: null, trash_entry_ids_json: '[]', lease_owner: null, created_at: 100, updated_at: 100 };
-      const firstRecord = decodeWorkspaceOperationBatchRecord(row), secondRecord = decodeWorkspaceOperationBatchRecord(row);
-      assert(firstRecord.plan.version === 6 && secondRecord.plan.version === 6);
+      const firstRecord = decodeWorkspaceOperationBatchRecord(row);
+      const diagnostics: string[] = [], originalInfo = console.info;
+      let secondRecord: ReturnType<typeof decodeWorkspaceOperationBatchRecord>;
+      try {
+        console.info = (...values: unknown[]) => { diagnostics.push(values.filter(value => typeof value === 'string').join(' ')); };
+        secondRecord = decodeWorkspaceOperationBatchRecord(row);
+      } finally { console.info = originalInfo; }
+      assert(diagnostics.some(line => line.includes('[workspace_operation_stored_cohort_plan]') && line.includes('\"cache\":\"hit\"')),
+        'An exact immutable Plan5/6 text must reuse its historical parse before the unchanged strict decoder.');
+      assert.equal(firstRecord.plan.version, kind === 'physical' ? 5 : 6);
+      assert.equal(secondRecord.plan.version, firstRecord.plan.version);
       assert.deepEqual(firstRecord.plan, original); assert.deepEqual(secondRecord.plan, original);
       assert.notEqual(firstRecord.plan, secondRecord.plan); assert.notEqual(firstRecord.plan.sourceEvidence, secondRecord.plan.sourceEvidence);
       assert(Object.isFrozen(firstRecord.plan)); assert(Object.isFrozen(secondRecord.plan));
@@ -899,7 +913,7 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
         try {
           const warmFailure = htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord(row));
           const coldFailure = htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord({ ...row, plan_json: planText + '\n' }));
-          assert.deepEqual(warmFailure, coldFailure, 'A warm exact Plan6 text must still reject the currently missing used rich-link attribute.');
+          assert.deepEqual(warmFailure, coldFailure, 'A warm exact Plan5/6 text must still reject the currently missing used rich-link attribute.');
         } finally { Object.defineProperty(attributes, 'href', href); }
         assert.deepEqual(decodeWorkspaceOperationBatchRecord(row).plan, original);
       }

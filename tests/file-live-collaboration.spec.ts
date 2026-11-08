@@ -13,7 +13,13 @@ import { deleteOwnedFixtureFiles } from './helpers/owned-fixture-files';
 import { recoveredRoomReadUrls, roomReadConsoleMessage } from './helpers/recovered-room-read.mjs';
 import { recoveredRichMigrationErrors } from './helpers/recovered-rich-migration.mjs';
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
+import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
+import { installOwnedCollaborationOutage } from './helpers/owned-collaboration-outage';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
+import { readNativeRichLocalRecovery } from './helpers/native-rich-local-recovery';
+import { nativeRichParagraph } from './helpers/native-rich-paragraph';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -737,6 +743,413 @@ test.describe('Markdown live collaboration', () => {
       }
       await memberContext.close().catch(() => undefined);
       await adminContext.close();
+    }
+  });
+
+  test('retains inactive live tabs while another fixture user edits their exact Yjs document', async ({ browser }, info) => {
+    info.annotations.push({ type: 'scope', description: 'Two actual fixture users; real UI, HTTP and sockets; same Y.Doc/provider through an inactive-tab peer update.' });
+    const suffix = randomUUID(), paths = [`live-tab-a-${suffix}.md`, `live-tab-b-${suffix}.md`];
+    const text = ['First retained paragraph.', 'Second retained paragraph.'], marker = ` Peer ${suffix}`;
+    const ownerContext = await fixtureContext(browser), peerContext = await fixtureContext(browser, true);
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await ownerContext.storageState(), timeout: 15_000 });
+    const owner = await ownerContext.newPage(), peer = await peerContext.newPage();
+    const ownerErrors = logBrowserDiagnostics(owner, 'retained-tab-owner'), peerErrors = logBrowserDiagnostics(peer, 'retained-tab-peer');
+    let workspaceId: string | null = null, failure: unknown;
+    const observe = (filePath: string, documentId: string) => owner.getByRole('tabpanel', { name: filePath, exact: true })
+      .locator('.ProseMirror').evaluate((element, id) => {
+        type Doc = { share: Map<string, { toJSON(): unknown }> };
+        type Live = { doc: Doc; provider: { isSynced: boolean }; ready: boolean; connection: string; session: { documentId: string } };
+        type Fiber = { memoizedProps?: Record<string, unknown>; return?: Fiber };
+        const el = element as HTMLElement & { editor?: { extensionManager: { extensions: Array<{ name: string; options: { document?: Doc } }> };
+          storage: { canvasBlockTreeCollaboration?: { binding?: { options: { document?: Doc } } } } } };
+        const editor = el.editor;
+        const doc = editor?.extensionManager.extensions.find(value => value.name === 'collaboration')?.options.document
+          ?? editor?.storage.canvasBlockTreeCollaboration?.binding?.options.document;
+        if (!doc) return null;
+        let live: Live | undefined;
+        for (let node: HTMLElement | null = el; node && !live; node = node.parentElement) {
+          const key = Object.keys(node).find(name => name.startsWith('__reactFiber$'));
+          let fiber = key ? Reflect.get(node, key) as Fiber : undefined;
+          for (let depth = 0; fiber && depth < 60; depth++, fiber = fiber.return) {
+            const props = fiber.memoizedProps;
+            const value = (props?.collaborationDocument ?? props?.collaboration
+              ?? (props?.externalCollaboration as { document?: unknown } | undefined)?.document) as Live | undefined;
+            if (value?.doc === doc && value.session.documentId === id) { live = value; break; }
+          }
+        }
+        if (!live?.provider.isSynced || !live.ready || live.connection !== 'live') return null;
+        const target = window as typeof window & { __canvasRetainedTabE2E?: Map<string, { doc: Doc; provider: object }> };
+        const refs = target.__canvasRetainedTabE2E ??= new Map();
+        const previous = refs.get(id); if (!previous) refs.set(id, { doc, provider: live.provider });
+        return { sameDoc: !previous || previous.doc === doc, sameProvider: !previous || previous.provider === live.provider };
+      }, documentId);
+    try {
+      const ownerId = await login(owner, ADMIN_EMAIL, ADMIN_PASSWORD);
+      expect(await login(peer, SECONDARY_EMAIL, SECONDARY_PASSWORD)).not.toBe(ownerId);
+      workspaceId = await organizationWorkspace(owner.request);
+      expect(await organizationWorkspace(peer.request)).toBe(workspaceId);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(ownerContext, workspaceId); await useWorkspace(peerContext, workspaceId);
+      const documentIds: Record<string, string> = {};
+      for (let index = 0; index < paths.length; index++) {
+        const uploaded = await owner.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`# Retained ${index}\n\n${text[index]}\n`),
+        } } });
+        expect(uploaded.ok(), await uploaded.text()).toBe(true);
+        const response = await owner.request.get(`/api/files/read?path=${encodeURIComponent(paths[index])}`, { headers });
+        expect(response.ok(), await response.text()).toBe(true);
+        const payload = await response.json() as { data: { nativeSource: { documentId: string } } };
+        documentIds[paths[index]] = payload.data.nativeSource.documentId;
+      }
+      await ownerContext.addInitScript(({ workspace, paths, documentIds }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds }));
+      }, { workspace: workspaceId, paths, documentIds });
+      await openCollaborativeMarkdown(owner, paths[0]);
+      await expect.poll(() => observe(paths[0], documentIds[paths[0]]), { timeout: 30_000 })
+        .toEqual({ sameDoc: true, sameProvider: true });
+      await owner.getByRole('tab', { name: paths[1], exact: true }).click(); await enterMarkdownEditMode(owner);
+      await expect.poll(() => observe(paths[1], documentIds[paths[1]]), { timeout: 30_000 })
+        .toEqual({ sameDoc: true, sameProvider: true });
+      await owner.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(owner.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+      await openCollaborativeMarkdown(peer, paths[1]);
+      const peerEditor = peer.locator('.tiptap-editor-shell .ProseMirror');
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toContain(text[1]);
+      const caret = await peerEditor.evaluate((element, value) => {
+        (element as HTMLElement).focus();
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), matches: Node[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent === value) matches.push(node);
+        if (matches.length !== 1) return false;
+        const node = matches[0], range = document.createRange(); range.setStart(node, value.length); range.collapse(true);
+        const selection = window.getSelection(); if (!selection) return false;
+        selection.removeAllRanges(); selection.addRange(range);
+        return document.activeElement === element && selection.anchorNode === node && selection.anchorOffset === value.length;
+      }, text[1]);
+      expect(caret, 'The actual peer caret must be at the end of the fixture paragraph.').toBe(true);
+      await peer.keyboard.insertText(marker);
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toContain(text[1] + marker);
+      await expect.poll(() => owner.evaluate(({ id, marker }) => {
+        const target = window as typeof window & { __canvasRetainedTabE2E?: Map<string, { doc: { share: Map<string, { toJSON(): unknown }> } }> };
+        const doc = target.__canvasRetainedTabE2E?.get(id)?.doc;
+        return Boolean(doc && JSON.stringify([...doc.share].map(([name, value]) => [name, value.toJSON()])).includes(marker));
+      }, { id: documentIds[paths[1]], marker }), { timeout: 15_000 }).toBe(true);
+      await expect(owner.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(async () => {
+        const response = await peer.request.get(`/api/files/read?path=${encodeURIComponent(paths[1])}`, { headers });
+        const payload = await response.json() as { code?: string; data?: { content?: string; nativeSource?: { documentId: string } } };
+        if (response.status() === 503 && payload.code === 'ROOM_OWNER_BUSY') return '';
+        expect(response.ok(), JSON.stringify(payload)).toBe(true);
+        expect(payload.data?.nativeSource?.documentId).toBe(documentIds[paths[1]]);
+        return payload.data?.content ?? '';
+      }, { timeout: 20_000 }).toContain(text[1] + marker);
+      const reloads: string[] = []; let switching = true, newSockets = 0;
+      owner.on('request', value => {
+        if (!switching) return;
+        const url = new URL(value.url());
+        if (url.pathname === '/api/files/read' && url.searchParams.get('path') === paths[1]) reloads.push('file-read');
+        if (url.pathname === '/api/files/collaboration/session' && value.postDataJSON()?.path === paths[1]) reloads.push('session');
+      });
+      owner.on('websocket', value => { if (switching && new URL(value.url()).pathname.includes('/collaboration')) newSockets++; });
+      try {
+        await owner.getByRole('tab', { name: paths[1], exact: true }).click();
+        const editor = owner.getByRole('tabpanel', { name: paths[1], exact: true }).locator('.ProseMirror');
+        await expect.poll(() => collaborativeEditorText(editor)).toContain(text[1] + marker);
+        await expect.poll(() => editor.evaluate(element => (element as HTMLElement & {
+          editor: { state: { doc: { textContent: string } } } }).editor.state.doc.textContent)).toContain(text[1] + marker);
+        expect(await observe(paths[1], documentIds[paths[1]])).toEqual({ sameDoc: true, sameProvider: true });
+      } finally { switching = false; }
+      expect(reloads, 'A retained live tab must show the peer update without file/session reload.').toEqual([]);
+      expect(newSockets).toBe(0); expect([...ownerErrors, ...peerErrors]).toEqual([]);
+    } catch (error) { failure = error; throw error; }
+    finally {
+      await finishFixture(cleanupApi, [() => peerContext.close(), () => ownerContext.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
+    }
+  });
+
+  for (const quota of [false, true]) test(quota
+    ? 'keeps uncommitted offline edits when native IndexedDB quota blocks backup and recovers after storage returns'
+    : 'retains a committed offline edit across inactive tabs, authorized reconnect and reload', async ({ browser }, info) => {
+    test.setTimeout(180_000);
+    info.annotations.push({ type: 'scope', description: 'Real held tabs, interrupted real sockets and offline browser; committed IndexedDB/native proofs, fresh reconnect authority and reload. No fabricated server responses or persistence acknowledgements.' });
+    const suffix = randomUUID(), paths = [`offline-tab-a-${suffix}.md`, `offline-tab-b-${suffix}.md`];
+    const texts = ['Offline retained paragraph.', 'Other retained paragraph.'], marker = ` Offline ${suffix}`;
+    const context = await fixtureContext(browser), page = await context.newPage();
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
+    const outage = await installOwnedCollaborationOutage(context);
+    const selector = '.tiptap-editor-shell .ProseMirror';
+    let workspaceId: string | null = null, failure: unknown;
+    let cdp: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined;
+    const origin = new URL(BASE_URL).origin, pageErrors: string[] = [];
+    if (quota) {
+      info.annotations.push({ type: 'scope', description: 'Native Chromium quota override and actual IDB transaction abort observation; no fabricated storage errors. Dirty RAM and blocked transition remain until a real local backup can commit.' });
+      page.on('pageerror', error => pageErrors.push(error.message));
+      await context.addInitScript(() => {
+        const original = IDBDatabase.prototype.transaction;
+        const target = window as typeof window & { __canvasQuotaAbortEvents?: Array<{ database: string; name: string }> };
+        target.__canvasQuotaAbortEvents = [];
+        IDBDatabase.prototype.transaction = function (...args: Parameters<IDBDatabase['transaction']>) {
+          const transaction = Reflect.apply(original, this, args) as IDBTransaction;
+          // Observe the original browser transaction; never replace its data,
+          // return value, events or persistence acknowledgements.
+          transaction.addEventListener('abort', () => {
+            if (transaction.error?.name !== 'QuotaExceededError') return;
+            const events = target.__canvasQuotaAbortEvents!;
+            if (events.length < 32) events.push({ database: this.name, name: transaction.error.name });
+          }, { once: true });
+          return transaction;
+        };
+      });
+    }
+    const ids: Record<string, string> = {};
+    const persisted = async () => {
+      expect(workspaceId).toBeTruthy();
+      const response = await cleanupApi.post('/api/files/collaboration/session', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId! },
+        data: { path: paths[0], representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
+      });
+      expect(response.status()).toBe(200);
+      const value = await response.json() as { documentId: string; lifecycleGeneration: number;
+        representation: string; stateProof: string; stateVector: string; degraded: boolean };
+      expect(value.documentId).toBe(ids[paths[0]]); expect(value.degraded).toBe(false);
+      expect(value.representation).toBe('tiptap_blocks');
+      return { documentId: value.documentId, lifecycleGeneration: value.lifecycleGeneration,
+        representation: value.representation, stateProof: value.stateProof, stateVector: value.stateVector };
+    };
+    const snapshot = (candidate: Awaited<ReturnType<typeof readNativeRichCandidate>>) => ({
+      document: candidate.document, stateProof: candidate.stateProof, stateVector: candidate.stateVector,
+    });
+    try {
+      await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(page.request);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(context, workspaceId);
+      for (let index = 0; index < paths.length; index++) {
+        await waitForFileCreateBudget();
+        const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`${texts[index]}\n`),
+        } } });
+        expect(uploaded.status()).toBe(200);
+        const read = await page.request.get('/api/files/read', { headers, params: { path: paths[index] } });
+        expect(read.status()).toBe(200);
+        ids[paths[index]] = (await read.json()).data.nativeSource.documentId;
+        expect(ids[paths[index]]).toBeTruthy();
+      }
+      await context.addInitScript(({ workspace, paths, ids }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds: ids }));
+      }, { workspace: workspaceId, paths, ids });
+      await openCollaborativeMarkdown(page, paths[0]);
+      await expect(page.locator(selector)).toHaveText(texts[0]);
+      await page.getByRole('tab', { name: paths[1], exact: true }).click(); await enterMarkdownEditMode(page);
+      await expect(page.locator(selector)).toHaveText(texts[1]);
+      await page.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(page.locator(selector)).toHaveText(texts[0]);
+      const baseline = await readNativeRichCandidate(page, selector);
+      await expect.poll(async () => {
+        const current = await persisted(); return { stateProof: current.stateProof, stateVector: current.stateVector };
+      }, { timeout: 20_000 }).toEqual({ stateProof: baseline.stateProof, stateVector: baseline.stateVector });
+      const identity = await persisted();
+      if (quota) {
+        expect(browser.browserType().name()).toBe('chromium');
+        await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(snapshot(baseline));
+        cdp = await context.newCDPSession(page);
+        // Zero means no limit in Chromium's quota calculation. One byte is
+        // below the existing committed baseline without deleting that baseline.
+        await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 });
+      }
+      await outage.block(); await context.setOffline(true);
+      expect(await page.evaluate(() => navigator.onLine)).toBe(false);
+      if (quota) {
+        // Chromium retains cached space grants for 30 seconds. Wait real time:
+        // https://chromium.googlesource.com/chromium/src/+/1c9524c5d3627044b0cf0a0b679978e82b702279/content/browser/indexed_db/instance/bucket_context.h
+        await page.waitForTimeout(31_000);
+        const current = await cdp!.send('Storage.getUsageAndQuota', { origin });
+        expect(current.overrideActive).toBe(true); expect(current.quota).toBe(1);
+      }
+      await (await nativeRichParagraph(page, selector, texts[0])).click();
+      // End stops at the visual line boundary on narrow viewports. Collapse
+      // an actual editor selection to the document end and verify the caret.
+      await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('ArrowRight');
+      await expect.poll(() => page.locator(selector).evaluate(element => {
+        const editor = (element as HTMLElement & { editor: { state: {
+          doc: { content: { size: number } }; selection: { from: number; to: number; empty: boolean };
+        }; view: { hasFocus(): boolean } } }).editor;
+        const selection = element.ownerDocument.getSelection(), { from, to, empty } = editor.state.selection;
+        return editor.view.hasFocus() && empty && from === to && to === editor.state.doc.content.size - 1
+          && Boolean(selection?.isCollapsed && selection.anchorNode && element.contains(selection.anchorNode));
+      })).toBe(true);
+      await page.keyboard.insertText(marker);
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker);
+      const offline = await readNativeRichCandidate(page, selector);
+      expect(offline.guid).toBe(baseline.guid); expect(offline.stateProof).not.toBe(baseline.stateProof);
+      if (quota) {
+        const databaseName = `canvas:${identity.documentId}:${identity.lifecycleGeneration}:${identity.representation}`;
+        await expect.poll(() => page.evaluate(database => (
+          window as typeof window & { __canvasQuotaAbortEvents?: Array<{ database: string; name: string }> }
+        ).__canvasQuotaAbortEvents?.some(event => event.database === database && event.name === 'QuotaExceededError') ?? false,
+        databaseName), { timeout: 10_000 }).toBe(true);
+        expect(await readNativeRichLocalRecovery(page, identity)).toEqual(snapshot(baseline));
+        expect(await persisted()).toEqual(identity);
+        await page.getByRole('tab', { name: paths[1], exact: true }).click();
+        await expect(page.getByText(enMessages.notebook.collaboration.closeRecoveryBlocked, { exact: true }).first()).toBeVisible();
+        await expect(page.getByRole('tab', { name: paths[0], exact: true })).toHaveAttribute('aria-selected', 'true');
+        await expect(page.locator(selector)).toHaveText(texts[0] + marker);
+        expect(snapshot(await readNativeRichCandidate(page, selector))).toEqual(snapshot(offline));
+        await page.screenshot({ path: info.outputPath('native-quota-blocked-backup.png') });
+        await cdp!.send('Storage.overrideQuotaForOrigin', { origin });
+        expect((await cdp!.send('Storage.getUsageAndQuota', { origin })).overrideActive).toBe(false);
+        // Retry the actual blocked departure while still offline. The guard
+        // must commit the full local candidate before the other tab can open.
+        await page.getByRole('tab', { name: paths[1], exact: true }).click();
+        await expect(page.getByRole('tab', { name: paths[1], exact: true })).toHaveAttribute('aria-selected', 'true');
+      }
+      await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(snapshot(offline));
+      expect(await persisted()).toEqual(identity);
+      if (!quota) await page.getByRole('tab', { name: paths[1], exact: true }).click();
+      await expect(page.getByRole('tab', { name: paths[1], exact: true })).toHaveAttribute('aria-selected', 'true');
+      // The local committed log remains the exact dirty candidate while the
+      // editor is inactive; server-native bytes must still be the baseline.
+      await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 10_000 }).toEqual(snapshot(offline));
+      expect(await persisted()).toEqual(identity);
+      let freshSessions = 0;
+      page.on('response', value => {
+        if (new URL(value.url()).pathname === '/api/files/collaboration/session' && value.status() === 200
+          && value.request().postDataJSON()?.path === paths[0]) freshSessions++;
+      });
+      outage.restore(); await context.setOffline(false);
+      await page.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker, { timeout: 30_000 });
+      const resumed = await readNativeRichCandidate(page, selector);
+      expect(resumed.guid).toBe(offline.guid); expect(snapshot(resumed)).toEqual(snapshot(offline));
+      await expect.poll(() => freshSessions, { timeout: 20_000 }).toBeGreaterThan(0);
+      await expect.poll(persisted, { timeout: 30_000 })
+        .toEqual({ ...identity, stateProof: offline.stateProof, stateVector: offline.stateVector });
+      await page.reload({ waitUntil: 'domcontentloaded' }); await enterMarkdownEditMode(page);
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker, { timeout: 30_000 });
+      expect(snapshot(await readNativeRichCandidate(page, selector))).toEqual(snapshot(offline));
+      await page.screenshot({ path: info.outputPath('retained-offline-reconnect.png') });
+      if (quota) expect(pageErrors, 'Storage exhaustion must remain a handled recovery state.').toEqual([]);
+    } catch (error) { failure = error; throw error; }
+    finally {
+      await finishFixture(cleanupApi, [async () => { if (cdp) await cdp.send('Storage.overrideQuotaForOrigin', { origin }); },
+        () => context.setOffline(false), () => outage.dispose(), async () => { if (cdp) await cdp.detach(); }, () => context.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
+    }
+  });
+
+  test('releases evicted document memory without losing persisted content or session isolation', async ({ browser }, info) => {
+    test.setTimeout(240_000);
+    const acceptanceStartedAt = Date.now();
+    info.annotations.push({ type: 'scope', description: 'Actual Chromium GC, eighteen native documents, WeakRef observation only, and fresh authorized reopen.' });
+    expect(browser.browserType().name(), 'The regular collaboration profile must provide Chromium CDP.').toBe('chromium');
+    const suffix = randomUUID(), paths = Array.from({ length: 18 }, (_, index) => `live-tab-gc-${index}-${suffix}.md`);
+    const text = paths.map((_, index) => `Retained content ${index} ${suffix}.`);
+    const context = await fixtureContext(browser), page = await context.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
+    let workspaceId: string | null = null, failure: unknown;
+    let acceptanceVerified = false;
+    const ids: Record<string, string> = {};
+    const observe = (index: number) => page.getByRole('tabpanel', { name: paths[index], exact: true }).locator('.ProseMirror')
+      .evaluate((element, id) => {
+        type Doc = { isDestroyed: boolean };
+        type Live = { doc: Doc; provider?: { isSynced: boolean; configuration: { document: Doc } }; ready: boolean;
+          connection: string; session?: { documentId: string } };
+        type Fiber = { memoizedProps?: Record<string, unknown>; return?: Fiber };
+        const target = window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<Doc>> };
+        for (let node: HTMLElement | null = element as HTMLElement; node; node = node.parentElement) {
+          const key = Object.keys(node).find(name => name.startsWith('__reactFiber$'));
+          let fiber = key ? Reflect.get(node, key) as Fiber : undefined;
+          for (let depth = 0; fiber && depth < 60; depth++, fiber = fiber.return) {
+            const props = fiber.memoizedProps;
+            const live = (props?.collaborationDocument ?? props?.collaboration
+              ?? (props?.externalCollaboration as { document?: unknown } | undefined)?.document) as Live | undefined;
+            if (live?.session?.documentId !== id || !live.ready || live.connection !== 'live'
+              || !live.provider?.isSynced || live.provider.configuration.document !== live.doc) continue;
+            const refs = target.__canvasEvictionE2E ??= new Map(), previous = refs.get(id);
+            if (!previous) refs.set(id, new WeakRef(live.doc));
+            return { ready: true, sameDoc: !previous || previous.deref() === live.doc };
+          }
+        }
+        return null;
+      }, ids[paths[index]]);
+    const activate = async (index: number) => {
+      const tab = page.getByRole('tab', { name: paths[index], exact: true });
+      if (await tab.count()) await tab.click();
+      else {
+        await page.getByTestId('notebook-documents-menu').click();
+        await page.getByRole('menuitem').filter({ hasText: paths[index] }).click();
+      }
+      await expect(page.getByRole('tabpanel', { name: paths[index], exact: true }).locator('.ProseMirror')).toContainText(text[index]);
+    };
+    try {
+      await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(page.request);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(context, workspaceId);
+      for (let index = 0; index < paths.length; index++) {
+        await waitForFileCreateBudget();
+        const upload = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`# Eviction ${index}\n\n${text[index]}\n`),
+        } } });
+        expect(upload.ok(), await upload.text()).toBe(true);
+        const response = await page.request.get(`/api/files/read?path=${encodeURIComponent(paths[index])}`, { headers });
+        expect(response.ok(), await response.text()).toBe(true);
+        const payload = await response.json() as { data: { content: string; nativeSource: { documentId: string } } };
+        expect(payload.data.content).toContain(text[index]);
+        ids[paths[index]] = payload.data.nativeSource.documentId;
+      }
+      await context.addInitScript(({ workspace, paths, ids }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds: ids }));
+      }, { workspace: workspaceId, paths, ids });
+      await openCollaborativeMarkdown(page, paths[0]);
+      for (let index = 0; index < paths.length; index++) {
+        if (index) await activate(index);
+        await expect.poll(() => observe(index), { timeout: 30_000 }).toEqual({ ready: true, sameDoc: true });
+      }
+      await expect.poll(() => page.evaluate(() => {
+        const refs = (window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<{ isDestroyed: boolean }>> }).__canvasEvictionE2E;
+        return [...(refs?.values() ?? [])].filter(ref => { const doc = ref.deref(); return doc && !doc.isDestroyed; }).length;
+      }), { timeout: 15_000 }).toBeLessThanOrEqual(15);
+      await expect.poll(() => page.evaluate(id => {
+        const doc = (window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<{ isDestroyed: boolean }>> })
+          .__canvasEvictionE2E?.get(id)?.deref();
+        return !doc || doc.isDestroyed;
+      }, ids[paths[0]]), { timeout: 15_000 }).toBe(true);
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('HeapProfiler.collectGarbage'); await page.waitForTimeout(50); await cdp.send('HeapProfiler.collectGarbage');
+      expect(await page.evaluate(id => Boolean((window as typeof window & { __canvasEvictionE2E?: Map<string, WeakRef<object>> })
+        .__canvasEvictionE2E?.get(id)?.deref()), ids[paths[0]]), 'A disposed document must not be kept alive by a cached session callback.').toBe(false);
+      let sessions = 0;
+      page.on('request', value => {
+        if (new URL(value.url()).pathname === '/api/files/collaboration/session' && value.postDataJSON()?.path === paths[1]) sessions++;
+      });
+      await activate(1);
+      await expect.poll(() => observe(1), { timeout: 30_000 }).toEqual({ ready: true, sameDoc: false });
+      expect(sessions, 'Reopening a disposed document requires fresh HTTP authority.').toBeGreaterThan(0);
+      const persisted = await page.request.get(`/api/files/read?path=${encodeURIComponent(paths[1])}`, { headers });
+      expect(persisted.ok(), await persisted.text()).toBe(true);
+      expect((await persisted.json()).data).toMatchObject({ nativeSource: { documentId: ids[paths[1]] } });
+      acceptanceVerified = true;
+      info.annotations.push({ type: 'acceptance-duration-ms', description: String(Date.now() - acceptanceStartedAt) });
+    } catch (error) { failure = error; throw error; }
+    finally {
+      // Keep the original 240-second bound for every acceptance assertion. Only
+      // successful acceptance grants a separate, bounded teardown window for the
+      // eighteen exact owned files; cleanup failures must still fail this case.
+      if (acceptanceVerified) {
+        info.setTimeout(info.timeout + 180_000);
+        info.annotations.push({ type: 'cleanup-budget', description:
+          'Acceptance completed within 240 seconds; up to 180 additional seconds for verified owned-fixture cleanup.' });
+      }
+      await finishFixture(cleanupApi, [() => context.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
     }
   });
 

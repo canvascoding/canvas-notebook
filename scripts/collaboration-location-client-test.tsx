@@ -88,14 +88,18 @@ async function main() {
   useEditorStore.getState().updateDraft('Local + peer draft');
   let mountedGeneration: number | undefined = 1;
   let mountedRepresentation: TextCollaborationRepresentation | undefined = 'plain_text';
-  let connection: 'live' | 'reconnecting' = 'live';
+  let connection: 'live' | 'reconnecting' | 'connecting' = 'live';
+  let locationSession: CollaborationSessionResponse | null = null;
+  let resolvingLocationSession = false;
+  let admissionBusy = false;
   let requestAdmissionRejoin: (() => Promise<void>) | undefined;
   function Probe() {
     const state = useFileStore();
     const issue = useCollaborationDocumentLocation({ workspaceId: state.currentFileWorkspaceId,
       documentId: state.currentFile?.collaboration?.document?.id ?? null,
       documentKey: state.currentFile?.editorIdentity, path: state.currentFile?.path ?? null,
-      lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin });
+      lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin,
+      session: locationSession, sessionPending: resolvingLocationSession, admissionBusy });
     return <output>{issue ?? 'ok'}</output>;
   }
   let session: CollaborationSessionResponse | null = null;
@@ -554,6 +558,118 @@ async function main() {
     assert.equal(requests.length, boundedLookup + 6, 'false adoption cannot create an unbounded location loop');
     assert.equal(boundedRejoins, 0);
     assert.equal(useEditorStore.getState().draft, 'Still pending adoption draft');
+
+    // Unit HTTP fixture only: obtain the actual client-registered response
+    // object, rather than fabricating a matching DTO as the receipt.
+    await act(async () => { root.render(null); sessionRoot.render(null); });
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'fresh-location-session' } } });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    useFileStore.setState({ currentFile: { ...file, editorIdentity: 'fresh-location-open' }, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content);
+    session = null; sessionDocumentId = 'document';
+    await act(async () => sessionRoot.render(<SessionProbe />));
+    await until(() => session?.documentId === 'document');
+    const issuedSession = session as CollaborationSessionResponse | null;
+    assert(issuedSession);
+    assert(authRegistry.hasCurrentOpenedDocumentSessionAuthorization('workspace', file.path, issuedSession));
+    locationSession = null; resolvingLocationSession = true;
+    connection = 'connecting'; mountedGeneration = undefined; mountedRepresentation = undefined; requestAdmissionRejoin = undefined;
+    const freshBase = requests.length;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, freshBase, 'ordinary startup waits for its already-running authoritative session request');
+    locationSession = issuedSession; resolvingLocationSession = false;
+    mountedGeneration = 1; mountedRepresentation = 'plain_text';
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, freshBase, 'fresh exact session provenance replaces the redundant initial location GET');
+    connection = 'live'; await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, freshBase, 'normal startup reaching live must not resolve the same location again');
+    connection = 'reconnecting'; await render();
+    await until(() => requests.length === freshBase + 1);
+    await reply(freshBase, file.path);
+    assert.equal(document.querySelector('#root output')?.textContent, 'ok');
+
+    // A fresh path receipt cannot suppress recovery of an exhausted mounted
+    // join. Initial busy, late busy without a connection transition, and the
+    // pending-session boundary all use the existing finite location/rejoin path.
+    await act(async () => root.render(null));
+    locationSession = issuedSession; admissionBusy = true; connection = 'reconnecting';
+    let busyRejoins = 0;
+    requestAdmissionRejoin = async () => { busyRejoins++; };
+    const busyBase = requests.length;
+    await render(); await until(() => requests.length === busyBase + 1);
+    await reply(busyBase, file.path); assert.equal(busyRejoins, 1);
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, busyBase + 1, 'unchanged busy does not replenish recovery');
+    admissionBusy = false; await render();
+    admissionBusy = true; await render();
+    await until(() => requests.length === busyBase + 2);
+    await reply(busyBase + 1, file.path); assert.equal(busyRejoins, 2);
+    await act(async () => root.render(null));
+    resolvingLocationSession = true;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, busyBase + 2, 'busy startup waits for its authoritative session');
+    resolvingLocationSession = false; await render();
+    await until(() => requests.length === busyBase + 3);
+    await reply(busyBase + 2, file.path); assert.equal(busyRejoins, 3);
+    admissionBusy = false; requestAdmissionRejoin = undefined;
+
+    await act(async () => root.render(null));
+    locationSession = { ...locationSession };
+    connection = 'live';
+    const copiedBase = requests.length;
+    await render(); await until(() => requests.length === copiedBase + 1);
+    await reply(copiedBase, file.path);
+    assert.equal(requests.length, copiedBase + 1, 'a matching metadata copy still requires an actual location read');
+
+    await act(async () => root.render(null));
+    locationSession = issuedSession;
+    const beforeExpiry = Date.now;
+    try {
+      const expiredNow = Date.parse(locationSession.expiresAt) + 1;
+      Date.now = () => expiredNow;
+      const expiredBase = requests.length;
+      await render(); await until(() => requests.length === expiredBase + 1);
+      await reply(expiredBase, file.path);
+    } finally { Date.now = beforeExpiry; }
+
+    // An actual watcher hint during session bootstrap cannot disappear when
+    // the pending session introduces its native generation and representation.
+    await act(async () => root.render(null));
+    locationSession = null; resolvingLocationSession = true;
+    mountedGeneration = undefined; mountedRepresentation = undefined;
+    const bootstrapHintBase = requests.length;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 250)); });
+    assert.equal(requests.length, bootstrapHintBase);
+    await structural(file.path, 'add');
+    await until(() => requests.length === bootstrapHintBase + 1);
+    const oldHintRequest = requests[bootstrapHintBase];
+    locationSession = issuedSession; resolvingLocationSession = false;
+    mountedGeneration = 1; mountedRepresentation = 'plain_text';
+    await render();
+    assert(oldHintRequest.signal.aborted);
+    await until(() => requests.length === bootstrapHintBase + 2);
+    await reply(bootstrapHintBase + 1, file.path);
+    await reply(bootstrapHintBase, 'stale/before-session.txt');
+    expectPath(file.path);
+    assert.equal(document.querySelector('#root output')?.textContent, 'ok');
+
+    await act(async () => root.render(null));
+    locationSession = null; resolvingLocationSession = true;
+    mountedGeneration = undefined; mountedRepresentation = undefined;
+    const failedSessionBase = requests.length;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 250)); });
+    assert.equal(requests.length, failedSessionBase);
+    resolvingLocationSession = false;
+    await render(); await until(() => requests.length === failedSessionBase + 1);
+    await reply(failedSessionBase, file.path);
 
     await act(async () => root.render(null));
     authRegistry.observeOpenedDocumentAuth(null);

@@ -101,6 +101,18 @@ const MEDIA_MIME_TYPES: Record<string, string> = {
 const AUTOSAVE_DELAY_MS = 800;
 const EXCALIDRAW_AUTOSAVE_DELAY_MS = 3000;
 
+// Keep stable image handlers outside the render scope so they cannot retain an
+// older editor context and its retired collaboration document between files.
+function createImageNavigationHandler(
+  targetPath: string | undefined,
+  loadFile: (path: string, noCache: boolean) => Promise<unknown>,
+) {
+  return () => {
+    if (targetPath === undefined) return;
+    void loadFile(targetPath, true);
+  };
+}
+
 function getExtension(path: string) {
   const parts = path.split('.');
   if (parts.length <= 1) return '';
@@ -597,13 +609,17 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
   }, [collaborationDocumentId]);
   const isSceneCollaboration = isExcalidraw || Boolean(collaboration?.sceneCapable);
   const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
+  const locationSession = activeCollaborationDocument?.session ?? textSession.session;
   const collaborationLocationIssue = useCollaborationDocumentLocation({
     workspaceId: currentFileWorkspaceId, documentId: collaborationDocumentId,
     documentKey: currentFile?.editorIdentity, path: currentFilePath,
-    lifecycleGeneration: activeCollaborationDocument?.session?.lifecycleGeneration,
-    representation: activeCollaborationDocument?.session?.representation === 'excalidraw_scene'
-      ? undefined : activeCollaborationDocument?.session?.representation,
+    lifecycleGeneration: locationSession?.lifecycleGeneration,
+    representation: locationSession?.representation === 'excalidraw_scene'
+      ? undefined : locationSession?.representation,
     connection: activeCollaborationDocument?.connection,
+    session: locationSession,
+    sessionPending: textSession.loading,
+    admissionBusy: activeCollaborationDocument?.clientState.admissionBusy,
     requestAdmissionRejoin: activeCollaborationDocument?.requestAdmissionRejoin,
   });
   const updateCollaborativeDraft = useCallback((value: string) => {
@@ -676,15 +692,16 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
   const hasImagePrev = imageIndex > 0;
   const hasImageNext = imageIndex >= 0 && imageIndex < imagePaths.length - 1;
 
-  const handleImagePrev = useCallback(() => {
-    if (!hasImagePrev) return;
-    void loadFile(imagePaths[imageIndex - 1], true);
-  }, [hasImagePrev, imageIndex, imagePaths, loadFile]);
-
-  const handleImageNext = useCallback(() => {
-    if (!hasImageNext) return;
-    void loadFile(imagePaths[imageIndex + 1], true);
-  }, [hasImageNext, imageIndex, imagePaths, loadFile]);
+  const previousImagePath = hasImagePrev ? imagePaths[imageIndex - 1] : undefined;
+  const nextImagePath = hasImageNext ? imagePaths[imageIndex + 1] : undefined;
+  const handleImagePrev = useMemo(
+    () => createImageNavigationHandler(previousImagePath, loadFile),
+    [previousImagePath, loadFile],
+  );
+  const handleImageNext = useMemo(
+    () => createImageNavigationHandler(nextImagePath, loadFile),
+    [nextImagePath, loadFile],
+  );
 
   const handleShareAction = useCallback(() => {
     if (!currentFile) return;

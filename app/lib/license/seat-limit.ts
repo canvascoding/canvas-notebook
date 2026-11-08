@@ -404,6 +404,18 @@ export async function assertUserSeatAccessInSingleSnapshotOnConnection(
   return evaluateUserSeatAccessSnapshot(userId, basePolicy, row);
 }
 
+/** Fresh session guard with owned PostgreSQL IO and the ordinary seat decision.
+ * Each call reads current signed license and seat facts; no grant is retained. */
+export async function assertUserSeatAccessInSingleSnapshot(userId: string): Promise<UserSeatAccess> {
+  const licenseStatus = await getLicenseStatus();
+  const database = await openDb();
+  try {
+    return await assertUserSeatAccessInSingleSnapshotOnConnection(database, userId, licenseStatus);
+  } finally {
+    await database.close();
+  }
+}
+
 export async function assertUserSeatAccess(input: {
   userId: string;
   database?: SeatLimitDatabase;

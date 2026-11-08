@@ -42,7 +42,7 @@ export function recoveredRichMigrationErrors(responses, consoleErrors) {
         || pending?.status !== 'pending' || pending.requestId !== request.requestId
         || pending.documentId !== request.expectedDocumentId
         || !['quiescence', 'handoff', 'projection'].includes(pending.phase)
-        || pending.reason != null && (pending.reason !== 'ADMISSION_SCOPE_CHANGED' || pending.phase !== 'handoff')
+        || pending.reason != null && (!['ADMISSION_SCOPE_CHANGED', 'ADMISSION_CONFLICT'].includes(pending.reason) || pending.phase !== 'handoff')
         || !Number.isSafeInteger(pending.lifecycleGeneration)
         || pending.lifecycleGeneration < request.expectedLifecycleGeneration
         || pending.lifecycleGeneration > request.expectedLifecycleGeneration + 1 || !Number.isFinite(failure.at)) return false;

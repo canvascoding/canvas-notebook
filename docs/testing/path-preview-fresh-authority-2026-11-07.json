@@ -1,0 +1,234 @@
+{
+  "scope": "Fixed Web path preview, actual PostgreSQL and authentication; compiled image/physical deletion acceptance pending",
+  "parentSourceSha": "a1affffb8b33a2b20488db4dcc0891a3b541f186",
+  "runtimeSource": "app/lib/files/workspace-path-import-operation-preview.ts",
+  "runtimeSourceSha256": "071d172c3795f40b32489f6bb8d6be61723238ea34b1cbde4e539cdff04f4582",
+  "redBefore": {
+    "log": "preview-fresh-observation-20261107-before.log",
+    "sha256": "efe7d0711a82696def6fd363df19eb86a8c02fe5673748521763b108109657cf",
+    "code": "PRINCIPAL_EXPIRED",
+    "realClockNotMocked": true
+  },
+  "registeredNativeAggregate": {
+    "command": "npm run test:files:preview-read-recovery:native",
+    "log": "preview-fresh-phase-native-aggregate-20261107.log",
+    "sha256": "7306c778f8359551ff7243e5873055abb8c0c58177b7a679ef1df88dca1e268f",
+    "recoveryCases": [
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "scan-commit-loss",
+        "passed": true,
+        "factories": 3,
+        "readPhases": 2,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "scan-close-loss",
+        "passed": true,
+        "factories": 3,
+        "readPhases": 2,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "transient",
+        "passed": true,
+        "factories": 31,
+        "readPhases": 29,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "advisory",
+        "passed": true,
+        "factories": 31,
+        "readPhases": 29,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "persistent",
+        "passed": true,
+        "factories": 6,
+        "readPhases": 3,
+        "rollbacks": 3,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "revoked",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "root-changed",
+        "passed": true,
+        "factories": 4,
+        "readPhases": 2,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "rollback-loss",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "close-loss",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "commit-loss",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "capture",
+        "passed": true,
+        "factories": 31,
+        "readPhases": 29,
+        "rollbacks": 1,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "expected-actor",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "expected-session",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "expected-impersonation",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      },
+      {
+        "suite": "workspace-preview-read-recovery",
+        "phase": "initial-root-changed",
+        "passed": true,
+        "factories": 2,
+        "readPhases": 1,
+        "rollbacks": 0,
+        "originalFilesNativeRowsXminAndOperationCountsUnchanged": true,
+        "noSqlAfterUnconfirmedOutcome": true
+      }
+    ],
+    "freshObservationCases": [
+      {
+        "suite": "workspace-preview-fresh-observation",
+        "phase": "rename",
+        "passed": true,
+        "realDelayMs": 5260,
+        "actualPostgresAndAuthorization": true,
+        "nativeRowsXminOriginalFileAndOperationCountsPreserved": true
+      },
+      {
+        "suite": "workspace-preview-fresh-observation",
+        "phase": "delete",
+        "passed": true,
+        "realDelayMs": 5254,
+        "actualPostgresAndAuthorization": true,
+        "nativeRowsXminOriginalFileAndOperationCountsPreserved": true
+      },
+      {
+        "suite": "workspace-preview-fresh-observation",
+        "phase": "revoked",
+        "passed": true,
+        "realDelayMs": 5255,
+        "actualPostgresAndAuthorization": true,
+        "nativeRowsXminOriginalFileAndOperationCountsPreserved": true
+      }
+    ],
+    "ownedSchemasConnectionsAndDataRemoved": true
+  },
+  "invariants": [
+    "Original request headers and actor/session/impersonation/realm/workspace provenance remain fixed.",
+    "Each Web SQL read phase freshly authenticates before opening its transaction.",
+    "Existing five-second captured/held principal deadlines remain unchanged.",
+    "Both complete source scans and their exact observation comparison remain required.",
+    "A failed read phase is latched; no SQL restart follows an unconfirmed outcome.",
+    "Credential and access revocation retain their exact domain code and return HTTP status 401/403 to the Web route.",
+    "No production data, Review Center or Undo changes."
+  ],
+  "limits": [
+    "Not yet compiled/browser-accepted.",
+    "Direct MCP principal captures remain unchanged; this report does not claim large-workspace MCP acceptance.",
+    "Three owned PNGs from the failed compiled probe still require verified API cleanup."
+  ],
+  "sourceBindings": {
+    "app/lib/files/workspace-path-import-operation-preview.ts": "071d172c3795f40b32489f6bb8d6be61723238ea34b1cbde4e539cdff04f4582",
+    "scripts/workspace-preview-read-recovery-postgres-test.ts": "4194502dd4e4400ad3b4fccbe7d453c82ac9943457688285021bfc27d2e7916d",
+    "scripts/workspace-preview-fresh-observation-postgres-test.ts": "7937e2936d21aa0e8c0fa0384215d528eb11f703e58f84f3b104665a256a5103",
+    "scripts/workspace-source-authority-stage-test.ts": "aa9eb5840b01b31997afb908d6b9a33bb0837f5f8c48c1b11f5024cc70a33d85",
+    "package.json": "52b5acd75647ccfbac5541625d67df8ee401069287b1ccecaf34781d53bdea1e"
+  },
+  "contractChecks": [
+    {
+      "name": "preview-fresh-phase-contracts-20261107.log",
+      "sha256": "87b8bd775ceb247f44d9159def543e30ea6c7e1177bc07e2e342957fc57d1c01",
+      "scope": "existing busy client/transaction contracts passed"
+    },
+    {
+      "name": "preview-fresh-original-source-contracts-20261107.log",
+      "sha256": "4fcaf5e70c0bdd95d1a92fcfc044bb6fcf1ebf253738d0313ca08de80fe0f1c4",
+      "scope": "40 source contract cases passed; one old transpile-fixture import mismatch failed"
+    },
+    {
+      "name": "preview-fresh-original-source-focused-20261107.log",
+      "sha256": "3fd73558136977b0c9229aa05f000f1f90d70fe0632006303bb28c6ea4a8b5e1",
+      "scope": "only the failed contract was rerun after adding the three real pure imports to its strict fixture; one test passed, zero skipped"
+    }
+  ]
+}

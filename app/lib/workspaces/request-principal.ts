@@ -236,7 +236,12 @@ async function withRequestPrincipal<T>(request: NextRequest,
   const permission = options.permission, workspaceId = options.workspaceId;
   // The request's actual headers/selectors are copied before the first await.
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
-  const authenticated = retainSourceConnection
+  // Fixed native observations need current read facts, not the general
+  // multi-query selection profile on every access-monitor tick. Original
+  // credentials are still authenticated here; realm capture and every held
+  // Principal/owner fence below remain fresh and unchanged. Write captures
+  // and ordinary callers retain their existing selection profile.
+  const authenticated = retainSourceConnection || observe && permission === 'canRead' && workspaceId
     ? await requireExistingDocumentReadRequestWorkspace(original, workspaceId!)
     : await requireExistingSelectedRequestWorkspace(original, { workspaceId, permissions: permission });
   if (authenticated.response) {

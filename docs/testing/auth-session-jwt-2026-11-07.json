@@ -1,0 +1,41 @@
+{
+  "scope": "genuine Better Auth and PostgreSQL session admission; not compiled browser OAuth acceptance",
+  "baseCommit": "2fefbe3ea38311b5786a2254a74d4f04f082a33a",
+  "before": {
+    "sessionSql": 9,
+    "jwkSql": 1,
+    "exitCode": 1
+  },
+  "after": {
+    "cookieAndBearerSessionSql": 4,
+    "jwkSql": 0,
+    "groups": 4,
+    "exitCode": 0,
+    "nativeReadCaptureSql": 7,
+    "dependentTransportGroups": 37
+  },
+  "redGreenSourceRestored": true,
+  "evidence": [
+    {
+      "log": "auth-session-jwt-confirmed-before-20261107.log",
+      "sha256": "d3e84836f488b447b86b4e607233d663814c5ee35325c80efc718e3eb0fdaa66"
+    },
+    {
+      "log": "auth-session-jwt-confirmed-after-20261107.log",
+      "sha256": "5f1f177d19e3d72bc9f00d3d33e02004b2a058be03156621115ae38386cbd6dd"
+    },
+    {
+      "log": "session-jwt-principal-capture-20261107.log",
+      "sha256": "a9272df2ccd7a2320b5a1a2ff3568824e1e046b9c113436ecd4fcc43eac2db47"
+    },
+    {
+      "log": "session-jwt-native-transports-20261107.log",
+      "sha256": "6d2013274a1e5a26f5cd923bb29a50253f98c0eb6d9a27aa0c3b78505f20bba3"
+    }
+  ],
+  "limits": [
+    "Not a compiled OAuth login/token issuance acceptance",
+    "Not a global background SQL or latency benchmark",
+    "Not a production deployment"
+  ]
+}

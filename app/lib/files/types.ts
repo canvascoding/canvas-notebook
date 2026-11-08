@@ -123,6 +123,8 @@ export interface OpenWorkspaceFileOptions {
   isCurrent?: () => boolean;
   /** Revalidate a closed preview when reopening its URL, including the same path. */
   forceReload?: boolean;
+  /** Reuse only an already connected, currently authorized Notebook text document. */
+  preferConnectedDocument?: boolean;
 }
 
 export interface WorkspaceFileOpenCompletion {

@@ -1,0 +1,395 @@
+{
+  "baseCommit": "14aa48359c87fa0a992f8a3aae9c52bd41642dfe",
+  "workerSourceSha256": "3dde50846f08c77c64e9abf46ea52101b9d99794eda5417f9b48b3cfc3328103",
+  "behavior": {
+    "productionBaseMs": 250,
+    "emptyCadenceMs": [
+      500,
+      1000,
+      1000
+    ],
+    "resetOn": [
+      "work",
+      "wake",
+      "failed observation"
+    ],
+    "durablePollingRetained": true,
+    "noPermissionOrOwnerFenceChange": true
+  },
+  "unitRedGreen": {
+    "beforeFailsAt": "Empty 250 ms poll backs off",
+    "afterScenarios": 3,
+    "passed": true
+  },
+  "nativePostgres": {
+    "suite": "collaboration-drain-poll-postgres",
+    "passed": true,
+    "groups": 8,
+    "emptyPollStatements": 5,
+    "emptyPollClients": 1,
+    "missingTablesFailClosed": 3,
+    "actualSchemaLockTimeout": true,
+    "pooledTimeoutsPreserved": true,
+    "protectedNativeStatePreserved": true,
+    "idleBackoffObservedWithRealPostgres": true,
+    "durableDrainWithoutWake": true,
+    "compiledBrowser": false
+  },
+  "relatedNativeGroups": [
+    "representation admission, actual owner drain and worker recovery",
+    "10 admission drain/handoff boundaries"
+  ],
+  "logs": [
+    {
+      "file": "drain-worker-idle-before-20261107.log",
+      "sha256": "fb966feb9eb7977009dd353b28810e80218ad7604d68082345bee526796fc652"
+    },
+    {
+      "file": "drain-worker-idle-after-20261107.log",
+      "sha256": "c398955c04511cc5951510a590ed2f79868ad6b42e606414c0b88ad66a8649ee"
+    },
+    {
+      "file": "drain-worker-native-poll-20261107.log",
+      "sha256": "639580b9b204c37cdfa53f19d144b23c57eb73b617b710fac4b626944706fc08"
+    },
+    {
+      "file": "drain-worker-native-representation-20261107.log",
+      "sha256": "c1cde8061baa8ec926315681783c72526ecd6ff735d92bc4654218f81b2bbc3f"
+    },
+    {
+      "file": "drain-worker-native-handoff-20261107.log",
+      "sha256": "34467817f220079a1b61f87876597ab32234d81b603eeb9b83518e0cdedd88e6"
+    }
+  ],
+  "limits": [
+    "Full regular test:all, broader resource/lifecycle matrix and current-head CI remain open",
+    "No release or production deployment"
+  ],
+  "compiledAcceptance": {
+    "sourceSha": "ebbe02446ec2ec836380baac580913248f91676b",
+    "imageId": "sha256:4f22bc57e1f8331a431f13d4b4915b37c5624079867b134f7228600cd85b37f3",
+    "cases": [
+      {
+        "count": 10,
+        "passed": true,
+        "proof": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794072127772-result.json",
+        "sha256": "f5a0f2efdaf9e88193fb754e070ebcaf9aa2b2f2eb6f89267a68a3fb39b12ceb",
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 3691,
+            "observedPgCalls": 3085,
+            "poolCheckouts": 1228,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "socketsOpened": 1,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 1373,
+            "observedPgCalls": 1218,
+            "poolCheckouts": 268,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "socketsOpened": 1,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 82,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 80,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 75,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 79,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 83,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 85,
+            "observedPgCalls": 96,
+            "poolCheckouts": 26,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5015,
+            "observedPgCalls": 465,
+            "poolCheckouts": 120,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 246,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 233,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5013,
+            "observedPgCalls": 425,
+            "poolCheckouts": 103,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": 5
+          }
+        ],
+        "preservation": {
+          "originalRowsXminBytesAndAnchorsPreserved": true,
+          "otherContainersPreserved": true,
+          "sourcePreserved": true
+        }
+      },
+      {
+        "count": 200,
+        "passed": true,
+        "proof": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-200-on-desktop-1794072295223-result.json",
+        "sha256": "9217e3f33e250fe5f9fda9cc14bde4c1a6e55eddf3b60e56076f98084a211ef3",
+        "phases": [
+          {
+            "name": "cold-A",
+            "visibleAndSyncedMs": 3516,
+            "observedPgCalls": 1229,
+            "poolCheckouts": 401,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "socketsOpened": 1,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "cold-B-same-app",
+            "visibleAndSyncedMs": 2383,
+            "observedPgCalls": 1135,
+            "poolCheckouts": 256,
+            "sessionRequests": 1,
+            "fileReadRequests": 1,
+            "socketsOpened": 1,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-0",
+            "visibleAndSyncedMs": 83,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-0",
+            "visibleAndSyncedMs": 85,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-1",
+            "visibleAndSyncedMs": 86,
+            "observedPgCalls": 33,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-1",
+            "visibleAndSyncedMs": 77,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-A-2",
+            "visibleAndSyncedMs": 80,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "warm-B-2",
+            "visibleAndSyncedMs": 86,
+            "observedPgCalls": 5,
+            "poolCheckouts": 5,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "idle-5s",
+            "visibleAndSyncedMs": 5023,
+            "observedPgCalls": 467,
+            "poolCheckouts": 121,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "open-editor-menu",
+            "visibleAndSyncedMs": 247,
+            "observedPgCalls": 84,
+            "poolCheckouts": 24,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "open-tab-menu",
+            "visibleAndSyncedMs": 230,
+            "observedPgCalls": 10,
+            "poolCheckouts": 6,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": null
+          },
+          {
+            "name": "idle-diagnostic-5s",
+            "visibleAndSyncedMs": 5026,
+            "observedPgCalls": 430,
+            "poolCheckouts": 105,
+            "sessionRequests": 0,
+            "fileReadRequests": 0,
+            "socketsOpened": 0,
+            "sameYDoc": true,
+            "sameProvider": true,
+            "drainObservations": 5
+          }
+        ],
+        "preservation": {
+          "originalRowsXminBytesAndAnchorsPreserved": true,
+          "otherContainersPreserved": true,
+          "sourcePreserved": true
+        }
+      }
+    ],
+    "currentRuntimeProof": "compiled-auxiliary-read-200-on-desktop-1794072295223-restored-runtime-result.json",
+    "limits": [
+      "Six warm samples per case do not establish full p95",
+      "Global time windows contain coincident HTTP/WS/background work",
+      "Fresh per-connection authority checks remain",
+      "No production release"
+    ]
+  }
+}

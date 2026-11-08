@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-08",
+  "beforeSourceSha": "227fced6e4b105553a81ee1ee860faa2a2e27d2f",
+  "fixedSourceSha": "26b7f45886d825639cf6022b989d5fecca8d7c66",
+  "imageId": "sha256:fb7159e275d7eae40b1c55632f969b68633851da2511d9209e2903633452e145",
+  "scope": "Actual Chromium and compiled Linux Notebook with real PostgreSQL, authenticated admin and member, fresh owned fixture; three existing post-move failures only.",
+  "before": {
+    "regular": {
+      "passed": 332,
+      "failed": 3,
+      "skipped": 102,
+      "blocked": 0
+    },
+    "collaboration": {
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0,
+      "blocked": 0
+    }
+  },
+  "after": {
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "cases": [
+      "Concurrent rich insertions/deletion survive move without editor reload",
+      "Plain-text editor recovers identity after move and continues writing",
+      "Shared member retains freshly authorized read-only access after move"
+    ]
+  },
+  "mechanicalRegression": {
+    "freshRegisteredSessionWithBusyBefore": {
+      "locationRequests": 0,
+      "rejoins": 0
+    },
+    "after": {
+      "locationRequests": 1,
+      "rejoins": 1
+    },
+    "fullLocationHookSuite": "passed including initial busy, later busy without connection change and pending-session completion"
+  },
+  "invariants": [
+    "Same native identity and Y.Doc retained",
+    "Fresh HTTP authorization remains required for rejoin",
+    "Existing finite location retry and cancellation budgets retained",
+    "No automatic mutation replay",
+    "Original runtime and protected rows/xmin/files/storage anchors restored",
+    "Other managed containers preserved"
+  ],
+  "rawReportSha256": "d6e8c9cf3b450960239eabd198a7ab5eb71f412437cdc25a590eb49c0353aad6",
+  "limits": [
+    "Full test:all on the fixed source is still pending",
+    "Production source-mode failure and three legacy projection failures are not repaired by this evidence",
+    "No release or deployment claimed",
+    "Review Center and file-operation Undo excluded"
+  ]
+}

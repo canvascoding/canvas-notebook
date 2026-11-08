@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { getFileStats, readFile } from '@/app/lib/filesystem/workspace-files';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { requireReadRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 512 * 1024;
 
 export async function GET(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const workspaceResult = await requireReadRequestWorkspace(request);
   if (workspaceResult.response) return workspaceResult.response;
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 

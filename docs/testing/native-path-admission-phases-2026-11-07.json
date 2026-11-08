@@ -1,0 +1,113 @@
+{
+  "scope": "Native admission preparation/reservation and target phases verified separately; later compiled Delete B2 completion remains failed and retained for exact recovery",
+  "parentSourceSha": "8f49306f21695d418eac68cab3d71b7626015069",
+  "runtimeSource": "app/lib/files/workspace-operation-native-path-admission.ts",
+  "runtimeSourceSha256": "f0a4956cfba12e592a1d072ec11eed2376b78174b7f300dd293a2f5513912785",
+  "actualCompiledBefore": {
+    "sourceSha": "8f49306f21695d418eac68cab3d71b7626015069",
+    "proof": "compiled-auxiliary-read-200-on-desktop-1794088021328-result.json",
+    "sha256": "c638e3f8d2f312b7467d3e6ab569f3eed7b31bb840b1319b3a75d79b76684ae1",
+    "previewScansComplete": true,
+    "nativeDocuments": 201,
+    "callbackBeforeFinalGuardsMs": 4858,
+    "workerResult": "failed/preparing/BATCH_CLAIM_DISPOSAL_UNCONFIRMED",
+    "completedActions": 0,
+    "readOnlyInspection": "no admission requests and zero rows in every batch-specific Delete intent/receipt/Trash table; the failed job is preserved, not replayed",
+    "physicalFilesMustStillBeHashVerifiedBeforeAnyNewOwnedCleanup": true,
+    "protectedOriginalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+  },
+  "controlledBefore": {
+    "log": "native-path-phase-boundary-20261107-before.log",
+    "sha256": "b9bfa71a77efaf3a7e11512ca19a14de0ad7ceeb51a5ac7f2ac2c23f5f249dc2",
+    "rootCode": "25P04",
+    "realTransactionTimeout": true,
+    "sameActualTransactionForBothDelays": true,
+    "originalFileAndNativeStatePreserved": true
+  },
+  "registeredOwnerAggregate": {
+    "command": "npm run test:api-keys:path-owners:native",
+    "log": "native-path-phase-owner-regressions-20261107.log",
+    "sha256": "212ff07e50018caa63f5de5c181009420a9d3b685dc636d0ddf628852bda26fc",
+    "apiKeyOwnerGroupsPassed": 7,
+    "boundaryCasePassed": true,
+    "differentActualTransactions": true,
+    "delayMs": [
+      2603,
+      2602
+    ],
+    "originalFileAndNativeStatePreserved": true
+  },
+  "invariants": [
+    "Preparation and reservation commit together using the existing durable exact request header.",
+    "The next target phase freshly authorizes the same genuine claim and exact request ID.",
+    "Transaction/principal deadlines, room proofs and final guards are unchanged.",
+    "Callback completion is not treated as confirmed COMMIT.",
+    "No automatic replay or clearing of an unconfirmed failed job.",
+    "No Review Center or Undo feature work."
+  ],
+  "limits": [
+    "The compiled admission phases pass, but the complete 201-document physical Delete B2 and its exact retained-job recovery still fail/are pending; image navigation and six owned-file deletions are not accepted.",
+    "Remaining plan 5b/5c matrix, regular test:all, exact-head CI/review and release remain open."
+  ],
+  "mcpOwnerRegression": {
+    "log": "native-path-phase-mcp-regressions-20261107.log",
+    "sha256": "9a257161d9300ca123eba02fb63be5e30584967cecb12dc526f3c62e4fd2dd36",
+    "groupsPassed": 43,
+    "schemaPoolClientsAndTemporaryDataRemoved": true,
+    "scope": "Actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD and genuine rooms/sockets/admission tickets and Web rename Request/Response; not OAuth issuance, file-route TCP, SDK or browser"
+  },
+  "compiledAfter": {
+    "sourceSha": "71bb05fedd3e7a216297033e71e33b01138b1ad5",
+    "hostBuild": {
+      "file": "native-phase-host-build-20261107-attempt1-result.json",
+      "sha256": "e73f98b472a74d254e6b2abd72dbdaa65c8e5d8432adfb882a9310bea7d4c911",
+      "passed": true
+    },
+    "linuxImage": {
+      "file": "api-sdk-acceptance-linux-image-1794091548989-result.json",
+      "sha256": "33dc4f18bbb29d4970a965707301acd45ad636bb50f5350097ff586761c9d600",
+      "passed": true,
+      "imageId": "sha256:756366b35b618e329ae11f370334986c8ddd4c30ffdea7c3038df1c562687698"
+    },
+    "functionalRun": {
+      "file": "compiled-auxiliary-read-200-on-desktop-1794092107404-result.json",
+      "sha256": "32428e088605d20e829a874e8af3c849e8db05031afdf47a151ec0ee922b8438"
+    },
+    "functionalRunPassed": false,
+    "nativeDocuments": 201,
+    "admissionReserveCallbackMs": 2969,
+    "admissionTargetCallbackMs": 3021,
+    "admissionTargetCount": 201,
+    "laterFailure": {
+      "phaseIndex": 5,
+      "phase": "Delete B2 final transaction",
+      "elapsedMs": 5440,
+      "rootCode": "SQLSTATE_25P04",
+      "batchStatus": "needs_recovery",
+      "errorCode": "BATCH_EXECUTION_FAILED",
+      "completedActions": 0,
+      "batchId": "b89dd5bfb4854930caa1fde6d165cef2e1226cd310c20e83d5cf28e5b05b8b7d",
+      "deleteIntents": 1,
+      "deleteReceipts": 0,
+      "trashReceipts": 0,
+      "admissionStatus": "draining",
+      "admissionTargets": 201,
+      "transactionRolledBack": true,
+      "physicalTransitionReachedBeforeB2": true,
+      "trashPayloadBytesVerificationPending": true,
+      "originalBrowserSessionRetainedPrivately": true,
+      "automaticMutationReplay": false
+    },
+    "nativePreservation": {
+      "file": "compiled-delete-1794092107404-native-preservation.json",
+      "sha256": "d293f0e183e839d67d5425a6f82e0e522b0f509487a9b43973f72355abea8ee2",
+      "all201NativeBinaryHashesVectorsRegistryAndIdentityMatchOriginalPlan": true,
+      "doesNotClaimNativeXminComparison": true
+    },
+    "originalRuntimeProtectedRowsXminBytesAnchorsAndOtherContainersRestored": true,
+    "restoredRuntime": {
+      "file": "compiled-auxiliary-read-200-on-desktop-1794092107404-restored-runtime-result.json",
+      "sha256": "f0492dcb6ec5243633a0e5612aa9816f2434eacdb97524f2c96f2c23ad7f1b47"
+    }
+  }
+}

@@ -17,7 +17,7 @@ async function workspacePreviewReadRecoveryPostgresTest(): Promise<void> {
     const { captureWorkspaceOperationJobScope } = await import('../app/lib/files/workspace-operation-job-scope');
     const pool = getPostgresRuntimeQueryable(); assert(pool);
     const protectedDoc = await h.upload('protected-preview-source.md', Buffer.from('# Keep this native source\n'));
-    for (const phase of ['transient', 'advisory', 'persistent', 'revoked', 'root-changed', 'rollback-loss', 'close-loss', 'commit-loss', 'capture', 'expected-actor', 'expected-session', 'expected-impersonation', 'initial-root-changed'] as const) {
+    for (const phase of ['scan-commit-loss', 'scan-close-loss', 'transient', 'advisory', 'persistent', 'revoked', 'root-changed', 'rollback-loss', 'close-loss', 'commit-loss', 'capture', 'expected-actor', 'expected-session', 'expected-impersonation', 'initial-root-changed'] as const) {
       currentCase = phase;
       const sourcePath = `preview-original-${randomUUID()}.txt`, destinationPath = `preview-target-${randomUUID()}.txt`;
       const bytes = Buffer.from('Keep all original file bytes.\n');
@@ -35,7 +35,7 @@ async function workspacePreviewReadRecoveryPostgresTest(): Promise<void> {
         FROM collaboration_yjs_states y WHERE y.document_id=$1`, [protectedDoc.documentId])).rows;
       const before = await snapshot();
       const token = (await h.admin.query('SELECT token FROM session WHERE id=$1', ['session-owner'])).rows[0].token as string;
-      let armed = false, held = false, rollbacks = 0, factories = 0, closed = 0, lost = false, postLossQueries = 0;
+      let armed = false, held = false, rollbacks = 0, factories = 0, readPhases = 0, closed = 0, lost = false, postLossQueries = 0;
       const events: string[] = [];
       if (phase === 'initial-root-changed') await h.admin.query('UPDATE canvas_workspaces SET root_relative_path=$1 WHERE id=$2',
         [`organizations/principal-org/changed-${randomUUID()}`, h.source.workspaceId]);
@@ -53,15 +53,22 @@ async function workspacePreviewReadRecoveryPostgresTest(): Promise<void> {
       try {
         const result = await h.withProbe(async event => {
           if (lost) postLossQueries++;
+          if (event.text === 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE') readPhases++;
           if (!armed && event.text.includes("AS token_hash") && event.text.includes('database_oid')) {
             armed = true;
-            if (phase !== 'commit-loss' && !phase.startsWith('expected-') && phase !== 'initial-root-changed') {
+            if (phase !== 'commit-loss' && !phase.startsWith('scan-') && !phase.startsWith('expected-') && phase !== 'initial-root-changed') {
               await h.admin.query('BEGIN'); held = true;
               if (phase === 'advisory') await h.admin.query('SELECT pg_advisory_xact_lock($1::bigint)',
                 [collaborationAdmissionLockKey(h.source.workspaceId)]);
               else await h.admin.query("SELECT organization_id FROM canvas_organization_settings WHERE organization_id='principal-org' FOR NO KEY UPDATE");
             }
-          } else if (armed && phase === 'commit-loss' && event.text === 'COMMIT') {
+          } else if (armed && phase === 'scan-close-loss' && readPhases === 2 && event.text === 'COMMIT') {
+            const release = event.client.release;
+            event.client.release = (error?: Error | boolean) => {
+              event.client.release = release; release.call(event.client, error);
+              lost = true; throw new Error('Lost genuine source-scan connection release acknowledgement.');
+            };
+          } else if (armed && (phase === 'commit-loss' || phase === 'scan-commit-loss' && readPhases === 2) && event.text === 'COMMIT') {
             lost = true; throw new Error('Lost genuine preview observation COMMIT acknowledgement.');
           } else if (held && event.text === 'ROLLBACK') {
             rollbacks++; events.push('rollback');
@@ -92,16 +99,21 @@ async function workspacePreviewReadRecoveryPostgresTest(): Promise<void> {
               && Reflect.get(error, 'code') === (phase === 'revoked' ? 'PRINCIPAL_AUTH_REVOKED' : 'PREVIEW_STALE')); return null;
           }
           if (phase === 'rollback-loss') { await assert.rejects(read(original, question), AggregateError); return null; }
-          if (phase === 'commit-loss' || phase === 'close-loss') { await assert.rejects(read(original, question)); return null; }
+          if (phase === 'commit-loss' || phase === 'close-loss' || phase.startsWith('scan-')) { await assert.rejects(read(original, question)); return null; }
           return read(original, question);
         });
         assert(armed); assert.equal(postLossQueries, 0);
-        assert.equal(rollbacks, phase === 'commit-loss' || phase.startsWith('expected-') || phase === 'initial-root-changed' ? 0 : phase === 'persistent' ? 3 : 1);
-        assert.equal(factories, phase === 'persistent' ? 3 : phase === 'transient' || phase === 'advisory' || phase === 'capture' || phase === 'root-changed' ? 2 : 1);
+        assert.equal(rollbacks, phase === 'commit-loss' || phase.startsWith('scan-') || phase.startsWith('expected-') || phase === 'initial-root-changed' ? 0 : phase === 'persistent' ? 3 : 1);
+        const attempts = phase === 'persistent' ? 3
+          : phase === 'transient' || phase === 'advisory' || phase === 'capture' || phase === 'root-changed' || phase === 'revoked' ? 2 : 1;
+        // Each actual SQL phase now has its own genuine credential capture.
+        // A revoked retry fails authentication before it can capture a realm.
+        assert.equal(factories, readPhases + attempts - (phase === 'revoked' ? 1 : 0));
         if (phase === 'transient' || phase === 'advisory' || phase === 'capture' || phase === 'root-changed' || phase === 'persistent') {
           assert.equal(closed, rollbacks);
           assert(events.indexOf('close') > events.indexOf('rollback'));
-          assert(events.indexOf('close') < events.indexOf('factory', events.indexOf('factory') + 1));
+          const closedAt = events.indexOf('close');
+          assert(events.indexOf('factory', closedAt + 1) > closedAt);
         }
         if (result) assert.equal(result.readiness, 'native-ready');
         assert.deepEqual(await snapshot(), before);
@@ -115,11 +127,11 @@ async function workspacePreviewReadRecoveryPostgresTest(): Promise<void> {
           [h.source.rootRelativePath, h.source.workspaceId]);
       }
       groups++;
-      console.log(JSON.stringify({ suite: 'workspace-preview-read-recovery', phase, passed: true, factories, rollbacks,
+      console.log(JSON.stringify({ suite: 'workspace-preview-read-recovery', phase, passed: true, factories, readPhases, rollbacks,
         originalFilesNativeRowsXminAndOperationCountsUnchanged: true, noSqlAfterUnconfirmedOutcome: postLossQueries === 0 }));
     }
   });
-  assert.equal(groups, 13); completed = true;
+  assert.equal(groups, 15); completed = true;
   console.log(JSON.stringify({ suite: 'workspace-preview-read-recovery-summary', passed: true, groups, actualPostgresAndAuthorization: true }));
 }
 void workspacePreviewReadRecoveryPostgresTest().catch(error => {

@@ -1,0 +1,379 @@
+{
+  "scope": "Bounded historical E5 validation reuse only during one fully awaited Original Delete B2; no current-byte/SQL/permission cache",
+  "parentSourceSha": "605a586d2c8458c975a586b33827b96145749cfc",
+  "sourceHashes": {
+    "app/lib/files/workspace-operation-job-lifecycle-owner.ts": "a8dc6313e2464d38c9db9fbd1922c074087b3c7def91bcd141d2a7285c3c2309",
+    "app/lib/files/workspace-operation-mixed-source-evidence-v5.ts": "921a802914f86bbadfdcd6f4a4e34bfb8eec7409f724c2a980ac643d60c48f74",
+    "scripts/workspace-operation-evidence-reuse-test.ts": "a97bea8522d9fa3261ded6b60216aa3a039ca73cbd5b5f16d9c6b47cb9a79b77"
+  },
+  "compiledBefore": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794095032704-result.json",
+    "sha256": "9c2d75ea58268e7d60bb89d712b80017df4605b938036b927a10443df3e02f1c",
+    "sourceSha": "605a586d2c8458c975a586b33827b96145749cfc",
+    "hostBuildPassed": true,
+    "linuxImagePassed": true,
+    "nativeDocuments": 201,
+    "functionalRecoveryPassed": false,
+    "lastDomainStage": "before-result-validation",
+    "domainElapsedMs": 3598,
+    "transactionElapsedMs": 5035,
+    "rootCode": "SQLSTATE_25P04",
+    "commitAttempted": false,
+    "status": "needs_recovery",
+    "physicalPayloadBeforeMatchesOriginalHashInodeAndSize": true,
+    "originalRuntimeProtectedRowsXminBytesAnchorsAndOtherContainersRestored": true,
+    "explicitOriginalResumeOnly": true,
+    "newDeleteRequest": false
+  },
+  "pureRegression": {
+    "file": "evidence-reuse-unit-20261108.log",
+    "sha256": "eda5d3b9d4a5328700636d80fefd159d37428504bf0d7f626ff12094ccda09db",
+    "passed": true,
+    "representations": 3,
+    "transparentRealHashCounting": true,
+    "pureFixtureNotSqlFsAuthority": true,
+    "checks": [
+      "fresh strict capture and detached frozen results",
+      "equal cloned facts eliminate repeated hash work only inside the active frame",
+      "changed evidence and current Yjs bytes reject",
+      "hostile getters/proxies are never invoked",
+      "foreign stringify getters retain cold behavior and exact lookup count",
+      "current rich grammar changes still reject",
+      "nested frames are separate; inherited children after closure validate cold",
+      "four-entry eviction and eight-MiB evidence input rejection",
+      "original failure survives diagnostic failure"
+    ]
+  },
+  "registeredPureRunner": {
+    "file": "evidence-reuse-registered-pure-20261108.log",
+    "sha256": "64ca177ca7df1b2a9bdde7dc616fc2e6a486f310a601e0a6bf8b0027cf33db78",
+    "passed": true,
+    "newTestRegisteredInExistingNativeApiSdkAndRegularRunner": true
+  },
+  "nativeRegressions": [
+    {
+      "file": "evidence-reuse-api-key-owners-20261108.log",
+      "sha256": "0c88cbeb08e44e1ad1bdf5ed3fa2b13d29f473a3ddcd5992117fe873d100a30f",
+      "groupsPassed": 7,
+      "focusedMcpNotFull43": false,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 0,
+          "misses": 0,
+          "bypassed": 0,
+          "entries": 0,
+          "bytes": 0,
+          "cleared": true
+        },
+        {
+          "hits": 0,
+          "misses": 0,
+          "bypassed": 0,
+          "entries": 0,
+          "bytes": 0,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 151773,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 169965,
+          "cleared": true
+        }
+      ]
+    },
+    {
+      "file": "evidence-reuse-mcp-b2-recovery-20261108.log",
+      "sha256": "6bd970205245d2b672b41f27984171b1de889281acdeba8630c0ac8dc3dd7478",
+      "groupsPassed": 1,
+      "focusedMcpNotFull43": true,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 7,
+          "misses": 1,
+          "bypassed": 0,
+          "entries": 1,
+          "bytes": 22038,
+          "cleared": true
+        },
+        {
+          "hits": 21,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 43498,
+          "cleared": true
+        },
+        {
+          "hits": 28,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 61636,
+          "cleared": true
+        }
+      ]
+    },
+    {
+      "file": "evidence-reuse-mcp-archive-rollback-20261108.log",
+      "sha256": "db8f402a5fd411cbf848990323365bda26c3a5a6e4f85d53f5952a7b302e40de",
+      "groupsPassed": 1,
+      "focusedMcpNotFull43": true,
+      "schemasClientsPoolsAndTemporaryDataRemoved": true,
+      "validationScopes": [
+        {
+          "hits": 22,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 51970,
+          "cleared": true
+        },
+        {
+          "hits": 29,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 69981,
+          "cleared": true
+        },
+        {
+          "hits": 22,
+          "misses": 2,
+          "bypassed": 0,
+          "entries": 2,
+          "bytes": 74094,
+          "cleared": true
+        },
+        {
+          "hits": 29,
+          "misses": 3,
+          "bypassed": 0,
+          "entries": 3,
+          "bytes": 103167,
+          "cleared": true
+        }
+      ]
+    }
+  ],
+  "scopedTypesPassed": true,
+  "scopedLintPassed": true,
+  "invariants": [
+    "Only the original Delete B2 opts in; default Copy/Move/read validation is unchanged.",
+    "Strict data/budget capture runs before reuse on every invocation.",
+    "Keys are exact captured JSON encodings, not hashes or caller identities.",
+    "Current rich grammar dependencies are checked for every reused validation.",
+    "At most four entries and sixteen MiB of keys during the one attempt.",
+    "Entries are cleared on success and error; no current row, actor, access, Claim or original bytes are retained.",
+    "Both fresh source observations, all SQL/authority checks, atomic B2 and existing deadlines remain.",
+    "Review Center and file-operation Undo remain excluded."
+  ],
+  "compiledAfterPending": false,
+  "remaining": [
+    "Remaining plan 5b/5c acceptance and final budgets; regular test:all/Recovery UI; full exact-head CI/reviews, merge, SDK/docs publication and release."
+  ],
+  "compiledCandidate": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794097973423-result.json",
+    "sha256": "06144265c085bad9e450c3776c4c319b7c811344aba717b07db44aeb53cddf22",
+    "sourceSha": "c38bf5ac1c109ddcca6c1b0cd5873d1561c9ae4e",
+    "functionalRecoveryPassed": false,
+    "nativeDocuments": 201,
+    "historicalReuse": {
+      "hits": 11,
+      "misses": 8,
+      "bypassed": 19,
+      "entries": 0,
+      "bytes": 0,
+      "cleared": true
+    },
+    "explicitOriginalResumeOnly": true,
+    "physicalPayloadBefore": {
+      "sourceAbsent": true,
+      "trashPayloadHashMatchesOriginal": true,
+      "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+      "bytes": 68,
+      "sameOriginalInode": true
+    },
+    "originalRowsXminBytesAndAnchorsPreserved": true,
+    "otherContainersPreserved": true,
+    "pendingOriginalJobRetained": true
+  },
+  "sentryGuardRegression": {
+    "before": {
+      "file": "sentry-evidence-reuse-20261108-before.log",
+      "sha256": "3e1562fd5a9d3e70cd084399424a2fba4fe3e378425a9a5f9aca1bf11952465f",
+      "passed": false,
+      "additionalHashes": 17
+    },
+    "after": {
+      "file": "sentry-evidence-reuse-20261108-after.log",
+      "sha256": "fdae46bd674020a935ac88c3d5f33ae16fd9ddb3545d5daf5a99bce552e6a43c",
+      "passed": true
+    },
+    "actualInstalledServerIntegration": true,
+    "noSentryClientOrTransportStarted": true,
+    "jsonFunctionsUnchangedByIntegration": true,
+    "checks": "Existing real-hash evidence and all 28 stored-plan test families rerun under the actual Sentry FunctionToString integration; JSON replacement/getter/proxy and current schema cases retained.",
+    "candidate": "Use captured function inspector directly; do not depend on identity of subsequently wrapped prototype method. Actual JSON identities, descriptors and encoding hooks remain guarded.",
+    "compiledCandidateRecoveryAfterGuardFixPending": false,
+    "guardFixValidation": [
+      {
+        "file": "sentry-reuse-registered-20261108.log",
+        "sha256": "f4fe5bf40ee9a69e42f12742573a0ba026f1ac62bceb0e8d671f9628f38ebeef",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-expanded-types-20261108.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-api-key-owners-20261108.log",
+        "sha256": "7e429b025a4ebede1d7a771a9124656b49762ce516201947dbaa1835dd87aa13",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-mcp-b2-recovery-20261108.log",
+        "sha256": "d6ab49938d6cfb437281464bafd9b131545c200a8db6d846e5fa4d35857927e3",
+        "passed": true
+      },
+      {
+        "file": "sentry-reuse-mcp-archive-rollback-20261108.log",
+        "sha256": "f9e1dfc7afdc5239a98d23eed0640af10ff03a8089671f7b9a92c1bc2c73a27b",
+        "passed": true
+      }
+    ],
+    "scopedLintPassed": true,
+    "nativeScope": "Seven API-key Move/Delete/status groups plus actual phase-boundary regression; two focused MCP cases, each omitting 42 other cases; no full 43-case acceptance claim.",
+    "candidateSourceHashes": {
+      "app/lib/files/workspace-operation-batch-store.ts": "68bb1a8e24696d1b9a72f4e1bf6e76accf466429a8d0e90274fe01a58cfdefaa",
+      "app/lib/files/workspace-operation-mixed-source-evidence-v5.ts": "79aa30528c06440fa7e64f426ed369efa370d0c16f1b6e227141b098a324f8c8",
+      "scripts/workspace-operation-sentry-validation-reuse-test.ts": "5cf521d4ee2ddfda14d8d7c9e62f1ab7797649b919146fd513c233d507d86083"
+    }
+  },
+  "compiledAfterGuardFix": {
+    "sourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+    "compiledRecovery": {
+      "file": "compiled-auxiliary-read-200-on-desktop-1794099652709-result.json",
+      "sha256": "9b6b448a5e8e7de5598d2303a54a88fe641638dea8a0aa29f138002834878392",
+      "passed": true,
+      "originalJobOnly": true,
+      "mutationReplay": false,
+      "nativeDocuments": 201,
+      "nativeRowsXminBytesPreserved": true,
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+      "physicalPayloadBefore": {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      "physicalPayloadAfter": {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      "recovery": {
+        "batchId": "b89dd5bfb4854930caa1fde6d165cef2e1226cd310c20e83d5cf28e5b05b8b7d",
+        "status": "applied",
+        "admissionRequestsBefore": 1,
+        "admissionRequestsAfter": 0
+      }
+    },
+    "transactionMs": 3849,
+    "domainMs": 2608,
+    "evidenceValidation": {
+      "hits": 18,
+      "misses": 2,
+      "bypassed": 0,
+      "entries": 2,
+      "bytes": 1765658,
+      "cleared": true
+    },
+    "scope": "Real compiled HTTP Recovery using original authenticated Playwright context; UI Recovery and global SQL/resource budget acceptance remain separate.",
+    "hostBuild": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/sentry-guard-host-build-20261108-attempt1-result.json",
+    "linuxImage": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/api-sdk-acceptance-linux-image-1794099194190-result.json"
+  },
+  "compiledNormalDeletionAndNavigation": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794100024181-result.json",
+    "sha256": "fa390094fb8b442cfd91f6c4a3bd12e8ea31e458e2a04039264d43751af94122",
+    "sourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+    "passed": true,
+    "scope": "Real HTTP preview/apply/status/download and actual Chromium image navigation; separate from full Recovery UI and global SQL/resource budgets.",
+    "normalDeletion": {
+      "completedNewJobs": 5,
+      "totalBatchesBefore": 2,
+      "totalBatchesAfter": 7,
+      "previousRecoveredJobPreserved": true,
+      "failedPreparingJobPreserved": true,
+      "activeAdmissionsAfter": 0
+    },
+    "navigationChecks": [
+      "first image previous disabled",
+      "next button selects second",
+      "previous button selects first",
+      "right arrow selects second",
+      "last image next disabled",
+      "right arrow at end preserves image",
+      "left arrow selects previous"
+    ],
+    "newTrashPayloads": [
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      }
+    ],
+    "originalTrashPayloadPreserved": true,
+    "nativeDocuments": 201,
+    "nativeRowsXminBytesPreserved": true,
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+    "mutationReplay": false,
+    "screenshot": "docs/testing/physical-png-navigation-2026-11-08.png",
+    "screenshotSha256": "4ac389cfff2bd8f98578dbc1641ebf057a782bda4b1f2dc8eb96bb53c2271d2d"
+  }
+}
