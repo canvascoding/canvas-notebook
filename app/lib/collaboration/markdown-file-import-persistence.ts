@@ -1055,7 +1055,7 @@ async function withOriginalBootstrapTransaction<Frame extends OriginalBootstrapF
       owner = connection; ownerIdentity = identity; return connection;
     } catch (error) { await connection.close(new Error('Discarding mismatched original bootstrap owner.', { cause: error })); throw error; }
   };
-  return withWorkspaceFileLifecycleGuard({ workspaceId: selection.workspaceId, paths: [selection.path] }, async () => {
+  return withWorkspaceFileLifecycleGuard({ workspaceId: selection.workspaceId, paths: [selection.path], admissionLock: 'wait' }, async () => {
     if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
     const frame = options.createFrame({ selection, realm, owner, identity: ownerIdentity });
     const openMutation = async () => {

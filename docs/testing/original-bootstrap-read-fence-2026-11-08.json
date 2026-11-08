@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "scope": "Original-file bootstrap waits at the existing bounded lifecycle admission boundary; no document mutation replay.",
+  "baseline": {
+    "sourceCommit": "ce0a7feadc66daca04e5ec83e760a03bee12924c",
+    "imageDigest": "sha256:d5e545d3f0bf462115e8a6029c4b59a9b3e3d28e09b4ae4fa706bf9ad202649b",
+    "actualHttpSessionStatus": 409,
+    "code": "COLLABORATION_FILE_LIFECYCLE_BUSY",
+    "elapsedMs": 456,
+    "requests": 1,
+    "actualSharedPgAdmissionFence": true,
+    "physicalBytesAndTargetRowsXminUnchanged": true,
+    "newRegressionFailsBeforeFix": true
+  },
+  "implementation": {
+    "symbol": "withOriginalBootstrapTransaction",
+    "admissionLock": "wait",
+    "existingLockTimeout": "4s",
+    "existingStatementTimeout": "5s",
+    "mutationRetriesAdded": 0,
+    "clientRetryHintsAdded": false,
+    "authorityStillValidatedAfterAdmission": true
+  },
+  "validation": {
+    "originalBootstrap": {
+      "command": "npm run test:collaboration:pristine-original-bootstrap:postgres",
+      "exitCode": 0,
+      "realPostgres18Families": 31,
+      "newCases": [
+        "shared reader holds actual owner before any native mutation; release permits one state and one receipt",
+        "current rights revoked during wait reject without native writes"
+      ],
+      "strengthenedCase": "an exclusive holder expires with the existing lifecycle Busy code and finite timeout; original bytes and native absence remain unchanged"
+    },
+    "apiKeyOriginals": {
+      "command": "npm run test:api-keys:original-imports:native",
+      "exitCode": 0,
+      "principalGroups": 8,
+      "ownerGroups": 13,
+      "httpGroups": 8,
+      "mcpGroups": 11,
+      "actualTcpRequests": 27,
+      "jsonRpcRequests": 41,
+      "includesLostCommitAcknowledgementAndCurrentRevocation": true
+    },
+    "managedContainerIdentitiesPreserved": true,
+    "ciConfiguration": {
+      "command": "npm run test:api-keys:ci-config",
+      "exitCode": 0,
+      "checks": 19,
+      "privateEnvironmentFallbackInCi": false,
+      "bootstrapSuiteNowIncludedIn": "npm run test:api-keys:native",
+      "databaseSelection": "existing shared native-test database config and actual PostgreSQL target/owner validation",
+      "actualCiRun": "pending"
+    }
+  },
+  "sourceSha256": {
+    "app/lib/collaboration/markdown-file-import-persistence.ts": "19f2cea10ec87655425c016a317b8ac23620ad389dff53ef4a5213d5e64ca94d",
+    "scripts/workspace-pristine-original-bootstrap-postgres-test.ts": "65f8f8c770dd0d2ea19852fdb46b371408c23be4601cdc115b598aba2c133fcb"
+  },
+  "pending": [
+    "updated-source production build",
+    "PR review and CI",
+    "new exact-tag release-image browser acceptance",
+    "Control Plane registration and production promotion"
+  ],
+  "excluded": [
+    "Review Center",
+    "file-operation Undo",
+    "bold plus inline-code schema/client compatibility change"
+  ]
+}
