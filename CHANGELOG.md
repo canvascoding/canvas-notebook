@@ -11,11 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-### Fixed
-
-- Wait for the existing bounded workspace admission fence before initializing a pristine original document. Ordinary concurrent tree reads no longer turn a first text-document open into a fail-fast lifecycle conflict; current rights and all mutation/receipt safeguards remain enforced.
-
-## [2026.11.8.1] - 2026-11-08
+## [2026.11.8.2] - 2026-11-08
 
 ### Added
 
@@ -23,6 +19,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Fixed
 
+- Wait for the existing bounded workspace admission fence before initializing a pristine original document. Ordinary concurrent tree reads no longer turn a first text-document open into a fail-fast lifecycle conflict; current rights and all mutation/receipt safeguards remain enforced.
 - Resume the existing bounded collaboration recovery when document admission becomes busy after a move, including after a pending session resolves. Preserve concurrent edits, read-only access, original document identities and finite recovery limits.
 - Preserve committed offline edits across inactive tabs, reconnects and reloads, including native IndexedDB quota pressure. Release evicted document memory and close retained rooms on logout.
 - Avoid repeated workspace bootstrap and authorization work during document opens; retain request-scoped identity, source-evidence and transaction fences. Back off empty room-drain polls and stop optional review polling when the feature is disabled.
@@ -35,6 +32,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
+- The original-bootstrap read-fence regression covers 31 actual PostgreSQL families; 40 original-import API/MCP groups and compiled single-request contention, mobile selection and panel interaction checks pass.
 - The product host/Linux builds and regular test:all pass: 335 regular browser cases and all 50 collaboration cases, no failed or flaky cases, with 102 existing conditional skips. Four API-key management UI cases pass. Protected original data and runtime are restored and verified afterward.
 - All 15 PR checks pass. The downloaded Python 3.10/3.15 SDK artifacts match the exact source, including six fresh installation profiles and eight actual HTTP/PostgreSQL families per Python version, plus 24 link-parity groups per version.
 - npm run verify:release runs the strict license gate, production build and CLI update/rollback checks before the release commit/tag. Exact-tag multi-architecture assets and both browser profiles on the final release image are required before publication.
