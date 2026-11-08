@@ -1,26 +1,21 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, link, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, link, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parse } from 'dotenv';
 import { Client,types } from 'pg';
 import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../app/lib/db';
 import type { PristineOriginalWorkspaceFileRequest, MarkdownFileImportResult } from '../app/lib/collaboration/markdown-file-import-persistence';
+import { readNativeTestDatabaseConfig, assertNativeTestDatabaseTarget } from './helpers/native-test-database-config';
 
-const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
-let stage = 'private configuration';
+let stage = 'owned native database configuration';
 async function main(): Promise<void> {
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
-  assert.equal((await stat(privateEnvironment)).mode & 0o077, 0);
-  const connectionString = parse(await readFile(privateEnvironment, 'utf8')).DATABASE_URL; assert(connectionString);
-  const url = new URL(connectionString);
-  assert(['postgres:', 'postgresql:'].includes(url.protocol)); assert(['localhost','127.0.0.1'].includes(url.hostname));
-  assert.equal(url.port,'55433'); assert.equal(url.pathname,'/canvas_notebook'); assert.equal(url.search,'');
+  const databaseConfig = await readNativeTestDatabaseConfig(), { connectionString } = databaseConfig;
   const schema = `original_bootstrap_${crypto.randomUUID().replaceAll('-','')}`;
   assert.match(schema,/^original_bootstrap_[a-f0-9]{32}$/u);
   const dataRoot = await mkdtemp(path.join(tmpdir(),'canvas-original-bootstrap-'));
@@ -38,7 +33,7 @@ async function main(): Promise<void> {
   let cases = 0;
   try {
     await control.connect();
-    assert.equal(Math.floor(Number((await control.query("SELECT current_setting('server_version_num') AS version")).rows[0].version)/10000),18);
+    await assertNativeTestDatabaseTarget(control,databaseConfig);
     await control.query(`CREATE SCHEMA "${schema}"`); created = true;
     // Set node-postgres PGOPTIONS BEFORE importing any runtime DB/Auth module.
     // No public fallback, no public-qualified epoch conversion/extension path.

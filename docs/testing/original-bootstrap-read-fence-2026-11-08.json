@@ -43,11 +43,20 @@
       "jsonRpcRequests": 41,
       "includesLostCommitAcknowledgementAndCurrentRevocation": true
     },
-    "managedContainerIdentitiesPreserved": true
+    "managedContainerIdentitiesPreserved": true,
+    "ciConfiguration": {
+      "command": "npm run test:api-keys:ci-config",
+      "exitCode": 0,
+      "checks": 19,
+      "privateEnvironmentFallbackInCi": false,
+      "bootstrapSuiteNowIncludedIn": "npm run test:api-keys:native",
+      "databaseSelection": "existing shared native-test database config and actual PostgreSQL target/owner validation",
+      "actualCiRun": "pending"
+    }
   },
   "sourceSha256": {
     "app/lib/collaboration/markdown-file-import-persistence.ts": "19f2cea10ec87655425c016a317b8ac23620ad389dff53ef4a5213d5e64ca94d",
-    "scripts/workspace-pristine-original-bootstrap-postgres-test.ts": "6c6246ff6a9b8b2e444b0936c12ef338aa52de8ffed7a07b7bc5238ea20f9a45"
+    "scripts/workspace-pristine-original-bootstrap-postgres-test.ts": "65f8f8c770dd0d2ea19852fdb46b371408c23be4601cdc115b598aba2c133fcb"
   },
   "pending": [
     "updated-source production build",
