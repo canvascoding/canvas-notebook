@@ -609,14 +609,16 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
   }, [collaborationDocumentId]);
   const isSceneCollaboration = isExcalidraw || Boolean(collaboration?.sceneCapable);
   const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
+  const locationSession = activeCollaborationDocument?.session ?? textSession.session;
   const collaborationLocationIssue = useCollaborationDocumentLocation({
     workspaceId: currentFileWorkspaceId, documentId: collaborationDocumentId,
     documentKey: currentFile?.editorIdentity, path: currentFilePath,
-    lifecycleGeneration: activeCollaborationDocument?.session?.lifecycleGeneration,
-    representation: activeCollaborationDocument?.session?.representation === 'excalidraw_scene'
-      ? undefined : activeCollaborationDocument?.session?.representation,
+    lifecycleGeneration: locationSession?.lifecycleGeneration,
+    representation: locationSession?.representation === 'excalidraw_scene'
+      ? undefined : locationSession?.representation,
     connection: activeCollaborationDocument?.connection,
-    session: activeCollaborationDocument?.session,
+    session: locationSession,
+    sessionPending: textSession.loading,
     requestAdmissionRejoin: activeCollaborationDocument?.requestAdmissionRejoin,
   });
   const updateCollaborativeDraft = useCallback((value: string) => {

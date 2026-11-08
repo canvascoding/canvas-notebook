@@ -4334,5 +4334,14 @@ Die [Belege und offenen Abnahmegrenzen](testing/document-location-rate-pressure-
 halten den Fehler und die Quellcodekorrektur getrennt fest. Die erweiterten
 Location-Client-Tests, die bestehenden Notebook-Lebenszyklustests und alle 19
 CI-Konfigurationsprüfungen bestehen. Die neuen Markdown- und Location-Regressionen
-laufen künftig auch im verpflichtenden API-/SDK-CI-Job. Ein neues Image und die
-tatsächliche Wiederholung der zuvor fehlgeschlagenen Sequenz stehen noch aus.
+laufen künftig auch im verpflichtenden API-/SDK-CI-Job. Die erste kompilierte
+Korrektur von `56a21c632` reicht noch nicht: 72 Desktop-Ortungsantworten und ein
+weiterer HTTP 429 im Mobilprofil. Dieser Lauf bleibt fehlgeschlagen.
+
+Der Folgefix stimmt die initiale Ortung mit der bereits laufenden Session-Anfrage
+ab und verwendet deren registrierten Beleg schon vor dem Aufbau des Yjs-Editors.
+Änderungshinweise während dieses Wartens bleiben über die eintreffende native
+Generation und Darstellung hinweg erhalten und werden weiterhin frisch gelesen.
+Die neuen Tests für laufende und fehlgeschlagene Session-Anfragen sowie verspätete
+Hint-Antworten bestehen. Ein neues Image und die tatsächliche Wiederholung der
+zuvor fehlgeschlagenen Sequenz stehen noch aus.

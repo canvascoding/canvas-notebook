@@ -17,7 +17,9 @@
   },
   "alreadyAcceptedAtDiagnosedSource": {
     "nativeApiReadResponses": 72,
-    "nativeApiReadStatuses": [200],
+    "nativeApiReadStatuses": [
+      200
+    ],
     "maxNativeApiReadMs": 194.669834,
     "desktopBackgroundEncodedBytes": 8306440,
     "desktopByteBudget": 8388608,
@@ -34,7 +36,9 @@
     "expiredOrRevokedSessionIsInsufficient": true,
     "retainedUnavailableDocumentsStillRead": true,
     "reconnectAndWatcherInvalidationStillRead": true,
-    "rateLimitIncreased": false
+    "rateLimitIncreased": false,
+    "sessionStartupOwner": "The existing text-session request owns ordinary bootstrap, including before the Yjs editor document is available",
+    "pendingInvalidationsSurviveSessionMetadataArrival": true
   },
   "sourceValidation": {
     "locationClientIncludingFreshSessionAndNegativeCases": "passed",
@@ -42,6 +46,17 @@
     "ciConfigurationContractChecks": 19,
     "newCompiledBrowserAcceptance": "pending",
     "fullTestAll": "pending",
-    "releaseAndDeployment": "pending"
+    "releaseAndDeployment": "pending",
+    "pendingSessionFailureAndHintRace": "passed"
+  },
+  "firstCompiledRequestReduction": {
+    "sourceSha": "56a21c6327b9a0933963ca380863ee3fdb2b6591",
+    "imageId": "sha256:37f569838055d8fc3743ade2d9d0340d3d7714044fd1f628a2df7e6aa7037e1d",
+    "desktopLocationResponses": 72,
+    "desktopHttp429Responses": 0,
+    "mobileHttp429Responses": 1,
+    "passed": false,
+    "privateDiagnosticSha256": "bbf5b61d504a430ae11ac6665f7ca3f71ca13d7c8db4d613019c944b8afc5671",
+    "conclusion": "Using the live-document session alone was insufficient; the independent initial location lookup still overlaps the authoritative session request."
   }
 }
