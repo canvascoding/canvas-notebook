@@ -11,6 +11,34 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.8.1] - 2026-11-08
+
+### Added
+
+- Keep a bounded set of live and warm document tabs on the local device, with desktop/mobile connection, document, byte and lifetime limits. Reopening an evicted document still obtains fresh authorization.
+
+### Fixed
+
+- Resume the existing bounded collaboration recovery when document admission becomes busy after a move, including after a pending session resolves. Preserve concurrent edits, read-only access, original document identities and finite recovery limits.
+- Preserve committed offline edits across inactive tabs, reconnects and reloads, including native IndexedDB quota pressure. Release evicted document memory and close retained rooms on logout.
+- Avoid repeated workspace bootstrap and authorization work during document opens; retain request-scoped identity, source-evidence and transaction fences. Back off empty room-drain polls and stop optional review polling when the feature is disabled.
+- Scan long Markdown words once when looking for email links, preventing large exports from stalling on a nonexistent address.
+- Preserve SDK application errors, caller cancellation and uncertain mutation identities when MCP IO closes. Keep cleanup failures explicit and never automatically repeat a document mutation.
+
+### Changed
+
+- Prepare Python SDK 0.1.2 and document the existing API-key management and programmatic document interfaces. Installed-client acceptance covers reads, writes, caller budgets, registered Agent link updates, lost acknowledgements and deliberately reconciled recovery under real database contention.
+
+### Verification
+
+- The product host/Linux builds and regular test:all pass: 335 regular browser cases and all 50 collaboration cases, no failed or flaky cases, with 102 existing conditional skips. Four API-key management UI cases pass. Protected original data and runtime are restored and verified afterward.
+- All 15 PR checks pass. The downloaded Python 3.10/3.15 SDK artifacts match the exact source, including six fresh installation profiles and eight actual HTTP/PostgreSQL families per Python version, plus 24 link-parity groups per version.
+- npm run verify:release runs the strict license gate, production build and CLI update/rollback checks before the release commit/tag. Exact-tag multi-architecture assets and both browser profiles on the final release image are required before publication.
+
+### Known limitations
+
+- Markdown combining bold with inline code still requires source editing. Its content is preserved; support for that combination requires a separate schema/client-compatibility change.
+
 ## [2026.11.7.1] - 2026-11-07
 
 ### Fixed
