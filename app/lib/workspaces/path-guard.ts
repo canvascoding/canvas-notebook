@@ -85,14 +85,23 @@ export async function assertWorkspacePathHasNoAliases(
     : await ensureWorkspaceRoot(workspace);
   for (const segment of segments) {
     const candidate = path.join(parent, segment);
-    let stat: Awaited<ReturnType<typeof fs.lstat>>;
-    try { stat = await fs.lstat(candidate); }
-    catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
-      throw error;
+    const observations = options.readOnly ? 2 : 1;
+    for (let attempt = 0; attempt < observations; attempt++) {
+      let stat: Awaited<ReturnType<typeof fs.lstat>>;
+      try { stat = await fs.lstat(candidate); }
+      catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+        throw error;
+      }
+      if (stat.isSymbolicLink()) throw new WorkspacePathAliasError();
+      if ((await fs.readdir(parent)).includes(segment)) {
+        parent = candidate;
+        break;
+      }
+      // A read may observe a changed entry between lstat and readdir. Refresh
+      // both observations once; mutation checks retain their fenced rejection.
+      if (attempt + 1 === observations) throw new WorkspacePathAliasError();
     }
-    if (stat.isSymbolicLink() || !(await fs.readdir(parent)).includes(segment)) throw new WorkspacePathAliasError();
-    parent = candidate;
   }
 }
 

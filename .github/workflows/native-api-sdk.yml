@@ -72,6 +72,7 @@ jobs:
           npm run test:editor:block-start-hints 2>&1 | tee "$RUNNER_TEMP/document-markdown-hints.log"
           npm run test:editor:markdown 2>&1 | tee "$RUNNER_TEMP/document-markdown-roundtrip.log"
           npm run test:collaboration:location-client 2>&1 | tee "$RUNNER_TEMP/document-location-client.log"
+          npm run test:workspaces:path-alias-observations 2>&1 | tee "$RUNNER_TEMP/document-path-alias-observations.log"
       - name: Opened document resource policy
         run: |
           set -euo pipefail
@@ -178,6 +179,7 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/source-projection-lock.log
+            ${{ runner.temp }}/document-path-alias-observations.log
             ${{ runner.temp }}/document-retention-policy.log
             ${{ runner.temp }}/document-live-tabs.log
             ${{ runner.temp }}/document-tab-open.log
