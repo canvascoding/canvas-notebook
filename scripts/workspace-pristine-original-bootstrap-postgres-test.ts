@@ -207,6 +207,18 @@ async function main(): Promise<void> {
     };
     const code=(...codes:string[])=>(error:unknown)=>!!error&&typeof error==='object'&&codes.includes(String(Reflect.get(error,'code')));
     const check=async(name:string,operation:()=>Promise<void>)=>{stage=name;await operation();cases++;console.log(`Original bootstrap fixture passed: ${name}`);};
+    const waitForAdmissionOwner=async(owned:ReturnType<typeof factory>,settled:()=>boolean)=>{
+      let waiting=false;
+      const deadline=Date.now()+2000;
+      while(!settled()&&!waiting&&Date.now()<deadline) {
+        const backend=owned.events.find(event=>event.step==='open')?.backend;
+        if(backend) waiting=(await admin.query(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted) AS waiting`,[backend])).rows[0].waiting;
+        if(!waiting&&!settled()) await new Promise(resolve=>setTimeout(resolve,20));
+      }
+      assert.equal(settled(),false,'An ordinary read fence must not cause a fail-fast bootstrap denial.');
+      assert.equal(waiting,true,'The genuine owner must wait on the actual PostgreSQL admission lock.');
+    };
     const pristine=async(filePath:string,marker='never_initialized',provider='yjs',version=0,lineage:string|null=null)=>{
       const id=`collab-${crypto.randomUUID()}`;await admin.query(`INSERT INTO collaboration_documents(id,lineage_id,organization_id,workspace_id,workspace_type,path,provider,status,state_version,created_at,updated_at,yjs_state_lifecycle)
         VALUES($1,$2,'principal-org',$3,'organization',$4,$5,'active',$6,1,1,$7)`,[id,lineage,workspaceId,filePath,provider,version,marker]);return selection(filePath,{kind:'pristine',documentId:id});
@@ -304,12 +316,70 @@ async function main(): Promise<void> {
       const release=installCollaborationRoomInspector(doc=>doc===id?1:0);try{await assert.rejects(invoke(input),code('MARKDOWN_IMPORT_BUSY'));}finally{release();}
       const holder=await ownClient();try{await holder.query('SELECT pg_advisory_lock($1::bigint)',[lockIdentity(id).key]);await assert.rejects(invoke(input),code('MARKDOWN_IMPORT_BUSY'));}finally{await holder.end();clients.delete(holder);}
     });
+    await check('a genuine shared admission reader completes before original bootstrap starts mutation',async()=>{
+      const input=selection('shared-read-fence.txt'),bytes=Buffer.from('Original bytes behind a read fence\n');
+      await original(input.path,bytes);
+      const holder=await ownClient(),owned=factory();
+      let settled=false;
+      let pending:Promise<{value?:MarkdownFileImportResult;error?:unknown}>|undefined;
+      try {
+        await holder.query('BEGIN READ ONLY');
+        await holder.query('SELECT pg_advisory_xact_lock_shared($1::bigint)',[collaborationAdmissionLockKey(workspaceId)]);
+        pending=bootstrap(await request(),input,owned).then(value=>({value}),error=>({error})).finally(()=>{settled=true;});
+        await waitForAdmissionOwner(owned,()=>settled);
+        assert(!owned.events.some(event=>['lineage','registry','state','receipt'].includes(event.step)));
+        await empty(input);
+        assert((await readFile(path.join(root,input.path))).equals(bytes));
+      } finally {
+        await holder.query('ROLLBACK');
+        await holder.end();clients.delete(holder);
+      }
+      const completed=await pending!;
+      assert.equal(completed.error,undefined);
+      assert(completed.value);
+      await roundtrip(completed.value,bytes);
+      assert.equal(owned.events.filter(event=>event.step==='state').length,1);
+      assert.equal(owned.events.filter(event=>event.step==='receipt').length,1);
+    });
+    await check('rights revoked while admission waits reject before any original document mutation',async()=>{
+      const input=selection('revoked-read-fence.txt'),bytes=Buffer.from('Preserve the revoked original\n');
+      await original(input.path,bytes);
+      const holder=await ownClient(),owned=factory();
+      let settled=false;
+      let pending:Promise<{value?:MarkdownFileImportResult;error?:unknown}>|undefined;
+      try {
+        await holder.query('BEGIN READ ONLY');
+        await holder.query('SELECT pg_advisory_xact_lock_shared($1::bigint)',[collaborationAdmissionLockKey(workspaceId)]);
+        pending=bootstrap(await request(),input,owned).then(value=>({value}),error=>({error})).finally(()=>{settled=true;});
+        await waitForAdmissionOwner(owned,()=>settled);
+        await admin.query('UPDATE "user" SET banned=1,ban_expires=1 WHERE id=\'member\'');
+        await holder.query('ROLLBACK');
+        const completed=await pending;
+        assert.equal(completed.value,undefined);
+        assert(code('SEAT_ACCESS_INACTIVE','PRINCIPAL_ACCESS_DENIED','PRINCIPAL_AUTH_REVOKED')(completed.error));
+        assert(!owned.events.some(event=>['lineage','registry','state','receipt'].includes(event.step)));
+        await empty(input);
+        assert((await readFile(path.join(root,input.path))).equals(bytes));
+      } finally {
+        await holder.query('ROLLBACK');
+        await holder.end();clients.delete(holder);
+        if(pending) await pending;
+        await admin.query('UPDATE "user" SET banned=0,ban_expires=NULL WHERE id=\'member\'');
+      }
+    });
     await check('persisted path reservation and actual exclusive owner are busy',async()=>{
       const file='reserved.md';await original(file,'Original\n');const input=selection(file),owned=factory();const admission=createCollaborationAdmissionService(owned);
       const actionPayloadText=JSON.stringify({originalBootstrapFixture:true});const reservation={requestId:crypto.randomUUID(),actorId:'member',action:'rename' as const,actionPayloadText,
         actionDigest:collaborationAdmissionActionDigest('rename',actionPayloadText),scopes:[{workspaceId,organizationId:'principal-org',path:file,kind:'exact' as const}],expectedDocuments:[]};
       const reserved=await admission.reserve(reservation);try{await assert.rejects(invoke(input));}finally{await admission.cancel(reservation,reserved.revision);}
-      const holder=await ownClient();try{await holder.query('SELECT pg_advisory_lock($1::bigint)',[collaborationAdmissionLockKey(workspaceId)]);await assert.rejects(invoke(input));}finally{await holder.end();clients.delete(holder);}
+      const holder=await ownClient();
+      try {
+        await holder.query('SELECT pg_advisory_lock($1::bigint)',[collaborationAdmissionLockKey(workspaceId)]);
+        const started=Date.now();
+        await assert.rejects(invoke(input),code('COLLABORATION_FILE_LIFECYCLE_BUSY'));
+        assert(Date.now()-started>=3000&&Date.now()-started<10000,'Admission waiting must retain its finite lock timeout.');
+        assert.equal(await readFile(path.join(root,file),'utf8'),'Original\n');
+      } finally {await holder.end();clients.delete(holder);}
       await empty(input);
     });
     await check('geared inherited lease and matching owner object never mint bootstrap',async()=>{

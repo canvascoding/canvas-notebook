@@ -11,6 +11,10 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+### Fixed
+
+- Wait for the existing bounded workspace admission fence before initializing a pristine original document. Ordinary concurrent tree reads no longer turn a first text-document open into a fail-fast lifecycle conflict; current rights and all mutation/receipt safeguards remain enforced.
+
 ## [2026.11.8.1] - 2026-11-08
 
 ### Added
