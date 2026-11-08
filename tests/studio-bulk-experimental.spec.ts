@@ -318,7 +318,14 @@ async function toggleFromSettings(page: Page, enabled: boolean): Promise<void> {
   await expect(switchControl).toBeChecked({ checked: enabled });
 }
 
+async function waitForStudioWorkspace(page: Page): Promise<void> {
+  // Workspace resolution replaces the initial Studio header subtree.
+  await expect(page.getByRole('banner').locator('[data-testid="workspace-switcher"]:visible'))
+    .toHaveAttribute('data-active-workspace-id', /\S+/);
+}
+
 async function assertLauncherBulk(page: Page, enabled: boolean): Promise<void> {
+  await waitForStudioWorkspace(page);
   console.info(`[studio-bulk-e2e] launcher ${enabled ? 'enabled' : 'disabled'}: open apps at ${new URL(page.url()).pathname}`);
   await page.getByRole('button', { name: launcherLabel }).click();
   console.info('[studio-bulk-e2e] launcher: open Studio actions');
@@ -336,6 +343,7 @@ async function assertLauncherBulk(page: Page, enabled: boolean): Promise<void> {
 }
 
 async function assertMobileNavigation(page: Page, enabled: boolean): Promise<void> {
+  await waitForStudioWorkspace(page);
   await page.getByRole('button', { name: 'Studio', exact: true }).click();
   const menu = page.getByRole('menu');
   await expect(menu.getByRole('menuitem', { name: /^(?:Models|Modelle)$/ })).toBeVisible();
