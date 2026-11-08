@@ -1043,6 +1043,7 @@ test.describe('Markdown live collaboration', () => {
 
   test('releases evicted document memory without losing persisted content or session isolation', async ({ browser }, info) => {
     test.setTimeout(240_000);
+    const acceptanceStartedAt = Date.now();
     info.annotations.push({ type: 'scope', description: 'Actual Chromium GC, eighteen native documents, WeakRef observation only, and fresh authorized reopen.' });
     expect(browser.browserType().name(), 'The regular collaboration profile must provide Chromium CDP.').toBe('chromium');
     const suffix = randomUUID(), paths = Array.from({ length: 18 }, (_, index) => `live-tab-gc-${index}-${suffix}.md`);
@@ -1051,6 +1052,7 @@ test.describe('Markdown live collaboration', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
     let workspaceId: string | null = null, failure: unknown;
+    let acceptanceVerified = false;
     const ids: Record<string, string> = {};
     const observe = (index: number) => page.getByRole('tabpanel', { name: paths[index], exact: true }).locator('.ProseMirror')
       .evaluate((element, id) => {
@@ -1134,8 +1136,18 @@ test.describe('Markdown live collaboration', () => {
       const persisted = await page.request.get(`/api/files/read?path=${encodeURIComponent(paths[1])}`, { headers });
       expect(persisted.ok(), await persisted.text()).toBe(true);
       expect((await persisted.json()).data).toMatchObject({ nativeSource: { documentId: ids[paths[1]] } });
+      acceptanceVerified = true;
+      info.annotations.push({ type: 'acceptance-duration-ms', description: String(Date.now() - acceptanceStartedAt) });
     } catch (error) { failure = error; throw error; }
     finally {
+      // Keep the original 240-second bound for every acceptance assertion. Only
+      // successful acceptance grants a separate, bounded teardown window for the
+      // eighteen exact owned files; cleanup failures must still fail this case.
+      if (acceptanceVerified) {
+        info.setTimeout(info.timeout + 180_000);
+        info.annotations.push({ type: 'cleanup-budget', description:
+          'Acceptance completed within 240 seconds; up to 180 additional seconds for verified owned-fixture cleanup.' });
+      }
       await finishFixture(cleanupApi, [() => context.close(),
         async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
     }
