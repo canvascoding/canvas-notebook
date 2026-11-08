@@ -25,6 +25,8 @@ type LocationInput = {
   session?: CollaborationSessionResponse | null;
   /** An existing authoritative session read owns ordinary startup. */
   sessionPending?: boolean;
+  /** Busy admission must recover even when the path already has a fresh receipt. */
+  admissionBusy?: boolean;
   /** Parameterless request owned by the mounted collaboration registry entry. */
   requestAdmissionRejoin?: () => Promise<void>;
 };
@@ -66,7 +68,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
   useEffect(() => { session.current = input.session; }, [input.session]);
   const sessionPending = useRef(input.sessionPending === true);
   useEffect(() => { sessionPending.current = input.sessionPending === true; }, [input.sessionPending]);
-  const previousConnection = useRef({ key, connection, sessionPending: input.sessionPending === true });
+  const admissionBusy = useRef(input.admissionBusy === true);
+  useEffect(() => { admissionBusy.current = input.admissionBusy === true; }, [input.admissionBusy]);
+  const previousConnection = useRef({ key, connection, sessionPending: input.sessionPending === true, admissionBusy: input.admissionBusy === true });
   const mustRevalidate = useRef(false);
   const identityKey = JSON.stringify([workspaceId, documentId, documentKey, path]);
   useEffect(() => { mustRevalidate.current = false; }, [identityKey]);
@@ -223,7 +227,7 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     watcher.acquire();
     // The current session request already observed ID, path and generation.
     // Watcher/recovery hints still revalidate independently of this receipt.
-    if (!sessionPending.current && (mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
+    if (!sessionPending.current && (admissionBusy.current || mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
       lifecycleGeneration, representation, session: session.current }))) startup();
     return () => {
       disposed = true;
@@ -250,13 +254,14 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
 
   useEffect(() => {
     const previous = previousConnection.current;
-    previousConnection.current = { key, connection, sessionPending: input.sessionPending === true };
+    previousConnection.current = { key, connection, sessionPending: input.sessionPending === true, admissionBusy: input.admissionBusy === true };
     const connectionChanged = previous.key === key && previous.connection !== connection
       && previous.connection !== undefined && connection !== undefined && connection !== 'live' && connection !== 'read_only';
-    if (connectionChanged) refresh.current?.();
+    const admissionBecameBusy = previous.key === key && !previous.admissionBusy && input.admissionBusy === true;
+    if (connectionChanged || (admissionBecameBusy && !input.sessionPending)) refresh.current?.();
     else if (previous.sessionPending && !input.sessionPending
-      && (mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
+      && (input.admissionBusy || mustRevalidate.current || !hasCurrentSessionLocation({ workspaceId, documentId, path,
         lifecycleGeneration, representation, session: input.session }))) refreshStartup.current?.();
-  }, [connection, key, workspaceId, documentId, path, lifecycleGeneration, representation, input.session, input.sessionPending]);
+  }, [connection, key, workspaceId, documentId, path, lifecycleGeneration, representation, input.session, input.sessionPending, input.admissionBusy]);
   return issue?.key === key ? issue.value : null;
 }

@@ -91,6 +91,7 @@ async function main() {
   let connection: 'live' | 'reconnecting' | 'connecting' = 'live';
   let locationSession: CollaborationSessionResponse | null = null;
   let resolvingLocationSession = false;
+  let admissionBusy = false;
   let requestAdmissionRejoin: (() => Promise<void>) | undefined;
   function Probe() {
     const state = useFileStore();
@@ -98,7 +99,7 @@ async function main() {
       documentId: state.currentFile?.collaboration?.document?.id ?? null,
       documentKey: state.currentFile?.editorIdentity, path: state.currentFile?.path ?? null,
       lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin,
-      session: locationSession, sessionPending: resolvingLocationSession });
+      session: locationSession, sessionPending: resolvingLocationSession, admissionBusy });
     return <output>{issue ?? 'ok'}</output>;
   }
   let session: CollaborationSessionResponse | null = null;
@@ -590,6 +591,33 @@ async function main() {
     await until(() => requests.length === freshBase + 1);
     await reply(freshBase, file.path);
     assert.equal(document.querySelector('#root output')?.textContent, 'ok');
+
+    // A fresh path receipt cannot suppress recovery of an exhausted mounted
+    // join. Initial busy, late busy without a connection transition, and the
+    // pending-session boundary all use the existing finite location/rejoin path.
+    await act(async () => root.render(null));
+    locationSession = issuedSession; admissionBusy = true; connection = 'reconnecting';
+    let busyRejoins = 0;
+    requestAdmissionRejoin = async () => { busyRejoins++; };
+    const busyBase = requests.length;
+    await render(); await until(() => requests.length === busyBase + 1);
+    await reply(busyBase, file.path); assert.equal(busyRejoins, 1);
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, busyBase + 1, 'unchanged busy does not replenish recovery');
+    admissionBusy = false; await render();
+    admissionBusy = true; await render();
+    await until(() => requests.length === busyBase + 2);
+    await reply(busyBase + 1, file.path); assert.equal(busyRejoins, 2);
+    await act(async () => root.render(null));
+    resolvingLocationSession = true;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, busyBase + 2, 'busy startup waits for its authoritative session');
+    resolvingLocationSession = false; await render();
+    await until(() => requests.length === busyBase + 3);
+    await reply(busyBase + 2, file.path); assert.equal(busyRejoins, 3);
+    admissionBusy = false; requestAdmissionRejoin = undefined;
 
     await act(async () => root.render(null));
     locationSession = { ...locationSession };

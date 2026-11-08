@@ -619,6 +619,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
     connection: activeCollaborationDocument?.connection,
     session: locationSession,
     sessionPending: textSession.loading,
+    admissionBusy: activeCollaborationDocument?.clientState.admissionBusy,
     requestAdmissionRejoin: activeCollaborationDocument?.requestAdmissionRejoin,
   });
   const updateCollaborativeDraft = useCallback((value: string) => {
