@@ -11,11 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-### Fixed
-
-- Refresh contradictory filesystem observations once during read-only path checks. A brief canonical file or directory replacement no longer reports a false path-alias conflict; symlink, case-alias and mutation checks retain their protections.
-
-## [2026.11.8.2] - 2026-11-08
+## [2026.11.8.3] - 2026-11-08
 
 ### Added
 
@@ -23,6 +19,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Fixed
 
+- Refresh contradictory filesystem observations once during read-only path checks. A single inconsistent file or directory listing no longer determines a path-alias conflict by itself; symlink, case-alias and mutation checks retain their protections.
 - Wait for the existing bounded workspace admission fence before initializing a pristine original document. Ordinary concurrent tree reads no longer turn a first text-document open into a fail-fast lifecycle conflict; current rights and all mutation/receipt safeguards remain enforced.
 - Resume the existing bounded collaboration recovery when document admission becomes busy after a move, including after a pending session resolves. Preserve concurrent edits, read-only access, original document identities and finite recovery limits.
 - Preserve committed offline edits across inactive tabs, reconnects and reloads, including native IndexedDB quota pressure. Release evicted document memory and close retained rooms on logout.
@@ -36,10 +33,11 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
-- The original-bootstrap read-fence regression covers 31 actual PostgreSQL families; 40 original-import API/MCP groups and compiled single-request contention, mobile selection and panel interaction checks pass.
-- The product host/Linux builds and regular test:all pass: 335 regular browser cases and all 50 collaboration cases, no failed or flaky cases, with 102 existing conditional skips. Four API-key management UI cases pass. Protected original data and runtime are restored and verified afterward.
-- All 15 PR checks pass. The downloaded Python 3.10/3.15 SDK artifacts match the exact source, including six fresh installation profiles and eight actual HTTP/PostgreSQL families per Python version, plus 24 link-parity groups per version.
-- npm run verify:release runs the strict license gate, production build and CLI update/rollback checks before the release commit/tag. Exact-tag multi-architecture assets and both browser profiles on the final release image are required before publication.
+- Host and Linux production builds pass. Focused compiled-image acceptance passes six original shared HTML move cases, both complete Studio availability/menu cases and installed API/SDK operations with two live Yjs editors, without retries, skips or flaky results. Protected original rows, file bytes, anchors and runtime are restored and verified.
+- Eleven real filesystem observation/security cases pass after three demonstrated failures on the prior product. The regular collaboration contract suite and existing native/collaborative read regressions pass. The new filesystem cases run in regular test:all and portable Native API/SDK CI.
+- All 15 product PR checks pass. Downloaded Python 3.10/3.15 SDK artifacts match the source, including six installation profiles, eight actual HTTP/PostgreSQL families and 24 link-parity groups per Python version.
+- npm run verify:release must pass its strict license gate, production build and CLI update/rollback checks before the release commit/tag.
+- Publication requires successful exact-tag multi-architecture provenance and five checksum sets, then a fresh final-image test:all with 335 regular and all 50 collaboration browser cases, no failures or flaky results and no additional skips beyond the 102 existing conditions. Four API-key UI cases, installed SDK/two-editor acceptance and complete link-index UI checks at 10/200 documents remain separate final gates.
 
 ### Known limitations
 
