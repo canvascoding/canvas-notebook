@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Extensions } from '@tiptap/core';
 import { MarkdownManager } from '@tiptap/markdown';
 import type { Marked } from 'canvas-markdown-parser';
-import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
+import { richMarkdownCodecExtensions, restoreRichMarkdownFinalLineEnding } from '../app/lib/markdown/rich-markdown-codec';
 import { CANVAS_MARKDOWN_INDENTATION, CANVAS_MARKED_OPTIONS, createCanvasMarkedInstance } from '../app/lib/markdown/core/canvas-marked';
 import { CanvasImage } from '../app/lib/markdown/core/image';
 import { CanvasCallout, CanvasDetails, MarkdownFootnoteDefinition } from '../app/lib/markdown/canvas-rich-markdown-extensions';
@@ -28,6 +28,57 @@ function blockHints() {
   hints.push({ name: 'canvasListBoundary', start: boundary });
   return hints;
 }
+
+function emailHint(marked: Marked) {
+  const hints = marked.defaults.extensions?.startInline;
+  assert.ok(hints?.length);
+  // Registered last by createCanvasMarkedInstance, after hard breaks/entities.
+  return { hints, index: hints.length - 1, start: hints[hints.length - 1] };
+}
+
+test('bare email hints preserve the original match index and parser tokens', () => {
+  const current = createCanvasMarkedInstance() as unknown as Marked;
+  const previous = createCanvasMarkedInstance() as unknown as Marked;
+  const reference = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
+  const hint = emailHint(current).start;
+  const old = emailHint(previous);
+  old.hints[old.index] = source => source.match(reference)?.index;
+  const samples = [
+    '', 'plain text', 'user@example.com', '@example.com', 'a@b.c',
+    'before +user.name%tag-test@example.co.uk after', 'bad@domain @missing a@b.cd',
+    'a@b@c.de', 'a@b..c.de', 'a@b.cd@next.example', 'a@b.c\na@b.de',
+    'ſ@K.ſſ', '💌name@EXAMPLE.COM', '\\name@example.com',
+    '<alex@example.com>', '[Mail](mailto:alex@example.com)',
+    '`alex@example.com` **alex@example.com** &#64; a@b.cd',
+  ];
+  // Include unsuccessful domains and every suffix, including Unicode folds
+  // recognized by the original /iu character classes.
+  for (const left of ['a', '++', '..', 'ſ', 'K', '-', '_', '💌', '']) {
+    for (const right of ['b.cd', 'b.c', '..', 'b..cd', 'K.ſſ', '', '@x.yy']) {
+      samples.push(`prefix!${left}@${right} a@z.de suffix`);
+    }
+  }
+  for (const source of samples) {
+    for (let index = 0; index <= source.length; index++) {
+      const suffix = source.slice(index);
+      assert.equal(hint(suffix), suffix.match(reference)?.index, suffix);
+    }
+    assert.deepEqual(current.lexer(source), previous.lexer(source), source);
+  }
+});
+
+test('long ordinary text and unsuccessful email candidates parse within the read phase budget', () => {
+  const parser = manager(false);
+  const source = '# Large native document\n\n' + Array.from({ length: 32 }, (_, index) =>
+    'a'.repeat(4000) + 'b'.repeat(19200) + `bytemarker${index}x`).join('\n\n') + '\n';
+  const started = performance.now();
+  const document = parser.parse(source);
+  assert.ok(restoreRichMarkdownFinalLineEnding(source, parser.serialize(document)) === source);
+  const hint = emailHint(createCanvasMarkedInstance() as unknown as Marked).start;
+  assert.equal(hint('a'.repeat(500_000) + '@invalid ' + 'b'.repeat(500_000)), undefined);
+  assert.equal(hint(('name@invalid ').repeat(20_000) + 'last@example.com'), 13 * 20_000);
+  assert.ok(performance.now() - started < 3000, 'Markdown processing must leave time for actual authorization and persistence checks');
+});
 
 function manager(previous: boolean) {
   const marked = createCanvasMarkedInstance();

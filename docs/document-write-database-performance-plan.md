@@ -4283,3 +4283,26 @@ grün ausgewiesen. Die tatsächliche native Startup-Abnahme ist der bestehende
 RawSocket-/PostgreSQL-Test. Neue Builds, der kompilierte Deep-Link-Fall, die ganze
 aktuelle Gesamtsuite und abschließende PR-/Release-Abnahme bleiben offen.
 Review Center und Dateioperation-Undo werden nicht ausgebaut.
+
+### Großdokumente: quadratische E-Mail-Startsuche beseitigen (2026-11-08)
+
+Der Bytebudget-Test trifft beim echten API-Lesen eines bereits bestätigten,
+755.119 Byte großen Rich-Yjs-Zustands auf HTTP 503 `DOCUMENT_READ_UNAVAILABLE`.
+Eine unabhängige lesende Prüfung bestätigt vollständige Zustände und passende
+Zustandsvektoren für alle 16 eigenen Testdokumente. Die Checkpoints ziehen ohne
+registrierten Projektionsfehler nach. Der ursprüngliche Test hat die native
+Größenmessung fälschlich vom späteren Dateicheckpoint abhängig gemacht; die
+Abschlussprüfung des Exports bleibt als eigene Bedingung erhalten.
+
+Das CPU-Profil der tatsächlichen Dokumentdaten zeigt die ungebundene Suche nach
+E-Mail-Adressen als Engpass: Markdown-Verarbeitung benötigt 27,9 Sekunden,
+profiliert 28,4 Sekunden. Die Startsuche prüft jetzt jeden zusammenhängenden
+lokalen Adressteil einmal und das zugehörige Domainmuster an einer festen Position.
+Die gleiche native Quelle wird damit in 51 Millisekunden verarbeitet. Die
+bestehende Adresstokenisierung, Berechtigungsgrenzen und Zeitlimits bleiben gleich.
+
+Die [gezielten Quellcodebelege](testing/markdown-bare-email-performance-2026-11-08.json)
+enthalten die tatsächlichen Messungen und deren Grenzen. Alle fünf Hint-Tests
+und der bestehende Markdown-Roundtrip-Test bestehen. Neue kompilierte API- und
+Browserprüfungen, die endgültige Gesamtabnahme und Veröffentlichung stehen aus;
+die Quellcodemessung ersetzt diese Schritte nicht.

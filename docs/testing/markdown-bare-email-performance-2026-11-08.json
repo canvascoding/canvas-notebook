@@ -1,0 +1,34 @@
+{
+  "scope": "Source-level diagnosis and regression checks; compiled HTTP and browser acceptance remain required",
+  "observedFailure": "HTTP 503 DOCUMENT_READ_UNAVAILABLE while reading an actual owned rich document after restart",
+  "nativeEncodedBytes": 755119,
+  "markdownBytes": 744044,
+  "nativeState": "Actual persisted state decoded completely and matched its atomically stored vector; checkpoint converged without a registered projection error",
+  "before": {
+    "sourceSha": "537b32ae12f5d78b388710af15385f25c41ecce8",
+    "markdownMs": 27933.242667,
+    "profiledMarkdownMs": 28439.422666,
+    "dominantCpuSamples": 18654,
+    "dominantPattern": "[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}",
+    "rawDecoderReportSha256": "aee1260539154990a114f7362a3d06001f7b63b7cd0bc2b9be63a4608e840826"
+  },
+  "after": {
+    "markdownMs": 51.416583,
+    "nativeInspectionMs": 11.744291,
+    "nativeEncodingMs": 3.471208,
+    "textEncodingMs": 4.480875,
+    "rawDecoderReportSha256": "65d9db8043ad23d9a852e36060decdbb6a474b00c39579d3e77e833b1054df25"
+  },
+  "regressions": {
+    "emailHintAndTokenParity": "Exact previous-regex indices for every suffix of the corpus, including invalid domains, Unicode case folds and explicit mailto links; full parser tokens compared",
+    "largeInput": "744 KB rich Markdown and million-character unsuccessful candidates complete within a 3-second regression guard",
+    "existingBlockHints": "1673640 exact-index comparisons and 1024 mixed-document parse/serialization comparisons",
+    "blockHintTests": { "passed": 5, "failed": 0, "skipped": 0 },
+    "existingMarkdownRoundtrip": "passed"
+  },
+  "limits": [
+    "Pure decoder measurements do not prove authorization, HTTP response, compiled browser behavior, release or deployment acceptance",
+    "The precise internal error mapped to HTTP 503 has not been captured; CPU work exceeding the bounded read phase is observed independently",
+    "No auth, persistence, size, retention or timeout limits were increased"
+  ]
+}
