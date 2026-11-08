@@ -1,5 +1,30 @@
 # Plan: zentraler Dokument- und Linkservice
 
+## Aktueller Abnahmeabgleich vom 08.11.2026
+
+Der Gesamtlauf auf `227fced6e` endet mit 332 bestandenen, drei fehlgeschlagenen
+und 102 bestehenden bedingten Skips im regulären Browserprofil. Das zusätzliche
+Collaboration-Profil besteht alle 50 Fälle ohne Skips. Die drei Fehler betreffen
+die Wiederverbindung nach dem Verschieben: Ein frischer Session-Beleg unterdrückt
+den Wiederanlauf, obwohl der montierte Client weiterhin Admission-Busy meldet.
+
+Der Fix `26b7f4588` besteht Hostbuild, Linux-Build, die vollständigen Location-Hook-
+Regressionen und genau diese drei echten Browserfälle am identischen kompilierten
+Stand, ohne Wiederholung oder Skips. Initiales und späteres Busy sowie das Ende
+einer laufenden Session-Abfrage wecken den vorhandenen begrenzten Recovery-Ablauf.
+Frische Autorisierung, native Identität, lokale Änderungen und Retry-Grenzen
+bleiben erhalten. Ursprüngliche Laufzeit und geschützte Daten sind wiederhergestellt.
+[Gebundene Nachweise](testing/post-move-admission-recovery-2026-11-08.json).
+
+Offen bleiben der vollständige Gesamtlauf auf dem finalen Stand, die finale API-/
+SDK-/Tab-Lebensdauermatrix, Leistungsbudgets, CI/Review, Paketveröffentlichung,
+Release-Image-Abnahme und Produktionsrollout. Die Produktion läuft weiterhin auf
+2026.11.7.1. Der produktive Quelltextmodus des Zertifikate-Dokuments und drei
+wiederkehrende Projektionsfehler sind durch diese lokalen Nachweise nicht behoben.
+Review Center und Dateioperations-Undo bleiben außerhalb des Umfangs.
+
+## Vorheriger Stand
+
 Stand: 07.11.2026, Produktion 2026.11.7.1 seit 06:26 UTC verifiziert. Ziel ist eine robuste und messbar schnelle gemeinsame Grundlage
 für Dokumente, Linkpflege und Aktualisierungen aus Editor, Agenten, MCP und normalen
 Dateioperationen. Review Center und Undo sind ausdrücklich außerhalb der Umsetzung.

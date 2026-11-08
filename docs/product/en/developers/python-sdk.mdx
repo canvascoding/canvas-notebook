@@ -6,32 +6,34 @@ sectionOrder: 11
 order: 2
 locale: en
 translationKey: developers.python-sdk
-updatedAt: 2026-11-01
+updatedAt: 2026-11-08
 ---
 
 # Python SDK
 
-The Python SDK is distributed with compatible Canvas Notebook releases. Use a Notebook instance that exposes the native document tools.
+This page describes SDK 0.1.2, distributed with compatible Canvas Notebook releases. Use a Notebook instance that exposes the native document tools.
 
 The SDK calls Canvas's central document services. Canvas owns Yjs state, document identities, versions and authorized mutations. Do not write `.md` projections directly or construct raw Yjs updates in your script. The [Document API reference](/docs/developers/document-api) describes the underlying requests and results.
 
 ## Install the SDK
 
-Use Python 3.10 or later. Download `canvas_notebook_python-0.1.1-py3-none-any.whl` and `canvas-python-sdk.sha256` from the [Python SDK release](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.1). Compare the wheel's SHA-256 digest with the entry in the checksum file, then install it:
+Use Python 3.10 or later. Download `canvas_notebook_python-0.1.2-py3-none-any.whl` and `canvas-python-sdk.sha256` from the [Python SDK release](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.2). Compare the wheel's SHA-256 digest with the entry in the checksum file, then install it:
 
 ```sh
 python -m venv .venv-sdk
 . .venv-sdk/bin/activate
-python -m pip install './canvas_notebook_python-0.1.1-py3-none-any.whl[mcp,keyring]'
+python -m pip install './canvas_notebook_python-0.1.2-py3-none-any.whl[mcp,keyring]'
 ```
 
 The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.0` and matching MCP types. `keyring` adds supported OS credential storage. The core `CanvasNotebook` facade and DTO/error types have no runtime MCP dependency; a controlled agent-runtime adapter is a separate, currently unimplemented connection.
 
 ## Authorize and read progressively
 
-Canvas Notebook also accepts independent keys issued under **Settings → Connections → API access**. Pass `api_key=key_from_your_secret_store` to `CanvasMcpTransport` instead of OAuth or `access_token`; these modes are mutually exclusive. This mode sends `X-Canvas-API-Key`, has no automatic credential refresh, and checks the key's explicit workspaces/actions together with current user rights. SDK 0.1.1 includes native Read/Search, workspace browse, Markdown Create/Import, original-file Import/Status, Edit/Status, and Copy/Move/Delete Preview/Apply/Status/Recover. Inspect `tools/list` on the connection for your instance's available capabilities; a key does not enable a disabled tool.
+Canvas Notebook also accepts independent keys issued under **Settings → Connections → API access**. Pass `api_key=key_from_your_secret_store` to `CanvasMcpTransport` instead of OAuth or `access_token`; these modes are mutually exclusive. This mode sends `X-Canvas-API-Key`, has no automatic credential refresh, and checks the key's explicit workspaces/actions together with current user rights. SDK 0.1.2 includes native Read/Search, workspace browse, Markdown Create/Import, original-file Import/Status, Edit/Status, and Copy/Move/Delete Preview/Apply/Status/Recover. Inspect `tools/list` on the connection for your instance's available capabilities; a key does not enable a disabled tool.
 
 `create_markdown(..., idempotency_key=...)` needs `create`, and `import_markdown(..., idempotency_key=...)` needs `import`; full document reads need the separate `read` action. Both methods request native API version 1 and return stable document identity and confirmed durable versions. Following a socket failure after a write, close that transport lifetime before opening a fresh one. Keep the original idempotency key and explicitly retry the identical operation; the SDK does not automatically replay it. A temporary URL may be replaced for the same import file identity. No API-key mode provides browser-session, admin or Secrets API access.
+
+SDK 0.1.2 preserves the original caller exception when its transport closes. If cleanup also fails, that failure retains the caller exception as its explicit cause. Keep the original operation identity after an uncertain result; reconnecting never automatically repeats a write.
 
 Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access. OAuth clients also need the relevant scopes: Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit, Edit status and all Copy/Move/Delete actions require `knowledge:write`. API-key clients use their explicit actions instead of OAuth scopes. Each mode still requires current server-side access checks.
 
@@ -95,7 +97,7 @@ if __name__ == "__main__":
 
 Choose a free explicit loopback callback port. Keep the same endpoint, credential profile and redirect URI when reauthorizing. The callback listener starts only when interactive authorization is needed and closes with the connection lifetime. Tokens and client registration are stored together in the supported OS credential system; no plaintext fallback is selected. Use one active client per profile.
 
-Tool-catalog discovery is public. For a connection without valid tokens, the first protected operation, such as `list_workspaces`, triggers the actual HTTP OAuth challenge. Canvas SDK 0.1.1 preserves the explicitly requested scopes during discovery and authorization. It rejects stored or refreshed tokens whose scopes are missing or exceed that requested set. The read-only example requests no write or tree permission. Review the actual consent permissions; a later write example requires a separate explicit `knowledge:write` grant and an appropriate credential profile. Server-side tool and workspace grants still limit every operation.
+Tool-catalog discovery is public. For a connection without valid tokens, the first protected operation, such as `list_workspaces`, triggers the actual HTTP OAuth challenge. Canvas SDK 0.1.2 preserves the explicitly requested scopes during discovery and authorization. It rejects stored or refreshed tokens whose scopes are missing or exceed that requested set. The read-only example requests no write or tree permission. Review the actual consent permissions; a later write example requires a separate explicit `knowledge:write` grant and an appropriate credential profile. Server-side tool and workspace grants still limit every operation.
 
 For a temporary in-process session, use `MemoryTokenStorage(endpoint)` instead. Restarting loses its tokens and client registration; a new client identity cannot automatically resume operations owned by the previous client. The OS store preserves registration across restarts. `clear_tokens()` removes local tokens while retaining registration; it does not revoke the server grant.
 
@@ -340,8 +342,8 @@ The caller ID uses the same exact 16–128-character format as Copy, with an alp
 
 Central PDF conversion and the controlled agent-runtime bridge are still absent. This client does not substitute raw filesystem writes for those missing connections. Package publication and server deployment are separate release steps; inspect your instance’s tool catalog before using an operation.
 
-## Validation and release status
+## Validation and release artifacts
 
-SDK 0.1.1 is published as a wheel and source distribution in the [SDK release](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.1). CI checks fresh wheel/source installations and dependency profiles on Python 3.10 and 3.15. Installed-artifact tests use actual MCP HTTP and PostgreSQL for reads, edits and status, Create/Import, original-file import, and Copy/Move/Delete. The [validation report](https://github.com/canvascoding/canvas-notebook/blob/main/docs/testing/native-api-sdk-ci.md) distinguishes these checks from compiled-server, browser and OAuth acceptance.
+Each SDK release provides a wheel and source distribution with checksums in the [SDK release](https://github.com/canvascoding/canvas-notebook/releases/tag/sdk-v0.1.2). CI checks fresh wheel/source installations and dependency profiles on Python 3.10 and 3.15. Installed-artifact tests use actual MCP HTTP and PostgreSQL for reads, edits and status, Create/Import, original-file import, and Copy/Move/Delete. The [validation report](https://github.com/canvascoding/canvas-notebook/blob/main/docs/testing/native-api-sdk-ci.md) distinguishes these checks from compiled-server, browser and OAuth acceptance.
 
 OS credential-store checks are platform-specific; a passing macOS Keychain check does not certify every keyring backend. Server permissions, enabled tools and deployed server versions remain independent of the installed SDK version.
