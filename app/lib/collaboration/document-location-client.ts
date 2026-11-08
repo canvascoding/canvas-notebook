@@ -7,8 +7,9 @@ import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/cli
 import { isWorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 import { requestCollaborationDocumentLocation } from './document-location-request';
 import { CollaborationDocumentLocationRequestError, createDocumentLocationRetryBudget, nextDocumentLocationRetryDelay } from './document-location-retry';
-import { openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation } from './opened-document-registry';
-import type { TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
+import { hasCurrentOpenedDocumentSessionAuthorization, openedDocumentAuthScope,
+  subscribeOpenedDocumentAuthInvalidation } from './opened-document-registry';
+import type { CollaborationSessionResponse, TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
 
 export type CollaborationLocationIssue = 'unavailable' | 'generationChanged' | 'lookupFailed';
 
@@ -20,9 +21,22 @@ type LocationInput = {
   lifecycleGeneration?: number;
   representation?: TextCollaborationRepresentation;
   connection?: TextCollaborationConnectionState;
+  /** Exact HTTP session object registered by the existing collaboration client. */
+  session?: CollaborationSessionResponse | null;
   /** Parameterless request owned by the mounted collaboration registry entry. */
   requestAdmissionRejoin?: () => Promise<void>;
 };
+
+/** A fresh session already resolved this exact location. This is not a cached
+ * access grant: local copies, expired tickets and revoked receipts do not count. */
+function hasCurrentSessionLocation(input: LocationInput): boolean {
+  const session = input.session;
+  if (!input.workspaceId || !input.documentId || !input.path || !session || session.guestAccess
+    || session.documentId !== input.documentId || session.lifecycleGeneration !== input.lifecycleGeneration
+    || session.representation !== input.representation || !Number.isFinite(Date.parse(session.expiresAt))
+    || Date.parse(session.expiresAt) <= Date.now() || useFileStore.getState().currentFile?.unavailable) return false;
+  return hasCurrentOpenedDocumentSessionAuthorization(input.workspaceId, input.path, session);
+}
 
 function isCurrentLocationScope(scope: CurrentCollaborationLocationScope): boolean {
   const state = useFileStore.getState();
@@ -45,6 +59,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
   const refreshRetained = useRef<(() => void) | null>(null);
   const admissionRejoin = useRef(input.requestAdmissionRejoin);
   useEffect(() => { admissionRejoin.current = input.requestAdmissionRejoin; }, [input.requestAdmissionRejoin]);
+  const session = useRef(input.session);
+  useEffect(() => { session.current = input.session; }, [input.session]);
+  const previousConnection = useRef({ key, connection });
 
   useEffect(() => {
     if (!workspaceId || !documentId || !documentKey || !path) return;
@@ -192,7 +209,10 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     refresh.current = invalidate;
     refreshRetained.current = invalidateRetained;
     watcher.acquire();
-    invalidate();
+    // The current session request already observed ID, path and generation.
+    // Watcher/recovery hints still revalidate independently of this receipt.
+    if (!hasCurrentSessionLocation({ workspaceId, documentId, path, lifecycleGeneration,
+      representation, session: session.current })) invalidate();
     return () => {
       disposed = true;
       if (refresh.current === invalidate) refresh.current = null;
@@ -215,6 +235,13 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     if (retainedRequestId !== null) refreshRetained.current?.();
   }, [unavailable, retainedRequestId]);
 
-  useEffect(() => { refresh.current?.(); }, [connection]);
+  useEffect(() => {
+    const previous = previousConnection.current;
+    previousConnection.current = { key, connection };
+    const connectionChanged = previous.key === key && previous.connection !== connection
+      && connection !== undefined && connection !== 'live' && connection !== 'read_only';
+    if (connectionChanged || !hasCurrentSessionLocation({ workspaceId, documentId, path, lifecycleGeneration,
+      representation, session: input.session })) refresh.current?.();
+  }, [connection, key, workspaceId, documentId, path, lifecycleGeneration, representation, input.session]);
   return issue?.key === key ? issue.value : null;
 }

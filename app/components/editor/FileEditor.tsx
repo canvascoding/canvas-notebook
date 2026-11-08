@@ -616,6 +616,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingF
     representation: activeCollaborationDocument?.session?.representation === 'excalidraw_scene'
       ? undefined : activeCollaborationDocument?.session?.representation,
     connection: activeCollaborationDocument?.connection,
+    session: activeCollaborationDocument?.session,
     requestAdmissionRejoin: activeCollaborationDocument?.requestAdmissionRejoin,
   });
   const updateCollaborativeDraft = useCallback((value: string) => {

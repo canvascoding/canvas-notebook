@@ -88,14 +88,16 @@ async function main() {
   useEditorStore.getState().updateDraft('Local + peer draft');
   let mountedGeneration: number | undefined = 1;
   let mountedRepresentation: TextCollaborationRepresentation | undefined = 'plain_text';
-  let connection: 'live' | 'reconnecting' = 'live';
+  let connection: 'live' | 'reconnecting' | 'connecting' = 'live';
+  let locationSession: CollaborationSessionResponse | null = null;
   let requestAdmissionRejoin: (() => Promise<void>) | undefined;
   function Probe() {
     const state = useFileStore();
     const issue = useCollaborationDocumentLocation({ workspaceId: state.currentFileWorkspaceId,
       documentId: state.currentFile?.collaboration?.document?.id ?? null,
       documentKey: state.currentFile?.editorIdentity, path: state.currentFile?.path ?? null,
-      lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin });
+      lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin,
+      session: locationSession });
     return <output>{issue ?? 'ok'}</output>;
   }
   let session: CollaborationSessionResponse | null = null;
@@ -554,6 +556,53 @@ async function main() {
     assert.equal(requests.length, boundedLookup + 6, 'false adoption cannot create an unbounded location loop');
     assert.equal(boundedRejoins, 0);
     assert.equal(useEditorStore.getState().draft, 'Still pending adoption draft');
+
+    // Unit HTTP fixture only: obtain the actual client-registered response
+    // object, rather than fabricating a matching DTO as the receipt.
+    await act(async () => { root.render(null); sessionRoot.render(null); });
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'fresh-location-session' } } });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    useFileStore.setState({ currentFile: { ...file, editorIdentity: 'fresh-location-open' }, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content);
+    session = null; sessionDocumentId = 'document';
+    await act(async () => sessionRoot.render(<SessionProbe />));
+    await until(() => session?.documentId === 'document');
+    const issuedSession = session as CollaborationSessionResponse | null;
+    assert(issuedSession);
+    locationSession = issuedSession;
+    assert(authRegistry.hasCurrentOpenedDocumentSessionAuthorization('workspace', file.path, locationSession));
+    connection = 'connecting'; mountedGeneration = 1; mountedRepresentation = 'plain_text'; requestAdmissionRejoin = undefined;
+    const freshBase = requests.length;
+    await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, freshBase, 'fresh exact session provenance replaces the redundant initial location GET');
+    connection = 'live'; await render();
+    await act(async () => { await new Promise(done => setTimeout(done, 350)); });
+    assert.equal(requests.length, freshBase, 'normal startup reaching live must not resolve the same location again');
+    connection = 'reconnecting'; await render();
+    await until(() => requests.length === freshBase + 1);
+    await reply(freshBase, file.path);
+    assert.equal(document.querySelector('#root output')?.textContent, 'ok');
+
+    await act(async () => root.render(null));
+    locationSession = { ...locationSession };
+    connection = 'live';
+    const copiedBase = requests.length;
+    await render(); await until(() => requests.length === copiedBase + 1);
+    await reply(copiedBase, file.path);
+    assert.equal(requests.length, copiedBase + 1, 'a matching metadata copy still requires an actual location read');
+
+    await act(async () => root.render(null));
+    locationSession = issuedSession;
+    const beforeExpiry = Date.now;
+    try {
+      const expiredNow = Date.parse(locationSession.expiresAt) + 1;
+      Date.now = () => expiredNow;
+      const expiredBase = requests.length;
+      await render(); await until(() => requests.length === expiredBase + 1);
+      await reply(expiredBase, file.path);
+    } finally { Date.now = beforeExpiry; }
 
     await act(async () => root.render(null));
     authRegistry.observeOpenedDocumentAuth(null);

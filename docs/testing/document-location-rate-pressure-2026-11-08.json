@@ -1,0 +1,47 @@
+{
+  "scope": "Actual compiled-browser failure diagnosis; the subsequent request-reduction fix has source-level regression coverage and still requires a new compiled run",
+  "diagnosedSourceSha": "bf283846150a3fcf19868e620c3fe17e85b4eafd",
+  "diagnosedImageId": "sha256:edcfa9cce5087688cf0571e460cdd6a3a7057efc674bb7aac5131a91225258ad",
+  "browserEvidence": {
+    "realBrowser": true,
+    "requestInterception": false,
+    "trustedClickTargetVerified": true,
+    "actualFileStoreObserved": true,
+    "fileStoreObserver": "Read-only subscription located in the actual loaded application; no state setters or fabricated authority",
+    "desktopLocationResponses": 74,
+    "mobileLocationResponsesIncludingNextWindow": 66,
+    "mobileHttp429Responses": 4,
+    "locationRateLimitPerMinute": 120,
+    "failedOpen": "The clicked document was not opened. The prior document and both load request counters remained unchanged after the failed location lookup.",
+    "privateDiagnosticSha256": "6a0b406665b5439dc05ac5ca341d8e67687d2c4b6769c25b25026f40aa4b4300"
+  },
+  "alreadyAcceptedAtDiagnosedSource": {
+    "nativeApiReadResponses": 72,
+    "nativeApiReadStatuses": [200],
+    "maxNativeApiReadMs": 194.669834,
+    "desktopBackgroundEncodedBytes": 8306440,
+    "desktopByteBudget": 8388608,
+    "separateMobileBackgroundEncodedBytes": 3775595,
+    "mobileByteBudget": 4194304,
+    "oversizedNativeEncodingBytes": 1371171,
+    "unchangedOwnedDocumentContents": 16,
+    "finalizedProjectionReceipts": 16,
+    "limits": "Desktop and isolated mobile cases passed. The subsequent same-server desktop-to-mobile sequence failed from location HTTP 429 and is retained as a failure. These results are not a fully green aggregate."
+  },
+  "requestReduction": {
+    "rule": "An exact unexpired current-auth session object already registered by the collaboration HTTP client proves the matching document ID, path, generation and representation for the redundant startup lookup only",
+    "copiedOrLocalMetadataIsInsufficient": true,
+    "expiredOrRevokedSessionIsInsufficient": true,
+    "retainedUnavailableDocumentsStillRead": true,
+    "reconnectAndWatcherInvalidationStillRead": true,
+    "rateLimitIncreased": false
+  },
+  "sourceValidation": {
+    "locationClientIncludingFreshSessionAndNegativeCases": "passed",
+    "notebookLocationLifecycleIncludingInactiveWatcher": "passed",
+    "ciConfigurationContractChecks": 19,
+    "newCompiledBrowserAcceptance": "pending",
+    "fullTestAll": "pending",
+    "releaseAndDeployment": "pending"
+  }
+}

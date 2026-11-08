@@ -66,6 +66,12 @@ jobs:
           npm run verify:fd-publication
       - name: Test fixture configuration contract
         run: npm run test:api-keys:ci-config
+      - name: Markdown and document-location regressions
+        run: |
+          set -euo pipefail
+          npm run test:editor:block-start-hints 2>&1 | tee "$RUNNER_TEMP/document-markdown-hints.log"
+          npm run test:editor:markdown 2>&1 | tee "$RUNNER_TEMP/document-markdown-roundtrip.log"
+          npm run test:collaboration:location-client 2>&1 | tee "$RUNNER_TEMP/document-location-client.log"
       - name: Opened document resource policy
         run: |
           set -euo pipefail

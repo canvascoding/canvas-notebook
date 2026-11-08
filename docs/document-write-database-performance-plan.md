@@ -4306,3 +4306,33 @@ enthalten die tatsächlichen Messungen und deren Grenzen. Alle fünf Hint-Tests
 und der bestehende Markdown-Roundtrip-Test bestehen. Neue kompilierte API- und
 Browserprüfungen, die endgültige Gesamtabnahme und Veröffentlichung stehen aus;
 die Quellcodemessung ersetzt diese Schritte nicht.
+
+### Zusätzliche Ortungsaufrufe beim Editorstart begrenzen (2026-11-08)
+
+Das neue Image von `bf2838461` besteht 72 tatsächliche native API-Leseantworten
+mit HTTP 200, maximal 195 Millisekunden. Desktop-Byteverdrängung sowie eine
+separate mobile Abnahme bestehen; alle 16 eigenen Dokumentinhalte und finalisierten
+Exportbelege bleiben erhalten. Der anschließende Wechsel zwischen Desktop- und
+Mobil-Sitzungen im selben Serverlauf bleibt zunächst rot.
+
+Die passive Beobachtung des tatsächlichen Browser-Stores und der HTTP-Antworten
+belegt HTTP 429 auf `/api/files/collaboration/location`: 74 Ortungsantworten im
+Desktop-Profil und 66 im Mobil-Profil, davon vier gedrosselt. Der tatsächliche
+Klick trifft den richtigen Tab. Danach beginnen weder ein neuer Öffnungsauftrag
+noch ein neuer Dateiladevorgang; das bisherige Dokument bleibt ausgewählt. Die
+Hypothese einer versehentlichen Überholung durch einen Hintergrund-Refresh wird
+durch diese Messung nicht bestätigt.
+
+Der Editor erhält jetzt das genaue Session-Objekt seines bestehenden
+Kollaborationsclients. Nur dessen registrierter, aktueller und nicht abgelaufener
+HTTP-Beleg für dieselbe Identität und denselben Pfad ersetzt die zusätzliche
+Start-Ortung. Metadatenkopien und lokale Offline-Belege reichen nicht. Watcher-
+Hinweise, Reconnects und die Wiederherstellung nicht verfügbarer Dokumente prüfen
+weiterhin frisch. Das Serverlimit von 120 Aufrufen pro Minute wird nicht erhöht.
+
+Die [Belege und offenen Abnahmegrenzen](testing/document-location-rate-pressure-2026-11-08.json)
+halten den Fehler und die Quellcodekorrektur getrennt fest. Die erweiterten
+Location-Client-Tests, die bestehenden Notebook-Lebenszyklustests und alle 19
+CI-Konfigurationsprüfungen bestehen. Die neuen Markdown- und Location-Regressionen
+laufen künftig auch im verpflichtenden API-/SDK-CI-Job. Ein neues Image und die
+tatsächliche Wiederholung der zuvor fehlgeschlagenen Sequenz stehen noch aus.
