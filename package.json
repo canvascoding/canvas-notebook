@@ -549,6 +549,7 @@
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:workspaces:bootstrap": "tsx --conditions react-server scripts/workspace-bootstrap-idempotency-test.ts",
     "test:workspaces:bootstrap:native": "NODE_ENV=test CANVAS_SHARED_CONNECTION_POSTGRES_TEST=1 tsx --conditions react-server scripts/workspace-bootstrap-idempotency-test.ts --native",
+    "test:workspaces:path-alias-observations": "NODE_ENV=test tsx --conditions react-server --test scripts/workspace-path-alias-observation-test.ts",
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",
     "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-postgres-test.ts && tsx scripts/mobile-setup-link-test.ts && tsx scripts/mobile-setup-card-ui-test.tsx",
     "test:mobile:bootstrap": "tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-route-test.ts",
@@ -1110,7 +1111,7 @@
     "test:api-keys:proxy": "NODE_ENV=test tsx --conditions react-server scripts/api-key-workspace-proxy-test.ts",
     "test:api-keys:errors": "NODE_ENV=test tsx --conditions react-server scripts/api-key-error-result-test.ts",
     "test:all:runner": "node --test scripts/test-all-orchestration-test.mjs",
-    "test:collaboration:regular:contracts": "tsx --test scripts/regular-collaboration-profile-test.mjs scripts/owned-fixture-files-test.mjs scripts/recovered-room-read-test.mjs scripts/completed-native-rename-test.ts",
+    "test:collaboration:regular:contracts": "tsx --test scripts/regular-collaboration-profile-test.mjs scripts/owned-fixture-files-test.mjs scripts/recovered-room-read-test.mjs scripts/completed-native-rename-test.ts && npm run test:workspaces:path-alias-observations",
     "test:e2e:collaboration:regular": "E2E_EXTERNAL_SERVER=1 COLLABORATION_E2E=1 CANVAS_REGULAR_COLLABORATION_E2E=1 playwright test --config tests/playwright/playwright.regular-collaboration.config.ts --workers=1 --max-failures=0"
   },
   "dependencies": {

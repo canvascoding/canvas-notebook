@@ -11,6 +11,10 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+### Fixed
+
+- Refresh contradictory filesystem observations once during read-only path checks. A brief canonical file or directory replacement no longer reports a false path-alias conflict; symlink, case-alias and mutation checks retain their protections.
+
 ## [2026.11.8.2] - 2026-11-08
 
 ### Added
