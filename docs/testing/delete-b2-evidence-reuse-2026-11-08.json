@@ -179,10 +179,9 @@
     "Both fresh source observations, all SQL/authority checks, atomic B2 and existing deadlines remain.",
     "Review Center and file-operation Undo remain excluded."
   ],
-  "compiledAfterPending": true,
+  "compiledAfterPending": false,
   "remaining": [
-    "Exact latest 201-document original-job Recovery, normal physical deletion and image navigation.",
-    "Remaining plan 5b/5c acceptance and final budgets; regular test:all/Recovery UI; full exact-head CI/reviews, merge and release."
+    "Remaining plan 5b/5c acceptance and final budgets; regular test:all/Recovery UI; full exact-head CI/reviews, merge, SDK/docs publication and release."
   ],
   "compiledCandidate": {
     "file": "compiled-auxiliary-read-200-on-desktop-1794097973423-result.json",
@@ -227,7 +226,7 @@
     "jsonFunctionsUnchangedByIntegration": true,
     "checks": "Existing real-hash evidence and all 28 stored-plan test families rerun under the actual Sentry FunctionToString integration; JSON replacement/getter/proxy and current schema cases retained.",
     "candidate": "Use captured function inspector directly; do not depend on identity of subsequently wrapped prototype method. Actual JSON identities, descriptors and encoding hooks remain guarded.",
-    "compiledCandidateRecoveryAfterGuardFixPending": true,
+    "compiledCandidateRecoveryAfterGuardFixPending": false,
     "guardFixValidation": [
       {
         "file": "sentry-reuse-registered-20261108.log",
@@ -262,5 +261,119 @@
       "app/lib/files/workspace-operation-mixed-source-evidence-v5.ts": "79aa30528c06440fa7e64f426ed369efa370d0c16f1b6e227141b098a324f8c8",
       "scripts/workspace-operation-sentry-validation-reuse-test.ts": "5cf521d4ee2ddfda14d8d7c9e62f1ab7797649b919146fd513c233d507d86083"
     }
+  },
+  "compiledAfterGuardFix": {
+    "sourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+    "compiledRecovery": {
+      "file": "compiled-auxiliary-read-200-on-desktop-1794099652709-result.json",
+      "sha256": "9b6b448a5e8e7de5598d2303a54a88fe641638dea8a0aa29f138002834878392",
+      "passed": true,
+      "originalJobOnly": true,
+      "mutationReplay": false,
+      "nativeDocuments": 201,
+      "nativeRowsXminBytesPreserved": true,
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+      "physicalPayloadBefore": {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      "physicalPayloadAfter": {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      "recovery": {
+        "batchId": "b89dd5bfb4854930caa1fde6d165cef2e1226cd310c20e83d5cf28e5b05b8b7d",
+        "status": "applied",
+        "admissionRequestsBefore": 1,
+        "admissionRequestsAfter": 0
+      }
+    },
+    "transactionMs": 3849,
+    "domainMs": 2608,
+    "evidenceValidation": {
+      "hits": 18,
+      "misses": 2,
+      "bypassed": 0,
+      "entries": 2,
+      "bytes": 1765658,
+      "cleared": true
+    },
+    "scope": "Real compiled HTTP Recovery using original authenticated Playwright context; UI Recovery and global SQL/resource budget acceptance remain separate.",
+    "hostBuild": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/sentry-guard-host-build-20261108-attempt1-result.json",
+    "linuxImage": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/api-sdk-acceptance-linux-image-1794099194190-result.json"
+  },
+  "compiledNormalDeletionAndNavigation": {
+    "file": "compiled-auxiliary-read-200-on-desktop-1794100024181-result.json",
+    "sha256": "fa390094fb8b442cfd91f6c4a3bd12e8ea31e458e2a04039264d43751af94122",
+    "sourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+    "passed": true,
+    "scope": "Real HTTP preview/apply/status/download and actual Chromium image navigation; separate from full Recovery UI and global SQL/resource budgets.",
+    "normalDeletion": {
+      "completedNewJobs": 5,
+      "totalBatchesBefore": 2,
+      "totalBatchesAfter": 7,
+      "previousRecoveredJobPreserved": true,
+      "failedPreparingJobPreserved": true,
+      "activeAdmissionsAfter": 0
+    },
+    "navigationChecks": [
+      "first image previous disabled",
+      "next button selects second",
+      "previous button selects first",
+      "right arrow selects second",
+      "last image next disabled",
+      "right arrow at end preserves image",
+      "left arrow selects previous"
+    ],
+    "newTrashPayloads": [
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "98724fc64b91d587b16c90120beb6d0f3a45aa818da2dd06da906485d189a1c5",
+        "bytes": 68,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      },
+      {
+        "sourceAbsent": true,
+        "trashPayloadHashMatchesOriginal": true,
+        "sha256": "b201e2de7fd1a6eee7faf6b18a27ff99e0816f951b5d826f2c0b8436e0b60320",
+        "bytes": 75,
+        "sameOriginalInode": true
+      }
+    ],
+    "originalTrashPayloadPreserved": true,
+    "nativeDocuments": 201,
+    "nativeRowsXminBytesPreserved": true,
+    "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true,
+    "mutationReplay": false,
+    "screenshot": "docs/testing/physical-png-navigation-2026-11-08.png",
+    "screenshotSha256": "4ac389cfff2bd8f98578dbc1641ebf057a782bda4b1f2dc8eb96bb53c2271d2d"
   }
 }

@@ -168,7 +168,22 @@ direkt statt die Identität der später gewrappten Prototypmethode vorauszusetze
 Die tatsächlichen JSON-Funktionen, Getter/Proxy-/Prototyphooks und aktuelle
 Grammatik bleiben geprüft. Derselbe Test besteht anschließend einschließlich
 aller 28 historischen Planfamilien; kein Sentry-Client/Transport wird gestartet.
-Die kompilierte Recovery nach dieser Guard-Korrektur steht noch aus.
+Die kompilierte Recovery am Produktstand `4edc2fc30` besteht jetzt auf genau
+demselben Originalauftrag: `applied`, unveränderte Trash-Bytes/Inode/Größe,
+alle 201 nativen Zeilen/xmin/Bytes erhalten. Die abschließende Transaktion bleibt
+mit 3.849 ms unter der unveränderten Fünf-Sekunden-Grenze; die E5-Wiederverwendung
+zeigt 18 Hits, zwei Misses, null Bypässe und anschließende Bereinigung. Das ist
+eine funktionale HTTP-Recovery mit ursprünglicher Sitzung, keine vollständige
+Recovery-UI- oder globale SQL-/Ressourcenbudget-Abnahme.
+Ein weiterer frisch erstellter Container mit demselben kompilierten Stand besteht
+anschließend fünf reguläre PNG-Löschungen (zwei exakt bekannte Alt-Fixtures und
+drei neu hochgeladene gültige PNGs) sowie sieben echte Chromium-Navigationsfälle
+mit Buttons, Pfeiltasten und Grenzen. Alle fünf neuen Trash-Payloads behalten
+Hash/Inode/Größe. Die beiden früheren Aufträge bleiben erhalten, die Batchzahl
+steigt ausschließlich um fünf von zwei auf sieben, aktive Admissions sind null.
+Die ursprünglichen 201 nativen Dokumente einschließlich Zeilen/xmin/Bytes sowie
+Originalruntime, Schutzdaten und andere Container sind nach beiden Tests erhalten.
+[Geprüfte Bildnavigation](testing/physical-png-navigation-2026-11-08.png).
 [Sentry-Vorher-/Nachher-Beleg](testing/delete-b2-evidence-reuse-2026-11-08.json).
 
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
