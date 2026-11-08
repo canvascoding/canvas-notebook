@@ -390,7 +390,8 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
 /** Short serial phases on the actual outer B. Internal DAL only, not an arbitrary SQL sandbox. */
 function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   operation: ((access: WorkspaceOperationJobLifecycleAccess) => Promise<T>) | undefined,
-  moveOperation?: (access: WorkspaceOperationJobLifecycleAccess, database: SqlConnection, check: () => Promise<void>) => Promise<T>): Promise<T> {
+  moveOperation?: (access: WorkspaceOperationJobLifecycleAccess, database: SqlConnection, check: () => Promise<void>) => Promise<T>,
+  physicalDeletePreflight = false): Promise<T> {
   const captured = owner && typeof owner === 'object' ? owners.get(owner) : undefined;
   if (!captured) {
     const error = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REQUIRED'), active = context.getStore();
@@ -407,8 +408,13 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   const checkTimings = captured.binding.plan.version === 5 || captured.binding.plan.version === 6
     ? { started: 0, completed: 0, owner: 0, policy: 0, storage: 0, handoffStorage: 0 } : null;
   captured.phase = phase;
-  const pending = withWorkspaceOperationJobClaimPhase(captured.claim, async () => {
+  const authorization = captured.binding.authorization;
+  const retryDelays = physicalDeletePreflight && !captured.move && !captured.mcp && captured.binding.actionMode === 'apply'
+    && captured.binding.plan.version === 5 && authorization.mode === 'direct' && authorization.actorType === 'user'
+    ? [50, 150, 350] : [];
+  const attempt = async (retryPolicyAdmission: boolean): Promise<{ value: T } | { busy: true }> => {
     const database = captured.database!; let begun = false, commitAttempted = false;
+    phase.stage = 'preparation'; phase.transaction = ''; phase.startedAt = null;
     try {
       await checkIdle(captured);
       const mcp = captured.mcp;
@@ -635,8 +641,24 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
       phase.accepting = false; commitAttempted = true; await database.run('COMMIT'); begun = false;
       phase.stage = 'after-commit';
       captured.phase = undefined; phase.active = false; await checkIdle(captured);
-      if (captured.failure) throw captured.failure; return result;
+      if (captured.failure) throw captured.failure; return { value: result };
     } catch (error) {
+      // Policy entry still precedes the preflight callback and the physical move.
+      // Release all transaction locks before trying fresh authority. Never retry
+      // a callback, an uncertain rollback/COMMIT, or a programmatic operation.
+      if (retryPolicyAdmission && begun && !commitAttempted && !captured.failure && phase.stage === 'policy'
+        && error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY') {
+        phase.accepting = false;
+        try { await database.run('ROLLBACK'); }
+        catch (rollbackError) {
+          const failure = new AggregateError([error, asError(rollbackError)], 'Delete admission rollback could not be confirmed.');
+          if (captured.lease) captured.lease.active = false;
+          try { await database.close(failure); } catch { /* The owner records disposal failure separately. */ }
+          return poison(captured, failure);
+        }
+        phase.accepting = true;
+        return { busy: true };
+      }
       // Observe the original failure before rollback, disposal or worker status
       // projection can wrap it. This has no SQL or transaction side effect.
       reportWorkspaceOperationFailureDiagnostics(error, diagnostics => {
@@ -665,9 +687,21 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
         forwardedQueries: captured.forwardedQueries - phase.queriesBefore, startedChecks: checkTimings.started,
         completedChecks: checkTimings.completed, ownerMs: Math.round(checkTimings.owner), policyMs: Math.round(checkTimings.policy),
         storageMs: Math.round(checkTimings.storage), handoffStorageMs: Math.round(checkTimings.handoffStorage) }));
+    }
+  };
+  const pending = (async () => {
+    try {
+      for (let index = 0; ; index++) {
+        const retryDelay = retryDelays[index];
+        const result = await withWorkspaceOperationJobClaimPhase(captured.claim, () => attempt(retryDelay !== undefined));
+        if ('value' in result) return result.value;
+        // Scheduling resumes and checks the same claim after each rollback.
+        await delay(retryDelay);
+      }
+    } finally {
       phase.accepting = false; phase.active = false; if (captured.phase === phase) captured.phase = undefined;
     }
-  });
+  })();
   captured.pending.add(pending); void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending)); return pending;
 }
 
@@ -678,7 +712,7 @@ export function withWorkspaceOperationJobLifecycleOwner<T>(claim: WorkspaceOpera
   return withLifecycleOwner(claim, operation, openConnection, false, mcp);
 }
 export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
-  operation: (access: WorkspaceOperationJobLifecycleAccess) => Promise<T>): Promise<T> {
+  operation: (access: WorkspaceOperationJobLifecycleAccess) => Promise<T>, mode?: 'physical-delete-preflight'): Promise<T> {
   const captured = owners.get(owner);
   if (captured?.move) { try { poison(captured, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID')); }
     catch (error) { return Promise.reject(error); } }
@@ -688,7 +722,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
     // Preparation and preflight inspect the same fixed grammar as B2. Keep
     // its lifetime within this fully awaited transaction; current data and
     // every ordinary SQL/authority boundary are still freshly checked.
-    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, operation))
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, operation, undefined, mode === 'physical-delete-preflight'))
       .catch(error => poison(captured, error));
   }
   return runLifecycleTransaction(owner, operation);

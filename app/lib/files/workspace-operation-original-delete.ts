@@ -394,7 +394,7 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
             elapsedMs: Math.round(performance.now() - preflightStartedAt), callbackCompleted, milestones: preflightMilestones })); }
           catch { /* Timing diagnostics never replace the original operation result. */ }
         }
-      });
+      }, binding.plan.version === 5 ? 'physical-delete-preflight' : undefined);
       const physical = recoveredPhysical ?? await movePreparedWorkspaceSingleFileTrash(prepared);
       if (originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6 || originalIntent.version === 7) return completeWorkspaceOperationOriginalDeleteJob(owner,
         { expectedIntentDigest: originalDurable.intentDigest, prepared, physical });
