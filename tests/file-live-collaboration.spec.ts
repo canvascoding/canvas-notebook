@@ -15,6 +15,11 @@ import { recoveredRichMigrationErrors } from './helpers/recovered-rich-migration
 import { waitForOwnedNotificationSummaryBudget } from './helpers/notification-summary-budget';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { aggregateOwnedNativeErrors } from './helpers/owned-native-command';
+import { installOwnedCollaborationOutage } from './helpers/owned-collaboration-outage';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
+import { readNativeRichLocalRecovery } from './helpers/native-rich-local-recovery';
+import { nativeRichParagraph } from './helpers/native-rich-paragraph';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -860,6 +865,105 @@ test.describe('Markdown live collaboration', () => {
     } catch (error) { failure = error; throw error; }
     finally {
       await finishFixture(cleanupApi, [() => peerContext.close(), () => ownerContext.close(),
+        async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
+    }
+  });
+
+  test('retains a committed offline edit across inactive tabs, authorized reconnect and reload', async ({ browser }, info) => {
+    test.setTimeout(180_000);
+    info.annotations.push({ type: 'scope', description: 'Real held tabs, interrupted real sockets and offline browser; committed IndexedDB/native proofs, fresh reconnect authority and reload. No fabricated server responses or persistence acknowledgements.' });
+    const suffix = randomUUID(), paths = [`offline-tab-a-${suffix}.md`, `offline-tab-b-${suffix}.md`];
+    const texts = ['Offline retained paragraph.', 'Other retained paragraph.'], marker = ` Offline ${suffix}`;
+    const context = await fixtureContext(browser), page = await context.newPage();
+    const cleanupApi = await request.newContext({ baseURL: BASE_URL, storageState: await context.storageState(), timeout: 15_000 });
+    const outage = await installOwnedCollaborationOutage(context);
+    const selector = '.tiptap-editor-shell .ProseMirror';
+    let workspaceId: string | null = null, failure: unknown;
+    const ids: Record<string, string> = {};
+    const persisted = async () => {
+      expect(workspaceId).toBeTruthy();
+      const response = await cleanupApi.post('/api/files/collaboration/session', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId! },
+        data: { path: paths[0], representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
+      });
+      expect(response.status()).toBe(200);
+      const value = await response.json() as { documentId: string; lifecycleGeneration: number;
+        representation: string; stateProof: string; stateVector: string; degraded: boolean };
+      expect(value.documentId).toBe(ids[paths[0]]); expect(value.degraded).toBe(false);
+      expect(value.representation).toBe('tiptap_blocks');
+      return { documentId: value.documentId, lifecycleGeneration: value.lifecycleGeneration,
+        representation: value.representation, stateProof: value.stateProof, stateVector: value.stateVector };
+    };
+    const snapshot = (candidate: Awaited<ReturnType<typeof readNativeRichCandidate>>) => ({
+      document: candidate.document, stateProof: candidate.stateProof, stateVector: candidate.stateVector,
+    });
+    try {
+      await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(page.request);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      await useWorkspace(context, workspaceId);
+      for (let index = 0; index < paths.length; index++) {
+        await waitForFileCreateBudget();
+        const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+          name: paths[index], mimeType: 'text/markdown', buffer: Buffer.from(`${texts[index]}\n`),
+        } } });
+        expect(uploaded.status()).toBe(200);
+        const read = await page.request.get('/api/files/read', { headers, params: { path: paths[index] } });
+        expect(read.status()).toBe(200);
+        ids[paths[index]] = (await read.json()).data.nativeSource.documentId;
+        expect(ids[paths[index]]).toBeTruthy();
+      }
+      await context.addInitScript(({ workspace, paths, ids }) => {
+        localStorage.setItem('canvas:live-document-tabs', 'on');
+        localStorage.setItem(`canvas.notebookDocumentTabs.v1:${workspace}`, JSON.stringify({ version: 1,
+          activePath: paths[0], openPaths: paths, documentIds: ids }));
+      }, { workspace: workspaceId, paths, ids });
+      await openCollaborativeMarkdown(page, paths[0]);
+      await expect(page.locator(selector)).toHaveText(texts[0]);
+      await page.getByRole('tab', { name: paths[1], exact: true }).click(); await enterMarkdownEditMode(page);
+      await expect(page.locator(selector)).toHaveText(texts[1]);
+      await page.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(page.locator(selector)).toHaveText(texts[0]);
+      const baseline = await readNativeRichCandidate(page, selector);
+      await expect.poll(async () => {
+        const current = await persisted(); return { stateProof: current.stateProof, stateVector: current.stateVector };
+      }, { timeout: 20_000 }).toEqual({ stateProof: baseline.stateProof, stateVector: baseline.stateVector });
+      const identity = await persisted();
+      await outage.block(); await context.setOffline(true);
+      expect(await page.evaluate(() => navigator.onLine)).toBe(false);
+      await (await nativeRichParagraph(page, selector, texts[0])).click();
+      await page.keyboard.press('End'); await page.keyboard.insertText(marker);
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker);
+      const offline = await readNativeRichCandidate(page, selector);
+      expect(offline.guid).toBe(baseline.guid); expect(offline.stateProof).not.toBe(baseline.stateProof);
+      await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(snapshot(offline));
+      expect(await persisted()).toEqual(identity);
+      await page.getByRole('tab', { name: paths[1], exact: true }).click();
+      await expect(page.getByRole('tab', { name: paths[1], exact: true })).toHaveAttribute('aria-selected', 'true');
+      // The local committed log remains the exact dirty candidate while the
+      // editor is inactive; server-native bytes must still be the baseline.
+      await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 10_000 }).toEqual(snapshot(offline));
+      expect(await persisted()).toEqual(identity);
+      let freshSessions = 0;
+      page.on('response', value => {
+        if (new URL(value.url()).pathname === '/api/files/collaboration/session' && value.status() === 200
+          && value.request().postDataJSON()?.path === paths[0]) freshSessions++;
+      });
+      outage.restore(); await context.setOffline(false);
+      await page.getByRole('tab', { name: paths[0], exact: true }).click();
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker, { timeout: 30_000 });
+      const resumed = await readNativeRichCandidate(page, selector);
+      expect(resumed.guid).toBe(offline.guid); expect(snapshot(resumed)).toEqual(snapshot(offline));
+      await expect.poll(() => freshSessions, { timeout: 20_000 }).toBeGreaterThan(0);
+      await expect.poll(persisted, { timeout: 30_000 })
+        .toEqual({ ...identity, stateProof: offline.stateProof, stateVector: offline.stateVector });
+      await page.reload({ waitUntil: 'domcontentloaded' }); await enterMarkdownEditMode(page);
+      await expect(page.locator(selector)).toHaveText(texts[0] + marker, { timeout: 30_000 });
+      expect(snapshot(await readNativeRichCandidate(page, selector))).toEqual(snapshot(offline));
+      await page.screenshot({ path: info.outputPath('retained-offline-reconnect.png') });
+    } catch (error) { failure = error; throw error; }
+    finally {
+      await finishFixture(cleanupApi, [() => context.setOffline(false), () => outage.dispose(), () => context.close(),
         async () => { if (workspaceId) await deleteFixtureFiles(cleanupApi, workspaceId, paths); }], failure);
     }
   });
