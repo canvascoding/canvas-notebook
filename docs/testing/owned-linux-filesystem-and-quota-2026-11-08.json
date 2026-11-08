@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "compiledProduct": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+  "testCheckout": "5dba700ed97dab1bdbdbd55f2a01534eb237817a",
+  "physicalFilesystem": "Real physical UTF-8 files in the guarded owned Linux named DATA volume; no API export substituted.",
+  "targetedResults": {
+    "quota": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0
+    },
+    "physicalFilesFirstRun": {
+      "passed": 3,
+      "failed": 1,
+      "skipped": 0
+    },
+    "tableRecoveryWithCompletePrivateEnvironment": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "flaky": 0
+    }
+  },
+  "hostHelperChecks": {
+    "passed": 13,
+    "covers": [
+      "actual UTF-8 bytes",
+      "traversal refusal",
+      "symlink refusal",
+      "invalid UTF-8 refusal",
+      "size bound",
+      "create without overwrite"
+    ]
+  },
+  "diagnosis": "The table case initially failed before DB access because the isolated native evidence child lacked the actual local auth secret. Private launchers now pass the existing runtime secret over stdin/environment without changing application auth.",
+  "failedReportsRetained": true,
+  "browserReports": [
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-native-quota-run-B5hAUk/report.json",
+      "sha256": "f0a82a1352b84a64885aaa985c0f81de7d547c42b229dad071968ea98fe0c56d",
+      "stats": {
+        "startTime": "2026-11-08T02:40:33.878Z",
+        "duration": 67031.717,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-native-quota-run-r0xWNl/report.json",
+      "sha256": "017abef8fe163771307ea486c2c0f03a9e1c06516330187e2801155beea9b7e6",
+      "stats": {
+        "startTime": "2026-11-08T02:43:56.065Z",
+        "duration": 78017.555,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-native-quota-run-tJqyc5/report.json",
+      "sha256": "05be5a83e367c54b0337d36356308ccc0e9a887e9b18adc9457fcc059548d24d",
+      "stats": {
+        "startTime": "2026-11-08T02:48:50.841Z",
+        "duration": 31387.709,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/live-tabs-native-quota-run-uJ9ZAi/report.json",
+      "sha256": "6f31092d2cdcdfd999cafecdd015a97493a97ffdc207285807e2f7c621da96c5",
+      "stats": {
+        "startTime": "2026-11-08T02:51:37.143Z",
+        "duration": 48290.458,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "runtimeReports": [
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794105566558-result.json",
+      "sha256": "c65d72d2f54cde282c3225416e7c59201ad221d7ddd4b9ca887723ed4ea12ad5",
+      "passed": true,
+      "sourcePreserved": true,
+      "protectedOriginalsAndOtherContainersPreserved": true
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794105768721-result.json",
+      "sha256": "3bbe1d254612ca6e4f8eee4b09d4adcae75e8664960ae0406fa656b224c14745",
+      "passed": false,
+      "sourcePreserved": true,
+      "protectedOriginalsAndOtherContainersPreserved": true
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794106063905-result.json",
+      "sha256": "90f8a9e5ff3eff93409750b05bc642ec0dbeaa49d27b00448a241c56ca111314",
+      "passed": false,
+      "sourcePreserved": true,
+      "protectedOriginalsAndOtherContainersPreserved": true
+    },
+    {
+      "path": "/Users/frankalexanderweber/.local/state/canvas-local-team-seat/document-service-integration-artifacts/owned-linux-fixture-1793174893918/compiled-auxiliary-read-10-on-desktop-1794106229687-result.json",
+      "sha256": "a89e5a3e6765c80e2d548910ce57e3a836b2701792d73f325748bfd2c2b4cd6b",
+      "passed": true,
+      "sourcePreserved": true,
+      "protectedOriginalsAndOtherContainersPreserved": true
+    }
+  ],
+  "fullAggregateGreen": false,
+  "productionDeployment": false
+}
