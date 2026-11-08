@@ -38,6 +38,8 @@ async function expectStableHover(handle: Locator, controlledPanel: Locator) {
 }
 
 async function dragVerticalHandle(page: Page, handle: Locator, deltaX: number) {
+  await page.bringToFront();
+  await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
   const box = await visibleBoundingBox(handle);
   expect(box).not.toBeNull();
 
@@ -47,6 +49,7 @@ async function dragVerticalHandle(page: Page, handle: Locator, deltaX: number) {
   await page.mouse.down();
   await expect(handle).toHaveAttribute('data-resizing', 'true');
   await page.mouse.move(startX + deltaX, startY, { steps: 8 });
+  await expect(handle).toHaveAttribute('data-resizing', 'true');
   await page.mouse.up();
   await expect(handle).toHaveAttribute('data-resizing', 'false');
 }

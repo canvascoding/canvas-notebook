@@ -1,8 +1,19 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { authenticateManagedTestPage, enterMarkdownEditMode } from './helpers/managed-test-context';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+function selectedEditorText(editor: Locator) {
+  return editor.evaluate(element => {
+    const { state } = (element as HTMLElement & { editor: { state: {
+      selection: { from: number; to: number };
+      doc: { textBetween(from: number, to: number, separator: string): string };
+    } } }).editor;
+    return { dom: window.getSelection()?.toString() ?? '',
+      native: state.doc.textBetween(state.selection.from, state.selection.to, '\n') };
+  });
+}
 
 for (const block of ['paragraph', 'code'] as const) {
 test(`mobile ${block} moves retain the menu anchor and remain editable after undo`, async ({ page }, info) => {
@@ -117,6 +128,7 @@ test('mobile list and table deletion keep structure, history and focus during ba
       const range = document.createRange(); range.selectNodeContents(element);
       const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     });
+    await expect.poll(() => selectedEditorText(editor)).toEqual({ dom: 'One', native: 'One' });
     await page.keyboard.press('Backspace');
     await expect(editor.locator('li').first()).toHaveText(' two');
     const afterList = await tree();
@@ -129,6 +141,7 @@ test('mobile list and table deletion keep structure, history and focus during ba
       const range = document.createRange(); range.selectNodeContents(paragraph);
       const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     });
+    await expect.poll(() => selectedEditorText(editor)).toEqual({ dom: 'Cell value', native: 'Cell value' });
     await page.keyboard.press('Backspace'); await expect(cell).toHaveText('');
     const afterCell = await tree();
     await page.keyboard.press('ControlOrMeta+z'); await expect.poll(tree).toEqual(afterList);
