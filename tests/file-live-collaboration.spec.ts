@@ -932,7 +932,18 @@ test.describe('Markdown live collaboration', () => {
       await outage.block(); await context.setOffline(true);
       expect(await page.evaluate(() => navigator.onLine)).toBe(false);
       await (await nativeRichParagraph(page, selector, texts[0])).click();
-      await page.keyboard.press('End'); await page.keyboard.insertText(marker);
+      // End stops at the visual line boundary on narrow viewports. Collapse
+      // an actual editor selection to the document end and verify the caret.
+      await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('ArrowRight');
+      await expect.poll(() => page.locator(selector).evaluate(element => {
+        const editor = (element as HTMLElement & { editor: { state: {
+          doc: { content: { size: number } }; selection: { from: number; to: number; empty: boolean };
+        }; view: { hasFocus(): boolean } } }).editor;
+        const selection = element.ownerDocument.getSelection(), { from, to, empty } = editor.state.selection;
+        return editor.view.hasFocus() && empty && from === to && to === editor.state.doc.content.size - 1
+          && Boolean(selection?.isCollapsed && selection.anchorNode && element.contains(selection.anchorNode));
+      })).toBe(true);
+      await page.keyboard.insertText(marker);
       await expect(page.locator(selector)).toHaveText(texts[0] + marker);
       const offline = await readNativeRichCandidate(page, selector);
       expect(offline.guid).toBe(baseline.guid); expect(offline.stateProof).not.toBe(baseline.stateProof);
