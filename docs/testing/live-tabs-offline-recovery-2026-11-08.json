@@ -1,0 +1,95 @@
+{
+  "scope": "One actual owner browser and separate same-owner API context; real sockets pass through the installed outage helper without fabricated auth/Yjs/acknowledgements. Not a two-user peer or global resource-budget test. Mobile is Chromium emulation, not a physical mobile device.",
+  "runs": [
+    {
+      "viewport": "desktop",
+      "file": "compiled-auxiliary-read-10-on-desktop-1794100864531-result.json",
+      "sha256": "b7afaa919370d4c61d9002c4c68c35c618673ce760d95231ea925210db9ed932",
+      "compiledSourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+      "testCheckoutSha": "4bb0ec70355d890021c9f9f5eaae78724b704a3a",
+      "approvedNonRuntimeDelta": [
+        "docs/document-write-database-performance-plan.md",
+        "docs/testing/delete-b2-evidence-reuse-2026-11-08.json",
+        "docs/testing/physical-png-navigation-2026-11-08.png",
+        "tests/file-live-collaboration.spec.ts"
+      ],
+      "specSha256": "9d768cdd5288b91025cef617ec182fb02e6275ae9ad76ac00a80a9ac49497a61",
+      "playwrightReportSha256": "67b16aa2df0efde6ed4d9457fc02768db8e69fe01a3f3d24e3f335b10c43db53",
+      "passed": true,
+      "stats": {
+        "startTime": "2026-11-08T01:22:09.114Z",
+        "duration": 33081.117,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+    },
+    {
+      "viewport": "chromium-mobile-emulation",
+      "file": "compiled-auxiliary-read-10-on-mobile-1794101245579-result.json",
+      "sha256": "0779154ee2dab1fb85db1c2050392c63517577bf883fcb61a7c4533c40cfa393",
+      "compiledSourceSha": "4edc2fc30e84402ccace893896b0be0a806d6d88",
+      "testCheckoutSha": "50eb74158d8cc822fbdfed2016ab1cd8a2e6253b",
+      "approvedNonRuntimeDelta": [
+        "docs/document-write-database-performance-plan.md",
+        "docs/testing/delete-b2-evidence-reuse-2026-11-08.json",
+        "docs/testing/physical-png-navigation-2026-11-08.png",
+        "tests/file-live-collaboration.spec.ts"
+      ],
+      "specSha256": "56df82d6c9bdf7a03ef7a8d2fa0f3a0ec589ddcdfbc8918fd7b33a695a7cea5d",
+      "playwrightReportSha256": "9266c2d9f817292292936a18401d212103f8ad0dc27172ddf5d2a06918d5a05a",
+      "passed": true,
+      "stats": {
+        "startTime": "2026-11-08T01:28:30.319Z",
+        "duration": 31615.871000000003,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "originalRuntimeRowsXminBytesAnchorsAndOtherContainersPreserved": true
+    }
+  ],
+  "mobileBeforeCaretCorrection": {
+    "file": "compiled-auxiliary-read-10-on-mobile-1794101032505-result.json",
+    "sha256": "86b89ca22192340e9be74d665892c928ae8dc3eb9cedb3b0d4bd7a3d9de7c6dc",
+    "passed": false,
+    "reason": "End stopped at the wrapped visual line; actual editor content proved the insertion point was wrong. No storage assertion had been reached.",
+    "originalRuntimeAndProtectedDataRestored": true
+  },
+  "caretCorrection": "Actual select-all/right-arrow and confirmed collapsed, focused PM/DOM caret at document end before native keyboard input.",
+  "assertions": [
+    "live-tabs explicitly enabled and both real native files opened",
+    "confirmed remote baseline before outage",
+    "actual socket close and browser offline",
+    "offline keyboard edit retains Yjs guid",
+    "transaction-complete actual IndexedDB log matches entire native candidate proof/vector/document",
+    "remote persisted proof/vector remain baseline through inactive tab transition",
+    "successful real session response for reconnect",
+    "same Yjs guid and exact candidate after returning to active tab",
+    "server-native proof/vector match candidate after reconnect",
+    "reload preserves candidate content/proof/vector",
+    "owned files cleaned through normal guarded Delete API"
+  ],
+  "sourceTypesAndLintPassed": true,
+  "regularSuiteRegistered": true,
+  "correctedDesktopCurrentSuitePending": true,
+  "remaining": [
+    "real storage failure/quota and byte/large/global resource browser cases",
+    "remaining auth/lifecycle case mapping and final SQL/resource budgets",
+    "full current regular test:all and Recovery/link UI",
+    "exact-head CI/reviews, merge, SDK/docs publication and release"
+  ],
+  "desktopScreenshot": {
+    "file": "docs/testing/live-tabs-offline-desktop-2026-11-08.png",
+    "sha256": "ed5541ab455e8b1fb4163d445646a0934dee8124617f565c7a250692f30fe90b",
+    "visuallyInspected": true
+  },
+  "mobileScreenshot": {
+    "file": "docs/testing/live-tabs-offline-mobile-2026-11-08.png",
+    "sha256": "7d80e57a4f899e555a372936756c79d428856edd223dbc104a9f58d0a0dd042b",
+    "visuallyInspected": true
+  }
+}

@@ -186,6 +186,23 @@ Originalruntime, Schutzdaten und andere Container sind nach beiden Tests erhalte
 [Geprüfte Bildnavigation](testing/physical-png-navigation-2026-11-08.png).
 [Sentry-Vorher-/Nachher-Beleg](testing/delete-b2-evidence-reuse-2026-11-08.json).
 
+Der zusätzliche registrierte Offline-Fall besteht inzwischen im tatsächlichen
+Desktop-Browser am Teststand `4bb0ec703` und in mobiler Chromium-Ansicht mit
+korrigierter Cursorprüfung am Teststand `50eb74158`, jeweils gegen Produktimage
+`4edc2fc30`. Nur Belege und Testcode unterscheiden diese Quellen. Echte Sockets
+werden geschlossen, der Browser wird offline gesetzt, und ein echter Tastaturedit
+wird mit vollständigem lokalem IndexedDB-Commit nachgewiesen. Während des
+inaktiven Tabwechsels bleiben die Servernachweise unverändert. Nach erfolgreicher
+frischer Session-Antwort erhält derselbe Yjs-Zustand den Edit; native
+Servernachweise und anschließender Reload stimmen exakt überein. Beide Läufe
+haben einen Fall, null Skips/Fehler/Flakes; Originalruntime und Schutzdaten sind
+wiederhergestellt. Der erste mobile Lauf scheiterte an `End` am visuellen
+Zeilenumbruch; jetzt bestätigen echte Auswahl-/Pfeiltasten und die PM-/DOM-
+Cursorprüfung die Einfügestelle. Der korrigierte Desktop-Fall wird im aktuellen
+Gesamtlauf geprüft. Reale Speicherfehler/Quota und die weiteren Byte-/Lebenszyklus-
+und Ressourcenbudgetfälle bleiben separat offen.
+[Offline-Nachweise](testing/live-tabs-offline-recovery-2026-11-08.json).
+
 Die vollständigen Kriterien aus 5b und 5c bleiben verbindlich: übrige Byte-/
 Lebenszyklus-/Recovery-/Rechtefälle und Matrixzuordnung, aktuelles vollständiges
 reguläres `test:all`, abschließende CI/Reviews, Merge und Release einschließlich
