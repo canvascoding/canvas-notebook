@@ -57,6 +57,16 @@ test('a concurrent migration qualifies only after the same client completes its 
     migration: { ...pendingMigration, lifecycleGeneration: 1, phase: 'quiescence', reason: undefined } }, sessionReady], [sessionMessage])], [sessionMessage.value]);
 });
 
+test('handoff contention requires the same exact request to finish within the existing bound', () => {
+  const conflict = { ...sessionPending, migration: { ...pendingMigration,
+    lifecycleGeneration: 1, reason: 'ADMISSION_CONFLICT' } };
+  assert.deepEqual([...recoveredRichMigrationErrors([conflict, sessionReady], [sessionMessage])], [sessionMessage.value]);
+  for (const phase of ['quiescence', 'projection']) {
+    assert.equal(recoveredRichMigrationErrors([{ ...conflict,
+      migration: { ...conflict.migration, phase } }, sessionReady], [sessionMessage]).size, 0);
+  }
+});
+
 for (const [name, responses, errors] of [
   ['no completion', [sessionPending], [sessionMessage]],
   ['only earlier completion', [sessionReady, sessionPending], [sessionMessage]],
@@ -84,6 +94,9 @@ for (const [name, responses, errors] of [
   ['another console error', [sessionPending, sessionReady], [{ ...sessionMessage, message: 'Unhandled JavaScript error' }]],
 ]) test(`retain migration diagnostic failures: ${name}`, () => {
   assert.equal(recoveredRichMigrationErrors(responses, errors).size, 0);
+  const conflictResponses = responses.map(row => row.migration?.reason === 'ADMISSION_SCOPE_CHANGED'
+    ? { ...row, migration: { ...row.migration, reason: 'ADMISSION_CONFLICT' } } : row);
+  assert.equal(recoveredRichMigrationErrors(conflictResponses, errors).size, 0);
 });
 
 test('foreign origins, other endpoints and unmatched retry URLs cannot qualify a migration console message', () => {
