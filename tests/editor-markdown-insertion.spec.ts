@@ -64,7 +64,8 @@ async function pasteDraft(page: Page, dialog: Locator, text: string) {
 }
 
 async function persistedText(page: Page, headers: Record<string, string>, path: string) {
-  const response = await page.request.get('/api/files/read', { headers, params: { path } });
+  // A peer may close an idle keep-alive socket just as this idempotent read starts.
+  const response = await page.request.get('/api/files/read', { headers, params: { path }, maxRetries: 1 });
   expect(response.ok()).toBe(true);
   return (await response.json()).data?.content as string;
 }
