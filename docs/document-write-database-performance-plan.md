@@ -2,7 +2,14 @@
 
 ## Aktueller Abnahmeabgleich vom 08.11.2026
 
-Der Gesamtlauf auf `227fced6e` endet mit 332 bestandenen, drei fehlgeschlagenen
+Der aktuelle Gesamtlauf auf `d5cfc3833` besteht `npm run test:all`: 335 reguläre
+Browserfälle bestanden, keine Fehler, 102 bestehende bedingte Skips; das zusätzliche
+Collaboration-Profil besteht alle 50 Fälle ohne Skips oder Flakes. Alle vier
+API-Key-Verwaltungsfälle bestehen ebenfalls. Ursprüngliche Laufzeit, geschützte
+Zeilen/Xmins, Yjs-Daten, Dateien und Speicheranker sind anschließend verifiziert
+wiederhergestellt. [Gesamtlauf-Nachweis](testing/compiled-regular-aggregate-2026-11-08.json).
+
+Der vorherige Gesamtlauf auf `227fced6e` endet mit 332 bestandenen, drei fehlgeschlagenen
 und 102 bestehenden bedingten Skips im regulären Browserprofil. Das zusätzliche
 Collaboration-Profil besteht alle 50 Fälle ohne Skips. Die drei Fehler betreffen
 die Wiederverbindung nach dem Verschieben: Ein frischer Session-Beleg unterdrückt
@@ -16,8 +23,19 @@ Frische Autorisierung, native Identität, lokale Änderungen und Retry-Grenzen
 bleiben erhalten. Ursprüngliche Laufzeit und geschützte Daten sind wiederhergestellt.
 [Gebundene Nachweise](testing/post-move-admission-recovery-2026-11-08.json).
 
-Offen bleiben der vollständige Gesamtlauf auf dem finalen Stand, die finale API-/
-SDK-/Tab-Lebensdauermatrix, Leistungsbudgets, CI/Review, Paketveröffentlichung,
+Der installierte Python-3.10-SDK-Pfadtest besteht alle 21 Gruppen, einschließlich
+einer echten PostgreSQL-Tabellensperre nach verlorener Claim-Commit-Bestätigung.
+Vor einem weiteren expliziten Recover werden unveränderte Zeilen/Xmins und
+Dateibytes sowie ein ausschließlich gelesener Status mit derselben Vorgangs-/
+Plan-ID geprüft. Andere Fehler und unbestätigte Endergebnisse bleiben Fehler;
+das SDK wiederholt keine Schreibvorgänge automatisch. Der frühere CI-Sperrhalter
+ist nicht nachträglich identifiziert. Der äußere Inventarcheck dieses lokalen
+Laufs bleibt separat fehlgeschlagen, weil zwei Container eines anderen Projekts
+hinzukamen; eine eigenständige Nachprüfung bestätigt sämtliche ursprünglichen
+Daten und Container-IDs. [SDK-Sperr-Nachweis](testing/sdk-claim-busy-recovery-2026-11-08.json).
+
+Offen bleiben die finale API-/SDK-/Tab-Lebensdauermatrix, Leistungsbudgets,
+CI/Review am neuen Head, Paketveröffentlichung,
 Release-Image-Abnahme und Produktionsrollout. Die Produktion läuft weiterhin auf
 2026.11.7.1. Der produktive Quelltextmodus des Zertifikate-Dokuments und drei
 wiederkehrende Projektionsfehler sind durch diese lokalen Nachweise nicht behoben.
