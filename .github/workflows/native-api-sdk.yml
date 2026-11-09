@@ -120,6 +120,7 @@ jobs:
           set -euo pipefail
           npm run test:api-keys:native 2>&1 | tee "$RUNNER_TEMP/native-api.log"
           npm run test:excalidraw:read-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-excalidraw-admission.log"
+          npm run test:files:physical-delete-policy-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-physical-delete-policy-admission.log"
           npm run test:collaboration:migration-read-contention:postgres 2>&1 | tee "$RUNNER_TEMP/native-rich-migration-read.log"
           npm run test:collaboration:mobile-replay-admission:postgres 2>&1 | tee "$RUNNER_TEMP/native-mobile-admission.log"
           npm run test:collaboration:peer-startup-socket:postgres 2>&1 | tee "$RUNNER_TEMP/native-peer-startup-socket.log"
@@ -195,6 +196,7 @@ jobs:
             ${{ runner.temp }}/preview-read-recovery-native.log
             ${{ runner.temp }}/preview-read-recovery-web-routes.log
             ${{ runner.temp }}/native-api.log
+            ${{ runner.temp }}/native-physical-delete-policy-admission.log
             ${{ runner.temp }}/native-excalidraw-admission.log
             ${{ runner.temp }}/native-rich-migration-read.log
             ${{ runner.temp }}/native-chat-file-reference-runtime.log
