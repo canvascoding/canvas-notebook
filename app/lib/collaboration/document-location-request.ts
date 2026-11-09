@@ -25,6 +25,13 @@ export async function requestCollaborationDocumentLocation(
     if (openedDocumentAuthScope() !== auth) throw new Error('The signed-in session changed.');
     if (response.status === 404) { invalidateOpenedLiveDocument(workspaceId, { documentId }, auth); return null; }
     if (!response.ok) {
+      // A failed read can be repeated safely. Gateways may return HTML or
+      // an empty body, so classify these statuses before reading JSON.
+      if (response.status === 500 || response.status === 502 || response.status === 504) {
+        throw new CollaborationDocumentLocationRequestError('Location lookup failed.', {
+          status: response.status, code: 'LOCATION_SERVER_ERROR', retryable: true,
+        });
+      }
       const failure = await Promise.race([response.json(), cancellation]) as { success?: unknown; code?: unknown; retryable?: unknown } | null;
       signal.throwIfAborted();
       if (openedDocumentAuthScope() !== auth) throw new Error('The signed-in session changed.');
