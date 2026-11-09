@@ -38,7 +38,8 @@ async function main() {
       parseCollaborationSessionRequest,
       createCollaborationSessionGrant: async (input: { request: Record<string, unknown> }) => { sessionRequests.push(input.request); return grant; },
     },
-    '@/app/lib/collaboration/types': { COLLABORATION_SCHEMA_VERSION: 1, RICH_MARKDOWN_SCHEMA_VERSION: 3, RICH_BLOCK_TREE_FORMAT_VERSION: 1 },
+    '@/app/lib/collaboration/types': { COLLABORATION_SCHEMA_VERSION: 1, RICH_MARKDOWN_SCHEMA_VERSION: 4, RICH_BLOCK_TREE_FORMAT_VERSION: 1 },
+    '@/app/lib/collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => false },
     '@/app/lib/collaboration/runtime-policy': { liveCollaborationRuntimeAvailable: () => true },
     '@/app/lib/mobile/collaboration-session': { mobileCollaborationProjectionStatus },
     '@/app/lib/mobile/collaboration-ticket': { issueMobileCollaborationTicket: (input: { claims: Record<string, unknown> }) => {
@@ -131,10 +132,15 @@ async function main() {
       wire = await response.json() as Record<string, unknown>;
       assert.deepEqual(wire.migration, grant.migration);
       assert.deepEqual(sessionRequests.at(-1)?.migration, migration, 'TXT recovery and a new unsupported TXT request both reach the coordinator with their exact receipt');
-      assert.equal(sessionRequests.at(-1)?.richTextSchemaVersion, 3);
+      assert.equal(sessionRequests.at(-1)?.richTextSchemaVersion, 4);
       assert.equal(sessionRequests.at(-1)?.blockTreeFormatVersion, 1);
       assert.equal(sessionRequests.at(-1)?.migrationAction, outcome.reason === 'cancelled' ? 'cancel' : undefined);
     }
+    grant = { ...base, path: 'Notes/Legacy.txt', representation: 'plain_text' };
+    response = await request({ path: grant.path, richTextSchemaVersion: 3 });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).richTextSchemaVersion, 3, 'plain text still works on the previous mobile client');
+
     const beforeInvalid = sessionRequests.length;
     for (const malformed of [
       { path: 'Notes/Recovered.pdf', migration },
@@ -146,6 +152,7 @@ async function main() {
 
     grant = { ...base };
     wire = await (await request()).json() as Record<string, unknown>;
+    assert.equal(wire.richTextSchemaVersion, COLLABORATION_CLIENT_CAPABILITIES.richTextSchemaVersion);
     assert.equal(stateFrom(wire).durability, 'checkpointed_file', 'legacy absence retains the existing v1 behavior');
     for (const field of ['degraded', 'projectionFinalized', 'projectionError', 'schemaValidated']) assert.equal(Object.hasOwn(wire, field), false);
 

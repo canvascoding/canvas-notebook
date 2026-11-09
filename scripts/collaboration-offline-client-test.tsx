@@ -37,7 +37,7 @@ async function main() {
   const seed = new Y.Doc(); seed.getText('content').insert(0, 'Saved native text');
   let stored: Uint8Array | null = Y.encodeStateAsUpdate(seed);
   const ticket: CollaborationSessionResponse = { success: true, documentId: 'offline-client', documentName: 'offline-client',
-    provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+    provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
     permission: 'write', token: 'old-ticket', expiresAt: new Date(Date.now() + 600_000).toISOString(), websocketUrl: '/ws/collaboration',
     user: { id: 'owner', name: 'Owner', color: '#123456', colorLight: '#abcdef' } };
   const providers: FakeProvider[] = [];

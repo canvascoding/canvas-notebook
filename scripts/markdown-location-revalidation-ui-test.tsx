@@ -73,7 +73,7 @@ function document(doc: Y.Doc, id: string, request: () => Promise<void>, checkpoi
     registryKey: `workspace\0user\0${id}`, doc, provider: null, status: 'degraded', connection: 'denied', durability: 'degraded',
     ready: true, error: 'The previous location needs fresh authorization.', setComposition: () => {}, requestCheckpoint: checkpoint,
     session: { success: true, provider: 'yjs', documentId: id, documentName: id, lifecycleGeneration: 1,
-      representation: 'plain_text', permission: 'read', schemaVersion: 1, richTextSchemaVersion: 3,
+      representation: 'plain_text', permission: 'read', schemaVersion: 1, richTextSchemaVersion: 4,
       token: 'test-only-ticket', websocketUrl: '/ws/collaboration', expiresAt: new Date(Date.now() + 60_000).toISOString(),
       user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' } },
     clientState: { ...createInitialTextCollaborationClientState(), connection: 'denied', durability: 'degraded',

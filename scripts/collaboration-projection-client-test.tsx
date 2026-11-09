@@ -182,7 +182,7 @@ test('real client callbacks keep projection errors separate through delete proof
   );
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'projection-doc', documentName: 'projection-doc', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
     documentSequence: 1, checkpointSequence: 0, stateVector: Buffer.from(Y.encodeStateVector(seed)).toString('base64'),
     stateProof: collaborationStateProof(seed, Y), token: 'test', expiresAt: new Date(Date.now() + 60_000).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' },

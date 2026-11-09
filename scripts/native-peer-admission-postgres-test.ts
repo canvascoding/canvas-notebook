@@ -356,7 +356,7 @@ async function worker(order: 'A' | 'B'): Promise<void> {
       const { consumeMobileCollaborationTicket } = await import('../app/lib/mobile/collaboration-ticket');
       const actual = await request(false), headers = new Headers(actual.headers); headers.set('content-type', 'application/json');
       const response = await POST(new NextRequest('http://localhost/api/mobile/v1/notebook/collaboration/session', { method: 'POST', headers,
-        body: JSON.stringify({ path: target.identity.path, richTextSchemaVersion: 3, blockTreeFormatVersion: 1 }) }));
+        body: JSON.stringify({ path: target.identity.path, richTextSchemaVersion: 4, blockTreeFormatVersion: 1 }) }));
       assert.equal(response.status, 200);
       const wire = await response.json() as { token: string; documentId: string };
       assert.equal(wire.documentId, target.identity.documentId);
@@ -621,7 +621,7 @@ async function worker(order: 'A' | 'B'): Promise<void> {
       const { consumeMobileCollaborationTicket, disposeMobileCollaborationTickets } = await import('../app/lib/mobile/collaboration-ticket');
       const actual = await request(false), headers = new Headers(actual.headers); headers.set('content-type', 'application/json');
       const response = await POST(new NextRequest('http://localhost/api/mobile/v1/notebook/collaboration/session', { method: 'POST', headers,
-        body: JSON.stringify({ path: target.identity.path, richTextSchemaVersion: 3, blockTreeFormatVersion: 1 }) }));
+        body: JSON.stringify({ path: target.identity.path, richTextSchemaVersion: 4, blockTreeFormatVersion: 1 }) }));
       assert.equal(response.status, 200);
       const wire = await response.json() as { token: string; documentId: string };
       assert.equal(wire.documentId, target.identity.documentId);

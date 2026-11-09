@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {
   COLLABORATION_SCHEMA_VERSION,
   COLLABORATION_TICKET_TTL_MS,
+  RICH_MARKDOWN_SCHEMA_VERSION,
   isRichTextCollaborationRepresentation,
   type CollaborationTicketClaims,
 } from './types';
@@ -32,6 +33,7 @@ function isClaims(value: unknown): value is CollaborationTicketClaims {
       && Number.isSafeInteger(claims.guestPolicyRevision) && Number(claims.guestPolicyRevision) >= 1
       && claims.provider === 'yjs')
     && claims.schemaVersion === COLLABORATION_SCHEMA_VERSION
+    && (!isRichTextCollaborationRepresentation(claims.representation) || claims.richTextSchemaVersion === RICH_MARKDOWN_SCHEMA_VERSION)
     && typeof claims.issuedAt === 'number'
     && typeof claims.expiresAt === 'number'
     && typeof claims.userId === 'string'
@@ -55,12 +57,13 @@ function isClaims(value: unknown): value is CollaborationTicketClaims {
 }
 
 export function issueCollaborationTicket(
-  input: Omit<CollaborationTicketClaims, 'schemaVersion' | 'issuedAt' | 'expiresAt'>,
+  input: Omit<CollaborationTicketClaims, 'schemaVersion' | 'richTextSchemaVersion' | 'issuedAt' | 'expiresAt'>,
   now = Date.now(),
 ): { token: string; claims: CollaborationTicketClaims } {
   const claims: CollaborationTicketClaims = {
     ...input,
     schemaVersion: COLLABORATION_SCHEMA_VERSION,
+    ...(isRichTextCollaborationRepresentation(input.representation) ? { richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION } : {}),
     issuedAt: now,
     expiresAt: now + COLLABORATION_TICKET_TTL_MS,
   };

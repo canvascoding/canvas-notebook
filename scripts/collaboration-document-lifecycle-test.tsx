@@ -30,7 +30,7 @@ async function main() {
   const seed = new Y.Doc(); seed.getText('content').insert(0, 'ABC');
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'lifecycle-doc', documentName: 'lifecycle-doc', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write', documentSequence: 1, checkpointSequence: 0,
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write', documentSequence: 1, checkpointSequence: 0,
     stateVector: Buffer.from(Y.encodeStateVector(seed)).toString('base64'), stateProof: collaborationStateProof(seed, Y),
     token: 'write-token', expiresAt: new Date(Date.now() + 600_000).toISOString(), websocketUrl: '/ws/collaboration',
     user: { id: 'user', name: 'User', color: '#112233', colorLight: '#ddeeff' },

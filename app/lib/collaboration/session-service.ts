@@ -25,7 +25,7 @@ import {
   changeCollaborationRepresentationWithSafeMarkdownNormalization,
   loadCollaborationStateIncludingArchived,
 } from './persistence';
-import { COLLABORATION_SCHEMA_VERSION, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from './types';
+import { COLLABORATION_SCHEMA_VERSION, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration, supportsRichMarkdownCollaboration } from './types';
 import type {
   CollaborationPermission,
   CollaborationProvider,
@@ -134,7 +134,8 @@ export function parseCollaborationSessionRequest(input: {
       || input.representation === 'tiptap_blocks'
     )
   ) {
-    if (input.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(input)) return null;
+    if (isRichTextCollaborationRepresentation(input.representation) && !supportsRichMarkdownCollaboration(input)
+      || input.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(input)) return null;
     if (input.allowRichMigration === true && (!Number.isSafeInteger(input.expectedLifecycleGeneration)
       || Number(input.expectedLifecycleGeneration) < 1)) return null;
     return { path, representation: input.representation, provider: 'yjs',
@@ -192,7 +193,8 @@ export async function createCollaborationSessionGrant(input: {
   } else {
     const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
     const clientSupportsBlocks = supportsBlockTreeCollaboration(request);
-    const richRepresentation = clientSupportsBlocks ? 'tiptap_blocks' : 'tiptap_xml';
+    const clientSupportsRich = supportsRichMarkdownCollaboration(request);
+    const richRepresentation = clientSupportsBlocks ? 'tiptap_blocks' : clientSupportsRich ? 'tiptap_xml' : 'plain_text';
     const initialSelection = selectInitialTextCollaborationRepresentation(request.path, initialContent);
     const selectedInitialRepresentation = initialSelection === 'tiptap_xml' ? richRepresentation : initialSelection;
     const richModeAnalysis = extension(request.path) === 'txt'
@@ -292,7 +294,8 @@ export async function createCollaborationSessionGrant(input: {
       throw error;
     }
     const { state } = resolved;
-    if (state.representation === 'tiptap_blocks' && !clientSupportsBlocks) {
+    if (isRichTextCollaborationRepresentation(state.representation) && !clientSupportsRich
+      || state.representation === 'tiptap_blocks' && !clientSupportsBlocks) {
       throw new CollaborationSessionError(
         'This document uses a newer collaboration format. Reload or update the editor before opening it.',
         409,

@@ -86,7 +86,7 @@ async function main() {
   const fixture = async () => {
     owner++;
     session = { success: true, documentId: `doc-${owner}`, documentName: `doc-${owner}`, provider: 'yjs', representation: 'plain_text',
-      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
       documentSequence: 1, checkpointSequence: 0, stateVector: Buffer.from(Y.encodeStateVector(seed)).toString('base64'),
       stateProof: collaborationStateProof(seed, Y), token: 'test-token',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',

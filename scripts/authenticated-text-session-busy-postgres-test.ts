@@ -166,7 +166,7 @@ async function main(): Promise<void> {
     const { disposeAuthenticatedNativeSessionTransport: disposeTransport } = await import('../app/lib/collaboration/authenticated-native-session-transport');
     const { consumeMobileCollaborationTicket, disposeMobileCollaborationTickets } = await import('../app/lib/mobile/collaboration-ticket');
     const { parseCollaborationSessionRequest } = await import('../app/lib/collaboration/session-service');
-    const capabilities = { richTextSchemaVersion: 3, blockTreeFormatVersion: 1 };
+    const capabilities = { richTextSchemaVersion: 4, blockTreeFormatVersion: 1 };
     type Surface = 'web' | 'mobile';
     const post = async (surface: Surface, file: string, extra: Record<string, unknown> = {}, userId = 'owner', cookie = false) => {
       const actual = await request(userId, cookie), headers = new Headers(actual.headers); headers.set('content-type', 'application/json');

@@ -82,7 +82,7 @@ async function main() {
     const doc = server.get(id); assert(doc); requests.push(id);
     const session: CollaborationSessionResponse = {
       success: true, provider: 'yjs', documentId: id, documentName: id, representation: 'tiptap_xml',
-      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission,
+      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission,
       documentSequence: sequence, checkpointSequence: sequence, projectionFinalized: true,
       stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y),
       token: `ticket-${requests.length}`, expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',

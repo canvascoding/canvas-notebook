@@ -62,6 +62,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Plain text has no rich marks. Keep its wire version readable by older apps.
+  const requestedSchema = body.richTextSchemaVersion;
+  const plainTextSchemaVersion = typeof requestedSchema === 'number' && Number.isInteger(requestedSchema)
+    && requestedSchema >= 1 && requestedSchema <= RICH_MARKDOWN_SCHEMA_VERSION ? requestedSchema : 1;
   const nativeSession = authenticatedNativeTextSessionEnabled();
   const responseForGrant = (grant: CollaborationSessionGrant, ticket: { token: string; expiresAt: string }) => {
     const projectionStatus = mobileCollaborationProjectionStatus(grant);
@@ -74,7 +78,7 @@ export async function POST(request: NextRequest) {
       representation: grant.representation,
       lifecycleGeneration: grant.lifecycleGeneration,
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
-      richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
+      richTextSchemaVersion: grant.representation === 'plain_text' ? plainTextSchemaVersion : RICH_MARKDOWN_SCHEMA_VERSION,
       ...(grant.representation === 'tiptap_blocks' ? { blockTreeFormatVersion: RICH_BLOCK_TREE_FORMAT_VERSION } : {}),
       permission: grant.permission,
       documentSequence: grant.documentSequence,

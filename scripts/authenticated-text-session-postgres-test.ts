@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     const { withAuthenticatedNativeSessionTransportOnConnection: transportPhase, disposeAuthenticatedNativeSessionTransport: disposeTransport } = await import('../app/lib/collaboration/authenticated-native-session-transport');
     const { consumeMobileCollaborationTicket, disposeMobileCollaborationTickets } = await import('../app/lib/mobile/collaboration-ticket');
     const { parseCollaborationSessionRequest } = await import('../app/lib/collaboration/session-service');
-    const capabilities = { richTextSchemaVersion: 3, blockTreeFormatVersion: 1 };
+    const capabilities = { richTextSchemaVersion: 4, blockTreeFormatVersion: 1 };
     const root = path.join(dataRoot, 'organizations/principal-org/shared'); await mkdir(root, { recursive: true });
     const original = async (file: string, body: string | Uint8Array) => { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), body); };
     type Surface = 'web' | 'mobile';
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
     });
     await check('Auto Source-only fallback and TXT stay plain; explicit Rich unsupported source produces no seed', async () => {
       for (const [surface, file] of [['web', 'source.md'], ['mobile', 'source.markdown'], ['mobile', 'text.txt']] as const) {
-        await original(file, '<custom>Original</custom>\n'); const response = await post(surface, file); assert.equal(response.status, 200); assert.equal(response.wire.representation, 'plain_text');
+        await original(file, '<custom>Original</custom>\n'); const response = await post(surface, file); assert.equal(response.status, 200, `${surface} ${file}: ${response.wire.code ?? 'no code'}`); assert.equal(response.wire.representation, 'plain_text');
       }
       await original('explicit-source.md', '<custom>Original</custom>\n');
       const denied = await post('web', 'explicit-source.md', { representation: 'tiptap_blocks' }); assert.equal(denied.status, 409); assert.equal(denied.wire.code, 'source_representation_required');
@@ -446,7 +446,15 @@ async function main(): Promise<void> {
       finally { await blocker.query('ROLLBACK'); await endClient(blocker); }
       await admin.query('UPDATE collaboration_yjs_states SET yjs_state=$1 WHERE document_id=$2', [Buffer.from([255]), target.identity.documentId]);
       const corrupt = await post('mobile', target.identity.path); assert.equal(corrupt.status, 409); assert.equal(Object.hasOwn(corrupt.wire, 'token'), false);
-      const blocks = await seed('format-mismatch', 'tiptap_blocks'); const mismatch = await post('web', blocks.identity.path, { richTextSchemaVersion: 2, blockTreeFormatVersion: 0 }); assert.equal(mismatch.status, 409); assert.equal(mismatch.wire.code, 'representation_mismatch');
+      for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+        const rich = await seed(`format-mismatch-${representation}`, representation);
+        for (const transport of ['web', 'mobile'] as const) {
+          const mismatch = await post(transport, rich.identity.path, { richTextSchemaVersion: 3, blockTreeFormatVersion: 1 });
+          assert.equal(mismatch.status, 409);
+          assert.equal(mismatch.wire.code, 'representation_mismatch');
+          assert.equal(Object.hasOwn(mismatch.wire, 'token'), false);
+        }
+      }
     });
     await check('original full scope is checked before mutation B and fresh recovery C without replay after lost commit', async () => {
       const { persistPristineOriginalWorkspaceFileForWrite: bootstrap } = await import('../app/lib/collaboration/markdown-file-import-persistence');

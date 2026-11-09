@@ -2,7 +2,7 @@ import type { RichMigrationResult } from './representation-migration-contract';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 
 export const COLLABORATION_SCHEMA_VERSION = 1;
-export const RICH_MARKDOWN_SCHEMA_VERSION = 3;
+export const RICH_MARKDOWN_SCHEMA_VERSION = 4;
 export const RICH_BLOCK_TREE_FORMAT_VERSION = 1;
 export const COLLABORATION_CLIENT_CAPABILITIES = {
   richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
@@ -17,8 +17,12 @@ export function isRichTextCollaborationRepresentation(value: unknown): value is 
   return value === 'tiptap_xml' || value === 'tiptap_blocks';
 }
 
+export function supportsRichMarkdownCollaboration(value: { richTextSchemaVersion?: unknown }): boolean {
+  return value.richTextSchemaVersion === RICH_MARKDOWN_SCHEMA_VERSION;
+}
+
 export function supportsBlockTreeCollaboration(value: { richTextSchemaVersion?: unknown; blockTreeFormatVersion?: unknown }): boolean {
-  return value.richTextSchemaVersion === RICH_MARKDOWN_SCHEMA_VERSION
+  return supportsRichMarkdownCollaboration(value)
     && value.blockTreeFormatVersion === RICH_BLOCK_TREE_FORMAT_VERSION;
 }
 export type CollaborationRepresentation = TextCollaborationRepresentation | 'excalidraw_scene';
@@ -64,6 +68,7 @@ export interface CollaborationTicketClaims {
   guestInvitationId?: string;
   guestPolicyRevision?: number;
   schemaVersion: number;
+  richTextSchemaVersion?: number;
   issuedAt: number;
   expiresAt: number;
   userId: string;
