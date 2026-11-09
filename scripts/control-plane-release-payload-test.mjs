@@ -102,7 +102,9 @@ assert(packageMetadataIndex > verifyMultiArchIndex, 'Release metadata must be cr
 assert(packageMetadataIndex > createManifestIndex, 'Release metadata must be created after multi-arch manifest creation');
 assert(uploadBundleIndex > packageMetadataIndex, 'The gated release bundle must include release metadata after packaging');
 assert.match(workflow, /release:\s+types: \[published\]/su);
-assert.match(workflow, /browser_download_url/u);
+assert.match(workflow, /workflow_dispatch:[\s\S]*release_tag:/u);
+assert.match(workflow, /gh release download "\$RELEASE_TAG"/u);
+assert.match(workflow, /\.tag_name == \$tag and \(\.draft \| not\) and \(\.prerelease \| not\)/u);
 assert.match(workflow, /canvas-notebook-release-metadata\.json/u);
 assert.match(workflow, /metadata\.linuxCli\?\.amd64/u);
 assert.match(workflow, /metadata\.linuxCli\?\.arm64/u);
