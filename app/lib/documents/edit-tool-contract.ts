@@ -153,9 +153,14 @@ function mcpEditSchema(value: unknown): unknown {
       return `${kind} requires ${(branch.required as string[] | undefined)?.join(', ') ?? 'its listed fields'}`;
     });
     return { type: 'object', additionalProperties: false, properties, ...(required.length ? { required } : {}),
+      // Keep the shape above for clients that only inspect properties, while
+      // JSON Schema validators also enforce each variant's exact fields.
+      allOf: [{ anyOf: branches }],
       description: `Choose one variant without mixing fields. ${descriptions.join('; ')}. The server enforces these per-variant requirements.`
         + (fields.some(field => field.kind?.const === 'format_text')
-          ? ' For format_text, href is required only when enabling a link. For format_block, beforeAttrs and afterAttrs must contain the same single editable attribute.' : ''),
+          ? ' Use IDs and placement/subtree hashes from the same versioned edit targets. Null parentId means the document root and null beforeId means append. For format_text, use UTF-16 offsets with to greater than from. Supply href only when enabling a link. For format_block, beforeAttrs and afterAttrs must contain the same single editable attribute.' : '')
+        + (fields.some(field => field.kind?.const === 'native_text_replace')
+          ? ' Text replacement matches oldText exactly expectedOccurrences times (default 1), with at most 32 matches per patch. Only rich-text documents support blockId. Block operations require tiptap_blocks.' : ''),
     };
   }
   const result = Object.fromEntries(Object.entries(source).map(([key, item]) =>
