@@ -2424,7 +2424,6 @@ export function IntegrationsSettingsClient({
       window.dispatchEvent(new CustomEvent('mcp_definitions_updated'));
     } catch (publishError) {
       setMcpEditor((current) => ({ ...current, activeServerAction: null, error: publishError instanceof Error ? publishError.message : t('mcpConfig.errors.publish') }));
-      throw publishError;
     }
   };
 
