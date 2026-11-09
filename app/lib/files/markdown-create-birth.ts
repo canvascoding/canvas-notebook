@@ -66,15 +66,29 @@ export async function observeMarkdownCreateBirth(input: { workspaceRoot: string;
 export async function observeOptionalMarkdownCreateBirth(input: Readonly<{
   workspaceRoot: string; workspaceId: string; operationId: string;
 }>): Promise<MarkdownCreateBirthOriginal | null> {
+  return readOptionalMarkdownCreateBirth(input, 'current-projection');
+}
+
+/** Read-only receipt evidence. A later edit, move or archive does not change
+ * the recorded original completion. This never proves current file identity. */
+export async function observeOptionalMarkdownCreateBirthReceipt(input: Readonly<{
+  workspaceRoot: string; workspaceId: string; operationId: string;
+}>): Promise<MarkdownCreateBirthOriginal | null> {
+  return readOptionalMarkdownCreateBirth(input, 'historical-receipt');
+}
+
+async function readOptionalMarkdownCreateBirth(input: Readonly<{
+  workspaceRoot: string; workspaceId: string; operationId: string;
+}>, verification: 'current-projection' | 'historical-receipt'): Promise<MarkdownCreateBirthOriginal | null> {
   if (!plainBirthData(input, ['workspaceRoot', 'workspaceId', 'operationId'])
     || typeof input.workspaceRoot !== 'string' || !input.workspaceRoot || typeof input.workspaceId !== 'string' || !input.workspaceId
     || typeof input.operationId !== 'string' || !input.operationId) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
   return readMarkdownCreateBirthOriginal(Object.freeze({ workspaceRoot: input.workspaceRoot, workspaceId: input.workspaceId,
-    operationId: input.operationId }), true);
+    operationId: input.operationId }), true, verification);
 }
 async function readMarkdownCreateBirthOriginal(input: Readonly<{
   workspaceRoot: string; workspaceId: string; operationId: string;
-}>, allowAbsent: boolean): Promise<MarkdownCreateBirthOriginal | null> {
+}>, allowAbsent: boolean, verification: 'current-projection' | 'historical-receipt' = 'current-projection'): Promise<MarkdownCreateBirthOriginal | null> {
   const configuredData = resolveCanvasDataRoot(), configuredWorkspace = input.workspaceRoot;
   const backend = getFdPublicationBackend(), opened: number[] = [], errors: unknown[] = [];
   let data: FileHandle | undefined, workspace: FileHandle | undefined, frame: Frame | undefined;
@@ -164,7 +178,7 @@ async function readMarkdownCreateBirthOriginal(input: Readonly<{
         || !isDeepStrictEqual(settled.file, prepared.file) || typeof settled.ctimeNs !== 'string'
         || typeof completed.revisionId !== 'string' || typeof completed.serializedHash !== 'string'
         || !/^[a-f0-9]{64}$/u.test(completed.serializedHash))) return fail('MARKDOWN_CREATE_BIRTH_RECORD_CHANGED');
-      if (completed) {
+      if (completed && verification === 'current-projection') {
         // A retained receipt cannot confirm a deleted/replaced physical birth.
         // A later legitimate peer projection is conservatively recovery_required;
         // this historical observer cannot adopt a new inode from byte equality.

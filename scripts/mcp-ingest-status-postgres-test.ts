@@ -1,6 +1,8 @@
 import 'next/dist/server/node-environment-baseline';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
+import { rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
 import { installIngestCommitCloseFault } from './helpers/ingest-commit-close-fault';
 
@@ -43,6 +45,11 @@ await withDocumentReadToolDispatchFixture(async fixture => {
     assert.equal(blocked.structuredContent.retry_after_ms, 250);
     assert.equal(blocked.structuredContent.storage_status, 'unknown');
     assert(blocked.structuredContent.operation_id);
+    const blockedStatus = await call({ ...lockedArgs, action: 'status' });
+    assert.equal(blockedStatus.isError, true);
+    assert.equal(blockedStatus.structuredContent.code, 'MCP_READ_PRINCIPAL_BUSY');
+    assert.equal(blockedStatus.structuredContent.error_code, 'MCP_READ_PRINCIPAL_BUSY');
+    assert.equal(blockedStatus.structuredContent.retry_after_ms, 250);
   } finally { await admin.query('ROLLBACK'); }
   assert.deepEqual(await fixture.snapshot(), beforeLock);
   const afterLock = await call({ ...lockedArgs, content });
@@ -54,12 +61,14 @@ await withDocumentReadToolDispatchFixture(async fixture => {
     [workspaceId, lockedArgs.path])).rows[0].count, 1);
   const absent = await call({ ...args, action: 'status' });
   assert.notEqual(absent.isError, true); assert.equal(absent.structuredContent.storage_status, 'unknown');
+  assert.equal(absent.structuredContent.receipt_status, 'not_found_for_request');
   const created = await call({ ...args, content });
   assert.notEqual(created.isError, true, JSON.stringify(created.structuredContent));
   const before = await fixture.snapshot();
   const status = await call({ ...args, action: 'status' });
   assert.notEqual(status.isError, true, JSON.stringify(status.structuredContent));
   assert.equal(status.structuredContent.storage_status, 'confirmed');
+  assert.equal(status.structuredContent.receipt_status, 'confirmed');
   assert.equal(status.structuredContent.operation_id, created.structuredContent.operation_id);
   assert.equal(status.structuredContent.document_id, created.structuredContent.document_id);
   assert.equal(status.structuredContent.source_sha256, createHash('sha256').update(content).digest('hex'));
@@ -69,8 +78,21 @@ await withDocumentReadToolDispatchFixture(async fixture => {
   const wrongPath = await call({ ...args, path: 'status/other.md', action: 'status' });
   assert.equal(wrongPath.isError, true);
   assert.equal(wrongPath.structuredContent.code, 'MCP_INGEST_IDEMPOTENCY_CONFLICT');
+  assert.equal(wrongPath.structuredContent.receipt_status, 'request_mismatch');
   const retry = await call({ ...args, content });
   assert.notEqual(retry.isError, true); assert.equal(retry.structuredContent.document_id, created.structuredContent.document_id);
+  // Simulate a later editor projection publishing new bytes and a new inode.
+  const currentProjection = path.join(fixture.workspaceRoot, args.path);
+  const replacement = `${currentProjection}.replacement`;
+  await writeFile(replacement, '# Later projection\n', { flag: 'wx' });
+  await rename(replacement, currentProjection);
+  const beforeHistorical = await fixture.snapshot();
+  const historical = await call({ ...args, action: 'status' });
+  assert.notEqual(historical.isError, true, JSON.stringify(historical.structuredContent));
+  const { correlation_id: _original, ...originalReceipt } = status.structuredContent;
+  const { correlation_id: _historical, ...historicalReceipt } = historical.structuredContent;
+  assert.deepEqual(historicalReceipt, originalReceipt);
+  assert.deepEqual(await fixture.snapshot(), beforeHistorical);
   const fault = installIngestCommitCloseFault();
   const interrupted = { ...args, path: 'status/after-commit.md', idempotency_key: randomUUID() };
   try {
@@ -98,6 +120,7 @@ await withDocumentReadToolDispatchFixture(async fixture => {
   const beforeUnknown = await fixture.snapshot();
   const unknown = await call({ ...args, idempotency_key: randomUUID(), action: 'status' });
   assert.equal(unknown.structuredContent.storage_status, 'unknown');
+  assert.equal(unknown.structuredContent.receipt_status, 'not_found_for_request');
   assert.equal(unknown.structuredContent.document_id, undefined);
   assert.deepEqual(await fixture.snapshot(), beforeUnknown);
   const invalidArgs = { ...args, path: 'status/invalid.md', idempotency_key: randomUUID() };
