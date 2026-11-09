@@ -1,4 +1,5 @@
 import 'server-only';
+import { WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, workspaceLinkSourceVisibleSql } from '../markdown/workspace-link-source-paths';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
@@ -561,9 +562,9 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
         || catalogueInverse.pristine.length !== 0
         ? (await database.all(`SELECT d.id FROM collaboration_documents d
           LEFT JOIN jsonb_to_recordset($2::jsonb) basis(document_id text,original_path text) ON basis.document_id=d.id
-          WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'
+          WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active' AND ${workspaceLinkSourceVisibleSql('d.path', 3)}
           ORDER BY COALESCE(basis.original_path,d.path),d.id LIMIT 10001`, [workspace.workspaceId,
-          JSON.stringify(catalogueInverse.originalPaths)] ) as Array<{ id: string }>).map(row => row.id)
+          JSON.stringify(catalogueInverse.originalPaths), ...WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS]) as Array<{ id: string }>).map(row => row.id)
         : undefined;
       assertOriginalMoveFinalSourceGraph({ context: owner.context, intent: owner.intent, compiled: cached!.compiled, facts,
         observation, nativeReceipts: owner.nativeReceipts, namespaceReceipt: owner.namespaceReceipt, catalogueOriginalOrder });

@@ -19,6 +19,7 @@ import { getCollaborationRoomConnectionCount } from '../collaboration/runtime-st
 import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { decodeNativeFileOperationBundleText, stageNativeFileOperationBundleOnConnection } from '../markdown/native-file-operation-handoff';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
+import { WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, workspaceLinkSourceVisibleSql } from '../markdown/workspace-link-source-paths';
 import { captureWorkspaceOperationJobPolicy, withWorkspaceOperationJobPolicyOnConnection,
   type WorkspaceOperationJobPolicyAccess } from '../workspaces/workspace-operation-job-principal';
 import { captureWorkspaceOperationProgrammaticJobOptions, workspaceOperationProgrammaticJobOptions,
@@ -492,7 +493,8 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
     CASE WHEN octet_length(s.path) BETWEEN 1 AND 4096 THEN s.path END AS path,
     CASE WHEN octet_length(s.representation) BETWEEN 1 AND 32 THEN s.representation END AS representation,
     s.lifecycle_generation,s.schema_version,s.status FROM ${prefix}.collaboration_yjs_states s
-    WHERE s.workspace_id=$1 AND s.status='active' ORDER BY s.document_id COLLATE "C" LIMIT 1025 FOR UPDATE NOWAIT`, [binding.workspaceId]) as Row[];
+    WHERE s.workspace_id=$1 AND s.status='active' AND ${workspaceLinkSourceVisibleSql('s.path', 2)}
+    ORDER BY s.document_id COLLATE "C" LIMIT 1025 FOR UPDATE NOWAIT`, [binding.workspaceId, ...WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS]) as Row[];
   if (actual.length !== expected.size || new Set(actual.map(row => row.document_id)).size !== actual.length || actual.some(row => {
     const selected = expected.get(row.document_id as string);
     return !selected || row.document_id !== selected.documentId || row.workspace_id !== selected.workspaceId || row.organization_id !== selected.organizationId
