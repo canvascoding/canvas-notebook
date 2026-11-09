@@ -32,7 +32,7 @@ const collaboration = {
   clientState: { documentSequence: 1, checkpointSequence: 1, unsyncedChanges: 0 },
   setComposition() {},
   async requestCheckpoint() { document.body.dataset.checkpoints = String(++checkpoints); },
-  getMigrationCheckpoint() { return { expectedDocumentId: session.documentId, expectedLifecycleGeneration: 1,
+  async getMigrationCheckpoint() { return { expectedDocumentId: session.documentId, expectedLifecycleGeneration: 1,
     documentSequence: 1, stateProof: collaborationStateProof(doc, Y)! }; },
 } as unknown as CollaborationDocument;
 

@@ -119,7 +119,7 @@ export type CollaborationDocument = {
   error: string | null;
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
-  getMigrationCheckpoint?: () => Omit<RichMigrationRequest, 'requestId'>;
+  getMigrationCheckpoint?: () => Promise<Omit<RichMigrationRequest, 'requestId'>>;
   requestLocationRevalidation?: () => Promise<void>;
   canRevalidateLocation?: boolean;
   revalidatingLocation?: boolean;
@@ -1497,15 +1497,34 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     error: entry.clientState.error,
     setComposition: entry.setComposition,
     requestCheckpoint: entry.requestCheckpoint,
-    getMigrationCheckpoint: () => {
+    getMigrationCheckpoint: async () => {
       assertRequestActive(entry, requestScope);
+      const session = entry.session;
+      const checkpoint = entry.pendingAuthoritativeSnapshot;
       const proof = collaborationStateProof(entry.doc, Y);
-      const state = entry.clientState;
-      if (!entry.session || !state.ready || state.unsyncedChanges !== 0 || state.durability !== 'checkpointed_file'
-        || state.documentSequence === null || state.documentSequence !== state.checkpointSequence
-        || !proof || proof !== state.checkpointStateProof) throw new Error('The exact document checkpoint is not finalized.');
-      return { expectedDocumentId: entry.session.documentId, expectedLifecycleGeneration: entry.session.lifecycleGeneration,
-        documentSequence: state.documentSequence, stateProof: proof };
+      if (!session || session.permission !== 'write' || !checkpoint || !proof || checkpoint.stateProof !== proof
+        || checkpoint.documentId !== session.documentId || checkpoint.lifecycleGeneration !== session.lifecycleGeneration
+        || checkpoint.documentSequence !== checkpoint.checkpointSequence || checkpoint.projectionFinalized === false
+        || checkpoint.degraded || checkpoint.projectionError?.permanent) {
+        throw new Error('The exact document checkpoint is not finalized.');
+      }
+      const stopped = (state: TextCollaborationClientState) => !entry.session || entry.session.permission !== 'write'
+        || !sameOpenedDocumentSession(session, entry.session) || state.connection === 'denied' || state.admissionBusy
+        || state.durability === 'degraded';
+      const confirmed = (state: TextCollaborationClientState) => entry.retentionConnectionReady === true && !entry.requiresFreshSession
+        && state.connection === 'live' && state.ready && state.unsyncedChanges === 0 && state.durability === 'checkpointed_file'
+        && state.documentSequence === checkpoint.documentSequence && state.checkpointSequence === checkpoint.checkpointSequence
+        && state.checkpointStateProof === proof;
+      // A real HTTP checkpoint can arrive while the reconnect's Yjs SyncStepOne
+      // is still outstanding. Wait for that same proof to become current again;
+      // do not send another checkpoint or migrate a changed document.
+      await waitForEntryState(entry, state => stopped(state) || confirmed(state), 10_000, requestScope.signal);
+      assertRequestActive(entry, requestScope);
+      if (stopped(entry.clientState) || !confirmed(entry.clientState) || collaborationStateProof(entry.doc, Y) !== proof) {
+        throw new Error('The exact document checkpoint is no longer current.');
+      }
+      return { expectedDocumentId: session.documentId, expectedLifecycleGeneration: session.lifecycleGeneration,
+        documentSequence: checkpoint.documentSequence, stateProof: proof };
     },
     requestLocationRevalidation: () => revalidateEntryLocation(entry, requestScope),
     canRevalidateLocation: canRevalidateEntryLocation(entry),
