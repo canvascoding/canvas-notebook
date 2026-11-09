@@ -92,41 +92,54 @@ test('shows a rejected member publication without an uncaught browser error', as
   expect(signedIn.status()).toBe(200);
   const configuration = await page.request.get('/api/integrations/mcp-config');
   expect(configuration.status()).toBe(200);
-  const originalRawContent: string = (await configuration.json()).data.rawContent;
-  const config = JSON.parse(originalRawContent);
+  const config = JSON.parse((await configuration.json()).data.rawContent);
   const serverName = `mcp-publish-ui-${randomUUID()}`;
   config.mcpServers[serverName] = {
     url: 'https://mcp.example.test/',
     transport: 'http',
-    auth: 'oauth',
+    auth: 'none',
     headers: { 'X-Test-Client': '${MCP_E2E_TEST_HEADER}' },
   };
   const saved = await page.request.put('/api/integrations/mcp-config', {
     headers: { Origin: BASE_URL }, data: { rawContent: JSON.stringify(config) },
   });
   expect(saved.status()).toBe(200);
+  const connectionId: string = JSON.parse((await saved.json()).data.rawContent).mcpServers[serverName].connectionId;
+  expect(connectionId).toMatch(/^[\da-f-]{36}$/iu);
   try {
-    const row = await openMcpSettings(page, serverName);
+    const [status] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'GET'
+        && new URL(response.url()).pathname === '/api/integrations/mcp-status', { timeout: 60_000 }),
+      page.goto(`/en/settings?tab=mcp&section=mcpConfig&connection=${encodeURIComponent(connectionId)}`, { waitUntil: 'domcontentloaded' }),
+    ]);
+    expect(status.status()).toBe(200);
+    expect((await status.json()).data.canManageDefinitions).toBe(true);
+    const card = page.locator('#onboarding-settings-mcp-config');
+    const row = card.locator(`[data-mcp-connection-id="${connectionId}"]`);
+    await expect(row).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Add server', exact: true })).toBeVisible();
+    await expect(card.getByText('Load error', { exact: true })).toHaveCount(0);
     const pageErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.message));
-    const moreActions = row.getByRole('button', { name: `More actions for ${serverName}`, exact: true });
+    const moreActions = row.getByRole('button', { name: /^More actions for /u });
     await moreActions.click();
     const [publication] = await Promise.all([
       page.waitForResponse(response => response.request().method() === 'POST'
         && new URL(response.url()).pathname === '/api/integrations/mcp-definitions'),
       page.getByRole('menuitem', { name: 'Publish for members', exact: true }).click(),
     ]);
+    expect(publication.request().postDataJSON()).toMatchObject({ action: 'publish', server: serverName });
     expect(publication.status()).toBe(400);
     const errorMessage = 'Shared MCP definitions cannot contain headers. Use personal OAuth credentials.';
     expect(await publication.json()).toMatchObject({ code: 'MCP_DEFINITION_INVALID', error: errorMessage });
-    await expect(page.getByRole('button', { name: /^Collapse: External MCP servers/u })).toContainText('Load error');
+    await expect(card.getByText('Load error', { exact: true })).toBeVisible();
     await expect(moreActions).toBeEnabled();
     expect(pageErrors).toEqual([]);
   } finally {
-    const restored = await page.request.put('/api/integrations/mcp-config', {
-      headers: { Origin: BASE_URL }, data: { rawContent: originalRawContent },
+    const removed = await page.request.post('/api/integrations/mcp-connections', {
+      headers: { Origin: BASE_URL }, data: { action: 'remove', connectionId },
     });
-    expect(restored.status()).toBe(200);
+    expect(removed.status()).toBe(200);
   }
 });
 
