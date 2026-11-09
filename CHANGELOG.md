@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.9.3] - 2026-11-09
+
+### Fixed
+
+- Preserve bold formatting around inline code when opening, editing, and saving Markdown in the formatted web editor.
+- Show MCP publication errors in Settings and keep the editor usable so publication can be retried.
+- Recover Control Plane release notifications by downloading release assets with GitHub authentication. Stable tags can also be replayed manually.
+
+### Compatibility
+
+- The updated web editor and server use a new formatted collaboration schema. Older native mobile clients need an update to edit formatted collaborative documents. Plain-text collaboration remains compatible.
+
 ## [2026.11.9.2] - 2026-11-09
 
 ### Added
