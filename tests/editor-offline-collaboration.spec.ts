@@ -295,12 +295,13 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
   });
 });
 
-test('an open Markdown document recovers its location after a temporary gateway failure', async ({ page }, info) => {
+test('an open Markdown document recovers its location after a temporary gateway failure', async ({ page, playwright }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
   if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
   else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
   else expect(baseURL).toBe('http://127.0.0.1:3100');
   test.setTimeout(120_000);
+  page.setDefaultTimeout(45_000);
 
   const headers = await login(page);
   const filePath = `location-recovery-${randomUUID()}.md`;
@@ -341,7 +342,14 @@ test('an open Markdown document recovers its location after a temporary gateway 
     await info.attach('terminal-location-warning', { body: await failed.screenshot(), contentType: 'image/png' });
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await expect(failed).toHaveCount(0);
-  } finally { await cleanFiles(page.context(), headers, [filePath]); }
+  } finally {
+    // Use a fresh HTTP connection after the browser's collaboration session closes.
+    const cleanup = await playwright.request.newContext({ baseURL, storageState: await page.context().storageState() });
+    try {
+      await page.close();
+      await deleteOwnedFixtureFiles(cleanup, headers['x-canvas-workspace-id'], [filePath]);
+    } finally { await cleanup.dispose(); }
+  }
 });
 
 // The pre-fix causal trace records six open SSE requests, a five-second queued
