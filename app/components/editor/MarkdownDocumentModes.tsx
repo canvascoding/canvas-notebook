@@ -159,7 +159,9 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       if (!migration.current) {
         await collaboration.requestCheckpoint();
         if (!collaboration.getMigrationCheckpoint) throw new Error('The exact checkpoint receipt is unavailable.');
-        migration.current = { requestId: crypto.randomUUID(), ...collaboration.getMigrationCheckpoint() };
+        const checkpoint = await collaboration.getMigrationCheckpoint();
+        if (!mounted.current) return;
+        migration.current = { requestId: crypto.randomUUID(), ...checkpoint };
         collaboration.provider?.disconnect();
         safeToResume = false;
       }
@@ -210,6 +212,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       if (mounted.current) {
         setBlocked(true);
         setFeedback(migration.current ? 'migrationUnconfirmed' : 'migrationFailed');
+        if (safeToResume) onSourceResume?.();
       }
     }
     finally {

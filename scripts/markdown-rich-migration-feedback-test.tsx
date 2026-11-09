@@ -21,10 +21,11 @@ async function main() {
   const before = Y.encodeStateAsUpdate(doc);
   let requests: Record<string, unknown>[] = [], disconnects = 0, reconnects = 0, resumed = 0, ready = 0, checkpoints = 0;
   let respond = (_body: Record<string, unknown>): Response | Promise<Response> => { throw new Error('Unconfigured response'); };
+  const proof = { expectedDocumentId: 'native-doc', expectedLifecycleGeneration: 1,
+    documentSequence: 1, stateProof: `sha256:${'a'.repeat(64)}` };
   const collaboration = { doc, registryKey: 'workspace\0source.md', connection: 'live', durability: 'checkpointed_file',
     provider: { disconnect: () => { disconnects++; }, connect: () => { reconnects++; } },
-    requestCheckpoint: async () => { checkpoints++; }, getMigrationCheckpoint: () => ({ expectedDocumentId: 'native-doc', expectedLifecycleGeneration: 1,
-      documentSequence: 1, stateProof: `sha256:${'a'.repeat(64)}` }) } as unknown as CollaborationDocument;
+    requestCheckpoint: async () => { checkpoints++; }, getMigrationCheckpoint: async () => proof } as unknown as CollaborationDocument;
   globalThis.fetch = async (_input, init) => { const body = JSON.parse(String(init?.body)) as Record<string, unknown>; requests.push(body); return respond(body); };
   const mount = (locale: 'en' | 'de' = 'en') => render(<NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : de} timeZone="UTC">
     <MarkdownRichMigration collaboration={collaboration} filePath="source.md" onReady={() => { ready++; }} onSourceResume={() => { resumed++; }} />
@@ -85,7 +86,23 @@ async function main() {
       assert(requests.every(request => JSON.stringify(request.migration) === JSON.stringify(requests[0].migration)));
       sourceUnchanged(); cases++;
     }
-    assert.equal(cases, 16);
+    for (const accepted of [true, false]) {
+      reset(); respond = body => result(body, 'migrated');
+      const current = Promise.withResolvers<typeof proof>();
+      let checkpointObserved = false;
+      collaboration.getMigrationCheckpoint = () => { checkpointObserved = true; return current.promise; };
+      mount(); click(); await waitFor(() => assert(checkpointObserved));
+      assert(screen.getByRole('button', { name: 'Preparing…' }));
+      assert.equal(requests.length, 0); assert.equal(disconnects, 0);
+      if (accepted) current.resolve(proof); else current.reject(new Error('Document changed during reconnect.'));
+      await finished();
+      assert.equal(requests.length, accepted ? 1 : 0);
+      assert.equal(disconnects, accepted ? 1 : 0);
+      assert.equal(ready, accepted ? 1 : 0);
+      assert.equal(resumed, accepted ? 0 : 1);
+      sourceUnchanged(); cases++;
+    }
+    assert.equal(cases, 18);
     console.log(JSON.stringify({ suite: 'markdown-rich-migration-feedback-ui', cases, passed: true,
       nativeSourceUnchanged: true, ambiguousOutcomeKeepsOriginalRequest: true, authorizationOrRateLimitNotRetried: true,
       compiledBrowser: false, actualServerAuthorization: false }));
