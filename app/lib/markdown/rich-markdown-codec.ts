@@ -8,6 +8,7 @@ import UniqueID from '@tiptap/extension-unique-id';
 import { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
 import { CanvasCodeBlock, CanvasHorizontalRule } from './core/base-blocks';
+import { CanvasInlineCode } from './core/inline-code';
 
 import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
@@ -59,8 +60,8 @@ export type MarkdownRichModeAnalysis =
 
 export function richMarkdownCodecExtensions() {
   return [
-    StarterKit.configure({ document: false, codeBlock: false, horizontalRule: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
-    CanvasCodeBlock, CanvasHorizontalRule,
+    StarterKit.configure({ document: false, code: false, codeBlock: false, horizontalRule: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
+    CanvasInlineCode, CanvasCodeBlock, CanvasHorizontalRule,
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,

@@ -36,7 +36,7 @@ async function main() {
   recovery.getText('content').delete(0, 1);
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'proof-doc', documentName: 'proof-doc', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
     documentSequence: 1, checkpointSequence: 1, stateVector: Buffer.from(Y.encodeStateVector(server)).toString('base64'),
     stateProof: collaborationStateProof(server, Y), token: 'test-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'user', name: 'User', color: '#112233', colorLight: '#ddeeff' },

@@ -162,7 +162,7 @@ async function main() {
       document: { id: 'private-doc', provider: 'yjs', status: 'active', stateVersion: 1, snapshotRevisionId: null },
     } };
     const documentSession: CollaborationSessionResponse = { success: true, documentId: 'private-doc', documentName: 'private-doc', provider: 'yjs',
-      representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+      representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
       token: 'synthetic-unit-token', expiresAt: '2099-01-01T00:00:00.000Z', websocketUrl: '/ws/collaboration',
       user: { id: 'alice', name: 'Alice', color: '#123456', colorLight: '#abcdef' } };
     assert.equal(validateOpenedLiveDocumentSession('workspace', file.path, documentSession), true);

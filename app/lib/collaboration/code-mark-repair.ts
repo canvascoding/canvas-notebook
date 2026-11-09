@@ -25,7 +25,7 @@ export function prepareCodeMarkConflictRepair(state: PersistedCollaborationState
     const lostFormatting = normalizeCodeMarkConflicts(clone);
     if (!lostFormatting.length) throw new Error('No Code mark conflict to repair.');
     const expected = JSON.parse(JSON.stringify(before), (key, value) => key === 'marks' && Array.isArray(value)
-      && value.some((mark: { type: string }) => mark.type === 'code') ? value.filter((mark: { type: string }) => mark.type === 'code') : value);
+      && value.some((mark: { type: string }) => mark.type === 'code') ? value.filter((mark: { type: string }) => mark.type === 'code' || mark.type === 'bold') : value);
     if (JSON.stringify(expected) !== JSON.stringify(readRichDocumentJson(clone))
       || clone.getText('frontmatter').toString() !== frontmatter || clone.getText('bodyFinalLineEnding').toString() !== ending) {
       throw new Error('Repair changed content or structural identities.');

@@ -62,7 +62,7 @@ async function main() {
   const awareness = new Awareness(documentState);
   const collaboration = { registryKey: 'test-workspace\0source-lifecycle', doc: documentState, provider: { awareness },
     session: { success: true, provider: 'yjs', permission: 'write', documentId: 'source-document', documentName: 'source-document',
-      lifecycleGeneration: 1, representation: 'plain_text', schemaVersion: 1, richTextSchemaVersion: 3,
+      lifecycleGeneration: 1, representation: 'plain_text', schemaVersion: 1, richTextSchemaVersion: 4,
       token: 'fixture-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
       user: { id: 'source-user', name: 'Source fixture', color: '#123456', colorLight: '#abcdef' } } satisfies CollaborationSessionResponse,
     ready: true, status: 'saved', connection: 'live', durability: 'checkpointed_file',

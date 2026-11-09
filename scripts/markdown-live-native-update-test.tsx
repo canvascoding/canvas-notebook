@@ -36,7 +36,7 @@ async function main() {
   const peer = new Y.Doc(); Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
   const session: NonNullable<CollaborationDocument['session']> = {
     success: true, documentId: 'native-doc', documentName: 'native-doc', provider: 'yjs', representation: 'tiptap_blocks',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, blockTreeFormatVersion: 1, permission: 'write',
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, blockTreeFormatVersion: 1, permission: 'write',
     documentSequence: 1, checkpointSequence: 1, stateVector: '', stateProof: null, token: 'test',
     expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
     user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' },

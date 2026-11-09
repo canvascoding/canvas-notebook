@@ -47,30 +47,53 @@ function state(doc: InstanceType<typeof Y.Doc>, representation: 'tiptap_xml' | '
     persistedAt: 1, checkpointedAt: 1, canonicalHash: null, serializedHash: null, newlineStyle: 'crlf', hasBom: true, degraded: true };
 }
 
+for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`${representation}: bold and inline code survive Markdown import, merging and export`, () => {
+    const markdown = '**Region `eu-central-1` (Frankfurt)**\n';
+    const original = createRichMarkdownYDoc(markdown, representation);
+    const loaded = new Y.Doc({ gc: false });
+    try {
+      const before = Y.encodeStateAsUpdate(original);
+      Y.applyUpdate(loaded, before);
+      assert.equal(hasCodeMarkConflicts(loaded), false);
+      assert.equal(validateRichMarkdownYDoc(loaded).valid, true);
+      assert.equal(richMarkdownFromYDoc(loaded), markdown);
+      const span = text(loaded).toDelta().find(part => part.insert === 'eu-central-1');
+      assert.deepEqual(Object.keys(span?.attributes ?? {}).sort(), ['bold', 'code']);
+      // Edits in the same text retain the authored combination during server persistence.
+      text(loaded).insert(text(loaded).length, ' updated', { bold: {} });
+      const edited = Y.encodeStateAsUpdate(loaded);
+      assert.equal(normalizeNewCodeMarkConflicts(before, edited), null);
+      assert.deepEqual(normalizeCodeMarkConflicts(loaded), []);
+      assert.equal(richMarkdownFromYDoc(loaded), '**Region `eu-central-1` (Frankfurt) updated**\n');
+    } finally { original.destroy(); loaded.destroy(); }
+  });
+}
+
 for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) test(`${representation}: Code wins convergently; historical repair preserves evidence and identity`, () => {
   const seed = createRichMarkdownYDoc('---\ntitle: Original\n---\n\nAlpha 😀 Beta\n', representation);
-  const code = new Y.Doc({ gc: false }); const bold = new Y.Doc({ gc: false }); const raw = new Y.Doc({ gc: false });
-  const documents = [seed, code, bold, raw];
+  const code = new Y.Doc({ gc: false }); const italic = new Y.Doc({ gc: false }); const raw = new Y.Doc({ gc: false });
+  const documents = [seed, code, italic, raw];
   const original = Y.encodeStateAsUpdate(seed);
   try {
-    for (const doc of [code, bold, raw]) Y.applyUpdate(doc, original);
+    for (const doc of [code, italic, raw]) Y.applyUpdate(doc, original);
     text(code).format(0, text(code).length, { code: {} });
-    text(bold).format(0, text(bold).length, { bold: {} });
+    text(italic).format(0, text(italic).length, { italic: {} });
     assert.equal(validateRichMarkdownYDoc(code).valid, true);
-    assert.equal(validateRichMarkdownYDoc(bold).valid, true);
-    Y.applyUpdate(raw, Y.encodeStateAsUpdate(code)); Y.applyUpdate(raw, Y.encodeStateAsUpdate(bold));
+    assert.equal(validateRichMarkdownYDoc(italic).valid, true);
+    Y.applyUpdate(raw, Y.encodeStateAsUpdate(code)); Y.applyUpdate(raw, Y.encodeStateAsUpdate(italic));
     assert.equal(validateRichMarkdownYDoc(raw).code, 'schema_invalid');
     const rawBytes = Y.encodeStateAsUpdate(raw);
     const repaired = prepareCodeMarkConflictRepair(state(raw, representation));
     assert.deepEqual(repaired.originalYjsState, rawBytes);
-    assert.deepEqual(repaired.lostFormatting, [{ mark: 'bold', utf16Units: text(raw).length }]);
+    assert.deepEqual(repaired.lostFormatting, [{ mark: 'italic', utf16Units: text(raw).length }]);
     assert.deepEqual(prepareCodeMarkConflictRepair(state(raw, representation)).repairedYjsState, repaired.repairedYjsState);
     assert.equal(repaired.identity.documentId, 'doc'); assert.equal(repaired.identity.lifecycleGeneration, 4);
     assert.deepEqual(repaired.encoding, { hasBom: true, newlineStyle: 'crlf' });
     assert.deepEqual(Y.encodeStateAsUpdate(raw), rawBytes, 'repair and serialization never mutate original evidence');
     assert.equal(normalizeNewCodeMarkConflicts(rawBytes, rawBytes), null, 'ordinary save never repairs a historical conflict');
     let expected: unknown;
-    for (const [current, incoming] of [[code, bold], [bold, code]]) {
+    for (const [current, incoming] of [[code, italic], [italic, code]]) {
       const union = mergeCollaborationPersistenceUpdates(Y.encodeStateAsUpdate(current), Y.encodeStateAsUpdate(incoming));
       const normalized = normalizeNewCodeMarkConflicts(Y.encodeStateAsUpdate(current), union.update); assert(normalized);
       const result = new Y.Doc({ gc: false }); documents.push(result); Y.applyUpdate(result, normalized.update);
@@ -82,12 +105,12 @@ for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) test(`${r
       const json = readRichDocumentJson(result); if (expected) assert.deepEqual(json, expected); expected = json;
       assert(richMarkdownFromYDoc(result).includes('`Alpha 😀 Beta`'));
       // Receiving the discarded Bold replica again must not restore its mark.
-      Y.applyUpdate(result, Y.encodeStateAsUpdate(bold)); assert.equal(hasCodeMarkConflicts(result), false);
+      Y.applyUpdate(result, Y.encodeStateAsUpdate(italic)); assert.equal(hasCodeMarkConflicts(result), false);
     }
     const live = new Y.Doc({ gc: false }); documents.push(live); Y.applyUpdate(live, original);
     const controller = new AbortController(); let writable = true;
     const policy = installCodeMarkConflictPolicy(live, { signal: controller.signal, canNormalize: () => writable }); policy.activate();
-    Y.applyUpdate(live, Y.encodeStateAsUpdate(code)); Y.applyUpdate(live, Y.encodeStateAsUpdate(bold));
+    Y.applyUpdate(live, Y.encodeStateAsUpdate(code)); Y.applyUpdate(live, Y.encodeStateAsUpdate(italic));
     assert.equal(hasCodeMarkConflicts(live), false); assert.deepEqual(readRichDocumentJson(live), expected);
     writable = false; controller.abort();
     const historicalController = new AbortController();
@@ -105,9 +128,9 @@ for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) test(`${r
     Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
   }
   const live = createRichMarkdownYDoc('Alpha 😀 Beta', representation);
-  const code = new Y.Doc(); const bold = new Y.Doc();
-  const original = Y.encodeStateAsUpdate(live); for (const doc of [code, bold]) Y.applyUpdate(doc, original);
-  text(code).format(0, text(code).length, { code: {} }); text(bold).format(0, text(bold).length, { bold: {} });
+  const code = new Y.Doc(); const italic = new Y.Doc();
+  const original = Y.encodeStateAsUpdate(live); for (const doc of [code, italic]) Y.applyUpdate(doc, original);
+  text(code).format(0, text(code).length, { code: {} }); text(italic).format(0, text(italic).length, { italic: {} });
   const controller = new AbortController();
   const policy = installCodeMarkConflictPolicy(live, { signal: controller.signal, canNormalize: () => true }); policy.activate();
   const errors: Error[] = [];
@@ -119,14 +142,14 @@ for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) test(`${r
   ] });
   try {
     await Promise.resolve(); const id = editor.state.doc.firstChild!.attrs.id;
-    Y.applyUpdate(live, Y.encodeStateAsUpdate(code)); Y.applyUpdate(live, Y.encodeStateAsUpdate(bold));
+    Y.applyUpdate(live, Y.encodeStateAsUpdate(code)); Y.applyUpdate(live, Y.encodeStateAsUpdate(italic));
     await Promise.resolve();
     editor.state.doc.check(); assert.equal(editor.state.doc.textContent, 'Alpha 😀 Beta');
     assert.equal(editor.state.doc.firstChild!.attrs.id, id);
     assert.deepEqual(editor.state.doc.firstChild!.firstChild!.marks.map((mark) => mark.type.name), ['code']);
     assert.deepEqual(errors, []); assert.equal(validateRichMarkdownYDoc(live).valid, true);
   } finally {
-    controller.abort(); editor.destroy(); live.destroy(); code.destroy(); bold.destroy();
+    controller.abort(); editor.destroy(); live.destroy(); code.destroy(); italic.destroy();
     for (const [key, descriptor] of previousGlobals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
     }
@@ -142,22 +165,22 @@ test('real SQL persistence normalizes only new conflicts, reconciles the room an
   } }).outputText;
   const persistence = {} as typeof Persistence;
   new Function('require', 'module', 'exports', source)((name: string) => name === '@/app/lib/db' ? database : require(name), { exports: persistence }, persistence);
-  const seed = createRichMarkdownYDoc('Alpha', 'tiptap_xml'); const code = new Y.Doc({ gc: false }); const bold = new Y.Doc({ gc: false });
-  const raw = new Y.Doc({ gc: false }); const documents = [seed, code, bold, raw];
+  const seed = createRichMarkdownYDoc('Alpha', 'tiptap_xml'); const code = new Y.Doc({ gc: false }); const italic = new Y.Doc({ gc: false });
+  const raw = new Y.Doc({ gc: false }); const documents = [seed, code, italic, raw];
   try {
-    for (const doc of [code, bold, raw]) Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed));
-    text(code).format(0, text(code).length, { code: {} }); text(bold).format(0, text(bold).length, { bold: {} });
+    for (const doc of [code, italic, raw]) Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed));
+    text(code).format(0, text(code).length, { code: {} }); text(italic).format(0, text(italic).length, { italic: {} });
     await connection.run(`INSERT INTO collaboration_yjs_states (document_id,workspace_id,path,representation,yjs_state,state_vector,
       document_sequence,checkpoint_sequence,persisted_at) VALUES ('marks','ws','note.md','tiptap_xml',$1,$2,1,0,1)`,
     [Y.encodeStateAsUpdate(code), Y.encodeStateVector(code)]);
     await persistence.markCollaborationDegraded('marks', 1, COLLABORATION_FAILURE_CODES.persistenceFailed);
-    const saved = await persistence.persistCollaborationYDoc('marks', 1, bold);
+    const saved = await persistence.persistCollaborationYDoc('marks', 1, italic);
     assert.equal(saved.degraded, false, 'a successful changed save clears the explicit storage retry');
     assert.equal(saved.incomingNeedsReconcile, true); assert.equal(saved.documentSequence, 2);
     const normalized = new Y.Doc(); documents.push(normalized); Y.applyUpdate(normalized, saved.yjsState);
     assert.equal(validateRichMarkdownYDoc(normalized).valid, true);
-    assert.equal((await persistence.persistCollaborationYDoc('marks', 1, bold)).documentSequence, 2);
-    Y.applyUpdate(raw, Y.encodeStateAsUpdate(code)); Y.applyUpdate(raw, Y.encodeStateAsUpdate(bold));
+    assert.equal((await persistence.persistCollaborationYDoc('marks', 1, italic)).documentSequence, 2);
+    Y.applyUpdate(raw, Y.encodeStateAsUpdate(code)); Y.applyUpdate(raw, Y.encodeStateAsUpdate(italic));
     const originalConflict = Y.encodeStateAsUpdate(raw);
     await connection.run(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,degraded=1,
       projection_error_code='COLLABORATION_SCHEMA_INVALID',projection_error_permanent=1,projection_error_generation=1 WHERE document_id='marks'`,

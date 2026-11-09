@@ -24,7 +24,7 @@ const path = 'broken.md';
 const failStorage = location.search.includes('fail-storage');
 const session: CollaborationSessionResponse = {
   success: true, documentId: 'recovery-browser', documentName: 'recovery-browser', provider: 'yjs',
-  representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+  representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
   documentSequence: 5, checkpointSequence: 4, stateVector: '', stateProof: null,
   token: 'recovery-fixture', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
   user: { id: 'fixture', name: 'Fixture', color: '#123456', colorLight: '#abcdef' },

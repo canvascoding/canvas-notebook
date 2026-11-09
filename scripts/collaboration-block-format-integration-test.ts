@@ -39,7 +39,7 @@ async function main() {
     assert(request);
     return createCollaborationSessionGrant({ workspace, fileOptions: { workspace }, request });
   };
-  const legacy = await grant();
+  const legacy = await grant({ richTextSchemaVersion: COLLABORATION_CLIENT_CAPABILITIES.richTextSchemaVersion });
   assert.equal(legacy.representation, 'tiptap_xml');
   const initial = await loadCollaborationState(legacy.documentId);
   assert(initial);

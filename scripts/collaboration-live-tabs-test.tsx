@@ -88,7 +88,7 @@ async function main() {
     assert.equal(input, '/api/files/collaboration/session');
     const id = JSON.parse(String(init?.body)).path.replace('.txt', ''), doc = documents.get(id); assert(doc); requests.push(id);
     const session: CollaborationSessionResponse = { success: true, provider: 'yjs', documentId: id, documentName: id,
-      representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission,
+      representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission,
       documentSequence: 1, checkpointSequence: 1, projectionFinalized: true,
       stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y),
       token: `synthetic-ticket-${requests.length}`, expiresAt: new Date(Date.now() + 90_000).toISOString(), websocketUrl: '/ws/collaboration',

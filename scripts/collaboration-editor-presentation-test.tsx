@@ -35,7 +35,7 @@ async function main() {
   let exportChecks = 0;
   const baseSession: NonNullable<CollaborationDocument['session']> = {
     success: true, documentId: 'document', documentName: 'document', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write', documentSequence: 2, checkpointSequence: 1,
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write', documentSequence: 2, checkpointSequence: 1,
     stateVector: '', stateProof: null, token: 'private-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' },
   };

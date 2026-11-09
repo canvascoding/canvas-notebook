@@ -38,7 +38,7 @@ async function main() {
   const plainDoc = new Y.Doc(); plainDoc.getText('content').insert(0, '<div>Shared source</div>\n');
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'guest-doc', documentName: 'guest-doc', provider: 'yjs', representation: 'tiptap_blocks',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, blockTreeFormatVersion: 1, permission: 'write',
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, blockTreeFormatVersion: 1, permission: 'write',
     documentSequence: 2, checkpointSequence: 1, stateVector: '', stateProof: null, token: 'test',
     expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
     guestAccess: { invitationId: 'invitation', workspaceId: 'shared-workspace' },

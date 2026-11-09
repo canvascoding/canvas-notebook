@@ -48,7 +48,7 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
 
     const freshSession = async () => {
       const response = await mobile.request.post('/api/mobile/v1/notebook/collaboration/session', {
-        headers, data: { path: filePath, richTextSchemaVersion: 3, blockTreeFormatVersion: 1 },
+        headers, data: { path: filePath, richTextSchemaVersion: 4, blockTreeFormatVersion: 1 },
       });
       const session = await response.json();
       expect(response.ok(), session.error).toBe(true);

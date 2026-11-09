@@ -168,6 +168,7 @@ import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-co
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { createCanvasMarkdownExtension } from '@/app/lib/markdown/canvas-marked';
 import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
+import { CanvasInlineCode } from '@/app/lib/markdown/core/inline-code';
 import {
   createMarkdownHeadingAnchorFactory,
   markdownHeadingAnchorFromHref,
@@ -2208,6 +2209,7 @@ function createEditorExtensions(
     StarterKit.configure({
       document: false,
       blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false,
+      code: false,
       codeBlock: false,
       horizontalRule: false,
       link: false,
@@ -2218,6 +2220,7 @@ function createEditorExtensions(
       placeholder: ({ node }) => node.type.name === 'paragraph' ? labels.placeholder : '',
       showOnlyCurrent: true,
     }),
+    CanvasInlineCode,
     CodeBlockWithMermaid,
     CanvasHorizontalRule,
     Mathematics.configure({

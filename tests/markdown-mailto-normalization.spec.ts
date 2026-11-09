@@ -6,10 +6,11 @@ import type { CurrentFile } from '../app/lib/files/types';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
-const source = fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/markdown-roundtrip/mailto-task-list.md'), 'utf8');
+const formattedRegion = '\n**Region `eu-central-1` (Frankfurt)**\n';
+const source = fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/markdown-roundtrip/mailto-task-list.md'), 'utf8') + formattedRegion;
 const normalized = '# Mail contact\n\n**Canvas [team@example.test](mailto:team@example.test)**\n\n'
   + '- [x] Keep the completed task.\n- [ ] Keep the unfinished task.\n\n- Keep the ordinary list item.\n\n'
-  + 'Use [Support](mailto:support@example.test?subject=Hello%20world) for questions.\n';
+  + 'Use [Support](mailto:support@example.test?subject=Hello%20world) for questions.\n' + formattedRegion;
 
 async function readDocument(request: APIRequestContext, workspaceId: string, filePath: string): Promise<CurrentFile> {
   const response = await request.get('/api/files/read?path=' + encodeURIComponent(filePath), {
@@ -66,6 +67,7 @@ for (const mobile of [false, true]) {
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(editor.locator('a[href="mailto:team@example.test"]')).toHaveText('team@example.test');
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       await expect(editor.locator('a[href="mailto:support@example.test?subject=Hello%20world"]')).toHaveText('Support');
       const checks = editor.locator('input[type="checkbox"]');
       await expect(checks).toHaveCount(2);
@@ -78,7 +80,12 @@ for (const mobile of [false, true]) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(editor.locator('a[href="mailto:team@example.test"]')).toHaveText('team@example.test');
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       expect((await readDocument(context.request, workspaceId, filePath)).content).toBe(normalized);
+      await editor.locator('input[type="checkbox"]').nth(1).check();
+      const edited = normalized.replace('- [ ] Keep the unfinished task.', '- [x] Keep the unfinished task.');
+      await expect.poll(async () => (await readDocument(context.request, workspaceId!, filePath)).content, { timeout: 20_000 }).toBe(edited);
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       await editor.locator('a[href="mailto:team@example.test"]').scrollIntoViewIfNeeded();
       await page.screenshot({ path: info.outputPath('mailto-rich-upgrade.png'), fullPage: true });
     }, [
