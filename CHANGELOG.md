@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.8.3] - 2026-11-08
+## [2026.11.9.1] - 2026-11-09
 
 ### Added
 
@@ -19,6 +19,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Fixed
 
+- Retry only a confirmed rolled-back authorization check when short PostgreSQL contention interrupts the last preflight for deleting one physical file. Recheck the original claim and current rights without repeating a file move or receipt write.
 - Refresh contradictory filesystem observations once during read-only path checks. A single inconsistent file or directory listing no longer determines a path-alias conflict by itself; symlink, case-alias and mutation checks retain their protections.
 - Wait for the existing bounded workspace admission fence before initializing a pristine original document. Ordinary concurrent tree reads no longer turn a first text-document open into a fail-fast lifecycle conflict; current rights and all mutation/receipt safeguards remain enforced.
 - Resume the existing bounded collaboration recovery when document admission becomes busy after a move, including after a pending session resolves. Preserve concurrent edits, read-only access, original document identities and finite recovery limits.
@@ -33,6 +34,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Verification
 
+- A genuine PostgreSQL row-lock regression reproduces the old HTTP 409 path and verifies transient recovery, revoked access and bounded persistent contention with the original bytes and receipts accounted for.
 - Host and Linux production builds pass. Focused compiled-image acceptance passes six original shared HTML move cases, both complete Studio availability/menu cases and installed API/SDK operations with two live Yjs editors, without retries, skips or flaky results. Protected original rows, file bytes, anchors and runtime are restored and verified.
 - Eleven real filesystem observation/security cases pass after three demonstrated failures on the prior product. The regular collaboration contract suite and existing native/collaborative read regressions pass. The new filesystem cases run in regular test:all and portable Native API/SDK CI.
 - All 15 product PR checks pass. Downloaded Python 3.10/3.15 SDK artifacts match the source, including six installation profiles, eight actual HTTP/PostgreSQL families and 24 link-parity groups per Python version.
