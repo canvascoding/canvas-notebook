@@ -19,7 +19,7 @@ async function main() {
   const seed = new Y.Doc(); seed.getText('content').insert(0, 'Native contents');
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'offline-doc', documentName: 'offline-doc', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+    lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
     token: 'synthetic-unit-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
     user: { id: 'owner', name: 'Owner', color: '#123456', colorLight: '#abcdef' },
   };

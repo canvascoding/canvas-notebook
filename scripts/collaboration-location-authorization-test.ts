@@ -14,7 +14,7 @@ import { findOpenedLiveDocument, hasCurrentOpenedDocumentSessionAuthorization as
 
 const doc = new Y.Doc(); doc.getText('content').insert(0, 'Persisted location state');
 const session: CollaborationSessionResponse = { success: true, documentId: 'location-doc', documentName: 'location-doc',
-  provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+  provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
   permission: 'write', token: 'synthetic-location-token', expiresAt: new Date(Date.now() + 60_000).toISOString(),
   websocketUrl: '/ws/collaboration', user: { id: 'owner', name: 'Owner', color: '#123456', colorLight: '#abcdef' } };
 const file: CurrentFile = { path: 'target.txt', content: '', collaboration: { path: 'target.txt', strategy: 'crdt_text',

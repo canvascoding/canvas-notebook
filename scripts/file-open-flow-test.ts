@@ -524,7 +524,7 @@ async function testConnectedNotebookOpenPreservesFreshReadDefaults() {
     requiresRevisionCheck: false, latestRevision: null, activeLock: null,
     document: { id: documentId, provider: 'yjs', status: 'active', stateVersion: 1, snapshotRevisionId: null } } };
   const session: CollaborationSessionResponse = { success: true, provider: 'yjs', documentId, documentName: documentId,
-    representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+    representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
     permission: 'write', token: 'mechanical-connection-double', expiresAt: new Date(Date.now() + 60_000).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'live-owner', name: 'Live owner', color: '#123456', colorLight: '#abcdef' } };
   const reads: URL[] = [];

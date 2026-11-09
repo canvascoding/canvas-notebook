@@ -3,13 +3,40 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { CurrentFile } from '../app/lib/files/types';
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { createAuthenticatedContext } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
-const source = fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/markdown-roundtrip/mailto-task-list.md'), 'utf8');
+const formattedRegion = '\n**Region `eu-central-1` (Frankfurt)**\n';
+const source = fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/markdown-roundtrip/mailto-task-list.md'), 'utf8') + formattedRegion;
 const normalized = '# Mail contact\n\n**Canvas [team@example.test](mailto:team@example.test)**\n\n'
   + '- [x] Keep the completed task.\n- [ ] Keep the unfinished task.\n\n- Keep the ordinary list item.\n\n'
-  + 'Use [Support](mailto:support@example.test?subject=Hello%20world) for questions.\n';
+  + 'Use [Support](mailto:support@example.test?subject=Hello%20world) for questions.\n' + formattedRegion;
+
+async function uploadSource(request: APIRequestContext, workspaceId: string, filePath: string): Promise<void> {
+  const headers = { 'x-canvas-workspace-id': workspaceId };
+  const uploaded = await request.post('/api/files/upload', { headers, multipart: {
+    path: '.', files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(source) },
+  } });
+  const result = await uploaded.json();
+  if (uploaded.status() !== 202) {
+    expect(uploaded.status()).toBe(200);
+    expect(result).toMatchObject({ success: true, count: 1, files: [filePath] });
+    return;
+  }
+  expect(result).toMatchObject({ code: 'MARKDOWN_UPLOAD_PROJECTION_PENDING', completion: {
+    status: 'projection_pending', targetPath: filePath, uploadId: expect.any(String), fileId: expect.any(String),
+  } });
+  const { uploadId, fileId } = result.completion;
+  await expect.poll(async () => {
+    const completed = await request.post(`/api/files/uploads/${encodeURIComponent(uploadId)}/complete`, {
+      headers, data: { fileId },
+    });
+    expect([200, 202]).toContain(completed.status());
+    const { completion } = await completed.json();
+    expect(completion).toMatchObject({ uploadId, fileId, targetPath: filePath });
+    return completion.status;
+  }, { timeout: 20_000 }).toBe('completed');
+}
 
 async function readDocument(request: APIRequestContext, workspaceId: string, filePath: string): Promise<CurrentFile> {
   const response = await request.get('/api/files/read?path=' + encodeURIComponent(filePath), {
@@ -39,7 +66,7 @@ for (const mobile of [false, true]) {
         localStorage.setItem('canvas.activeWorkspaceId', id);
         localStorage.setItem('canvas.notebook.chatVisible', 'false');
       }, workspaceId);
-      await uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content: source });
+      await uploadSource(context.request, workspaceId, filePath);
       const before = await readDocument(context.request, workspaceId, filePath);
       expect(before.content).toBe(source);
       const documentId = before.collaboration?.document?.id;
@@ -48,15 +75,21 @@ for (const mobile of [false, true]) {
       // A fresh open already requests rich presentation. Its existing startup
       // flow checkpoints and migrates eligible plain-text documents automatically.
       // Observe the real migration receipt rather than racing its transient button.
-      const migrated = page.waitForResponse(response => {
+      const migrationIds = new Set<string>();
+      const migrated = page.waitForResponse(async response => {
         if (!response.url().endsWith('/api/files/collaboration/session') || response.request().method() !== 'POST') return false;
         const request = response.request().postDataJSON();
-        return request.path === filePath && Boolean(request.migration);
-      }, { timeout: 30_000 });
+        if (request.path !== filePath || !request.migration) return false;
+        migrationIds.add(request.migration.requestId);
+        if (!response.ok()) return false;
+        const result = await response.json();
+        return result.migration?.status === 'migrated';
+      }, { timeout: 45_000 });
       await page.goto(`/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       const receipt = await migrated;
       expect(receipt.status()).toBe(200);
       const request = receipt.request().postDataJSON();
+      expect([...migrationIds]).toEqual([request.migration.requestId]);
       expect(request.migration.expectedDocumentId).toBe(documentId);
       expect(request.migration.stateProof).toMatch(/^yjs-snapshot-sha256-v1:/u);
       expect(await receipt.json()).toMatchObject({ success: true, representation: 'tiptap_blocks',
@@ -66,6 +99,7 @@ for (const mobile of [false, true]) {
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(editor.locator('a[href="mailto:team@example.test"]')).toHaveText('team@example.test');
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       await expect(editor.locator('a[href="mailto:support@example.test?subject=Hello%20world"]')).toHaveText('Support');
       const checks = editor.locator('input[type="checkbox"]');
       await expect(checks).toHaveCount(2);
@@ -78,7 +112,12 @@ for (const mobile of [false, true]) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(editor.locator('a[href="mailto:team@example.test"]')).toHaveText('team@example.test');
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       expect((await readDocument(context.request, workspaceId, filePath)).content).toBe(normalized);
+      await editor.locator('input[type="checkbox"]').nth(1).check();
+      const edited = normalized.replace('- [ ] Keep the unfinished task.', '- [x] Keep the unfinished task.');
+      await expect.poll(async () => (await readDocument(context.request, workspaceId!, filePath)).content, { timeout: 20_000 }).toBe(edited);
+      await expect(editor.locator('strong code')).toHaveText('eu-central-1');
       await editor.locator('a[href="mailto:team@example.test"]').scrollIntoViewIfNeeded();
       await page.screenshot({ path: info.outputPath('mailto-rich-upgrade.png'), fullPage: true });
     }, [

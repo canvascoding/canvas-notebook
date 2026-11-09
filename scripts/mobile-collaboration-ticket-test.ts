@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHmac, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { parseCollaborationSessionRequest } from '@/app/lib/collaboration/session-service';
+import { issueCollaborationTicket, verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { RICH_MARKDOWN_SCHEMA_VERSION } from '@/app/lib/collaboration/types';
 import {
   consumeMobileCollaborationTicket,
@@ -61,15 +63,11 @@ assert.equal(hasMobileCollaborationProtocol({
   'sec-websocket-protocol': 'other',
 }), false);
 
-assert.deepEqual(parseCollaborationSessionRequest({
-  path: 'Notes/Shared.md',
-  provider: 'yjs',
-  representation: 'tiptap_xml',
-}), {
-  path: 'Notes/Shared.md',
-  provider: 'yjs',
-  representation: 'tiptap_xml',
-});
+const richRequest = { path: 'Notes/Shared.md', provider: 'yjs', representation: 'tiptap_xml' };
+assert.equal(parseCollaborationSessionRequest(richRequest), null);
+assert.equal(parseCollaborationSessionRequest({ ...richRequest, richTextSchemaVersion: 3 }), null);
+const currentRichRequest = { ...richRequest, richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION };
+assert.deepEqual(parseCollaborationSessionRequest(currentRichRequest), currentRichRequest);
 assert.deepEqual(parseCollaborationSessionRequest({
   path: 'Notes/Shared.txt',
   provider: 'yjs',
@@ -145,8 +143,24 @@ for (const collaborationTransportSource of [
 assert.match(excalidrawAssetsRouteSource, /Excalidraw collaboration requires Postgres\./u);
 assert.match(workspaceMembersRouteSource, /requireTeamRuntimeLicense/u);
 assert.match(routeSource, /error instanceof CollaborationSessionError && error\.code/u);
-assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
-assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);
+assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 4);
+const savedSecret = process.env.CANVAS_COLLABORATION_TICKET_SECRET;
+const testSecret = randomBytes(32).toString('hex');
+process.env.CANVAS_COLLABORATION_TICKET_SECRET = testSecret;
+try {
+  const signed = issueCollaborationTicket(claims, now);
+  assert.equal(verifyCollaborationTicket(signed.token, now).richTextSchemaVersion, RICH_MARKDOWN_SCHEMA_VERSION);
+  const legacyTicket = (representation: 'tiptap_xml' | 'plain_text') => {
+    const { richTextSchemaVersion: _current, ...legacy } = signed.claims;
+    const payload = Buffer.from(JSON.stringify({ ...legacy, representation })).toString('base64url');
+    return `${payload}.${createHmac('sha256', testSecret).update(payload).digest('base64url')}`;
+  };
+  assert.throws(() => verifyCollaborationTicket(legacyTicket('tiptap_xml'), now), /Unsupported collaboration ticket schema/u);
+  assert.equal(verifyCollaborationTicket(legacyTicket('plain_text'), now).representation, 'plain_text');
+} finally {
+  if (savedSecret === undefined) delete process.env.CANVAS_COLLABORATION_TICKET_SECRET;
+  else process.env.CANVAS_COLLABORATION_TICKET_SECRET = savedSecret;
+}
 assert.equal(liveCollaborationRuntimeAvailable(), true);
 assert.match(serverSource, /consumeMobileCollaborationTicket/u);
 assert.match(serverSource, /hasMobileCollaborationProtocol/u);

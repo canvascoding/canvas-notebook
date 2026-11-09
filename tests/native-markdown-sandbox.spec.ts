@@ -135,7 +135,7 @@ async function session(request: APIRequestContext, workspace: Workspace, filePat
     await request.post('/api/files/collaboration/session', { headers: { 'x-canvas-workspace-id': workspace.id },
       data: { path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES } }));
   expect(value).toMatchObject({ success: true, provider: 'yjs', representation: 'tiptap_blocks', schemaVersion: 1,
-    richTextSchemaVersion: 3, blockTreeFormatVersion: 1 });
+    richTextSchemaVersion: 4, blockTreeFormatVersion: 1 });
   return { documentId: value.documentId, lifecycleGeneration: value.lifecycleGeneration, representation: value.representation, schemaVersion: value.schemaVersion };
 }
 

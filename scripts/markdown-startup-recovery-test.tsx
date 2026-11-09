@@ -119,7 +119,7 @@ async function main() {
   const fixture = async (next: typeof failure) => {
     failure = next; owner++;
     session = { success: true, documentId: `doc-${owner}`, documentName: `doc-${owner}`, provider: 'yjs', representation: 'tiptap_blocks',
-      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, blockTreeFormatVersion: 1, permission: 'write',
+      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, blockTreeFormatVersion: 1, permission: 'write',
       documentSequence: 1, checkpointSequence: 0, stateVector: '', stateProof: null, token: 'test',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
       user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' } };

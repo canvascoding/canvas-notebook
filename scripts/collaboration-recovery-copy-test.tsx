@@ -138,7 +138,7 @@ async function main() {
     }
     seed.getMap('unrenderedRecoveryData').set('stable-id', 'opaque metadata');
     session = { success: true, documentId: `doc-${owner}`, documentName: `doc-${owner}`, provider: 'yjs', representation,
-      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, blockTreeFormatVersion: 1,
+      lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4, blockTreeFormatVersion: 1,
       permission: 'write', documentSequence: 5, checkpointSequence: 4, stateVector: '', stateProof: null,
       token: 'test-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',
       user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' } };

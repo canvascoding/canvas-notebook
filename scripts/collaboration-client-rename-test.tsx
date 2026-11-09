@@ -40,7 +40,7 @@ async function main() {
   observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'session' } } });
   const server = new Y.Doc(); server.getText('content').insert(0, 'AAA');
   const session: CollaborationSessionResponse = { success: true, documentId: 'rename-doc', documentName: 'rename-doc',
-    provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+    provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
     permission: 'write', documentSequence: 1, checkpointSequence: 1,
     stateVector: Buffer.from(Y.encodeStateVector(server)).toString('base64'), stateProof: collaborationStateProof(server, Y),
     token: 'before-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), websocketUrl: '/ws/collaboration',

@@ -22,7 +22,7 @@ type Call = { input: string; body: string; headers: Headers; signal: AbortSignal
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const busy = (code = 'PRINCIPAL_BUSY') => Response.json({ success: false, error: code, code, retryable: true }, { status: 409 });
 const session: CollaborationSessionResponse = { success: true, documentId: 'startup-doc', documentName: 'startup-doc',
-  provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+  provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
   permission: 'write', token: 'unit-ticket', expiresAt: '2099-01-01T00:00:00.000Z', websocketUrl: '/ws/collaboration',
   user: { id: 'startup-user', name: 'Unit user', color: '#112233', colorLight: '#ddeeff' } };
 

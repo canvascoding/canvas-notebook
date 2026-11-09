@@ -26,7 +26,7 @@ import { collaborationAdmissionLockKey } from './room-admission-contract';
 import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
 import { CollaborationSessionError, parseCollaborationSessionRequest, type CollaborationSessionGrant,
   type CollaborationSessionRequest } from './session-service';
-import { supportsBlockTreeCollaboration, type TextCollaborationRepresentation } from './types';
+import { isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration, supportsRichMarkdownCollaboration, type TextCollaborationRepresentation } from './types';
 import type { RichMigrationRequest, RichMigrationResult } from './representation-migration-contract';
 import { CollaborationRepresentationMigrationError } from './persistence';
 import { advanceAuthenticatedRichRepresentationMigration, changeAuthenticatedCollaborationRepresentation } from './representation-migration';
@@ -238,7 +238,8 @@ function grant(snapshot: ExistingNativeSessionSnapshot, permission: 'read' | 'wr
     projectionFinalized: finalized, ...(snapshot.projectionError ? { projectionError: snapshot.projectionError } : {}) });
 }
 function checkFormat(snapshot: ExistingNativeSessionSnapshot, request: TextRequest): void {
-  if (snapshot.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(request)) {
+  if (isRichTextCollaborationRepresentation(snapshot.representation) && !supportsRichMarkdownCollaboration(request)
+    || snapshot.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(request)) {
     throw new CollaborationSessionError('This document uses a newer collaboration format. Reload or update the editor before opening it.', 409, 'representation_mismatch');
   }
   if (request.representation !== 'auto' && request.representation !== snapshot.representation) {
@@ -257,7 +258,8 @@ async function existing(transport: AuthenticatedNativeSessionTransport, request:
       let snapshot = await assertExistingNativeCollaborationSessionCurrentOnConnection(connection, native);
       checkFormat(snapshot, request);
       const analysis = inspectExistingNativeCollaborationSessionOnConnection(connection, native, (observed): { target: TextCollaborationRepresentation; normalizable: boolean } => {
-        const rich = supportsBlockTreeCollaboration(request) ? 'tiptap_blocks' : 'tiptap_xml';
+        const rich = supportsBlockTreeCollaboration(request) ? 'tiptap_blocks'
+          : supportsRichMarkdownCollaboration(request) ? 'tiptap_xml' : 'plain_text';
         if (/\.txt$/iu.test(request.path)) return { target: snapshot.representation, normalizable: false };
         if (observed.content.kind === 'rich_text') return { target: rich, normalizable: false };
         const mode = analyzeMarkdownRichMode(observed.content.text).mode;
@@ -429,10 +431,12 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
         phase = 'bootstrap'; mutationOrPublicationAttempted = true;
         const target = await retryRead(() => bootstrapTarget(original, workspaceId, requested.path, expectedScope));
         if (target) {
+          const initialRepresentation = requested.representation === 'auto' && !supportsRichMarkdownCollaboration(requested)
+            ? 'plain_text' : requested.representation;
           try { await persistPristineOriginalWorkspaceFileForWrite(original, {
             workspaceId, path: requested.path, operationId: randomUUID(), requestId: randomUUID(), expectedTarget: target,
-            initialRepresentation: requested.representation,
-            ...(requested.representation === 'auto' ? { richFormat: supportsBlockTreeCollaboration(requested) ? 'tiptap_blocks' : 'tiptap_xml' } : {}),
+            initialRepresentation,
+            ...(initialRepresentation === 'auto' ? { richFormat: supportsBlockTreeCollaboration(requested) ? 'tiptap_blocks' : 'tiptap_xml' } : {}),
           }, { openConnection: openDb, expectedRequestScope: expectedScope }); }
           catch (bootstrapError) {
             if (bootstrapError instanceof MarkdownFileImportError && bootstrapError.code === 'MARKDOWN_IMPORT_RICH_UNAVAILABLE') {

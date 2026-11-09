@@ -175,7 +175,7 @@ async function main() {
   let current: Client.CollaborationDocument | null = null;
   const fixtureSession = (label: string, expired = false, guest = false): CollaborationSessionResponse => ({
     success: true, documentId: `synthetic-${label}`, documentName: `synthetic-${label}`, provider: 'yjs',
-    representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
+    representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 4,
     permission: 'write', token: 'synthetic-token', expiresAt: new Date(Date.now() + (expired ? -1 : 600_000)).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'synthetic-owner', name: 'Synthetic', color: '#112233', colorLight: '#ddeeff' },
     ...(guest ? { guestAccess: { invitationId: 'synthetic-invitation', workspaceId: 'synthetic-workspace' } } : {}),
@@ -415,7 +415,7 @@ async function main() {
 
     for (const invalid of [
       { documentId: 'synthetic-replacement', documentName: 'synthetic-replacement' },
-      { lifecycleGeneration: 2 }, { representation: 'tiptap_xml', richTextSchemaVersion: 3 },
+      { lifecycleGeneration: 2 }, { representation: 'tiptap_xml', richTextSchemaVersion: 4 },
       { user: { id: 'synthetic-other', name: 'Other', color: '#123456', colorLight: '#abcdef' } },
       { expiresAt: new Date(0).toISOString() },
     ]) {

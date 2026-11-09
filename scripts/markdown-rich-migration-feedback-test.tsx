@@ -37,7 +37,7 @@ async function main() {
   const finished = () => waitFor(() => assert.equal(screen.getByRole('button', { name: 'Prepare formatted editing' }).hasAttribute('disabled'), false), { timeout: 5000 });
   const sourceUnchanged = () => assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
   const result = (body: Record<string, unknown>, status: string, reason?: string, overrides: object = {}) => Response.json({ success: true,
-    representation: status === 'migrated' ? 'tiptap_blocks' : 'plain_text', richTextSchemaVersion: 3, blockTreeFormatVersion: 1,
+    representation: status === 'migrated' ? 'tiptap_blocks' : 'plain_text', richTextSchemaVersion: 4, blockTreeFormatVersion: 1,
     migration: { requestId: (body.migration as { requestId: string }).requestId, documentId: 'native-doc', lifecycleGeneration: 1, status, reason, ...overrides } });
   let cases = 0;
   try {

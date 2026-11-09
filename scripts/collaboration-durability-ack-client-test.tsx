@@ -64,7 +64,7 @@ async function main() {
   );
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'ack-doc', documentName: 'ack-doc', provider: 'yjs', representation: 'plain_text',
-    lifecycleGeneration: 7, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write',
+    lifecycleGeneration: 7, schemaVersion: 1, richTextSchemaVersion: 4, permission: 'write',
     documentSequence: 1, checkpointSequence: 0, stateVector: Buffer.from(Y.encodeStateVector(seed)).toString('base64'),
     stateProof: collaborationStateProof(seed, Y), token: 'test', expiresAt: new Date(Date.now() + 60_000).toISOString(),
     websocketUrl: '/ws/collaboration', user: { id: 'user', name: 'User', color: '#123456', colorLight: '#abcdef' },

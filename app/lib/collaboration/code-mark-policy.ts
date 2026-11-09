@@ -2,10 +2,10 @@ import type * as YTypes from 'yjs';
 import { Y } from './yjs-runtime';
 import { BLOCK_TREE_KEY } from './block-tree';
 
-export const CODE_MARK_CONFLICT_POLICY = 'code-wins-v1';
+export const CODE_MARK_CONFLICT_POLICY = 'code-wins-except-bold-v2';
 const policyOrigin = Object.freeze({ policy: CODE_MARK_CONFLICT_POLICY });
 // Unknown attributes remain visible to schema validation, never silently lost.
-const excludedSchemaMarks = new Set(['canvasHighlight', 'link', 'bold', 'italic', 'strike', 'underline']);
+const excludedSchemaMarks = new Set(['canvasHighlight', 'link', 'italic', 'strike', 'underline']);
 type Conflict = { text: YTypes.XmlText; offset: number; length: number; marks: string[] };
 
 /** Inspect rich text only; frontmatter and block records are never rewritten. */
@@ -17,7 +17,7 @@ function conflicts(doc: YTypes.Doc): Conflict[] {
         let offset = 0;
         for (const part of child.toDelta()) {
           const length = typeof part.insert === 'string' ? part.insert.length : 1;
-          const marks = Object.keys(part.attributes ?? {}).filter((mark) => mark !== 'code');
+          const marks = Object.keys(part.attributes ?? {}).filter((mark) => mark !== 'code' && mark !== 'bold');
           if (part.attributes?.code != null && marks.length) found.push({ text: child, offset, length, marks });
           offset += length;
         }
@@ -36,7 +36,7 @@ function conflicts(doc: YTypes.Doc): Conflict[] {
 
 export function hasCodeMarkConflicts(doc: YTypes.Doc): boolean { return conflicts(doc).length > 0; }
 
-/** Code excludes every other mark in the existing schema. Formatting is lost. */
+/** Normalize unsupported code combinations. Bold remains intact. */
 export function normalizeCodeMarkConflicts(doc: YTypes.Doc): { mark: string; utf16Units: number }[] {
   const pending = conflicts(doc);
   const losses = new Map<string, number>();
