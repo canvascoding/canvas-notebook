@@ -1511,7 +1511,7 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
       const stopped = (state: TextCollaborationClientState) => !entry.session || entry.session.permission !== 'write'
         || !sameOpenedDocumentSession(session, entry.session) || state.connection === 'denied' || state.admissionBusy
         || state.durability === 'degraded';
-      const confirmed = (state: TextCollaborationClientState) => entry.retentionConnectionReady && !entry.requiresFreshSession
+      const confirmed = (state: TextCollaborationClientState) => entry.retentionConnectionReady === true && !entry.requiresFreshSession
         && state.connection === 'live' && state.ready && state.unsyncedChanges === 0 && state.durability === 'checkpointed_file'
         && state.documentSequence === checkpoint.documentSequence && state.checkpointSequence === checkpoint.checkpointSequence
         && state.checkpointStateProof === proof;
