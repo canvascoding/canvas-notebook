@@ -49,6 +49,12 @@ async function main() {
       await assert.rejects(requestCollaborationDocumentLocation('workspace', 'document', new AbortController().signal),
         error => isRetryableDocumentLocationFailure(error));
     }
+    for (const status of [500, 502, 504]) {
+      globalThis.fetch = async () => new Response('<html>Temporary error</html>', { status });
+      await assert.rejects(requestCollaborationDocumentLocation('workspace', 'document', new AbortController().signal),
+        error => error instanceof CollaborationDocumentLocationRequestError && error.status === status
+          && isRetryableDocumentLocationFailure(error));
+    }
     for (const [status, payload] of [
       [503, { success: false, code: 'FILE_MUTATION_LOCK_BUSY' }],
       [503, { success: false, code: 'FILE_MUTATION_LOCK_UNAVAILABLE', retryable: true }],

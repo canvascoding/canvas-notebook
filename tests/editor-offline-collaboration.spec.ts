@@ -295,6 +295,55 @@ test.describe('Real local Yjs recovery through browser lifecycles', () => {
   });
 });
 
+test('an open Markdown document recovers its location after a temporary gateway failure', async ({ page }, info) => {
+  test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local stack.');
+  if (ownedCollaborationQaEnabled()) await requireOwnedCollaborationQaTarget();
+  else if (process.env.CANVAS_REGULAR_COLLABORATION_E2E === '1') assertRegularCollaborationEnvironment();
+  else expect(baseURL).toBe('http://127.0.0.1:3100');
+  test.setTimeout(120_000);
+
+  const headers = await login(page);
+  const filePath = `location-recovery-${randomUUID()}.md`;
+  await upload(page, headers, filePath, content);
+  try {
+    await openRich(page, filePath);
+    const retrying = page.getByRole('status', { name: 'The document location could not be checked. Retrying…', exact: true });
+    const failed = page.getByRole('status', { name: 'The document location could not be checked.', exact: true });
+    let nextStatus: number | undefined = 502;
+    const locationRoute = '**/api/files/collaboration/location?*';
+    await page.route(locationRoute, async route => {
+      const status = nextStatus;
+      nextStatus = undefined;
+      if (status === 502) await route.fulfill({ status, contentType: 'text/html', body: '<h1>Bad Gateway</h1>' });
+      else if (status === 400) await route.fulfill({ status, json: { success: false } });
+      else await route.continue();
+    });
+    const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/collaboration/location'
+      && response.ok());
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(retrying).toBeVisible();
+    const resolved = await (await response).json();
+    expect(resolved).toMatchObject({ success: true, path: filePath });
+    await expect(retrying).toHaveCount(0);
+    await expect(failed).toHaveCount(0);
+
+    const paragraph = page.locator(selector).getByText('Alpha paragraph.', { exact: true });
+    await paragraph.click();
+    await page.keyboard.press('End');
+    await page.keyboard.insertText(' Location recovered.');
+    await waitForProjectedText(page, headers, filePath, 'Alpha paragraph. Location recovered.');
+
+    nextStatus = 400;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(failed).toBeVisible();
+    await expect(retrying).toHaveCount(0);
+    await expect(page.locator(selector)).toContainText('Location recovered.');
+    await info.attach('terminal-location-warning', { body: await failed.screenshot(), contentType: 'image/png' });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(failed).toHaveCount(0);
+  } finally { await cleanFiles(page.context(), headers, [filePath]); }
+});
+
 // The pre-fix causal trace records six open SSE requests, a five-second queued
 // fetch, and release 124ms after closing a tab. This regression now asserts the
 // supported multi-tab behavior through the actual replacement transport.

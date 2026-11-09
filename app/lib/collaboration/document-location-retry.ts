@@ -29,6 +29,7 @@ export function isRetryableDocumentLocationFailure(error: unknown): boolean {
   if (status === 409 && (code === 'PRINCIPAL_BUSY' || code === 'NATIVE_SESSION_BUSY')) return true;
   return error instanceof CollaborationDocumentLocationRequestError
     && ((status === 503 && (code === 'FILE_MUTATION_LOCK_TIMEOUT' || code === 'FILE_MUTATION_LOCK_BUSY'))
+      || ((status === 500 || status === 502 || status === 504) && code === 'LOCATION_SERVER_ERROR')
       || (status === undefined && (code === 'LOCATION_NETWORK_ERROR' || code === 'LOCATION_TIMEOUT')));
 }
 

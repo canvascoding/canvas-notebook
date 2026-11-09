@@ -11,7 +11,7 @@ import { hasCurrentOpenedDocumentSessionAuthorization, openedDocumentAuthScope,
   subscribeOpenedDocumentAuthInvalidation } from './opened-document-registry';
 import type { CollaborationSessionResponse, TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
 
-export type CollaborationLocationIssue = 'unavailable' | 'generationChanged' | 'lookupFailed';
+export type CollaborationLocationIssue = 'unavailable' | 'generationChanged' | 'lookupRetrying' | 'lookupFailed';
 
 type LocationInput = {
   workspaceId: string | null;
@@ -128,8 +128,11 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     const resolve = async () => {
       if (!isCurrent() || !requested || !retryBudget) return;
       const budget = retryBudget, authScope = retryAuthScope;
-      if (openedDocumentAuthScope() !== authScope || budget.attempts >= 6 || Date.now() >= budget.deadline) {
+      if (openedDocumentAuthScope() !== authScope) {
         requested = false; retryBudget = null; return;
+      }
+      if (budget.attempts >= 6 || Date.now() >= budget.deadline) {
+        report('lookupFailed'); requested = false; retryBudget = null; return;
       }
       requested = false;
       budget.attempts++;
@@ -160,7 +163,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
           } else {
             // A current ID reply does not imply that the mounted editor can
             // adopt it yet. Reobserve within this same finite refresh window.
-            report('lookupFailed'); requested = true;
+            requested = budget.attempts < 6 && Math.max(Date.now() + 150, lastStarted + 1000) < budget.deadline;
+            report(requested ? 'lookupRetrying' : 'lookupFailed');
+            if (!requested) retryBudget = null;
           }
         }
         else {
@@ -185,9 +190,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
         }
       } catch (error) {
         if (canApply()) {
-          report('lookupFailed');
           const delay = nextDocumentLocationRetryDelay(budget, error);
           requested = delay !== null;
+          report(requested ? 'lookupRetrying' : 'lookupFailed');
           if (delay === null) retryBudget = null;
         }
       } finally {
@@ -203,6 +208,7 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       if (timer) clearTimeout(timer);
       timer = null;
       active?.abort(new Error('The signed-in session changed.'));
+      if (isCurrent()) report(null);
     };
     const removeAuthListener = subscribeOpenedDocumentAuthInvalidation(onAuthInvalidated);
     const onFileChange = (event: Event) => {

@@ -351,8 +351,10 @@ async function main() {
     const authBusy = requests.length;
     await terminalHint({ workspaceId: 'workspace' }); await until(() => requests.length === authBusy + 1);
     await reply(authBusy, file.path);
+    assert.equal(document.querySelector('#root output')?.textContent, 'lookupRetrying');
     const { invalidateOpenedDocumentAuth } = await import('../app/lib/collaboration/opened-document-registry');
     await act(async () => invalidateOpenedDocumentAuth());
+    assert.equal(document.querySelector('#root output')?.textContent, 'ok');
     await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
     assert.equal(requests.length, authBusy + 1, 'auth invalidation cancels an already scheduled retry');
 
@@ -521,7 +523,7 @@ async function main() {
     await render(); await until(() => requests.length === adoptionLookup + 1);
     await reply(adoptionLookup, 'moved/adoption-recovered.txt');
     expectPath(file.path); assert.equal(adoptionRejoins, 0);
-    assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+    assert.equal(document.querySelector('#root output')?.textContent, 'lookupRetrying');
     assert.equal(useFileStore.getState().currentFile, retryFile);
     assert.equal(useEditorStore.getState().draft, 'Pending adoption draft');
     await act(async () => useEditorStore.setState({ activePath: file.path }));
@@ -552,7 +554,7 @@ async function main() {
       await until(() => requests.length === boundedLookup + attempt + 1);
       await reply(boundedLookup + attempt, 'moved/never-adopted.txt');
       expectPath(file.path); assert.equal(useFileStore.getState().currentFile, blockedFile);
-      assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+      assert.equal(document.querySelector('#root output')?.textContent, attempt === 5 ? 'lookupFailed' : 'lookupRetrying');
     }
     await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
     assert.equal(requests.length, boundedLookup + 6, 'false adoption cannot create an unbounded location loop');

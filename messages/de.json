@@ -1904,7 +1904,8 @@
       "location": {
         "unavailable": "Dieses Dokument ist an seinem gespeicherten Ort nicht mehr verfügbar. Der offene Entwurf bleibt erhalten.",
         "generationChanged": "Das Dokument wurde neu initialisiert. Der offene Entwurf bleibt erhalten; der Speicherort wurde nicht gewechselt.",
-        "lookupFailed": "Der Speicherort konnte nicht geprüft werden. Die Abfrage wird wiederholt…"
+        "lookupRetrying": "Der Speicherort konnte nicht geprüft werden. Die Abfrage wird wiederholt…",
+        "lookupFailed": "Der Speicherort konnte nicht geprüft werden."
       },
       "revisionCheck": "Revision geprüft",
       "lockRequired": "Lock erforderlich",
