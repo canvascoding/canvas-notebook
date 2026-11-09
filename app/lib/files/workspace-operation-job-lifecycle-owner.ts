@@ -1,5 +1,6 @@
 import { withMixedSourceEvidenceValidationReuse } from './workspace-operation-mixed-source-evidence-v5';
 import 'server-only';
+import { WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, workspaceLinkSourceVisibleSql } from '../markdown/workspace-link-source-paths';
 import { decodeWorkspaceOperationCohortDeletePlan, captureWorkspaceOperationCohortDeleteCurrent,
   WorkspaceOperationCohortDeleteError, failCohortDelete } from './workspace-operation-cohort-delete-plan';
 import { parseCohortDeleteIntent, type CohortDeleteIntent, type CohortDeleteResult } from './workspace-operation-cohort-delete-evidence';
@@ -1123,7 +1124,8 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
       if (result?.locked !== true) fail('JOB_LIFECYCLE_CHANGED');
     }
     const rows = await database.all(`SELECT document_id,room_owner_token,room_owner_backend_pid,room_owner_backend_start
-      FROM ${prefix}.collaboration_yjs_states WHERE workspace_id=$1 AND status='active' ORDER BY document_id COLLATE "C" LIMIT 1025`,[input.workspaceId]) as Array<Record<string,unknown>>;
+      FROM ${prefix}.collaboration_yjs_states WHERE workspace_id=$1 AND status='active' AND ${workspaceLinkSourceVisibleSql('path', 2)}
+      ORDER BY document_id COLLATE "C" LIMIT 1025`,[input.workspaceId, ...WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS]) as Array<Record<string,unknown>>;
     const rowsById = new Map(rows.map(row => [row.document_id,row])), expectedIds = new Set(captured.nativePaths!.documentIds);
     if (rows.length !== expectedIds.size || rowsById.size !== rows.length || rows.some(row => !expectedIds.has(row.document_id as string) || row.room_owner_token !== null
       || row.room_owner_backend_pid !== null || row.room_owner_backend_start !== null

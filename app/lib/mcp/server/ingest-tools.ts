@@ -24,7 +24,7 @@ import { directMcpFailurePhase, logDirectMcpToolFailure } from './tool-failure';
 type IngestTool = 'create_knowledge_source' | 'import_knowledge_file';
 const securitySchemes = [{ type: 'oauth2' as const, scopes: ['knowledge:write'] }];
 const commonProperties = {
-  action: { type: 'string', enum: ['create', 'status'], default: 'create', description: 'Use status with workspace_id, path and the original idempotency_key to inspect durable storage without writing or resubmitting content.' },
+  action: { type: 'string', enum: ['create', 'status'], default: 'create', description: 'Use status with workspace_id, path and the original idempotency_key to inspect the historical receipt without writing or resubmitting content. not_found_for_request means no matching receipt was found under the current connection identity.' },
   api_version: { type: 'integer', const: 1, description: 'Request the native document result with stable identity and confirmed versions. Requires native Markdown creation; omit for the legacy file receipt.' },
   workspace_id: { type: 'string', minLength: 1, maxLength: 200, description: 'An explicitly allowed, writable Canvas workspace.' },
   path: { type: 'string', minLength: 1, maxLength: 1024, description: 'New workspace-relative file path. Existing files are never overwritten.' },
@@ -103,9 +103,15 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
       return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
     } catch (error) {
       if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:write');
-      const body = { code: error instanceof DirectMcpFileIngestError ? error.code : 'MCP_INGEST_STATUS_UNCONFIRMED',
+      const busy = error instanceof DirectMcpDocumentReadPrincipalError && error.code === 'MCP_READ_PRINCIPAL_BUSY';
+      const code = error instanceof DirectMcpFileIngestError ? error.code
+        : busy ? error.code
+        : error instanceof MarkdownCreateBirthError ? 'MCP_INGEST_RECOVERY_REQUIRED' : 'MCP_INGEST_STATUS_UNCONFIRMED';
+      const receiptStatus = code === 'MCP_INGEST_IDEMPOTENCY_CONFLICT' ? 'request_mismatch'
+        : code === 'MCP_INGEST_RECOVERY_REQUIRED' ? 'unverifiable' : 'lookup_failed';
+      const body = { code, error_code: code, receipt_status: receiptStatus,
         correlation_id: correlationId, phase: 'status', storage_status: 'unknown',
-        retryable: !(error instanceof DirectMcpFileIngestError && error.code === 'MCP_INGEST_IDEMPOTENCY_CONFLICT') };
+        retryable: receiptStatus === 'lookup_failed', ...(busy ? { retry_after_ms: 250 } : {}) };
       logDirectMcpToolFailure(body);
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
     }

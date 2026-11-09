@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
+import { WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, workspaceLinkSourceVisibleSql } from '../markdown/workspace-link-source-paths';
 
 export type WorkspaceDocumentCatalogueEntry = {
   id: string;
@@ -44,6 +45,7 @@ export async function readWorkspaceDocumentCatalogue(
   connection: SqlConnection,
   workspace: WorkspaceContext,
   options: { paths?: readonly string[]; maxEntries?: number; maxTextBytes?: number;
+    visibleLinkSources?: true;
     /** Non-executable index reads may diagnose an inactive, otherwise exactly
      * scoped state. Default catalogue consumers retain strict rejection. */
     sourceScope?: 'document-index' } = {},
@@ -66,6 +68,10 @@ export async function readWorkspaceDocumentCatalogue(
     throw new Error('Document catalogue scopes must be canonical workspace paths.');
   }
   const orphanText = '(COALESCE(octet_length(s.document_id),0)::bigint+COALESCE(octet_length(s.path),0)::bigint)';
+  const catalogueParams = [workspace.workspaceId, pathsInScope, ...(options.visibleLinkSources
+    ? WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS : [])];
+  const visible = (column: 's.path' | 'd.path') => options.visibleLinkSources
+    ? `AND ${workspaceLinkSourceVisibleSql(column, 3)}` : '';
   const orphan = await connection.get(`SELECT ${textBudget === undefined ? 's.document_id,s.path' :
     `CASE WHEN ${orphanText}<=${textBudget} AND octet_length(s.document_id)<=16384 THEN s.document_id END AS document_id,
      CASE WHEN ${orphanText}<=${textBudget} AND octet_length(s.path)<=16384 THEN s.path END AS path,
@@ -74,9 +80,10 @@ export async function readWorkspaceDocumentCatalogue(
     LEFT JOIN collaboration_documents d ON d.id=s.document_id
     WHERE s.workspace_id=$1 AND s.status='active'
       AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(scope) WHERE p.scope='' OR s.path=p.scope OR left(s.path,length(p.scope)+1)=p.scope||'/')
+      ${visible('s.path')}
       AND (d.id IS NULL OR d.status<>'active' OR d.provider<>'yjs' OR d.workspace_id<>s.workspace_id
         OR d.path<>s.path OR d.organization_id IS DISTINCT FROM s.organization_id)
-    LIMIT 1`, [workspace.workspaceId, pathsInScope]) as { document_id: string; path: string; oversized_text?: boolean } | undefined;
+    LIMIT 1`, catalogueParams) as { document_id: string; path: string; oversized_text?: boolean } | undefined;
   if (orphan?.oversized_text) tooLarge();
   if (orphan) throw new WorkspaceDocumentCatalogueError('orphan-state', orphan.document_id, orphan.path);
   const textColumns = [['d.id', 'id'], ['d.lineage_id', 'lineage_id'], ['d.path', 'path'], ['d.workspace_id', 'workspace_id'],
@@ -97,9 +104,10 @@ export async function readWorkspaceDocumentCatalogue(
     FROM collaboration_documents d LEFT JOIN collaboration_yjs_states s ON s.document_id=d.id
     WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'
       AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(scope) WHERE p.scope='' OR d.path=p.scope OR left(d.path,length(p.scope)+1)=p.scope||'/')
-    ORDER BY d.path,d.id${entryLimit === undefined ? '' : ' LIMIT $3'}`,
-  entryLimit === undefined ? [workspace.workspaceId, pathsInScope]
-    : [workspace.workspaceId, pathsInScope, entryLimit + 1]) as (WorkspaceDocumentCatalogueEntry & { catalogue_text_budget_exceeded?: boolean })[];
+      ${visible('d.path')}
+    ORDER BY d.path,d.id${entryLimit === undefined ? '' : ` LIMIT $${catalogueParams.length + 1}`}`,
+  entryLimit === undefined ? catalogueParams
+    : [...catalogueParams, entryLimit + 1]) as (WorkspaceDocumentCatalogueEntry & { catalogue_text_budget_exceeded?: boolean })[];
   if (textBudget !== undefined && documents.some(document => document.catalogue_text_budget_exceeded)) tooLarge();
   if (entryLimit !== undefined && documents.length > entryLimit) {
     throw Object.assign(new Error('Too many native documents in this download scope.'), {

@@ -134,6 +134,11 @@ jobs:
           set -euo pipefail
           NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/native-document-edit-tool-dispatch-postgres-test.ts 2>&1 | tee "$RUNNER_TEMP/native-agent-edit.log"
           CANVAS_LINK_PARITY_TRANSPORT=agent-registry NODE_ENV=test CANVAS_POSTGRES_VECTOR_ENABLED=false node scripts/run-document-read-tool-dispatch-test.mjs scripts/document-link-write-parity-postgres-test.ts 2>&1 | tee "$RUNNER_TEMP/native-agent-link-parity.log"
+      - name: MCP patch schema and historical ingest receipts
+        run: |
+          set -euo pipefail
+          BETTER_AUTH_BASE_URL=http://localhost node scripts/run-document-read-tool-dispatch-test.mjs scripts/mcp-server-document-edit-contract-test.ts 2>&1 | tee "$RUNNER_TEMP/native-mcp-edit-schema.log"
+          node scripts/run-document-read-tool-dispatch-test.mjs scripts/mcp-ingest-status-postgres-test.ts 2>&1 | tee "$RUNNER_TEMP/native-mcp-ingest-status.log"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.10'
@@ -205,6 +210,8 @@ jobs:
             ${{ runner.temp }}/room-owner-lock-order-native.log
             ${{ runner.temp }}/native-autolink-*.log
             ${{ runner.temp }}/native-mcp-paths.log
+            ${{ runner.temp }}/native-mcp-edit-schema.log
+            ${{ runner.temp }}/native-mcp-ingest-status.log
             ${{ runner.temp }}/native-agent-*.log
             ${{ runner.temp }}/native-sdk-*.log
             ${{ runner.temp }}/sdk-matrix-*/*.log

@@ -15,7 +15,6 @@ import { getNativeInspectionSchema } from '../collaboration/native-inspection-sc
 import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
-import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import { withWorkspaceMutationLock } from '../files/workspace-mutation-lock';
 import { readOriginalMoveCollectorOverlay } from '../files/workspace-operation-original-move-sources';
 import { assertWorkspaceOriginalPathsCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
@@ -29,6 +28,7 @@ import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-c
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 import { readNativeDocumentLinkProjection } from './document-link-read-projection';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
+import { isExcludedWorkspaceLinkSourcePath } from './workspace-link-source-paths';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
 import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, inspectOriginalPhysicalDocumentLinksForRead, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
   type WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
@@ -43,10 +43,6 @@ type Dependencies = {
 };
 const DEFAULT_LIMITS: Limits = { maxPaths: 10_000, maxDepth: 32, maxSourceBytes: MAX_INDEXED_MARKDOWN_BYTES,
   maxTotalSourceBytes: 32 * 1024 * 1024, maxLinks: 20_000 };
-// Same visible-workspace domain as workspace-files/listDirectory. Exclusions
-// are explicit in the stage scope; ignored internal backups are not link sources.
-const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand', '.canvas-copy-backups']);
-const EXCLUDED_FILES = new Set(['.gitkeep', '.keep']);
 class PhysicalStageConflict extends Error {
   constructor(readonly code: string, readonly filePath: string) { super(code); }
 }
@@ -307,7 +303,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     all: (sql, values) => measurement.read(measuring, () => Promise.resolve(connection.all(sql, values))),
   };
   try {
-    const catalogueOptions = { maxEntries: limits.maxPaths, ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
+    const catalogueOptions = { maxEntries: limits.maxPaths, visibleLinkSources: true as const,
+      ...(documentIndexRead ? { sourceScope: 'document-index' as const } : {}) };
     const catalogue = await readWorkspaceDocumentCatalogue(readConnection, workspace, catalogueOptions);
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
@@ -318,7 +315,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     const verifyPhysicalAuthority = async (filePath: string) => {
       const entry = physicalCatalogue?.get(filePath);
       const current = physicalCatalogue ? entry ? [entry] : []
-        : await readWorkspaceDocumentCatalogue(readConnection, workspace, { paths: [filePath] });
+        : await readWorkspaceDocumentCatalogue(readConnection, workspace, { ...catalogueOptions, paths: [filePath] });
       const expected = registered.get(filePath);
       if (current.some((entry) => entry.path !== filePath || entry.authority !== 'pristine')
         || nativeLinkJsonProof(current[0] ?? null) !== nativeLinkJsonProof(expected ?? null)) fail('physical-authority-changed', filePath);
@@ -366,8 +363,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
       for (const child of children) {
         const relativePath = directory.relativePath ? `${directory.relativePath}/${child.name}` : child.name;
         if (!isCanonicalAdmissionPath(relativePath)) { gap('invalid-source-path', relativePath); continue; }
-        if (child.isDirectory() && (EXCLUDED_DIRECTORIES.has(child.name) || directory.depth === 0 && child.name === '.canvas-skill-drafts')
-          || EXCLUDED_FILES.has(child.name) || isInternalWorkspaceStagingPath(child.name)) { excludedPaths.push(relativePath); continue; }
+        if (isExcludedWorkspaceLinkSourcePath(relativePath, child.isDirectory())) { excludedPaths.push(relativePath); continue; }
         if (observed.length >= limits.maxPaths) fail('path-count-limit', relativePath);
         if (documentIndexRead && child.isSymbolicLink()) { gap('unsafe-physical-source', relativePath); continue; }
         // File names came from this actual parent listing. Keep the original
