@@ -3,6 +3,12 @@ name: Notify Control Plane Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published Canvas Notebook release tag to notify again
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -10,46 +16,48 @@ permissions:
 
 jobs:
   notify-control-plane:
-    if: startsWith(github.event.release.tag_name, 'v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve published release
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.[0-9]+$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${REQUESTED_TAG}" \
+            | jq -e --arg tag "$REQUESTED_TAG" '.tag_name == $tag and (.draft | not) and (.prerelease | not) and .published_at != null' >/dev/null
+          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+
       - name: Checkout immutable release source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ steps.target.outputs.tag }}
           fetch-depth: 0
 
       - name: Verify published host CLI artifact
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_ID: ${{ github.event.release.id }}
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
           release_version="${RELEASE_TAG#v}"
           package_version="$(node -p "require('./package.json').version")"
           [[ "$release_version" == "$package_version" ]]
-          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
-          release_api_path="repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
-
-          host_asset_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.tar.gz") | .browser_download_url')"
-          checksum_asset_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.sha256") | .browser_download_url')"
-          linux_amd64_asset_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-amd64.tar.gz") | .browser_download_url')"
-          linux_amd64_checksum_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-amd64.sha256") | .browser_download_url')"
-          linux_arm64_asset_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-arm64.tar.gz") | .browser_download_url')"
-          linux_arm64_checksum_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-arm64.sha256") | .browser_download_url')"
-          metadata_asset_url="$(gh api "$release_api_path" --jq '.assets[] | select(.name == "canvas-notebook-release-metadata.json") | .browser_download_url')"
-          [[ -n "$host_asset_url" && -n "$checksum_asset_url" && -n "$linux_amd64_asset_url" && -n "$linux_amd64_checksum_url" ]]
-          [[ -n "$linux_arm64_asset_url" && -n "$linux_arm64_checksum_url" && -n "$metadata_asset_url" ]]
-
-          curl --fail --location --retry 4 --output canvas-notebook-host-cli.tar.gz "$host_asset_url"
-          curl --fail --location --retry 4 --output canvas-notebook-host-cli.sha256 "$checksum_asset_url"
-          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-amd64.tar.gz "$linux_amd64_asset_url"
-          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-amd64.sha256 "$linux_amd64_checksum_url"
-          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-arm64.tar.gz "$linux_arm64_asset_url"
-          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-arm64.sha256 "$linux_arm64_checksum_url"
-          curl --fail --location --retry 4 --output canvas-notebook-release-metadata.json "$metadata_asset_url"
+          for attempt in 1 2 3 4; do
+            if gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+                --pattern 'canvas-notebook-host-cli.*' \
+                --pattern 'canvas-notebook-linux-cli-amd64.*' \
+                --pattern 'canvas-notebook-linux-cli-arm64.*' \
+                --pattern 'canvas-notebook-release-metadata.json'; then
+              break
+            fi
+            [[ "$attempt" -lt 4 ]] || exit 1
+            sleep "$((2 ** (attempt - 1)))"
+          done
           shasum -a 256 -c canvas-notebook-host-cli.sha256
           shasum -a 256 -c canvas-notebook-linux-cli-amd64.sha256
           shasum -a 256 -c canvas-notebook-linux-cli-arm64.sha256
@@ -124,7 +132,7 @@ jobs:
       - name: Resolve immutable release image digest
         id: image
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
           digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
@@ -136,7 +144,7 @@ jobs:
         env:
           CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
           CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
-          MERGE_TAG: ${{ github.event.release.tag_name }}
+          MERGE_TAG: ${{ steps.target.outputs.tag }}
           GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           HOST_CLI_VERSION: ${{ steps.release.outputs.host_cli_version }}
@@ -144,7 +152,7 @@ jobs:
           LINUX_CLI_AMD64_SHA256: ${{ steps.release.outputs.linux_cli_amd64_sha256 }}
           LINUX_CLI_ARM64_SHA256: ${{ steps.release.outputs.linux_cli_arm64_sha256 }}
           RELEASE_REF: ${{ steps.release.outputs.ref }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
           RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}
           RELEASE_BUILD_RUN_ID: ${{ steps.release.outputs.build_run_id }}
           RELEASE_BUILD_RUN_NUMBER: ${{ steps.release.outputs.build_run_number }}
