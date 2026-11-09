@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { CurrentFile } from '../app/lib/files/types';
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { createAuthenticatedContext } from './helpers/managed-test-context';
 import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 const formattedRegion = '\n**Region `eu-central-1` (Frankfurt)**\n';
@@ -11,6 +11,32 @@ const source = fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/markdown
 const normalized = '# Mail contact\n\n**Canvas [team@example.test](mailto:team@example.test)**\n\n'
   + '- [x] Keep the completed task.\n- [ ] Keep the unfinished task.\n\n- Keep the ordinary list item.\n\n'
   + 'Use [Support](mailto:support@example.test?subject=Hello%20world) for questions.\n' + formattedRegion;
+
+async function uploadSource(request: APIRequestContext, workspaceId: string, filePath: string): Promise<void> {
+  const headers = { 'x-canvas-workspace-id': workspaceId };
+  const uploaded = await request.post('/api/files/upload', { headers, multipart: {
+    path: '.', files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(source) },
+  } });
+  const result = await uploaded.json();
+  if (uploaded.status() !== 202) {
+    expect(uploaded.status()).toBe(200);
+    expect(result).toMatchObject({ success: true, count: 1, files: [filePath] });
+    return;
+  }
+  expect(result).toMatchObject({ code: 'MARKDOWN_UPLOAD_PROJECTION_PENDING', completion: {
+    status: 'projection_pending', targetPath: filePath, uploadId: expect.any(String), fileId: expect.any(String),
+  } });
+  const { uploadId, fileId } = result.completion;
+  await expect.poll(async () => {
+    const completed = await request.post(`/api/files/uploads/${encodeURIComponent(uploadId)}/complete`, {
+      headers, data: { fileId },
+    });
+    expect([200, 202]).toContain(completed.status());
+    const { completion } = await completed.json();
+    expect(completion).toMatchObject({ uploadId, fileId, targetPath: filePath });
+    return completion.status;
+  }, { timeout: 20_000 }).toBe('completed');
+}
 
 async function readDocument(request: APIRequestContext, workspaceId: string, filePath: string): Promise<CurrentFile> {
   const response = await request.get('/api/files/read?path=' + encodeURIComponent(filePath), {
@@ -40,7 +66,7 @@ for (const mobile of [false, true]) {
         localStorage.setItem('canvas.activeWorkspaceId', id);
         localStorage.setItem('canvas.notebook.chatVisible', 'false');
       }, workspaceId);
-      await uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content: source });
+      await uploadSource(context.request, workspaceId, filePath);
       const before = await readDocument(context.request, workspaceId, filePath);
       expect(before.content).toBe(source);
       const documentId = before.collaboration?.document?.id;
