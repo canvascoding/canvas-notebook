@@ -49,15 +49,21 @@ for (const mobile of [false, true]) {
       // A fresh open already requests rich presentation. Its existing startup
       // flow checkpoints and migrates eligible plain-text documents automatically.
       // Observe the real migration receipt rather than racing its transient button.
-      const migrated = page.waitForResponse(response => {
+      const migrationIds = new Set<string>();
+      const migrated = page.waitForResponse(async response => {
         if (!response.url().endsWith('/api/files/collaboration/session') || response.request().method() !== 'POST') return false;
         const request = response.request().postDataJSON();
-        return request.path === filePath && Boolean(request.migration);
-      }, { timeout: 30_000 });
+        if (request.path !== filePath || !request.migration) return false;
+        migrationIds.add(request.migration.requestId);
+        if (!response.ok()) return false;
+        const result = await response.json();
+        return result.migration?.status === 'migrated';
+      }, { timeout: 45_000 });
       await page.goto(`/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
       const receipt = await migrated;
       expect(receipt.status()).toBe(200);
       const request = receipt.request().postDataJSON();
+      expect([...migrationIds]).toEqual([request.migration.requestId]);
       expect(request.migration.expectedDocumentId).toBe(documentId);
       expect(request.migration.stateProof).toMatch(/^yjs-snapshot-sha256-v1:/u);
       expect(await receipt.json()).toMatchObject({ success: true, representation: 'tiptap_blocks',
