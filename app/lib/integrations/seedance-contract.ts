@@ -1,3 +1,21 @@
+export const SEEDANCE_CURRENT_MODEL = 'bytedance/seedance-2-5' as const;
+export const SEEDANCE_LEGACY_MODEL = 'bytedance/seedance-2' as const;
+export const SEEDANCE_CONTRACT_VERSION = 2;
+
+export function resolveNewSeedanceModel(model?: string | null): typeof SEEDANCE_CURRENT_MODEL {
+  if (model === SEEDANCE_LEGACY_MODEL) throw new Error('MODEL_RETIRED: Seedance 2.0 is retired. Select Seedance 2.5 and update your client.');
+  if (model && model !== SEEDANCE_CURRENT_MODEL) throw new Error(`Unsupported Seedance model: ${model}. Select ${SEEDANCE_CURRENT_MODEL}.`);
+  return SEEDANCE_CURRENT_MODEL;
+}
+
+export function migrateSeedanceSelection(model: string): string {
+  return model === SEEDANCE_LEGACY_MODEL ? SEEDANCE_CURRENT_MODEL : model;
+}
+
+export function seedanceStandardOptions(model: string, hasReferences: boolean): Record<string, unknown> {
+  return model === SEEDANCE_CURRENT_MODEL ? { output_format: 'mp4', draft: false, return_last_frame: false, ...(hasReferences ? { omni_reference_task_type: 'reference' } : {}) } : {};
+}
+
 /** Supported KIE generation contracts. Draft enhancement is a separate model/API contract. */
 export const SEEDANCE_CONTRACTS = {
   'bytedance/seedance-2': { maxDuration: 15, images: 9, videos: 3, audios: 3 },

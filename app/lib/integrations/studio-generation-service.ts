@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { validateSeedanceContract, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
+import { resolveNewSeedanceModel, SEEDANCE_LEGACY_MODEL, validateSeedanceContract, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
 
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -814,6 +814,7 @@ export async function createStudioGeneration(
   if (mode === 'video' && (providerId === SEEDANCE_PROVIDER_ID || request.model?.startsWith('bytedance/seedance-'))) {
     try {
       if (providerId !== SEEDANCE_PROVIDER_ID) throw new Error('Seedance models require provider bytedance.');
+      resolveNewSeedanceModel(request.model);
       validateSeedanceContract({
         model: request.model || SEEDANCE_MODEL_ID, duration: request.video_duration,
         resolution: request.video_resolution, aspectRatio: requestedAspectRatio,
@@ -874,7 +875,7 @@ export async function createStudioGeneration(
     request.prompt,
     mode === 'image' && providerId === 'openai'
       ? OPENAI_IMAGE_MAX_PROMPT_LENGTH
-      : DEFAULT_MAX_PROMPT_LENGTH,
+      : mode === 'video' && providerId === SEEDANCE_PROVIDER_ID ? 20_000 : DEFAULT_MAX_PROMPT_LENGTH,
   );
   const productIds = (request.product_ids || []).slice(0, MAX_PRODUCTS);
   const personaIds = (request.persona_ids || []).slice(0, MAX_PERSONAS);
@@ -1247,7 +1248,7 @@ async function executeStudioGenerationProcessing(
   const mode = generation.mode;
   const aspectRatio = generation.aspectRatio;
   const rawPrompt = generation.prompt || '';
-  const model = generation.model;
+  const model = generation.model || (generation.provider === SEEDANCE_PROVIDER_ID ? SEEDANCE_LEGACY_MODEL : generation.model);
   const storageScope: EnvStorageScope = { userId: scope.actorUserId };
 
   console.log(`[Studio Generation] Starting background processing: id=${generationId}, mode=${mode}, provider=${providerId}`);

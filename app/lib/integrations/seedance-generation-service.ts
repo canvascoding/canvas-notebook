@@ -13,10 +13,12 @@ import {
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
 import { resolveStudioProviderCredential } from '@/app/lib/integrations/studio-provider-credentials';
-import { validateSeedanceContract, validateSeedanceMedia, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
+import { SEEDANCE_CURRENT_MODEL, seedanceStandardOptions, validateSeedanceContract, validateSeedanceMedia, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
+
+import { validateSeedanceReferenceContent } from '@/app/lib/integrations/seedance-media-probe';
 
 export const SEEDANCE_PROVIDER_ID = 'bytedance';
-export const SEEDANCE_MODEL_ID = 'bytedance/seedance-2';
+export const SEEDANCE_MODEL_ID = SEEDANCE_CURRENT_MODEL;
 
 const KIE_API_BASE_URL = 'https://api.kie.ai';
 const KIE_UPLOAD_BASE_URL = 'https://kieai.redpandaai.co';
@@ -253,6 +255,7 @@ async function createSeedanceTask(
     aspect_ratio: request.aspectRatio || '16:9',
     duration: (request.durationSeconds ?? 5),
     nsfw_checker: request.nsfwChecker ?? false,
+    ...seedanceStandardOptions(request.model ?? SEEDANCE_MODEL_ID, uploaded.referenceImageUrls.length + uploaded.referenceVideoUrls.length + uploaded.referenceAudioUrls.length > 0),
   };
 
   if (request.webSearch !== undefined) {
@@ -383,6 +386,11 @@ export async function generateSeedanceVideo(
   } catch (error) {
     throw new IntegrationServiceError((error as Error).message, 400);
   }
+  if ((request.model ?? SEEDANCE_MODEL_ID) === SEEDANCE_CURRENT_MODEL) {
+    try {
+      await validateSeedanceReferenceContent([request.firstFrame, request.lastFrame, ...(request.referenceImages || []), ...(request.referenceVideos || []), ...(request.referenceAudios || [])].filter((item): item is SeedanceReferenceMedia => Boolean(item)));
+    } catch (error) { throw new IntegrationServiceError((error as Error).message, 400); }
+  }
   const apiKey = await resolveStudioProviderCredential('kie', request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
@@ -459,24 +467,25 @@ export async function generateSeedanceVideo(
     };
   }
 
-  const uploadJobs: Array<Promise<{ kind: 'first' | 'last' | 'reference' | 'referenceVideo' | 'referenceAudio'; url: string }>> = [];
+  const uploadJobs: Array<() => Promise<{ kind: 'first' | 'last' | 'reference' | 'referenceVideo' | 'referenceAudio'; url: string }>> = [];
   if (request.firstFrame) {
-    uploadJobs.push(uploadReferenceImage(apiKey!, request.firstFrame, 0).then((url) => ({ kind: 'first' as const, url })));
+    uploadJobs.push(() => uploadReferenceImage(apiKey!, request.firstFrame!, 0).then((url) => ({ kind: 'first' as const, url })));
   }
   if (request.lastFrame) {
-    uploadJobs.push(uploadReferenceImage(apiKey!, request.lastFrame, 1).then((url) => ({ kind: 'last' as const, url })));
+    uploadJobs.push(() => uploadReferenceImage(apiKey!, request.lastFrame!, 1).then((url) => ({ kind: 'last' as const, url })));
   }
   referenceImages.forEach((image, index) => {
-    uploadJobs.push(uploadReferenceImage(apiKey!, image, index).then((url) => ({ kind: 'reference' as const, url })));
+    uploadJobs.push(() => uploadReferenceImage(apiKey!, image, index).then((url) => ({ kind: 'reference' as const, url })));
   });
   referenceVideos.forEach((video, index) => {
-    uploadJobs.push(uploadReferenceImage(apiKey!, video, index).then((url) => ({ kind: 'referenceVideo' as const, url })));
+    uploadJobs.push(() => uploadReferenceImage(apiKey!, video, index).then((url) => ({ kind: 'referenceVideo' as const, url })));
   });
   referenceAudios.forEach((audio, index) => {
-    uploadJobs.push(uploadReferenceImage(apiKey!, audio, index).then((url) => ({ kind: 'referenceAudio' as const, url })));
+    uploadJobs.push(() => uploadReferenceImage(apiKey!, audio, index).then((url) => ({ kind: 'referenceAudio' as const, url })));
   });
 
-  const uploadedResults = await Promise.all(uploadJobs);
+  const uploadedResults = [];
+  for (const upload of uploadJobs) uploadedResults.push(await upload());
   const uploaded = {
     firstFrameUrl: uploadedResults.find((item) => item.kind === 'first')?.url,
     lastFrameUrl: uploadedResults.find((item) => item.kind === 'last')?.url,

@@ -1,3 +1,4 @@
+import { seedanceMediaFixture } from './seedance-media-fixture';
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { promises as fs } from 'node:fs';
@@ -58,7 +59,7 @@ async function main() {
     }
 
     if (url.includes('/api/v1/jobs/createTask')) {
-      assert.equal(body?.model, 'bytedance/seedance-2');
+      assert.equal(body?.model, 'bytedance/seedance-2-5');
       assert.equal(body?.input?.prompt, 'A tiny cinematic test\n\n\tKeep the original colors.\nSlow camera.');
       assert.equal(body?.input?.first_frame_url, 'https://tempfile.redpandaai.co/test/start-frame.png');
       assert.equal(body?.input?.resolution, '480p');
@@ -108,7 +109,7 @@ async function main() {
       resolution: '480p',
       durationSeconds: 15,
       firstFrame: {
-        imageBytes: Buffer.from('frame').toString('base64'),
+        imageBytes: seedanceMediaFixture('image').imageBytes,
         mimeType: 'image/png',
         fileName: 'start.png',
       },
@@ -133,13 +134,13 @@ async function main() {
     }
     assert.equal(calls.length, callsBeforeInvalid, 'Invalid prompts must fail before provider HTTP requests');
 
-    const fixture = { imageBytes: Buffer.from('ref').toString('base64'), mimeType: 'image/png' };
+    const fixture = seedanceMediaFixture('image');
     for (const invalid of [
       { model: 'bytedance/seedance-2-5-draft' }, { model: 'bytedance/seedance-2-fast' },
-      { durationSeconds: -1 }, { durationSeconds: 3 }, { durationSeconds: 16 }, { durationSeconds: 5.5 },
+      { durationSeconds: -1 }, { durationSeconds: 3 }, { durationSeconds: 31 }, { durationSeconds: 5.5 },
       { resolution: '4k' }, { aspectRatio: 'bogus' }, { generateAudio: 'true' },
       { lastFrame: fixture }, { firstFrame: fixture, referenceImages: [fixture] },
-      { referenceImages: Array(10).fill(fixture) }, { firstFrame: fixture, webSearch: true },
+      { referenceImages: Array(31).fill(fixture) },
       { model: 'bytedance/seedance-2-5', durationSeconds: 31 },
       { model: 'bytedance/seedance-2-5', referenceImages: Array(31).fill(fixture) },
       { model: 'bytedance/seedance-2-5', referenceImages: [{ ...fixture, mimeType: 'image/gif' }] },
@@ -160,6 +161,9 @@ async function main() {
         const body = JSON.parse(String(init?.body));
         assert.equal(body.model, 'bytedance/seedance-2-5');
         assert.equal(body.input.duration, 30);
+        assert.equal(body.input.omni_reference_task_type, 'reference');
+        assert.equal(body.input.output_format, 'mp4');
+        assert.equal(body.input.draft, false);
         assert.equal(body.input.reference_image_urls.length, 30);
         assert.equal(body.input.reference_video_urls.length, 10);
         assert.equal(body.input.reference_audio_urls.length, 10);
@@ -173,8 +177,8 @@ async function main() {
     const result25 = await generateSeedanceVideo({
       model: 'bytedance/seedance-2-5', prompt: 'Seedance 2.5 reference test', durationSeconds: 30,
       referenceImages: Array(30).fill(fixture),
-      referenceVideos: Array(10).fill({ ...fixture, mimeType: 'video/mp4' }),
-      referenceAudios: Array(10).fill({ ...fixture, mimeType: 'audio/mpeg' }),
+      referenceVideos: Array(10).fill(seedanceMediaFixture('video')),
+      referenceAudios: Array(10).fill(seedanceMediaFixture('audio')),
       pollIntervalMs: 1, timeoutMs: 1000,
     });
     assert.equal(uploads25, 50);
