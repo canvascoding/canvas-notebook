@@ -106,6 +106,7 @@ export const VIDEO_MODELS = [
 
 export const SEEDANCE_VIDEO_MODELS = [
   { id: 'bytedance/seedance-2', optionKey: 'seedance2' as const },
+  { id: 'bytedance/seedance-2-5', optionKey: 'seedance25' as const },
 ] as const;
 
 export const SOUND_MODELS = [
@@ -124,7 +125,8 @@ export const SEEDANCE_VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
 export const VIDEO_DURATIONS = [4, 6, 8] as const;
 export const SEEDANCE_VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
-export type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
+export const SEEDANCE_25_VIDEO_DURATIONS = [...SEEDANCE_VIDEO_DURATIONS, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
+export type SeedanceVideoDuration = (typeof SEEDANCE_25_VIDEO_DURATIONS)[number];
 export type StudioVideoDuration = VideoDuration | SeedanceVideoDuration;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number] | (typeof SEEDANCE_VIDEO_RESOLUTIONS)[number];
 
@@ -173,13 +175,14 @@ export function getVideoModelCapabilities(modelId: string): VideoModelCapabiliti
 }
 
 export function getVideoResolutionsForModel(modelId: string): readonly VideoResolution[] {
-  if (modelId === 'bytedance/seedance-2') {
+  if (modelId === 'bytedance/seedance-2' || modelId === 'bytedance/seedance-2-5') {
     return SEEDANCE_VIDEO_RESOLUTIONS;
   }
   return getVideoModelCapabilities(modelId).resolutions;
 }
 
 export function getVideoDurationsForModel(modelId: string): readonly StudioVideoDuration[] {
+  if (modelId === 'bytedance/seedance-2-5') return SEEDANCE_25_VIDEO_DURATIONS;
   if (modelId === 'bytedance/seedance-2') {
     return SEEDANCE_VIDEO_DURATIONS;
   }

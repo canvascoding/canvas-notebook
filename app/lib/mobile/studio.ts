@@ -157,9 +157,9 @@ function normalizeReferencePath(value: unknown): string {
   return referencePath;
 }
 
-function parseReferences(value: unknown, mode: MobileStudioMode, provider: string): MobileStudioReference[] {
+function parseReferences(value: unknown, mode: MobileStudioMode, provider: string, model: string): MobileStudioReference[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.length > MAX_REFERENCE_COUNT) {
+  if (!Array.isArray(value) || value.length > (mode === 'video' && model === 'bytedance/seedance-2-5' ? 50 : MAX_REFERENCE_COUNT)) {
     throw new MobileStudioError('Too many Studio references were selected.', 400, 'REFERENCE_LIMIT');
   }
   const references = value.map((entry) => {
@@ -178,16 +178,17 @@ function parseReferences(value: unknown, mode: MobileStudioMode, provider: strin
     throw new MobileStudioError('Sound generation accepts visual references only.', 400, 'INVALID_REFERENCE');
   }
   if (mode === 'video') {
-    const imageLimit = provider === 'bytedance' ? 9 : 3;
+    const imageLimit = provider === 'bytedance' ? (model === 'bytedance/seedance-2-5' ? 30 : 9) : 3;
+    const mediaLimit = model === 'bytedance/seedance-2-5' ? 10 : 3;
     if (references.filter((reference) => reference.kind === 'image').length > imageLimit) {
       throw new MobileStudioError(`This video provider accepts at most ${imageLimit} image references.`, 400, 'REFERENCE_LIMIT');
     }
     if (provider !== 'bytedance' && references.some((reference) => reference.kind !== 'image')) {
       throw new MobileStudioError('Veo Quick Create accepts image references only.', 400, 'INVALID_REFERENCE');
     }
-    if (references.filter((reference) => reference.kind === 'video').length > 3
-      || references.filter((reference) => reference.kind === 'audio').length > 3) {
-      throw new MobileStudioError('Seedance accepts at most three video and three audio references.', 400, 'REFERENCE_LIMIT');
+    if (references.filter((reference) => reference.kind === 'video').length > mediaLimit
+      || references.filter((reference) => reference.kind === 'audio').length > mediaLimit) {
+      throw new MobileStudioError(`This Seedance model accepts at most ${mediaLimit} video and ${mediaLimit} audio references.`, 400, 'REFERENCE_LIMIT');
     }
   }
   return references;
@@ -218,7 +219,7 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   if (prompt === null) {
     throw new MobileStudioError('Prompt is invalid.', 400, 'INVALID_STUDIO_REQUEST');
   }
-  const references = parseReferences(value.references, mode, provider);
+  const references = parseReferences(value.references, mode, provider, model);
   const productIds = identifierArray(value.productIds, 'Products', 5);
   const personaIds = identifierArray(value.personaIds, 'Personas', 3);
   const styleIds = identifierArray(value.styleIds, 'Styles', 3);
@@ -378,6 +379,7 @@ function modelLabel(modelId: string): string {
     'veo-3.1-fast-generate-preview': 'Veo 3.1 Fast',
     'veo-3.1-lite-generate-preview': 'Veo 3.1 Lite',
     'bytedance/seedance-2': 'Seedance 2',
+    'bytedance/seedance-2-5': 'Seedance 2.5',
     'lyria-3-clip-preview': 'Lyria 3 Clip',
     'lyria-3-pro-preview': 'Lyria 3 Pro',
   };

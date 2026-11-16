@@ -137,6 +137,7 @@ export function StudioPromptComposer({
     const budget = getVideoImageReferenceBudget({
       mode,
       provider,
+      model: state.model,
       productRefs: overrides.productRefs ?? state.productRefs,
       personaRefs: overrides.personaRefs ?? state.personaRefs,
       styleRefs: overrides.styleRefs ?? state.styleRefs,
@@ -161,6 +162,7 @@ export function StudioPromptComposer({
   return (
     <>
       <PromptBar
+        videoModel={state.model}
         value={promptBarValue}
         mode={state.mode}
         provider={state.provider}
@@ -209,6 +211,7 @@ export function StudioPromptComposer({
             const budget = getVideoImageReferenceBudget({
               mode: state.mode,
               provider: state.provider,
+              model: state.model,
               productRefs: state.productRefs,
               personaRefs: state.personaRefs,
               styleRefs: state.styleRefs,
@@ -220,7 +223,7 @@ export function StudioPromptComposer({
             return;
           }
 
-          const limit = getFileReferenceLimitForMode(state.mode, state.provider);
+          const limit = getFileReferenceLimitForMode(state.mode, state.provider, state.model);
           const allowedPaths = typeof limit === 'number'
             ? paths.slice(0, Math.max(limit - state.fileRefs.length, 0))
             : paths;

@@ -463,6 +463,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     const budget = getVideoImageReferenceBudget({
       mode,
       provider: overrides.provider ?? store.provider,
+      model: store.model,
       productRefs: overrides.productRefs ?? store.productRefs,
       personaRefs: overrides.personaRefs ?? store.personaRefs,
       styleRefs: overrides.styleRefs ?? store.styleRefs,
@@ -964,6 +965,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
           ? payload.files.slice(0, getVideoImageReferenceBudget({
             mode: currentState.mode,
             provider: currentState.provider,
+            model: currentState.model,
             productRefs: currentState.productRefs,
             personaRefs: currentState.personaRefs,
             styleRefs: currentState.styleRefs,

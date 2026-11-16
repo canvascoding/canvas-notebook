@@ -13,7 +13,7 @@ import {
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
 import { resolveStudioProviderCredential } from '@/app/lib/integrations/studio-provider-credentials';
-import { SEEDANCE_MAX_REFERENCE_IMAGES } from '@/app/lib/integrations/image-generation-constants';
+import { validateSeedanceContract, validateSeedanceMedia, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
 
 export const SEEDANCE_PROVIDER_ID = 'bytedance';
 export const SEEDANCE_MODEL_ID = 'bytedance/seedance-2';
@@ -39,6 +39,7 @@ export interface SeedanceReferenceMedia {
 }
 
 export interface GenerateSeedanceVideoRequest {
+  model?: SeedanceModelId;
   prompt: string;
   aspectRatio?: SeedanceAspectRatio;
   resolution?: SeedanceResolution;
@@ -124,11 +125,6 @@ function promptToSlug(prompt: string): string {
   return slug || 'seedance-video';
 }
 
-function clampDuration(durationSeconds?: number): number {
-  const normalized = Math.round(durationSeconds || 5);
-  return Math.min(Math.max(normalized, 4), 15);
-}
-
 function extensionFromMime(mimeType: string): string {
   if (mimeType.includes('quicktime')) return 'mov';
   if (mimeType.includes('webm')) return 'webm';
@@ -136,6 +132,9 @@ function extensionFromMime(mimeType: string): string {
 }
 
 function extensionForMedia(mimeType: string): string {
+  if (mimeType.includes('matroska')) return 'mkv';
+  if (mimeType.includes('aac')) return 'aac';
+  if (mimeType.includes('ogg')) return 'ogg';
   if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
   if (mimeType.includes('wav') || mimeType.includes('wave')) return 'wav';
   if (mimeType.includes('quicktime')) return 'mov';
@@ -252,7 +251,7 @@ async function createSeedanceTask(
     generate_audio: request.generateAudio ?? true,
     resolution: request.resolution || '720p',
     aspect_ratio: request.aspectRatio || '16:9',
-    duration: clampDuration(request.durationSeconds),
+    duration: (request.durationSeconds ?? 5),
     nsfw_checker: request.nsfwChecker ?? false,
   };
 
@@ -282,7 +281,7 @@ async function createSeedanceTask(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: SEEDANCE_MODEL_ID,
+        model: request.model ?? SEEDANCE_MODEL_ID,
         input,
       }),
     },
@@ -361,6 +360,29 @@ async function downloadVideo(url: string): Promise<{ bytes: Buffer; mimeType: st
 export async function generateSeedanceVideo(
   request: GenerateSeedanceVideoRequest,
 ): Promise<SeedanceVideoGenerationResult> {
+  try {
+    validateSeedanceContract({
+      model: request.model ?? SEEDANCE_MODEL_ID,
+      duration: request.durationSeconds, resolution: request.resolution, aspectRatio: request.aspectRatio,
+      firstFrame: Boolean(request.firstFrame), lastFrame: Boolean(request.lastFrame),
+      images: request.referenceImages?.length, videos: request.referenceVideos?.length, audios: request.referenceAudios?.length,
+      webSearch: request.webSearch, generateAudio: request.generateAudio, nsfwChecker: request.nsfwChecker,
+    });
+  } catch (error) {
+    throw new IntegrationServiceError((error as Error).message, 400);
+  }
+  try {
+    for (const [kind, references] of [
+      ['image', [request.firstFrame, request.lastFrame, ...(request.referenceImages || [])]],
+      ['video', request.referenceVideos || []], ['audio', request.referenceAudios || []],
+    ] as const) {
+      for (const reference of references) {
+        if (reference) validateSeedanceMedia(request.model ?? SEEDANCE_MODEL_ID, kind, reference.mimeType, Buffer.byteLength(reference.imageBytes, 'base64'));
+      }
+    }
+  } catch (error) {
+    throw new IntegrationServiceError((error as Error).message, 400);
+  }
   const apiKey = await resolveStudioProviderCredential('kie', request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
@@ -375,17 +397,9 @@ export async function generateSeedanceVideo(
     throw new IntegrationServiceError('Prompt must be at least 3 characters for Seedance.', 400);
   }
 
-  const hasFrameScenario = Boolean(request.firstFrame || request.lastFrame);
-  const referenceImages = (request.referenceImages || []).slice(0, SEEDANCE_MAX_REFERENCE_IMAGES);
-  const referenceVideos = (request.referenceVideos || []).slice(0, 3);
-  const referenceAudios = (request.referenceAudios || []).slice(0, 3);
-  const multimodalReferenceCount = referenceImages.length + referenceVideos.length + referenceAudios.length;
-  if (hasFrameScenario && multimodalReferenceCount > 0) {
-    throw new IntegrationServiceError(
-      'Seedance first/last-frame mode cannot be combined with multimodal reference images, videos, or audio.',
-      400,
-    );
-  }
+  const referenceImages = request.referenceImages || [];
+  const referenceVideos = request.referenceVideos || [];
+  const referenceAudios = request.referenceAudios || [];
 
   if (useManagedFallback) {
     const references = [
@@ -398,12 +412,12 @@ export async function generateSeedanceVideo(
     const managed = await generateManagedMedia({
       capability: 'video',
       provider: 'kie',
-      model: SEEDANCE_MODEL_ID,
+      model: request.model ?? SEEDANCE_MODEL_ID,
       prompt,
       parameters: {
         resolution: request.resolution || '720p',
         aspectRatio: request.aspectRatio || '16:9',
-        durationSeconds: clampDuration(request.durationSeconds),
+        durationSeconds: (request.durationSeconds ?? 5),
         generateAudio: request.generateAudio ?? true,
         webSearch: request.webSearch,
         nsfwChecker: request.nsfwChecker ?? false,
@@ -430,12 +444,12 @@ export async function generateSeedanceVideo(
       mimeType: output.mimeType,
       metadata: {
         provider: SEEDANCE_PROVIDER_ID,
-        model: SEEDANCE_MODEL_ID,
+        model: request.model ?? SEEDANCE_MODEL_ID,
         managedFallback: true,
         controlPlaneJobId: managed.jobId,
         resolution: request.resolution || '720p',
         aspectRatio: request.aspectRatio || '16:9',
-        durationSeconds: clampDuration(request.durationSeconds),
+        durationSeconds: (request.durationSeconds ?? 5),
         generateAudio: request.generateAudio ?? true,
         webSearch: request.webSearch ?? null,
         nsfwChecker: request.nsfwChecker ?? false,
@@ -499,14 +513,14 @@ export async function generateSeedanceVideo(
     mimeType: downloaded.mimeType,
     metadata: {
       provider: SEEDANCE_PROVIDER_ID,
-      model: SEEDANCE_MODEL_ID,
+      model: request.model ?? SEEDANCE_MODEL_ID,
       taskId,
       taskState: task.state,
       resultUrl,
       resultUrls,
       resolution: request.resolution || '720p',
       aspectRatio: request.aspectRatio || '16:9',
-      durationSeconds: clampDuration(request.durationSeconds),
+      durationSeconds: (request.durationSeconds ?? 5),
       generateAudio: request.generateAudio ?? true,
       webSearch: request.webSearch ?? null,
       nsfwChecker: request.nsfwChecker ?? false,

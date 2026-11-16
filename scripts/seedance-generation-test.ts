@@ -65,7 +65,7 @@ async function main() {
       assert.equal(body?.input?.aspect_ratio, '21:9');
       assert.equal(body?.input?.duration, 15);
       assert.equal(body?.input?.generate_audio, false);
-      assert.equal(body?.input?.web_search, true);
+      assert.equal(body?.input?.web_search, false);
       assert.equal(body?.input?.nsfw_checker, true);
       return Response.json({ code: 200, msg: 'success', data: { taskId: 'task_bytedance_test' } });
     }
@@ -113,7 +113,7 @@ async function main() {
         fileName: 'start.png',
       },
       generateAudio: false,
-      webSearch: true,
+      webSearch: false,
       nsfwChecker: true,
       pollIntervalMs: 1,
       timeoutMs: 1000,
@@ -132,6 +132,55 @@ async function main() {
       await assert.rejects(generateSeedanceVideo({ prompt }), /invalid control characters or exceeds/);
     }
     assert.equal(calls.length, callsBeforeInvalid, 'Invalid prompts must fail before provider HTTP requests');
+
+    const fixture = { imageBytes: Buffer.from('ref').toString('base64'), mimeType: 'image/png' };
+    for (const invalid of [
+      { model: 'bytedance/seedance-2-5-draft' }, { model: 'bytedance/seedance-2-fast' },
+      { durationSeconds: -1 }, { durationSeconds: 3 }, { durationSeconds: 16 }, { durationSeconds: 5.5 },
+      { resolution: '4k' }, { aspectRatio: 'bogus' }, { generateAudio: 'true' },
+      { lastFrame: fixture }, { firstFrame: fixture, referenceImages: [fixture] },
+      { referenceImages: Array(10).fill(fixture) }, { firstFrame: fixture, webSearch: true },
+      { model: 'bytedance/seedance-2-5', durationSeconds: 31 },
+      { model: 'bytedance/seedance-2-5', referenceImages: Array(31).fill(fixture) },
+      { model: 'bytedance/seedance-2-5', referenceImages: [{ ...fixture, mimeType: 'image/gif' }] },
+    ]) {
+      await assert.rejects(generateSeedanceVideo({ prompt: 'Invalid request', ...invalid } as Parameters<typeof generateSeedanceVideo>[0]));
+    }
+    assert.equal(calls.length, callsBeforeInvalid, 'Invalid contracts must not upload, create or poll tasks');
+    let uploads25 = 0;
+    let create25 = 0;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes('/api/file-base64-upload')) {
+        uploads25++;
+        return Response.json({ success: true, data: { downloadUrl: `https://fixture.example/${uploads25}` } });
+      }
+      if (url.includes('/api/v1/jobs/createTask')) {
+        create25++;
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.model, 'bytedance/seedance-2-5');
+        assert.equal(body.input.duration, 30);
+        assert.equal(body.input.reference_image_urls.length, 30);
+        assert.equal(body.input.reference_video_urls.length, 10);
+        assert.equal(body.input.reference_audio_urls.length, 10);
+        assert.equal(body.input.first_frame_url, undefined);
+        return Response.json({ code: 200, data: { taskId: 'seedance25' } });
+      }
+      if (url.includes('/api/v1/jobs/recordInfo')) return Response.json({ code: 200, data: { state: 'success', resultJson: JSON.stringify({ resultUrls: ['https://fixture.example/result.mp4'] }) } });
+      if (url === 'https://fixture.example/result.mp4') return new Response('video25', { headers: { 'content-type': 'video/mp4' } });
+      throw new Error(`Unexpected Seedance 2.5 fetch: ${url}`);
+    }) as typeof fetch;
+    const result25 = await generateSeedanceVideo({
+      model: 'bytedance/seedance-2-5', prompt: 'Seedance 2.5 reference test', durationSeconds: 30,
+      referenceImages: Array(30).fill(fixture),
+      referenceVideos: Array(10).fill({ ...fixture, mimeType: 'video/mp4' }),
+      referenceAudios: Array(10).fill({ ...fixture, mimeType: 'audio/mpeg' }),
+      pollIntervalMs: 1, timeoutMs: 1000,
+    });
+    assert.equal(uploads25, 50);
+    assert.equal(create25, 1);
+    assert.equal(result25.metadata.model, 'bytedance/seedance-2-5');
+    assert.equal(result25.metadata.durationSeconds, 30);
 
     recordInfoCalls = 0;
     global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {

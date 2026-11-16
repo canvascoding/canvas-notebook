@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { validateSeedanceContract, type SeedanceModelId } from '@/app/lib/integrations/seedance-contract';
+
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { db } from '@/app/lib/db';
@@ -633,12 +635,13 @@ async function assertStudioReferenceReadable(value: string, scope: StudioScope):
   );
 }
 
-async function loadExtraReferenceImages(scope: StudioScope, urls: string[]): Promise<LoadedReferenceImage[]> {
+async function loadExtraReferenceImages(scope: StudioScope, urls: string[], strict = false): Promise<LoadedReferenceImage[]> {
   if (urls.length === 0) return [];
 
   console.log(`[Studio Generation] Loading ${urls.length} extra reference images`);
   await Promise.all(urls.map((url) => assertStudioReferenceReadable(url, scope)));
-  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: ['image'] });
+  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: ['image'], ...(strict ? { maxBytes: 30 * 1024 * 1024 } : {}) });
+  if (strict && files.length !== urls.length) throw new StudioServiceError('Missing Seedance image reference', 'Mindestens eine Bildreferenz konnte nicht geladen werden.', 'INVALID_REQUEST');
 
   return files.map((file) => ({
     imageBytes: file.imageBytes,
@@ -652,12 +655,14 @@ async function loadExtraReferenceImages(scope: StudioScope, urls: string[]): Pro
   }));
 }
 
-async function loadExtraReferenceMedia(scope: StudioScope, urls: string[], mediaType: 'video' | 'audio'): Promise<ProviderReferenceMedia[]> {
+async function loadExtraReferenceMedia(scope: StudioScope, urls: string[], mediaType: 'video' | 'audio', model?: string): Promise<ProviderReferenceMedia[]> {
   if (urls.length === 0) return [];
 
   console.log(`[Studio Generation] Loading ${urls.length} extra ${mediaType} references`);
   await Promise.all(urls.map((url) => assertStudioReferenceReadable(url, scope)));
-  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: [mediaType] });
+  const maxBytes = (mediaType === 'audio' ? 15 : model === 'bytedance/seedance-2-5' ? 200 : 50) * 1024 * 1024;
+  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: [mediaType], maxBytes });
+  if (files.length !== urls.length) throw new StudioServiceError('Missing Seedance media reference', 'Mindestens eine Medienreferenz konnte nicht geladen werden.', 'INVALID_REQUEST');
   return files.map((file) => ({
     imageBytes: file.videoBytes || file.imageBytes,
     mimeType: file.mimeType,
@@ -805,7 +810,22 @@ export async function createStudioGeneration(
 ): Promise<{ generationId: string; mode: string; prompt: string }> {
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
-  const requestedAspectRatio = request.aspect_ratio || '1:1';
+  const requestedAspectRatio = request.aspect_ratio || (mode === 'video' ? '16:9' : '1:1');
+  if (mode === 'video' && (providerId === SEEDANCE_PROVIDER_ID || request.model?.startsWith('bytedance/seedance-'))) {
+    try {
+      if (providerId !== SEEDANCE_PROVIDER_ID) throw new Error('Seedance models require provider bytedance.');
+      validateSeedanceContract({
+        model: request.model || SEEDANCE_MODEL_ID, duration: request.video_duration,
+        resolution: request.video_resolution, aspectRatio: requestedAspectRatio,
+        firstFrame: Boolean(request.start_frame_path), lastFrame: Boolean(request.end_frame_path),
+        images: request.extra_reference_urls?.length, videos: request.video_reference_urls?.length,
+        audios: request.audio_reference_urls?.length, webSearch: request.video_web_search,
+        generateAudio: request.video_generate_audio, nsfwChecker: request.video_nsfw_checker,
+      });
+    } catch (error) {
+      throw new StudioServiceError('Invalid Seedance request', (error as Error).message, 'INVALID_REQUEST');
+    }
+  }
   if (mode === 'image' && providerId === 'openai') {
     try {
       const normalized = normalizeOpenAIImageRequestOptions({
@@ -1270,7 +1290,7 @@ async function executeStudioGenerationProcessing(
 
     const extraUrls = parsedMeta.extraReferenceUrls || [];
     if (extraUrls.length > 0) {
-      const extraImgs = await loadExtraReferenceImages(scope, extraUrls);
+      const extraImgs = await loadExtraReferenceImages(scope, extraUrls, mode === 'video' && providerId === SEEDANCE_PROVIDER_ID);
       for (const img of extraImgs) {
         if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
           allReferenceImages.push(img);
@@ -1279,10 +1299,10 @@ async function executeStudioGenerationProcessing(
     }
 
     const extraVideoReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
-      ? await loadExtraReferenceMedia(scope, parsedMeta.videoReferenceUrls || [], 'video')
+      ? await loadExtraReferenceMedia(scope, parsedMeta.videoReferenceUrls || [], 'video', model)
       : [];
     const extraAudioReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
-      ? await loadExtraReferenceMedia(scope, parsedMeta.audioReferenceUrls || [], 'audio')
+      ? await loadExtraReferenceMedia(scope, parsedMeta.audioReferenceUrls || [], 'audio', model)
       : [];
 
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
@@ -1692,6 +1712,25 @@ async function generateStudioVideo(
     );
   }
 
+  if (providerId === SEEDANCE_PROVIDER_ID) {
+    try {
+      validateSeedanceContract({
+        model: videoModel || SEEDANCE_MODEL_ID, duration: videoDuration,
+        resolution: videoResolution, aspectRatio,
+        firstFrame: Boolean(startFramePath), lastFrame: Boolean(endFramePath || (isLooping && startFramePath)),
+        images: referenceImages.length, videos: referenceVideos.length, audios: referenceAudios.length,
+        webSearch: videoOptions?.webSearch,
+      });
+    } catch (error) {
+      throw new StudioServiceError('Invalid Seedance request', (error as Error).message, 'INVALID_REQUEST');
+    }
+    return generateStudioSeedanceVideo(
+      generationId, prompt, aspectRatio, referenceImages, videoResolution, videoDuration,
+      startFramePath, endFramePath, isLooping, referenceVideos, referenceAudios,
+      videoOptions, storageScope, scope, videoModel as SeedanceModelId | undefined,
+    );
+  }
+
   const hasFrameScenario = Boolean(startFramePath || endFramePath);
   const providerReferenceImages = hasFrameScenario ? [] : limitVideoProviderReferenceImages(providerId, referenceImages);
   const imageReferenceLimit = getVideoProviderImageReferenceLimit(providerId);
@@ -1702,25 +1741,6 @@ async function generateStudioVideo(
 
   const videoMode = videoExtendSourcePath ? 'extend_video' : hasFrameScenario ? 'frames_to_video' : (providerReferenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
   console.log(`[Studio Generation] Generating video: provider=${providerId}, model=${videoModel || 'default'}, mode=${videoMode}, aspect=${aspectRatio}, refs=${providerReferenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}`);
-
-  if (providerId === SEEDANCE_PROVIDER_ID) {
-    return generateStudioSeedanceVideo(
-      generationId,
-      prompt,
-      aspectRatio,
-      providerReferenceImages,
-      videoResolution,
-      videoDuration,
-      startFramePath,
-      endFramePath,
-      isLooping,
-      referenceVideos,
-      referenceAudios,
-      videoOptions,
-      storageScope,
-      scope,
-    );
-  }
 
   const videoAspect = aspectRatio === '9:16' ? '9:16' as const : '16:9' as const;
 
@@ -1850,6 +1870,7 @@ async function generateStudioSeedanceVideo(
   },
   storageScope?: EnvStorageScope | null,
   scope?: StudioScope,
+  model?: SeedanceModelId,
 ): Promise<StudioGenerationOutput[]> {
   console.log(`[Studio Generation] Seedance video: refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}, duration=${videoDuration || 6}s`);
   const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath, scope) : null;
@@ -1857,37 +1878,27 @@ async function generateStudioSeedanceVideo(
   const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath, scope) : null;
   console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
-  const hasFrameScenario = Boolean(firstFrame || lastFrame);
-  const seedanceReferences: SeedanceReferenceMedia[] = hasFrameScenario
-    ? []
-    : referenceImages.map((ref, index) => ({
+  const seedanceReferences: SeedanceReferenceMedia[] = referenceImages.map((ref, index) => ({
         imageBytes: ref.imageBytes,
         mimeType: ref.mimeType,
         fileName: `reference-${index}.${extensionFromMime(ref.mimeType)}`,
         kind: 'image',
       }));
-  const seedanceVideos: SeedanceReferenceMedia[] = hasFrameScenario
-    ? []
-    : referenceVideos.slice(0, 3).map((ref, index) => ({
+  const seedanceVideos: SeedanceReferenceMedia[] = referenceVideos.map((ref, index) => ({
         imageBytes: ref.imageBytes,
         mimeType: ref.mimeType,
         fileName: ref.fileName || `reference-video-${index}.${extensionFromMime(ref.mimeType)}`,
         kind: 'video',
       }));
-  const seedanceAudios: SeedanceReferenceMedia[] = hasFrameScenario
-    ? []
-    : referenceAudios.slice(0, 3).map((ref, index) => ({
+  const seedanceAudios: SeedanceReferenceMedia[] = referenceAudios.map((ref, index) => ({
         imageBytes: ref.imageBytes,
         mimeType: ref.mimeType,
         fileName: ref.fileName || `reference-audio-${index}.${extensionFromMime(ref.mimeType)}`,
         kind: 'audio',
       }));
 
-  if (hasFrameScenario && (referenceImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0)) {
-    console.log(`[Studio Generation] Seedance: multimodal references dropped because first/last-frame mode is active (images=${referenceImages.length}, videos=${referenceVideos.length}, audio=${referenceAudios.length})`);
-  }
-
   const videoResult = await generateSeedanceVideo({
+    model,
     prompt,
     aspectRatio: toSeedanceAspectRatio(aspectRatio),
     resolution: toSeedanceResolution(videoResolution),

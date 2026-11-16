@@ -55,6 +55,7 @@ interface PromptBarProps {
   value: PromptBarValue;
   mode?: 'image' | 'video' | 'sound';
   provider?: string;
+  videoModel?: string;
   videoReferenceRefs?: ReferenceTag[];
   audioReferenceRefs?: ReferenceTag[];
   videoExtendSourceRef?: ReferenceTag | null;
@@ -206,6 +207,7 @@ export function PromptBar({
   value,
   mode,
   provider,
+  videoModel,
   videoReferenceRefs = [],
   audioReferenceRefs = [],
   videoExtendSourceRef = null,
@@ -241,13 +243,14 @@ export function PromptBar({
       ? getVideoImageReferenceBudget({
         mode,
         provider,
+        model: videoModel,
         productRefs: value.productRefs,
         personaRefs: value.personaRefs,
         styleRefs: value.styleRefs,
         fileRefs: value.fileRefs,
       })
       : null
-  ), [mode, provider, value.fileRefs, value.personaRefs, value.productRefs, value.styleRefs]);
+  ), [mode, provider, videoModel, value.fileRefs, value.personaRefs, value.productRefs, value.styleRefs]);
   const imageReferenceLimit = videoImageReferenceBudget?.limit ?? DEFAULT_IMAGE_REFERENCE_LIMIT;
   const imageReferenceCount = videoImageReferenceBudget?.used ?? Math.min(value.fileRefs.length, imageReferenceLimit);
   const imageReferenceRemaining = videoImageReferenceBudget?.remaining ?? Math.max(imageReferenceLimit - value.fileRefs.length, 0);
@@ -449,6 +452,7 @@ export function PromptBar({
       <VideoReferenceControls
         mode={mode}
         provider={provider}
+        model={videoModel}
         imageReferenceCount={imageReferenceCount}
         imageReferenceRemaining={imageReferenceRemaining}
         videoReferenceCount={videoReferenceRefs.length}
@@ -497,7 +501,7 @@ export function PromptBar({
         }}
         mediaKind={mediaPicker === 'audio' ? 'audio' : mediaPicker === 'image' ? 'image' : 'video'}
         multiple={mediaPicker !== 'extendVideo'}
-        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? imageReferenceRemaining : 3}
+        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? imageReferenceRemaining : videoModel === 'bytedance/seedance-2-5' ? 10 : 3}
         studioOnly={mediaPicker === 'extendVideo'}
         veoGeneratedOnly={mediaPicker === 'extendVideo'}
         onConfirm={(paths) => {

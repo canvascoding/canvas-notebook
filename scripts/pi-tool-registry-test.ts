@@ -876,10 +876,10 @@ async function main() {
   const studioSeedanceResult = await runWithAgentExecutionContext(studioExecutionContext, () => studioTool.execute('studio-seedance', {
     prompt: 'A cinematic product reveal\n\n\tSlow camera.',
     provider: 'bytedance',
-    model: 'bytedance/seedance-2',
+    model: 'bytedance/seedance-2-5',
     aspect_ratio: '21:9',
     resolution: '480p',
-    duration: 15,
+    duration: 30,
     generate_audio: false,
     web_search: true,
     nsfw_checker: true,
@@ -888,10 +888,10 @@ async function main() {
   assert.equal(studioCalls.length, 1);
   assert.equal(studioCalls[0].prompt, 'A cinematic product reveal\n\n\tSlow camera.');
   assert.equal(studioCalls[0].provider, 'bytedance');
-  assert.equal(studioCalls[0].model, 'bytedance/seedance-2');
+  assert.equal(studioCalls[0].model, 'bytedance/seedance-2-5');
   assert.equal(studioCalls[0].aspect_ratio, '21:9');
   assert.equal(studioCalls[0].video_resolution, '480p');
-  assert.equal(studioCalls[0].video_duration, 15);
+  assert.equal(studioCalls[0].video_duration, 30);
   assert.equal(studioCalls[0].video_generate_audio, false);
   assert.equal(studioCalls[0].video_web_search, true);
   assert.equal(studioCalls[0].video_nsfw_checker, true);
