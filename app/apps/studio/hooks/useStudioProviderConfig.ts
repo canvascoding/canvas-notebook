@@ -15,7 +15,7 @@ function getProviderRequirement(mode: 'image' | 'video' | 'sound', provider: str
 }
 
 function hasProviderAccess(config: StudioProviderConfig, provider: StudioProviderRequirement): boolean {
-  return config.localApiKeys[provider] || config.managedMediaAvailable;
+  return config.localApiKeys[provider] || (provider === 'kie' ? config.seedance?.available === true : config.managedMediaAvailable);
 }
 
 export function getMissingProviderRequirement(

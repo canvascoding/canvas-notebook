@@ -1,3 +1,4 @@
+import { seedanceMediaFixture } from './seedance-media-fixture';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as fs } from 'node:fs';
@@ -48,6 +49,10 @@ async function main() {
       body,
     });
 
+    if (request.method === 'GET' && url === '/v1/managed/media-capabilities/kie') {
+      sendJson(response, 200, { schemaVersion: 2, available: true, models: ['bytedance/seedance-2-5'], limits: { imageBytes: 30 * 1024 * 1024 - 1, videoBytes: 50 * 1024 * 1024, audioBytes: 15 * 1024 * 1024, totalBytes: 80 * 1024 * 1024, bodyBytes: 128 * 1024 * 1024 } });
+      return;
+    }
     if (request.method === 'POST' && url === '/v1/managed/media-generations') {
       nextJob += 1;
       sendJson(response, 201, { jobId: `fixture-job-${nextJob}`, status: 'queued' });
@@ -191,9 +196,9 @@ async function main() {
       prompt: 'Organization managed fallback generation',
       model: 'bytedance/seedance-2-5',
       durationSeconds: 30,
-      referenceImages: Array.from({ length: 30 }, () => ({ imageBytes: 'aW1hZ2U=', mimeType: 'image/png' })),
-      referenceVideos: Array.from({ length: 10 }, () => ({ imageBytes: 'dmlkZW8=', mimeType: 'video/mp4' })),
-      referenceAudios: Array.from({ length: 10 }, () => ({ imageBytes: 'YXVkaW8=', mimeType: 'audio/mpeg' })),
+      referenceImages: Array.from({ length: 30 }, () => seedanceMediaFixture('image')),
+      referenceVideos: Array.from({ length: 10 }, () => seedanceMediaFixture('video')),
+      referenceAudios: Array.from({ length: 10 }, () => seedanceMediaFixture('audio')),
       storageScope: { organizationId: 'org-a' },
     });
     assert.equal(managedVideo.metadata.managedFallback, true, 'missing organization key follows the real managed Seedance branch');

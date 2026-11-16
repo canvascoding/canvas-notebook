@@ -45,7 +45,7 @@ function getReferenceRequestValue(ref: { id: string }) {
 
 export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGeneratePayload {
   const acceptedFileReferenceCount = getAcceptedFileReferenceCountForMode(input);
-  const fileUrls = input.fileRefs.map(getReferenceRequestValue).slice(0, acceptedFileReferenceCount);
+  const fileUrls = input.fileRefs.map(getReferenceRequestValue).slice(0, input.provider === 'bytedance' ? undefined : acceptedFileReferenceCount);
   const videoReferenceUrls = input.videoReferenceRefs.map(getReferenceRequestValue);
   const audioReferenceUrls = input.audioReferenceRefs.map(getReferenceRequestValue);
   const videoExtendSourcePath = input.videoExtendSourceRef

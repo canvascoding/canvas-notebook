@@ -34,7 +34,7 @@ export interface VideoImageReferenceBudget {
 
 export function getVideoImageReferenceLimit(provider?: string, model?: string): number {
   if (provider === 'veo') return VEO_MAX_REFERENCE_IMAGES;
-  if (provider === 'bytedance') return model === 'bytedance/seedance-2-5' ? 30 : SEEDANCE_MAX_REFERENCE_IMAGES;
+  if (provider === 'bytedance') return model === 'bytedance/seedance-2' ? SEEDANCE_MAX_REFERENCE_IMAGES : 30;
   return DEFAULT_IMAGE_REFERENCE_LIMIT;
 }
 

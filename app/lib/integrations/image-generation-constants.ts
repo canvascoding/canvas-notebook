@@ -105,7 +105,6 @@ export const VIDEO_MODELS = [
 ] as const;
 
 export const SEEDANCE_VIDEO_MODELS = [
-  { id: 'bytedance/seedance-2', optionKey: 'seedance2' as const },
   { id: 'bytedance/seedance-2-5', optionKey: 'seedance25' as const },
 ] as const;
 

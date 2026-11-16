@@ -133,6 +133,7 @@ export function StudioPromptComposer({
     const provider = overrides.provider ?? state.provider;
     if (mode !== 'video') return;
 
+    if (provider === 'bytedance') return;
     const fileRefs = overrides.fileRefs ?? state.fileRefs;
     const budget = getVideoImageReferenceBudget({
       mode,
@@ -320,7 +321,7 @@ export function StudioPromptComposer({
             const validRes = getVideoResolutionsForModel(nextModel);
             state.setVideoResolution(validRes.includes(state.videoResolution) ? state.videoResolution : validRes[0] as VideoResolution);
             const validDur = getVideoDurationsForModel(nextModel);
-            state.setVideoDuration(validDur.includes(state.videoDuration) ? state.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
+            state.setVideoDuration(nextProvider === 'bytedance' ? 5 : validDur.includes(state.videoDuration) ? state.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
             trimFileRefsToVideoBudget({ provider: nextProvider });
           }
           if (state.mode === 'sound') {

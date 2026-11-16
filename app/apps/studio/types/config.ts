@@ -5,6 +5,7 @@ export interface StudioProviderConfig {
     kie: boolean;
   };
   managedMediaAvailable: boolean;
+  seedance?: { available: boolean; error?: string; limits: { imageBytes: number; videoBytes: number; audioBytes: number; totalBytes?: number; bodyBytes?: number } };
   canManageCentralCredentials: boolean;
 }
 

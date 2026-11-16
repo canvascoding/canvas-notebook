@@ -1,3 +1,4 @@
+import { migrateSeedanceSelection } from '@/app/lib/integrations/seedance-contract';
 import { create } from 'zustand';
 import type { StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
@@ -54,6 +55,7 @@ export interface StudioGenerationState {
   setProvider: (provider: string) => void;
 
   model: string;
+  seedanceMigrated: boolean;
   setModel: (model: string) => void;
 
   quality: OpenAIImageQuality;
@@ -172,7 +174,7 @@ type PersistedStudioGenerationOptions = Pick<
   | 'videoNsfwChecker'
 >;
 
-type StoredStudioGenerationOptions = Partial<PersistedStudioGenerationOptions>;
+type StoredStudioGenerationOptions = Partial<PersistedStudioGenerationOptions> & { seedanceMigrated?: boolean };
 
 function readStoredBoolean(key: string, fallback = false) {
   if (typeof window === 'undefined') return fallback;
@@ -238,7 +240,11 @@ function readStoredGenerationOptions(): StoredStudioGenerationOptions {
     const models = getModelsForProvider(mode, provider);
     const parsedModel = typeof parsed.model === 'string' && provider === 'openai'
       ? normalizeOpenAIImageModelId(parsed.model)
-      : parsed.model;
+      : typeof parsed.model === 'string' ? migrateSeedanceSelection(parsed.model) : parsed.model;
+    if (parsedModel !== parsed.model) {
+      options.seedanceMigrated = true;
+      window.localStorage.setItem(STUDIO_GENERATION_OPTIONS_STORAGE_KEY, JSON.stringify({ ...parsed, model: parsedModel }));
+    }
     if (typeof parsedModel === 'string' && models.some((model) => model.id === parsedModel)) {
       options.model = parsedModel;
     }
@@ -410,7 +416,8 @@ export function createStudioGenerationStore() {
   setProvider: (provider) => set((state) => persistGenerationOptionPatch(state, { provider })),
 
   model: initialModel,
-  setModel: (model) => set((state) => persistGenerationOptionPatch(state, { model })),
+  seedanceMigrated: storedOptions.seedanceMigrated ?? false,
+  setModel: (model) => set((state) => persistGenerationOptionPatch(state, { model: migrateSeedanceSelection(model) })),
 
   quality: storedOptions.quality ?? 'auto',
   setQuality: (quality) => set((state) => persistGenerationOptionPatch(state, { quality })),
@@ -452,7 +459,7 @@ export function createStudioGenerationStore() {
   videoResolution: storedOptions.videoResolution ?? '720p',
   setVideoResolution: (videoResolution) => set((state) => persistGenerationOptionPatch(state, { videoResolution })),
 
-  videoDuration: storedOptions.videoDuration ?? 6,
+  videoDuration: storedOptions.videoDuration ?? (initialProvider === 'bytedance' ? 5 : 6),
   setVideoDuration: (videoDuration) => set((state) => persistGenerationOptionPatch(state, { videoDuration })),
 
   videoGenerateAudio: storedOptions.videoGenerateAudio ?? true,

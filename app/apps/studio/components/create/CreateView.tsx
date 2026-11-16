@@ -1079,7 +1079,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
       <div
         ref={promptOverlayRef}
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 z-40 max-h-[calc(100%-3rem)] overflow-y-auto bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
       >
         <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-col gap-2 rounded-none border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
           {store.mode === 'video' ? (
@@ -1117,6 +1117,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             </div>
           ) : null}
 
+          {store.seedanceMigrated && store.provider === 'bytedance' ? <InlineNotice variant="info" size="compact">Seedance 2.0 wurde durch Seedance 2.5 ersetzt. Gültige Einstellungen bleiben erhalten.</InlineNotice> : null}
+          {store.provider === 'bytedance' && providerConfig.seedance ? <InlineNotice variant="info" size="compact">{providerConfig.seedance.error || `Seedance 2.5: Bilder JPEG/PNG/WebP. Video maximal ${Math.floor(providerConfig.seedance.limits.videoBytes / 1024 / 1024)} MiB${providerConfig.seedance.limits.totalBytes ? `, Referenzen zusammen maximal ${Math.floor(providerConfig.seedance.limits.totalBytes / 1024 / 1024)} MiB` : ''}.`}</InlineNotice> : null}
           <StudioPromptComposer
             state={store}
             products={products}

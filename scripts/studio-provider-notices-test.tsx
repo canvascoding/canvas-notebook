@@ -26,6 +26,7 @@ async function main() {
     ...EMPTY_STUDIO_PROVIDER_CONFIG,
     localApiKeys: { ...EMPTY_STUDIO_PROVIDER_CONFIG.localApiKeys, ...keys },
     managedMediaAvailable,
+    seedance: { available: managedMediaAvailable, limits: { imageBytes: 1, videoBytes: 1, audioBytes: 1 } },
   });
 
   try {
