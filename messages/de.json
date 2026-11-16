@@ -9816,6 +9816,9 @@
     }
   },
   "studio": {
+    "seedanceMigration": "Seedance 2.0 wurde durch Seedance 2.5 ersetzt. Gültige Einstellungen bleiben erhalten.",
+    "seedanceLimits": "Seedance 2.5: Bilder JPEG/PNG/WebP. Video maximal {video} MiB.",
+    "seedanceTotalLimit": "Referenzen zusammen maximal {total} MiB.",
     "title": "Studio",
     "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
     "common": {

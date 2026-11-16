@@ -1117,8 +1117,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             </div>
           ) : null}
 
-          {store.seedanceMigrated && store.provider === 'bytedance' ? <InlineNotice variant="info" size="compact">Seedance 2.0 wurde durch Seedance 2.5 ersetzt. Gültige Einstellungen bleiben erhalten.</InlineNotice> : null}
-          {store.provider === 'bytedance' && providerConfig.seedance ? <InlineNotice variant="info" size="compact">{providerConfig.seedance.error || `Seedance 2.5: Bilder JPEG/PNG/WebP. Video maximal ${Math.floor(providerConfig.seedance.limits.videoBytes / 1024 / 1024)} MiB${providerConfig.seedance.limits.totalBytes ? `, Referenzen zusammen maximal ${Math.floor(providerConfig.seedance.limits.totalBytes / 1024 / 1024)} MiB` : ''}.`}</InlineNotice> : null}
+          {store.seedanceMigrated && store.provider === 'bytedance' ? <InlineNotice variant="info" size="compact">{t('seedanceMigration')}</InlineNotice> : null}
+          {store.provider === 'bytedance' && providerConfig.seedance ? <InlineNotice variant="info" size="compact">{providerConfig.seedance.error || t('seedanceLimits', { video: Math.floor(providerConfig.seedance.limits.videoBytes / 1024 / 1024) }) + (providerConfig.seedance.limits.totalBytes ? ' ' + t('seedanceTotalLimit', { total: Math.floor(providerConfig.seedance.limits.totalBytes / 1024 / 1024) }) : '')}</InlineNotice> : null}
           <StudioPromptComposer
             state={store}
             products={products}
