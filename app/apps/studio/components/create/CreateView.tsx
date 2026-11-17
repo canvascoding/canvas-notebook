@@ -463,6 +463,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     const budget = getVideoImageReferenceBudget({
       mode,
       provider: overrides.provider ?? store.provider,
+      model: store.model,
       productRefs: overrides.productRefs ?? store.productRefs,
       personaRefs: overrides.personaRefs ?? store.personaRefs,
       styleRefs: overrides.styleRefs ?? store.styleRefs,
@@ -964,6 +965,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
           ? payload.files.slice(0, getVideoImageReferenceBudget({
             mode: currentState.mode,
             provider: currentState.provider,
+            model: currentState.model,
             productRefs: currentState.productRefs,
             personaRefs: currentState.personaRefs,
             styleRefs: currentState.styleRefs,
@@ -1077,7 +1079,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
       <div
         ref={promptOverlayRef}
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 z-40 max-h-[calc(100%-3rem)] overflow-y-auto bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
       >
         <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-col gap-2 rounded-none border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
           {store.mode === 'video' ? (
@@ -1115,6 +1117,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             </div>
           ) : null}
 
+          {store.seedanceMigrated && store.provider === 'bytedance' ? <InlineNotice variant="info" size="compact">{t('seedanceMigration')}</InlineNotice> : null}
+          {store.provider === 'bytedance' && providerConfig.seedance ? <InlineNotice variant="info" size="compact">{providerConfig.seedance.error || t('seedanceLimits', { video: Math.floor(providerConfig.seedance.limits.videoBytes / 1024 / 1024) }) + (providerConfig.seedance.limits.totalBytes ? ' ' + t('seedanceTotalLimit', { total: Math.floor(providerConfig.seedance.limits.totalBytes / 1024 / 1024) }) : '')}</InlineNotice> : null}
           <StudioPromptComposer
             state={store}
             products={products}

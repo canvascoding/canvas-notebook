@@ -1,3 +1,4 @@
+import { resolveNewSeedanceModel, validateSeedanceContract } from '@/app/lib/integrations/seedance-contract';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -157,9 +158,9 @@ function normalizeReferencePath(value: unknown): string {
   return referencePath;
 }
 
-function parseReferences(value: unknown, mode: MobileStudioMode, provider: string): MobileStudioReference[] {
+function parseReferences(value: unknown, mode: MobileStudioMode, provider: string, model: string): MobileStudioReference[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.length > MAX_REFERENCE_COUNT) {
+  if (!Array.isArray(value) || value.length > (mode === 'video' && model === 'bytedance/seedance-2-5' ? 50 : MAX_REFERENCE_COUNT)) {
     throw new MobileStudioError('Too many Studio references were selected.', 400, 'REFERENCE_LIMIT');
   }
   const references = value.map((entry) => {
@@ -178,16 +179,17 @@ function parseReferences(value: unknown, mode: MobileStudioMode, provider: strin
     throw new MobileStudioError('Sound generation accepts visual references only.', 400, 'INVALID_REFERENCE');
   }
   if (mode === 'video') {
-    const imageLimit = provider === 'bytedance' ? 9 : 3;
+    const imageLimit = provider === 'bytedance' ? (model === 'bytedance/seedance-2-5' ? 30 : 9) : 3;
+    const mediaLimit = model === 'bytedance/seedance-2-5' ? 10 : 3;
     if (references.filter((reference) => reference.kind === 'image').length > imageLimit) {
       throw new MobileStudioError(`This video provider accepts at most ${imageLimit} image references.`, 400, 'REFERENCE_LIMIT');
     }
     if (provider !== 'bytedance' && references.some((reference) => reference.kind !== 'image')) {
       throw new MobileStudioError('Veo Quick Create accepts image references only.', 400, 'INVALID_REFERENCE');
     }
-    if (references.filter((reference) => reference.kind === 'video').length > 3
-      || references.filter((reference) => reference.kind === 'audio').length > 3) {
-      throw new MobileStudioError('Seedance accepts at most three video and three audio references.', 400, 'REFERENCE_LIMIT');
+    if (references.filter((reference) => reference.kind === 'video').length > mediaLimit
+      || references.filter((reference) => reference.kind === 'audio').length > mediaLimit) {
+      throw new MobileStudioError(`This Seedance model accepts at most ${mediaLimit} video and ${mediaLimit} audio references.`, 400, 'REFERENCE_LIMIT');
     }
   }
   return references;
@@ -200,6 +202,10 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const mode = enumValue(value.mode, ['image', 'video', 'sound'] as const, 'image', 'Mode');
   const providers = MODE_PROVIDERS[mode];
   const provider = enumValue(value.provider, providers, providers[0], 'Provider');
+  if (mode === 'video' && provider === 'bytedance') {
+    try { resolveNewSeedanceModel(typeof value.model === 'string' ? value.model : undefined); }
+    catch (error) { throw new MobileStudioError((error as Error).message, 400, 'MODEL_RETIRED'); }
+  }
   const models = getModelsForProvider(mode, provider).map((model) => model.id);
   const model = mode === 'image' && provider === 'openai'
     ? getOpenAIImageModelCapabilities(optionalString(value.model, 'Model', 180) || getDefaultModelForProvider(mode, provider))?.modelId
@@ -210,15 +216,15 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     ? '1:1'
     : mode === 'image' && provider === 'openai'
       ? optionalString(value.aspectRatio, 'Aspect ratio', 40) || aspectRatios[0] || '1:1'
-      : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
+      : enumValue(value.aspectRatio, aspectRatios, mode === 'video' && provider === 'bytedance' ? '16:9' : aspectRatios[0] || '1:1', 'Aspect ratio');
   const prompt = normalizeStudioPrompt(
     value.prompt ?? '',
-    mode === 'image' && provider === 'openai' ? 32_000 : 4_000,
+    mode === 'image' && provider === 'openai' ? 32_000 : mode === 'video' && provider === 'bytedance' ? 20_000 : 4_000,
   );
   if (prompt === null) {
     throw new MobileStudioError('Prompt is invalid.', 400, 'INVALID_STUDIO_REQUEST');
   }
-  const references = parseReferences(value.references, mode, provider);
+  const references = parseReferences(value.references, mode, provider, model);
   const productIds = identifierArray(value.productIds, 'Products', 5);
   const personaIds = identifierArray(value.personaIds, 'Personas', 3);
   const styleIds = identifierArray(value.styleIds, 'Styles', 3);
@@ -287,11 +293,11 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   }
   const videoResolutions = mode === 'video' ? getVideoResolutionsForModel(model) : [];
   const videoResolution = mode === 'video'
-    ? enumValue(value.videoResolution, videoResolutions, videoResolutions[0] || '720p', 'Video resolution')
+    ? enumValue(value.videoResolution, videoResolutions, provider === 'bytedance' ? '720p' : videoResolutions[0] || '720p', 'Video resolution')
     : undefined;
   const videoDurations = mode === 'video' ? getVideoDurationsForModel(model) : [];
   const videoDuration = mode === 'video'
-    ? integerValue(value.videoDuration, videoDurations[0] || 6, Math.min(...videoDurations), Math.max(...videoDurations), 'Video duration')
+    ? integerValue(value.videoDuration, provider === 'bytedance' ? 5 : videoDurations[0] || 6, Math.min(...videoDurations), Math.max(...videoDurations), 'Video duration')
     : undefined;
   if (mode === 'video' && !videoDurations.includes(videoDuration as never)) {
     throw new MobileStudioError('Video duration is not supported by this model.', 400, 'UNSUPPORTED_STUDIO_OPTION');
@@ -305,8 +311,12 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   if (mode !== 'video' && (videoExtendSourcePath || startFramePath || endFramePath)) {
     throw new MobileStudioError('Video frame options require video mode.', 400, 'UNSUPPORTED_STUDIO_OPTION');
   }
-  if (provider !== 'veo' && (videoExtendSourcePath || startFramePath || endFramePath || isLooping || value.personGeneration !== undefined)) {
+  if (provider !== 'veo' && (videoExtendSourcePath || value.personGeneration !== undefined)) {
     throw new MobileStudioError('Frame, loop, extension, and person options require Google Veo.', 400, 'UNSUPPORTED_STUDIO_OPTION');
+  }
+  if (mode === 'video' && provider === 'bytedance') {
+    try { validateSeedanceContract({ model, duration: videoDuration, resolution: videoResolution, aspectRatio, firstFrame: Boolean(startFramePath), lastFrame: Boolean(endFramePath), images: references.filter(r => r.kind === 'image').length, videos: references.filter(r => r.kind === 'video').length, audios: references.filter(r => r.kind === 'audio').length }); }
+    catch (error) { throw new MobileStudioError((error as Error).message, 400, 'INVALID_STUDIO_REQUEST'); }
   }
   if (provider !== 'bytedance' && (videoWebSearch || value.videoNsfwChecker !== undefined)) {
     throw new MobileStudioError('Web search and NSFW checking require Seedance.', 400, 'UNSUPPORTED_STUDIO_OPTION');
@@ -378,6 +388,7 @@ function modelLabel(modelId: string): string {
     'veo-3.1-fast-generate-preview': 'Veo 3.1 Fast',
     'veo-3.1-lite-generate-preview': 'Veo 3.1 Lite',
     'bytedance/seedance-2': 'Seedance 2',
+    'bytedance/seedance-2-5': 'Seedance 2.5',
     'lyria-3-clip-preview': 'Lyria 3 Clip',
     'lyria-3-pro-preview': 'Lyria 3 Pro',
   };
@@ -389,8 +400,8 @@ function providerAvailable(
   provider: string,
   config: Awaited<ReturnType<typeof getStudioProviderConfig>>,
 ): boolean {
+  if (mode === 'video' && provider === 'bytedance') return config.localApiKeys.kie || config.seedance?.available === true;
   if (config.managedMediaAvailable) return true;
-  if (mode === 'video' && provider === 'bytedance') return config.localApiKeys.kie;
   if (mode === 'image' && provider === 'openai') return config.localApiKeys.openai;
   return config.localApiKeys.gemini;
 }
@@ -417,6 +428,7 @@ export async function getMobileStudioCatalog(input: {
       models: getModelsForProvider(mode, provider).map((model) => ({
         id: model.id,
         label: modelLabel(model.id),
+        ...(mode === 'video' && provider === 'bytedance' ? { capabilities: { maxPromptLength: 20_000, firstLastFrame: true, maxReferenceImages: 30, maxReferenceVideos: 10, maxReferenceAudios: 10, imageFormats: ['image/jpeg', 'image/png', 'image/webp'], limits: config.seedance?.limits } } : {}),
         ...(mode === 'image' && provider === 'openai' ? { capabilities: getOpenAIImageModelCapabilities(model.id) } : {}),
         aspectRatios: [...getAspectRatiosForProvider(mode, provider)],
         imageSizes: mode === 'image'
@@ -562,7 +574,7 @@ function metadataInteger(metadata: Record<string, unknown>, key: string, fallbac
   return Number.isSafeInteger(metadata[key]) && Number(metadata[key]) > 0 ? Number(metadata[key]) : fallback;
 }
 
-function metadataPaths(metadata: Record<string, unknown>, key: string): string[] {
+function metadataPaths(metadata: Record<string, unknown>, key: string, maximum = MAX_REFERENCE_COUNT): string[] {
   const values = metadata[key];
   if (!Array.isArray(values)) return [];
   return values.filter((value): value is string => (
@@ -570,7 +582,7 @@ function metadataPaths(metadata: Record<string, unknown>, key: string): string[]
     && value.length <= 1_000
     && value.startsWith('studio/')
     && !value.split('/').some((part) => !part || part === '.' || part === '..')
-  )).slice(0, MAX_REFERENCE_COUNT);
+  )).slice(0, maximum);
 }
 
 function outputType(value: unknown, mimeType: unknown): MobileStudioMode {
@@ -642,9 +654,9 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
       personaIds: generation.persona_ids,
       styleIds: generation.style_ids,
       files: [
-        ...metadataPaths(metadata, 'extraReferenceUrls').map((referencePath) => ({ kind: 'image' as const, path: referencePath })),
-        ...metadataPaths(metadata, 'videoReferenceUrls').map((referencePath) => ({ kind: 'video' as const, path: referencePath })),
-        ...metadataPaths(metadata, 'audioReferenceUrls').map((referencePath) => ({ kind: 'audio' as const, path: referencePath })),
+        ...metadataPaths(metadata, 'extraReferenceUrls', generation.model === 'bytedance/seedance-2-5' ? 30 : MAX_REFERENCE_COUNT).map((referencePath) => ({ kind: 'image' as const, path: referencePath })),
+        ...metadataPaths(metadata, 'videoReferenceUrls', generation.model === 'bytedance/seedance-2-5' ? 10 : MAX_REFERENCE_COUNT).map((referencePath) => ({ kind: 'video' as const, path: referencePath })),
+        ...metadataPaths(metadata, 'audioReferenceUrls', generation.model === 'bytedance/seedance-2-5' ? 10 : MAX_REFERENCE_COUNT).map((referencePath) => ({ kind: 'audio' as const, path: referencePath })),
       ],
       sourceOutputId: metadataString(metadata, 'sourceOutputId', 180),
       videoExtendSourcePath: metadataString(metadata, 'videoExtendSourcePath'),

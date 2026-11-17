@@ -11,6 +11,7 @@ export type VideoReferencePickerTarget = 'image' | 'video' | 'audio' | 'extendVi
 interface VideoReferenceControlsProps {
   mode?: 'image' | 'video' | 'sound';
   provider?: string;
+  model?: string;
   imageReferenceCount: number;
   imageReferenceRemaining: number;
   videoReferenceCount: number;
@@ -26,6 +27,7 @@ function CountBadge({ value, max }: { value: number; max: number }) {
 export function VideoReferenceControls({
   mode,
   provider,
+  model,
   imageReferenceCount,
   imageReferenceRemaining,
   videoReferenceCount,
@@ -36,7 +38,7 @@ export function VideoReferenceControls({
   const t = useTranslations('studio.promptBar');
   if (mode !== 'video') return null;
 
-  const imageReferenceLimit = getVideoImageReferenceLimit(provider);
+  const imageReferenceLimit = getVideoImageReferenceLimit(provider, model);
 
   if (provider === 'bytedance') {
     return (
@@ -49,12 +51,12 @@ export function VideoReferenceControls({
         <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => onPick('video')}>
           <FileVideo className="h-4 w-4" />
           {t('videoReferences')}
-          <CountBadge value={videoReferenceCount} max={3} />
+          <CountBadge value={videoReferenceCount} max={model === 'bytedance/seedance-2-5' ? 10 : 3} />
         </Button>
         <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => onPick('audio')}>
           <Music className="h-4 w-4" />
           {t('audioReferences')}
-          <CountBadge value={audioReferenceCount} max={3} />
+          <CountBadge value={audioReferenceCount} max={model === 'bytedance/seedance-2-5' ? 10 : 3} />
         </Button>
       </div>
     );

@@ -131,7 +131,7 @@ for (const m of VIDEO_MODELS) {
   }
 }
 for (const m of SEEDANCE_VIDEO_MODELS) {
-  MODEL_LABELS[m.id] = 'Seedance 2.0 — Bytedance';
+  MODEL_LABELS[m.id] = 'Seedance 2.5 — Bytedance';
 }
 for (const m of SOUND_MODELS) {
   MODEL_LABELS[m.id] = m.id === 'lyria-3-clip-preview'

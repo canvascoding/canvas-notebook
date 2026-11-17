@@ -1,3 +1,4 @@
+import { seedanceMediaFixture } from './seedance-media-fixture';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as fs } from 'node:fs';
@@ -48,6 +49,10 @@ async function main() {
       body,
     });
 
+    if (request.method === 'GET' && url === '/v1/managed/media-capabilities/kie') {
+      sendJson(response, 200, { schemaVersion: 2, available: true, models: ['bytedance/seedance-2-5'], limits: { imageBytes: 30 * 1024 * 1024 - 1, videoBytes: 50 * 1024 * 1024, audioBytes: 15 * 1024 * 1024, totalBytes: 80 * 1024 * 1024, bodyBytes: 128 * 1024 * 1024 } });
+      return;
+    }
     if (request.method === 'POST' && url === '/v1/managed/media-generations') {
       nextJob += 1;
       sendJson(response, 201, { jobId: `fixture-job-${nextJob}`, status: 'queued' });
@@ -189,6 +194,11 @@ async function main() {
     }
     const managedVideo = await generateSeedanceVideo({
       prompt: 'Organization managed fallback generation',
+      model: 'bytedance/seedance-2-5',
+      durationSeconds: 30,
+      referenceImages: Array.from({ length: 30 }, () => seedanceMediaFixture('image')),
+      referenceVideos: Array.from({ length: 10 }, () => seedanceMediaFixture('video')),
+      referenceAudios: Array.from({ length: 10 }, () => seedanceMediaFixture('audio')),
       storageScope: { organizationId: 'org-a' },
     });
     assert.equal(managedVideo.metadata.managedFallback, true, 'missing organization key follows the real managed Seedance branch');
@@ -198,6 +208,19 @@ async function main() {
 
     const creationRequests = captured.filter((item) => item.method === 'POST' && item.url === '/v1/managed/media-generations');
     assert.equal(creationRequests.length, 3, 'image, video, and sound each use the real managed-media transport');
+    const seedanceRequest = JSON.parse(creationRequests[2].body);
+    assert.equal(seedanceRequest.model, 'bytedance/seedance-2-5');
+    assert.equal(seedanceRequest.parameters.durationSeconds, 30);
+    assert.equal(seedanceRequest.references.length, 50);
+    if (process.env.CANVAS_CONTROL_PLANE_TEST_DIR) {
+      const { buildManagedKieVideoInput } = await import(path.join(process.env.CANVAS_CONTROL_PLANE_TEST_DIR, 'apps/api/src/services/managedKieVideo.ts'));
+      const wire = buildManagedKieVideoInput(seedanceRequest, seedanceRequest.references.map((_: unknown, index: number) => `https://fixture.example/${index}`));
+      assert.equal(wire.model, seedanceRequest.model);
+      assert.equal(wire.input.duration, 30);
+      assert.equal(wire.input.reference_image_urls.length, 30);
+      assert.equal(wire.input.reference_video_urls.length, 10);
+      assert.equal(wire.input.reference_audio_urls.length, 10);
+    }
     for (const request of captured) {
       assert.equal(request.authorization, 'Bearer fixture-control-plane-instance-token', 'all Control Plane requests use the instance identity token');
       assert.equal(request.body.includes('fixture-user-gemini'), false);

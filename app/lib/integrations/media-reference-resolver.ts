@@ -34,11 +34,14 @@ const IMAGE_MIME: Record<string, string> = {
 };
 
 const VIDEO_MIME: Record<string, string> = {
+  mkv: 'video/x-matroska',
   mov: 'video/quicktime',
   mp4: 'video/mp4',
 };
 
 const AUDIO_MIME: Record<string, string> = {
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
 };

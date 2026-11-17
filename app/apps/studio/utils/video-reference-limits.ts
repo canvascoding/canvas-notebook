@@ -14,6 +14,7 @@ export interface ImageReferenceBudgetRef {
 export interface VideoImageReferenceBudgetInput {
   mode: StudioGenerationMode;
   provider?: string;
+  model?: string;
   productRefs?: readonly ImageReferenceBudgetRef[];
   personaRefs?: readonly ImageReferenceBudgetRef[];
   styleRefs?: readonly ImageReferenceBudgetRef[];
@@ -31,15 +32,15 @@ export interface VideoImageReferenceBudget {
   remaining: number;
 }
 
-export function getVideoImageReferenceLimit(provider?: string): number {
+export function getVideoImageReferenceLimit(provider?: string, model?: string): number {
   if (provider === 'veo') return VEO_MAX_REFERENCE_IMAGES;
-  if (provider === 'bytedance') return SEEDANCE_MAX_REFERENCE_IMAGES;
+  if (provider === 'bytedance') return model === 'bytedance/seedance-2' ? SEEDANCE_MAX_REFERENCE_IMAGES : 30;
   return DEFAULT_IMAGE_REFERENCE_LIMIT;
 }
 
-export function getFileReferenceLimitForMode(mode: StudioGenerationMode, provider?: string): number | undefined {
+export function getFileReferenceLimitForMode(mode: StudioGenerationMode, provider?: string, model?: string): number | undefined {
   if (mode === 'sound') return SOUND_MAX_REFERENCE_FILES;
-  if (mode === 'video') return getVideoImageReferenceLimit(provider);
+  if (mode === 'video') return getVideoImageReferenceLimit(provider, model);
   return undefined;
 }
 
@@ -55,7 +56,7 @@ function countObjectReferenceImages(refs: readonly ImageReferenceBudgetRef[] = [
 }
 
 export function getVideoImageReferenceBudget(input: VideoImageReferenceBudgetInput): VideoImageReferenceBudget {
-  const limit = getVideoImageReferenceLimit(input.provider);
+  const limit = getVideoImageReferenceLimit(input.provider, input.model);
   const objectImageCount = countObjectReferenceImages(input.productRefs)
     + countObjectReferenceImages(input.personaRefs)
     + countObjectReferenceImages(input.styleRefs);

@@ -127,6 +127,26 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface ManagedSeedanceCapabilities {
+  schemaVersion: number;
+  models: string[];
+  available: boolean;
+  limits: { imageBytes: number; videoBytes: number; audioBytes: number; totalBytes?: number; bodyBytes?: number };
+}
+
+export async function getManagedSeedanceCapabilities(): Promise<ManagedSeedanceCapabilities> {
+  let result: ManagedSeedanceCapabilities;
+  try {
+    result = await managedRequest<ManagedSeedanceCapabilities>('/v1/managed/media-capabilities/kie', { signal: AbortSignal.timeout(5_000) });
+  } catch {
+    throw new IntegrationServiceError('Seedance 2.5 ist über diesen Control Plane nicht verfügbar. Bitte Control Plane aktualisieren und Managed KIE aktivieren oder einen eigenen Schlüssel unter /settings?tab=secrets einrichten.', 503);
+  }
+  if (result?.schemaVersion !== 2 || !Array.isArray(result.models) || !result.models.includes('bytedance/seedance-2-5') || !result.available || !result.limits || !['imageBytes', 'videoBytes', 'audioBytes', 'totalBytes', 'bodyBytes'].every(key => Number.isSafeInteger(result.limits[key as keyof typeof result.limits]) && Number(result.limits[key as keyof typeof result.limits]) > 0)) {
+    throw new IntegrationServiceError('Der Control Plane bietet keinen kompatiblen aktiven Seedance-2.5-Vertrag an. Bitte Managed KIE konfigurieren oder den Control Plane aktualisieren.', 503);
+  }
+  return result;
+}
+
 export async function generateManagedMedia(request: ManagedMediaGenerateRequest): Promise<{
   jobId: string;
   outputs: ManagedMediaOutput[];
@@ -144,6 +164,18 @@ export async function generateManagedMedia(request: ManagedMediaGenerateRequest)
       'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=secrets oder kontaktiere den Administrator.',
       400,
     );
+  }
+
+  if (request.provider === 'kie' && request.capability === 'video' && request.model !== 'bytedance/seedance-2') {
+    const capabilities = await getManagedSeedanceCapabilities();
+    let totalBytes = 0;
+    for (const reference of request.references || []) {
+      const bytes = Buffer.byteLength(reference.imageBytes.replace(/^data:[^,]*,/, ''), 'base64');
+      const limit = reference.mimeType.startsWith('video/') ? capabilities.limits.videoBytes : reference.mimeType.startsWith('audio/') ? capabilities.limits.audioBytes : capabilities.limits.imageBytes;
+      if (bytes > limit) throw new IntegrationServiceError(`Managed Seedance reference exceeds the ${Math.floor(limit / 1024 / 1024)} MiB deployment limit.`, 413);
+      totalBytes += bytes;
+    }
+    if (totalBytes > capabilities.limits.totalBytes! || Buffer.byteLength(JSON.stringify(request)) > capabilities.limits.bodyBytes!) throw new IntegrationServiceError('Managed Seedance references exceed the deployment total upload limit.', 413);
   }
 
   logInfo('creating control-plane job', {

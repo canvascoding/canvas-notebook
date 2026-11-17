@@ -133,10 +133,12 @@ export function StudioPromptComposer({
     const provider = overrides.provider ?? state.provider;
     if (mode !== 'video') return;
 
+    if (provider === 'bytedance') return;
     const fileRefs = overrides.fileRefs ?? state.fileRefs;
     const budget = getVideoImageReferenceBudget({
       mode,
       provider,
+      model: state.model,
       productRefs: overrides.productRefs ?? state.productRefs,
       personaRefs: overrides.personaRefs ?? state.personaRefs,
       styleRefs: overrides.styleRefs ?? state.styleRefs,
@@ -161,6 +163,7 @@ export function StudioPromptComposer({
   return (
     <>
       <PromptBar
+        videoModel={state.model}
         value={promptBarValue}
         mode={state.mode}
         provider={state.provider}
@@ -209,6 +212,7 @@ export function StudioPromptComposer({
             const budget = getVideoImageReferenceBudget({
               mode: state.mode,
               provider: state.provider,
+              model: state.model,
               productRefs: state.productRefs,
               personaRefs: state.personaRefs,
               styleRefs: state.styleRefs,
@@ -220,7 +224,7 @@ export function StudioPromptComposer({
             return;
           }
 
-          const limit = getFileReferenceLimitForMode(state.mode, state.provider);
+          const limit = getFileReferenceLimitForMode(state.mode, state.provider, state.model);
           const allowedPaths = typeof limit === 'number'
             ? paths.slice(0, Math.max(limit - state.fileRefs.length, 0))
             : paths;
@@ -317,7 +321,7 @@ export function StudioPromptComposer({
             const validRes = getVideoResolutionsForModel(nextModel);
             state.setVideoResolution(validRes.includes(state.videoResolution) ? state.videoResolution : validRes[0] as VideoResolution);
             const validDur = getVideoDurationsForModel(nextModel);
-            state.setVideoDuration(validDur.includes(state.videoDuration) ? state.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
+            state.setVideoDuration(nextProvider === 'bytedance' ? 5 : validDur.includes(state.videoDuration) ? state.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
             trimFileRefsToVideoBudget({ provider: nextProvider });
           }
           if (state.mode === 'sound') {
