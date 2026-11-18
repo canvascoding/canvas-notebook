@@ -43,7 +43,8 @@ test('sources reject live mirrors, invalid cutoffs and mixed archive states befo
     const precise = structuredClone(lock);
     for (const repository of precise.repositories) repository.uri = repository.uri.replace(/T\d{6}Z$/u, '') + 'T000000Z';
     configureRepositories(precise, directory);
-    assert.match(fs.readFileSync(path.join(directory, 'sources.list.d/debian.sources'), 'utf8'), /20261105T000000Z/u);
+    const sources = fs.readFileSync(path.join(directory, 'sources.list.d/debian.sources'), 'utf8');
+    for (const repository of precise.repositories) assert(sources.includes(`URIs: ${repository.uri}\n`));
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-11-05",
+  "capturedAt": "2026-11-18",
   "repositories": [
     {
-      "uri": "https://snapshot.debian.org/archive/debian/20261105T000000Z",
+      "uri": "https://snapshot.debian.org/archive/debian/20261118T000000Z",
       "suite": "bookworm",
       "indexSha256": {
         "main/binary-amd64/Packages": "515e692f2c4121c6fcec444ef100cc18f79a991910615f3a88c8b7becfc94d2f",
@@ -28,7 +28,7 @@
       }
     },
     {
-      "uri": "https://snapshot.debian.org/archive/debian/20261105T000000Z",
+      "uri": "https://snapshot.debian.org/archive/debian/20261118T000000Z",
       "suite": "bookworm-updates",
       "indexSha256": {
         "main/binary-amd64/Packages": "80a1f6ee524222c49f230fc5700d00f946d0a47eb5258180106dd03df126e16a",
@@ -39,8 +39,8 @@
         "main/source/Sources.xz": "45fcd5257b7ad716ef3b674305dd678ad2d6e6198a0dd7a8f45bb0e8d3f3a7f3"
       },
       "inRelease": {
-        "fileSha1": "3ad936b0c3d3e1df2a530c4f753a76360fd1e65f",
-        "sha256": "42cb0bdd2b7b27f81f25976b9c0052ac0f499675fbbb538e56c2bfa70ed9a2f3",
+        "fileSha1": "f997aa42f2f5e2b7f92c2a30f1d5ade5a1ca5432",
+        "sha256": "430daf3e60db04c4b829dbb1b8558edaf4769842b3570bcfa5ec5dca791863b5",
         "size": 55403
       },
       "indexFileSha1": {
@@ -50,25 +50,25 @@
       }
     },
     {
-      "uri": "https://snapshot.debian.org/archive/debian-security/20261105T000000Z",
+      "uri": "https://snapshot.debian.org/archive/debian-security/20261118T000000Z",
       "suite": "bookworm-security",
       "indexSha256": {
-        "main/binary-amd64/Packages": "499028cee277a5266afbfd6024f8a3f7cd8b749ca01051306532144bfaf4e009",
-        "main/binary-amd64/Packages.xz": "534a3b90c58607868048f443240fe1d64341b7697a1e483876089108c579b734",
-        "main/binary-arm64/Packages": "b2f4faf5811ee95fa1b67831786e181bcbc0f5b1d452fbc3711c31b09fef57ff",
-        "main/binary-arm64/Packages.xz": "f8c9cc246a207b65aa26dfb35a34cacf0f78d4fbaab69b4e05c857139998a293",
-        "main/source/Sources": "aceb0f6eaf7e60aaabaf6c2da60fb35f66a231258cc7e79dc084f77f0f913f2d",
-        "main/source/Sources.xz": "00c07ffb2123b7f8055ba6c8aa3d883491b962fa2b3d471fd869878c313255ca"
+        "main/binary-amd64/Packages": "8185a31dad942e3e9ec627d824cfdb67daeb96180b4c830f94ca12bccee97493",
+        "main/binary-amd64/Packages.xz": "32c51122c8fceb8edce780006dc881c889ef3eba65ac2b7bb9e13872c36c9758",
+        "main/binary-arm64/Packages": "7e3f6a71411a34befdc9d0b34c632acce0fcb8ea022a8edd8cc0794621f766d0",
+        "main/binary-arm64/Packages.xz": "d04563689a3e0290ab2a8b488ec7b9c473f92f80d6a1fe78d23c40c4a5760dce",
+        "main/source/Sources": "e65433164b8bf5bcd1f7fef9e9c729098b8915ca12ee6cb3458089c7489f7aa0",
+        "main/source/Sources.xz": "d1873c59ee2925cbe58ad2669a42f5f7cc8e6e1b2fd1c2a25e3f6aec3c8aa9a9"
       },
       "inRelease": {
-        "fileSha1": "926eb6bcb474be14d9fdbc89c4a2edd95754eaea",
-        "sha256": "3928c61d792381356871c4168b1c1be6aed0732ac91b4e2555b80919b4640504",
+        "fileSha1": "2ac54c0087d73d41bf22bf4a9dcef862262007ce",
+        "sha256": "a0a1d2cad4a3cdfd05e9e4fb50005ff0d46d49fba7c9ddb24d999fc313a26975",
         "size": 34770
       },
       "indexFileSha1": {
-        "main/binary-amd64/Packages.xz": "266fd152b8b2ff630753f3bd6747652adbd31245",
-        "main/binary-arm64/Packages.xz": "da9f4073699105fa52efaf09ce3cb47da1aea6e1",
-        "main/source/Sources.xz": "663bb1c2c8618f69dcb882330ef894cc4524c16e"
+        "main/binary-amd64/Packages.xz": "bc1356c881d3406331d9c386f42c87ccec75792b",
+        "main/binary-arm64/Packages.xz": "704e399e86e15659421d7cc826d797e5e46ec269",
+        "main/source/Sources.xz": "4d169aa93341cddaaf98e3e7602a5d1c6cf5e1f8"
       }
     }
   ]
