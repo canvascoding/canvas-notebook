@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.18.1] - 2026-11-18
+## [2026.11.18.2] - 2026-11-18
 
 ### Added
 
@@ -21,6 +21,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Recover document-location checks after transient server errors so an open document can resume once its location is confirmed.
+- Refresh the signed Debian snapshot used by release images and restore Linux CLI lockfile compatibility with Node 22.
 
 ### Security
 
