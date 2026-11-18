@@ -5,6 +5,8 @@ on:
     paths:
       - 'package*.json'
       - 'requirements/**'
+      - 'patches/**'
+      - 'scripts/npm-security-audit*.mjs'
       - 'docs/compliance/**'
       - '.github/workflows/dependency-security.yml'
   push:
@@ -12,6 +14,8 @@ on:
     paths:
       - 'package*.json'
       - 'requirements/**'
+      - 'patches/**'
+      - 'scripts/npm-security-audit*.mjs'
       - 'docs/compliance/**'
       - '.github/workflows/dependency-security.yml'
   workflow_dispatch:
@@ -35,7 +39,9 @@ jobs:
         with:
           node-version: 26
       - run: npm ci --ignore-scripts
-      - run: npm audit --audit-level=low
+      - run: ./node_modules/.bin/patch-package --error-on-fail
+      - run: node --test scripts/npm-security-audit-test.mjs
+      - run: node scripts/npm-security-audit.mjs
       - run: npm run test:licenses
 
   python:
@@ -58,7 +64,8 @@ jobs:
           --platform manylinux_2_28_${{ matrix.architecture }}
           --platform manylinux2014_${{ matrix.architecture }}
           --platform manylinux_2_17_${{ matrix.architecture }}
-          --python-version 3.11 --abi cp311 --implementation cp
+          --python-version "$(python -c 'import platform; print(platform.python_version())')"
+          --abi cp311 --implementation cp
           --only-binary=:all: --require-hashes
           -r requirements/runtime-python.txt -r requirements/dictation-python.txt
       - name: Audit every pinned package
