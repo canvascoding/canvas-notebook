@@ -5,6 +5,8 @@ on:
     paths:
       - 'package*.json'
       - 'requirements/**'
+      - 'patches/**'
+      - 'scripts/npm-security-audit*.mjs'
       - 'docs/compliance/**'
       - '.github/workflows/dependency-security.yml'
   push:
@@ -12,6 +14,8 @@ on:
     paths:
       - 'package*.json'
       - 'requirements/**'
+      - 'patches/**'
+      - 'scripts/npm-security-audit*.mjs'
       - 'docs/compliance/**'
       - '.github/workflows/dependency-security.yml'
   workflow_dispatch:
@@ -35,7 +39,9 @@ jobs:
         with:
           node-version: 26
       - run: npm ci --ignore-scripts
-      - run: npm audit --audit-level=low
+      - run: ./node_modules/.bin/patch-package --error-on-fail
+      - run: node --test scripts/npm-security-audit-test.mjs
+      - run: node scripts/npm-security-audit.mjs
       - run: npm run test:licenses
 
   python:
