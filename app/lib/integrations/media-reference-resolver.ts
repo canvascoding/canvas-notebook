@@ -371,8 +371,13 @@ async function readFilesystemReference(
   for (const candidate of candidates) {
     try {
       if (ref.relativePath.startsWith('studio/organizations/') || ref.relativePath.startsWith('studio/system/')) {
-        const root = await fs.realpath(resolveCanvasDataRoot());
-        if (await fs.realpath(candidate) !== path.join(root, ref.relativePath)) {
+        const dataRoot = path.resolve(resolveCanvasDataRoot());
+        const studioPath = path.resolve(candidate);
+        if (!studioPath.startsWith(dataRoot + path.sep)) {
+          throw new Error('Invalid Studio reference storage path.');
+        }
+        const canonicalRoot = await fs.realpath(dataRoot);
+        if (await fs.realpath(studioPath) !== path.join(canonicalRoot, ref.relativePath)) {
           throw new Error('Invalid Studio reference storage path.');
         }
       }
