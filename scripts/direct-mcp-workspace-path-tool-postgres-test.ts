@@ -189,6 +189,25 @@ export async function directMcpWorkspacePathToolPostgresTest(): Promise<void> {
           await noMutation(() => failure(kind, { ...slots, api_version: 99, action: 'preview', path: '../outside.md' }, 'INVALID_REQUEST'));
         }
       });
+      await group('Delete preview ignores an initialized skill draft without a physical projection', async () => {
+        const target = 'visible-delete-with-skill-draft.md';
+        const draft = '.canvas-skill-drafts/preview-fixture/SKILL.md';
+        await h.upload(target, Buffer.from('# Visible delete target\n'));
+        const { documentId } = await h.upload(draft, Buffer.from(`# Draft\n\n[[/${target}]]\n`));
+        await fs.unlink(path.join(h.source.rootPath, draft));
+        const state = await load(h.connection, documentId);
+        assert.equal(state?.path, draft);
+        const value = await noMutation(() => success('delete', { ...slots, action: 'preview', path: target }));
+        const preview = object(value.preview);
+        assert.match(String(preview.planId), /^[a-f0-9]{64}$/u);
+        assert.equal(preview.kind, 'delete');
+        assert.equal(object(preview.linkChanges).unlinks, 0);
+        const operationId = crypto.randomUUID(), planId = String(preview.planId);
+        const applied = await success('delete', { ...slots, action: 'apply', path: target,
+          operation_id: operationId, plan_id: planId });
+        confirmed(applied, operationId, planId);
+        assert.equal((await registry(documentId)).status, 'active');
+      });
       const moved = await fixture(true), moveId = crypto.randomUUID(), moveSelections = [
         { source_path: moved.source, destination_path: moved.destination }, { source_path: moved.pdfPath, destination_path: moved.destinationPdf }];
       let movePlan = '', moveBatch = '';

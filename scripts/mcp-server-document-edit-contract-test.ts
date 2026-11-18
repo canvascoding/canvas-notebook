@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import Ajv from 'ajv';
 
 import { DIRECT_MCP_TOOL_CONFIGURATION_VERSION } from '../app/lib/mcp/server/config';
 import {
@@ -137,10 +138,31 @@ test('MCP declaration preserves typed patch variants while runtime rejects mixed
   assert.match(patch.description!, /native_text_replace requires kind, edits/);
   assert.match(operation.description!, /delete_block requires kind, blockId, subtreeHash/);
   const examples = (schema as unknown as { examples: Record<string, unknown>[] }).examples;
-  for (const example of examples) assert(decodeDirectMcpNativeDocumentEditSelection(example));
-  for (const kind of kinds) assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], patch: {
-    kind: 'native_blocks', operations: [{ kind }],
-  } }), `Missing protection/target fields must still be rejected for ${kind}`);
+  const validate = new Ajv({ strict: false }).compile(schema);
+  for (const example of examples) {
+    assert(decodeDirectMcpNativeDocumentEditSelection(example));
+    assert(validate(example), JSON.stringify(validate.errors));
+  }
+  for (const kind of kinds) {
+    const unguarded = { ...examples[0], patch: { kind: 'native_blocks', operations: [{ kind }] } };
+    assert.throws(() => decodeDirectMcpNativeDocumentEditSelection(unguarded));
+    assert.equal(validate(unguarded), false, `The published schema must require the protection/target fields for ${kind}`);
+  }
+  const formatText = { kind: 'format_text', blockId: 'block-id', subtreeHash: 'b'.repeat(64),
+    from: 0, to: 1, mark: 'link', enabled: true };
+  const blockPatch = (value: Record<string, unknown>) => ({
+    ...examples[0], patch: { kind: 'native_blocks', operations: [value] },
+  });
+  assert.equal(validate(blockPatch(formatText)), false);
+  assert.equal(validate(blockPatch({ ...formatText, href: 'https://example.test' })), true);
+  assert.equal(validate(blockPatch({ ...formatText, enabled: false, href: 'https://example.test' })), false);
+  assert.equal(validate(blockPatch({ kind: 'format_block', blockId: 'block-id',
+    beforeAttrs: { level: 1 }, afterAttrs: { checked: true } })), false);
+  assert.equal(validate({ ...examples[0], patch: { kind: 'native_text_replace' } }), false);
+  assert.equal(validate({ ...examples[0], patch: {
+    kind: 'native_text_replace', edits: [{ oldText: 'x', newText: 'y' }],
+    operations: [{ kind: 'delete_block', blockId: 'block-id', subtreeHash: 'b'.repeat(64) }],
+  } }), false);
   assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], path: 'mixed.md' }));
   assert.throws(() => decodeDirectMcpNativeDocumentEditSelection({ ...examples[0], patch: {
     kind: 'native_text_replace', edits: [{ oldText: 'x', newText: 'y' }], operations: [],

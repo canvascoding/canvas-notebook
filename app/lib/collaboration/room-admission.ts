@@ -1,4 +1,5 @@
 import 'server-only';
+import { WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, workspaceLinkSourceVisibleSql } from '../markdown/workspace-link-source-paths';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -205,9 +206,17 @@ async function assertNoOverlap(database: SqlConnection, scope: CollaborationAdmi
 
 async function captureTargets(database: SqlConnection, captured: CapturedRequest): Promise<CollaborationAdmissionTarget[]> {
   const values: unknown[] = [];
+  const expected = new Map(captured.request.expectedDocuments.map((doc) => [doc.documentId, doc]));
   const paths = captured.request.scopes.map((scope) => {
     values.push(scope.workspaceId, scope.path);
     const workspace = `$${values.length - 1}`, path = `$${values.length}`;
+    // Whole-workspace link operations keep the root fence, but target only
+    // visible sources. Retain explicit targets from historical requests.
+    if (scope.kind === 'subtree' && scope.path === '' && ['rename', 'move', 'archive'].includes(captured.request.action)) {
+      const visibility = workspaceLinkSourceVisibleSql('path', values.length + 1);
+      values.push(...WORKSPACE_LINK_SOURCE_PATH_EXCLUSIONS, [...expected.keys()]);
+      return `(workspace_id = ${workspace} AND (path = ${path} OR (${visibility}) OR document_id = ANY($${values.length}::text[])))`;
+    }
     const subtree = scope.kind === 'subtree' ? ` OR (${path} = '' OR left(path, length(${path}) + 1) = ${path} || '/')` : '';
     return `(workspace_id = ${workspace} AND (path = ${path}${subtree}))`;
   });
@@ -218,7 +227,6 @@ async function captureTargets(database: SqlConnection, captured: CapturedRequest
     WHERE (status = 'active' AND (${paths.join(' OR ')}))
       OR (status = 'archived' AND document_id = ANY($${values.length}::text[]))
     ORDER BY document_id LIMIT 1025 FOR UPDATE`, values) as Array<Record<string, unknown>>;
-  const expected = new Map(captured.request.expectedDocuments.map((doc) => [doc.documentId, doc]));
   if (rows.length !== expected.size || rows.length > 1024) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
   return rows.map((row) => {
     const document = expected.get(row.document_id as string);

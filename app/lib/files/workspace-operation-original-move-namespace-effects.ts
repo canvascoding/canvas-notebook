@@ -259,9 +259,9 @@ async function capturePristineRegistry(database: SqlConnection, input: {
   const {context,workspace,schema,observation} = input, bound = boundCatalogueWitness(context,input.currentWitness);
   if (!observation || observation.stage.catalogueProof !== bound.binding.catalogueProof
     || !equal(observation.nativeBindings,bound.native.nativeBindings)) fail();
-  // Independently read the whole genuine catalogue on this B. Its strict
+  // Independently read the whole visible source catalogue on this B. Its strict
   // witness is transient: a selected subset never substitutes for this proof.
-  const catalogue = await readWorkspaceDocumentCatalogue(database,workspace,{maxEntries:10_000});
+  const catalogue = await readWorkspaceDocumentCatalogue(database,workspace,{maxEntries:10_000,visibleLinkSources:true});
   const witness = captureWorkspaceOperationNativeCatalogueWitness(catalogue,bound.witness.workspaceScope,
     bound.binding.catalogueProof,bound.native.nativeBindings,()=>fail());
   if (witness.semanticCatalogueProof !== bound.binding.semanticCatalogueProof || !equal(catalogue,observation.privateCatalogue)) fail('ORIGINAL_MOVE_NAMESPACE_CHANGED');
