@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.11.9.3
-- Lockfile SHA-256: `f500bd39c9e4439004f3db2214144257df9488dae592cbfb3ddc6e355da0de65`
-- Distributed components: 1462
+- Lockfile SHA-256: `15b980b50d9282a96c1bed14fb783db41c126e1075cc9e2a984edfe2bc07813d`
+- Distributed components: 1461
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -191,7 +191,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @hocuspocus/provider | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/server | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/transformer | 4.4.0 | runtime | MIT | allowed |
-| @hono/node-server | 2.1.5 | runtime | MIT | allowed |
+| @hono/node-server | 2.1.9 | runtime | MIT | allowed |
 | @iconify/types | 2.0.0 | runtime | MIT | allowed |
 | @iconify/utils | 3.1.4 | runtime | MIT | allowed |
 | @img/colour | 1.1.0 | runtime | MIT | allowed |
@@ -266,15 +266,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-darwin-arm64 | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-darwin-x64 | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-gnu | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-musl | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-linux-x64-gnu | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-linux-x64-musl | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-win32-arm64-msvc | 16.4.3 | runtime | MIT | allowed |
-| @next/swc-win32-x64-msvc | 16.4.3 | runtime | MIT | allowed |
+| @next/env | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.4.6 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.4.6 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
@@ -926,7 +926,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | highlight.js | 10.7.3 | runtime | BSD-3-Clause | allowed |
 | highlight.js | 11.11.1 | runtime | BSD-3-Clause | allowed |
 | highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | allowed |
-| hono | 4.13.14 | runtime | MIT | allowed |
+| hono | 4.13.19 | runtime | MIT | allowed |
 | html-encoding-sniffer | 6.0.0 | runtime | MIT | allowed |
 | html-to-text | 10.0.1 | runtime | MIT | allowed |
 | html-url-attributes | 3.0.1 | runtime | MIT | allowed |
@@ -1133,7 +1133,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
-| next | 16.4.3 | runtime | MIT | allowed |
+| next | 16.4.6 | runtime | MIT | allowed |
 | node-addon-api | 7.1.1 | runtime | MIT | allowed |
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
@@ -1403,7 +1403,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | underscore | 1.13.8 | runtime | MIT | allowed |
 | undici-types | 6.21.0 | runtime | MIT | allowed |
 | undici-types | 8.3.0 | runtime | MIT | allowed |
-| undici | 6.29.1 | runtime | MIT | allowed |
 | undici | 7.30.1 | runtime | MIT | allowed |
 | unified | 11.0.5 | runtime | MIT | allowed |
 | unist-util-find-after | 5.0.0 | runtime | MIT | allowed |
@@ -12271,7 +12270,7 @@ SOFTWARE.
 
 ### License text 6895190430d8
 
-Applies to @hono/node-server@2.1.5.
+Applies to @hono/node-server@2.1.9.
 
 Copyright notices:
 
@@ -20072,7 +20071,7 @@ SOFTWARE.
 
 ### License text a6ab98e5c77b
 
-Applies to hono@4.13.14.
+Applies to hono@4.13.19.
 
 Copyright notices:
 
@@ -20292,7 +20291,7 @@ Copyright notices:
 
 ### License text a6db8096b270
 
-Applies to undici-types@6.21.0, undici-types@8.3.0, undici@6.29.1, undici@7.30.1.
+Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.1.
 
 Copyright notices:
 
@@ -29166,7 +29165,7 @@ SOFTWARE.**
 
 ### License text ee765244e2d5
 
-Applies to @next/env@16.4.3, @next/swc-darwin-arm64@16.4.3, @next/swc-darwin-x64@16.4.3, @next/swc-linux-arm64-gnu@16.4.3, @next/swc-linux-arm64-musl@16.4.3, @next/swc-linux-x64-gnu@16.4.3, @next/swc-linux-x64-musl@16.4.3, @next/swc-win32-arm64-msvc@16.4.3, @next/swc-win32-x64-msvc@16.4.3, next@16.4.3.
+Applies to @next/env@16.4.6, @next/swc-darwin-arm64@16.4.6, @next/swc-darwin-x64@16.4.6, @next/swc-linux-arm64-gnu@16.4.6, @next/swc-linux-arm64-musl@16.4.6, @next/swc-linux-x64-gnu@16.4.6, @next/swc-linux-x64-musl@16.4.6, @next/swc-win32-arm64-msvc@16.4.6, @next/swc-win32-x64-msvc@16.4.6, next@16.4.6.
 
 Copyright notices:
 
