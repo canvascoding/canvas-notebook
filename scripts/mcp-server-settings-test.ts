@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     assert.equal(preferences.tools.includes('copy_knowledge_source'), false,
       'Activating MCP must not opt in to the reserved Copy capability.');
     assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool)));
-    assert.equal(preferences.toolsVersion, 8);
+    assert.equal(preferences.toolsVersion, 9);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 8,
+      toolsVersion: 9,
     });
 
     await writeFile(settingsPath, JSON.stringify({
@@ -174,6 +174,9 @@ async function main(): Promise<void> {
         { id: 'create_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'get_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:read'] },
         { id: 'edit_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'studio_image_catalog', available: true, enabled: false, scopes: ['studio:read'] },
+        { id: 'studio_generate_image', available: true, enabled: false, scopes: ['studio:generate'] },
+        { id: 'studio_image_result', available: true, enabled: false, scopes: ['studio:read'] },
       ],
     );
     assert.equal(

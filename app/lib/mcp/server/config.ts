@@ -3,7 +3,7 @@ export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 export const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
 export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
-export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 8;
+export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 9;
 
 export const DIRECT_MCP_TOOL_IDS = [
   'auth_probe',
@@ -27,6 +27,9 @@ export const DIRECT_MCP_TOOL_IDS = [
   'create_excalidraw_scene',
   'get_excalidraw_scene',
   'edit_excalidraw_scene',
+  'studio_image_catalog',
+  'studio_generate_image',
+  'studio_image_result',
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 
@@ -37,6 +40,9 @@ export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
   'copy_knowledge_source',
   'move_knowledge_source', 'delete_knowledge_source',
   'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',
+  'studio_image_catalog',
+  'studio_generate_image',
+  'studio_image_result',
 ] as const satisfies readonly DirectMcpToolId[];
 
 // Writing is opt-in. Existing Direct MCP installations keep their established
@@ -59,6 +65,8 @@ export const DIRECT_MCP_OAUTH_SCOPES = [
   'knowledge:read',
   'knowledge:write',
   'knowledge:assets',
+  'studio:read',
+  'studio:generate',
 ] as const;
 
 export const DIRECT_MCP_RESOURCE_SCOPES = [
@@ -68,6 +76,8 @@ export const DIRECT_MCP_RESOURCE_SCOPES = [
   'knowledge:read',
   'knowledge:write',
   'knowledge:assets',
+  'studio:read',
+  'studio:generate',
 ] as const;
 
 export type DirectMcpOAuthScope = (typeof DIRECT_MCP_OAUTH_SCOPES)[number];

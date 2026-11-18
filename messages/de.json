@@ -627,6 +627,8 @@
       "knowledgeSearch": "In erlaubten Wissensinhalten suchen",
       "knowledgeRead": "Inhalte erlaubter Wissensquellen lesen",
       "knowledgeWrite": "Exakte, konfliktgeschützte Änderungen an erlaubten Wissensquellen vornehmen",
+      "studioRead": "Bildkatalog und Bildergebnisse freigegebener Workspaces lesen",
+      "studioGenerate": "Studio-Bilder generieren und bearbeiten (kann Kosten verursachen)",
       "knowledgeAssets": "Erlaubte Bilder und PDFs als visuellen und Dokument-Kontext lesen"
     },
     "securityTitle": "Direkte, lokale Verbindung",
@@ -6002,6 +6004,18 @@
           "import_knowledge_file": {
             "title": "Vollständige Dateien importieren",
             "description": "Übernimmt Dateien und Fotos über temporäre HTTPS-Dateireferenzen. Originale bleiben unverändert; bestehende Dateien werden nicht überschrieben."
+          },
+          "studio_image_catalog": {
+            "title": "Studio-Bildkatalog lesen",
+            "description": "Zeigt Modelle, Presets, Produkte, Personas und Stile."
+          },
+          "studio_generate_image": {
+            "title": "Studio-Bilder generieren",
+            "description": "Erstellt oder bearbeitet ein Bild im Workspace mit den Studio-Einstellungen. Kann Kosten verursachen."
+          },
+          "studio_image_result": {
+            "title": "Studio-Bilder abrufen",
+            "description": "Liest den Auftragsstatus und zeigt ein ausgewähltes Ergebnis an."
           },
           "create_excalidraw_scene": {
             "title": "Excalidraw-Diagramme erstellen",

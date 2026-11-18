@@ -67,6 +67,9 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'create_excalidraw_scene', available: true, scopes: ['knowledge:write'] },
   { id: 'get_excalidraw_scene', available: true, scopes: ['knowledge:read'] },
   { id: 'edit_excalidraw_scene', available: true, scopes: ['knowledge:write'] },
+  { id: 'studio_image_catalog', available: true, scopes: ['studio:read'] },
+  { id: 'studio_generate_image', available: true, scopes: ['studio:generate'] },
+  { id: 'studio_image_result', available: true, scopes: ['studio:read'] },
 ];
 
 function settingsSource(

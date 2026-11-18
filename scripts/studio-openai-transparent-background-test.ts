@@ -98,7 +98,7 @@ assert.match(getOpenAIImageRequestValidationError({ stream: false, partialImages
 assert.match(getOpenAIImageRequestValidationError({ count: 11 }) || '', /between 1 and 10/);
 assert.match(getOpenAIImageRequestValidationError({ model: 'gpt-image-2.5-unknown' }) || '', /Model/);
 
-const studioToolSource = readFileSync(path.join(process.cwd(), 'app/lib/pi/studio-tools.ts'), 'utf8');
+const studioToolSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/studio-image-schema.ts'), 'utf8');
 assert.match(studioToolSource, /For a transparent background, use png \(recommended\) or webp; jpeg does not support transparency\./);
 assert.match(studioToolSource, /set this to transparent and set output_format to png \(recommended\) or webp\./);
 assert.match(studioToolSource, /gpt-image-2\.5-sunburst/);

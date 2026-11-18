@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describeWorkspaceCapabilities } from './workspace-capabilities';
 import { getDirectMcpRuntimeSettings } from './runtime-settings';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
+import { getStudioImageTools } from './studio-image-tools';
 import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
 import { getDirectMcpAuthProbeToolDescriptor } from './auth-probe';
 import { MANIFEST_MAX_FILE_BYTES } from './file-manifest';
@@ -1012,7 +1013,7 @@ async function executeGetWorkspaceOverview(
     const overview = await readWorkspaceOverviewContents(workspace);
     const runtime = await getDirectMcpRuntimeSettings();
     const descriptors = [getDirectMcpAuthProbeToolDescriptor(), ...getDirectMcpWorkspaceToolDefinitions().map(tool => tool.descriptor),
-      ...getDirectMcpIngestToolDefinitions().map(tool => tool.descriptor), ...getDirectMcpExcalidrawToolDefinitions().map(tool => tool.descriptor)];
+      ...getDirectMcpIngestToolDefinitions().map(tool => tool.descriptor), ...getStudioImageTools().map(tool => tool.descriptor), ...getDirectMcpExcalidrawToolDefinitions().map(tool => tool.descriptor)];
     const structuredContent = {
       capabilities: describeWorkspaceCapabilities({ workspace, scopes: authorization.principal.scopes,
         enabled: runtime.enabled, enabledTools: runtime.tools, descriptors }),

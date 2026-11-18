@@ -29,6 +29,9 @@ const DIRECT_MCP_TOOLS = [
   'create_excalidraw_scene',
   'get_excalidraw_scene',
   'edit_excalidraw_scene',
+  'studio_image_catalog',
+  'studio_generate_image',
+  'studio_image_result',
 ];
 const DIRECT_MCP_TOOL_SET = new Set(DIRECT_MCP_TOOLS);
 

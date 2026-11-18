@@ -23,7 +23,6 @@ import type { ExcalidrawDocumentSnapshot } from '@/app/lib/excalidraw-collaborat
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 
-const requireDependency = createRequire(import.meta.url);
 const suffix = `${Date.now()}-${process.pid}-${randomUUID().slice(0, 8)}`;
 const userId = `adapter-user-${suffix}`;
 const organizationId = `adapter-org-${suffix}`;
@@ -32,6 +31,7 @@ const organizationId = `adapter-org-${suffix}`;
  * Scene persistence, workspace locks, checkpoints and history use native PG. */
 function loadModule<T>(filename: string, dependencies: Record<string, unknown>): T {
   const absolutePath = path.resolve(filename);
+  const requireDependency = createRequire(absolutePath);
   const javascript = ts.transpileModule(readFileSync(absolutePath, 'utf8'), {
     fileName: absolutePath, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;

@@ -29,6 +29,7 @@ import {
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import { getDirectMcpIngestToolDefinitions } from './ingest-tools';
+import { getStudioImageTools } from './studio-image-tools';
 import { getDirectMcpExcalidrawToolDefinitions } from './excalidraw-tools';
 import type { ApiKeyCredential } from '../../api-keys/authentication';
 import { API_KEY_MCP_TOOLS, apiKeyMcpToolDescriptor } from './api-key-tool-contract';
@@ -54,7 +55,7 @@ export function createDirectMcpServer(
     });
   }
   for (const tool of [...getDirectMcpWorkspaceToolDefinitions(), ...getDirectMcpIngestToolDefinitions(),
-    ...getDirectMcpExcalidrawToolDefinitions()]) {
+    ...getStudioImageTools(), ...getDirectMcpExcalidrawToolDefinitions()]) {
     if (!enabledTools.has(tool.id)) continue;
     tools.push({
       id: tool.id,
@@ -63,7 +64,7 @@ export function createDirectMcpServer(
     });
   }
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
-  const hasWriteTool = enabledTools.has('edit_knowledge_source')
+  const hasWriteTool = enabledTools.has('studio_generate_image') || enabledTools.has('edit_knowledge_source')
     || enabledTools.has('replace_knowledge_source')
     || enabledTools.has('copy_knowledge_source')
     || enabledTools.has('move_knowledge_source') || enabledTools.has('delete_knowledge_source')

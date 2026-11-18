@@ -25,6 +25,8 @@ const SCOPE_TRANSLATION_KEYS: Record<DirectMcpOAuthScope, string> = {
   'knowledge:search': 'knowledgeSearch',
   'knowledge:read': 'knowledgeRead',
   'knowledge:write': 'knowledgeWrite',
+  'studio:read': 'studioRead',
+  'studio:generate': 'studioGenerate',
   'knowledge:assets': 'knowledgeAssets',
 };
 

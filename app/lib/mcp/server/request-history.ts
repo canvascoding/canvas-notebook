@@ -44,6 +44,9 @@ const TOOL_NAMES = new Set([
   'create_excalidraw_scene',
   'get_excalidraw_scene',
   'edit_excalidraw_scene',
+  'studio_image_catalog',
+  'studio_generate_image',
+  'studio_image_result',
 ]);
 
 export type DirectMcpRequestHistoryInput = {
