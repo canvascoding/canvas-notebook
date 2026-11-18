@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.11.18.1] - 2026-11-18
+
+### Added
+
+- Generate and edit Studio images from Direct MCP with the same models, settings, presets, and references as the internal Studio tool. Results are available in Studio and through MCP after workspace authorization.
+- Use Seedance 2.5 through KIE for Studio video generation, with model-specific inputs and managed Control Plane availability checks.
+
+### Fixed
+
+- Recover document-location checks after transient server errors so an open document can resume once its location is confirmed.
+
+### Security
+
+- Update Next.js, Hono, and Soup Sieve to address dependency advisories.
+- Apply the pinned upstream Picomatch patch to all four installed copies. The npm audit verifies the patched parser bytes before excepting the single covered advisory. Other findings continue to block CI.
+
+### Verification
+
+- `npm run verify:release` covers the strict third-party license gate, production build, runtime checks, and CLI update and rollback tests.
+- Studio MCP generation and editing passed all six end-to-end phases against local Gemini and OpenAI test endpoints.
+
 ## [2026.11.9.3] - 2026-11-09
 
 ### Fixed
