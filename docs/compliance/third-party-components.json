@@ -4,12 +4,12 @@
   "packageVersion": "2026.11.18.2",
   "lockfileSha256": "42c9fd0e6c9d2f99ee3939331aa54b3fdc6631ce78d831337e660b14b5917fcf",
   "summary": {
-    "totalComponents": 1977,
+    "totalComponents": 1978,
     "npmComponents": 1949,
-    "nonNpmComponents": 28,
-    "runtimeComponents": 1462,
+    "nonNpmComponents": 29,
+    "runtimeComponents": 1463,
     "developmentOnlyComponents": 515,
-    "allowed": 1941,
+    "allowed": 1942,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -10369,6 +10369,28 @@
       "reviewNotes": "Technical source/notice review requested by the owner on 2026-10-04. This replaces the excluded Faster-Whisper wheels only in Docker. The SHA-256-pinned v1.9.4 source is built CPU-only with FFmpeg linking, GPU/BLAS/OpenMP/KleidiAI/llamafile and network downloads disabled. MIT and MIT-0 notices plus the exact source archive ship with the executable. Every image build verifies executable/source/notice hashes, build flags, and system-only ELF linkage; release CI checks both amd64 and arm64. This does not approve the previous PyAV/CTranslate2 wheels. See docs/compliance/container-local-dictation-review-2026-10-04.md.",
       "reviewedBy": "Codex (technical source and notice review)",
       "reviewedAt": "2026-10-04"
+    },
+    {
+      "name": "cpython-docker-runtime",
+      "versionOrCommit": "3.11.18",
+      "sourceUrl": "https://github.com/python/cpython/tree/v3.11.18",
+      "packagePathOrArtifact": "/usr/local/bin/python3.11 and its standard library",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "PSF-2.0",
+      "verifiedLicense": "PSF-2.0",
+      "licenseTextRef": "docs/compliance/license-texts/cpython-3.11.18.txt",
+      "licenseTextSha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+      "copyrightNotices": [
+        "Copyright (c) 2001-2026 Python Software Foundation"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The upstream Docker Official Image is pinned by OCI index digest. The bundled license matches the exact CPython source tag. Each image verifies the runtime version, license hash and the isolated pip inventory.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-11-18"
     },
     {
       "name": "docker-global-npm:@npmcli/agent",

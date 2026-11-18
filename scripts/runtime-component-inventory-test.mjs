@@ -43,7 +43,7 @@ assert.match(inventory.evidence.pythonRequirementsSha256, /^[a-f0-9]{64}$/u);
 assert.equal(inventory.evidence.dockerfileSha256, sha256File('Dockerfile'));
 assert.equal(inventory.evidence.nativeDistributionPolicySha256, sha256File(nativePolicyPath));
 assert.equal(inventory.evidence.pythonRequirementsSha256, sha256File(requirementsPath));
-assert.equal(inventory.nativeComponents.length, 3 + nativePolicy.libvips.svgDependencies.length);
+assert.equal(inventory.nativeComponents.length, 4 + nativePolicy.libvips.svgDependencies.length);
 const nodeRuntime = inventory.nativeComponents.find((component) => component.name === 'node');
 assert.equal(nodeRuntime?.version, nativePolicy.baseImage.nodeVersion);
 assert(
@@ -52,6 +52,10 @@ assert(
   )),
   'the Node runtime must retain its aggregated upstream LICENSE file',
 );
+const cpython = inventory.nativeComponents.find((component) => component.name === 'cpython');
+for (const key of ['version', 'image', 'sourceUrl', 'license', 'licensePath', 'licenseSha256']) {
+  assert.equal(cpython?.[key], nativePolicy.pythonRuntime[key], `CPython runtime evidence differs for ${key}`);
+}
 const libvips = inventory.nativeComponents.find((component) => component.name === 'libvips');
 assert(libvips, 'the Docker runtime must inventory the Canvas-built shared libvips');
 assert.equal(libvips.version, nativePolicy.libvips.version);
@@ -188,7 +192,7 @@ const lockedPythonPackages = new Map(
     .map((match) => [normalizePythonName(match[1]), match[2]]),
 );
 assert(lockedPythonPackages.size > 0, 'the runtime Python lock must contain exact versions');
-assert.equal(lockedPythonPackages.size, 51, 'the distributed Docker image must retain the 51-package base lock including Matplotlib');
+assert.equal(lockedPythonPackages.size, 52, 'the runtime lock must include Matplotlib and the pinned pip used in the isolated environment');
 assert.match(requirements, /--hash=sha256:[a-f0-9]{64}/u);
 const pipManagedPackages = inventory.pythonPackages.filter((component) => component.managedBy === 'pip');
 assert.equal(pipManagedPackages.length, lockedPythonPackages.size);

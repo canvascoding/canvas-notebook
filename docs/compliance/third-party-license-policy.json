@@ -1034,6 +1034,23 @@
       "reviewedAt": "2026-07-17"
     },
     {
+      "name": "cpython-docker-runtime",
+      "versionOrCommit": "3.11.18",
+      "sourceUrl": "https://github.com/python/cpython/tree/v3.11.18",
+      "packagePathOrArtifact": "/usr/local/bin/python3.11 and its standard library",
+      "usage": "native",
+      "distributedIn": ["docker-image"],
+      "declaredLicense": "PSF-2.0",
+      "verifiedLicense": "PSF-2.0",
+      "licenseTextPath": "docs/compliance/license-texts/cpython-3.11.18.txt",
+      "copyrightNotices": ["Copyright (c) 2001-2026 Python Software Foundation"],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The upstream Docker Official Image is pinned by OCI index digest. The bundled license matches the exact CPython source tag. Each image verifies the runtime version, license hash and the isolated pip inventory.",
+      "reviewedBy": "Codex dependency review",
+      "reviewedAt": "2026-11-18"
+    },
+    {
       "name": "canvas-built-whisper-cpp",
       "versionOrCommit": "1.9.4 / 927cfce34f31707e17f2bff35c349632fb9e2c3a",
       "sourceUrl": "https://codeload.github.com/ggml-org/whisper.cpp/tar.gz/refs/tags/v1.9.4",

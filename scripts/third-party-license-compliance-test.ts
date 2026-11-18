@@ -51,6 +51,7 @@ const nativeDistributionPolicy = JSON.parse(fs.readFileSync(
   'utf8',
 )) as {
   baseImage: { reference: string; nodeVersion: string };
+  pythonRuntime: { image: string; version: string; licenseSha256: string };
   debianRepositories: { lockFile: string; lockSha256: string };
   postgresql: {
     clientVersion: string;
@@ -146,6 +147,11 @@ assert.match(
 
 for (const requiredDockerFragment of [
   `ARG NODE_BASE_IMAGE=${nativeDistributionPolicy.baseImage.reference}`,
+  `ARG PYTHON_RUNTIME_IMAGE=${nativeDistributionPolicy.pythonRuntime.image}`,
+  'FROM ${PYTHON_RUNTIME_IMAGE} AS python-runtime',
+  '/usr/local/bin/python3.11 -m venv --without-pip /opt/canvas-python',
+  'COPY --from=python-runtime /opt/canvas-python/ /opt/canvas-python/',
+  'PATH=/opt/canvas-python/bin:',
   'COPY docs/compliance/debian-repository-lock.json /usr/local/share/canvas-debian-repository-lock.json',
   'node /usr/local/libexec/canvas-debian/debian-repository-lock.mjs prepare',
   `ARG LIBVIPS_VERSION=${nativeDistributionPolicy.libvips.version}`,
@@ -298,8 +304,8 @@ const dictationPythonVersions = new Map([
 ]);
 assert.equal(
   pythonEntries.length,
-  51,
-  'the bundled Python lock must retain the base package set including Matplotlib',
+  52,
+  'the bundled Python lock includes Matplotlib and the pinned pip runtime',
 );
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
 assert.deepEqual(
@@ -647,6 +653,9 @@ assert.equal(nodeDockerBase.licenseTextSha256, null);
 assert.equal(nodeDockerBase.reviewedBy, 'Frank Alexander Weber');
 assert.equal(nodeDockerBase.reviewedAt, '2026-07-17');
 assert.match(nodeDockerBase.reviewNotes || '', /aggregate container position/u);
+const cpythonDockerRuntime = inventory.components.find((component) => component.name === 'cpython-docker-runtime');
+assert.equal(cpythonDockerRuntime?.versionOrCommit, nativeDistributionPolicy.pythonRuntime.version);
+assert.equal(cpythonDockerRuntime?.licenseTextSha256, nativeDistributionPolicy.pythonRuntime.licenseSha256);
 for (const name of [
   'docker-global-npm:@npmcli/agent',
   'docker-global-npm:err-code',

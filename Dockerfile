@@ -2,10 +2,20 @@
 
 ARG NPM_VERSION=11.11.0
 ARG NODE_BASE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+ARG PYTHON_RUNTIME_IMAGE=python:3.11.18-slim-bookworm@sha256:a83ba18aef0f865b1a4a611c2cf460fe446f2795673bbb9fe43be570439e3b39
 ARG LIBVIPS_VERSION=8.18.7
 ARG LIBVIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 FROM rust:1.94.0-slim-bookworm@sha256:a86cada82e36ebd7a9bffed7548792c55a952fdb20718eea9278a936bcb76e62 AS svg-rust-toolchain
+
+FROM ${PYTHON_RUNTIME_IMAGE} AS python-runtime
+COPY requirements/runtime-python.txt /app/requirements/runtime-python.txt
+# Keep the application lock isolated from both Debian and image bootstrap packages.
+RUN /usr/local/bin/python3.11 -m venv --without-pip /opt/canvas-python \
+  && /usr/local/bin/python3.11 -m pip --python /opt/canvas-python install --no-cache-dir \
+     --only-binary=:all: --require-hashes -r /app/requirements/runtime-python.txt \
+  && /opt/canvas-python/bin/python3 -m pip check \
+  && find /usr/local/lib/python3.11/site-packages -mindepth 1 -maxdepth 1 -exec rm -rf '{}' +
 
 FROM ${NODE_BASE_IMAGE} AS canvas-base
 
@@ -209,6 +219,7 @@ WORKDIR /app
 ARG APP_USER=node
 ARG NODE_BASE_IMAGE
 ARG NPM_VERSION
+ARG PYTHON_RUNTIME_IMAGE
 ARG POSTGRES_CLIENT_VERSION=18.4-1.pgdg12+1
 ARG POSTGRES_COMMON_VERSION=293.pgdg12+1
 ARG TARGETPLATFORM
@@ -253,9 +264,28 @@ RUN set -eux; \
   libreoffice --headless --version
 RUN test -x /usr/local/libexec/canvas-agent-landlock
 
-# Install only the reviewed Python runtime required by bundled features.
-COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
-RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /app/requirements/runtime-python.txt
+# Copy the supported CPython build and its isolated hash-locked application environment.
+COPY --from=python-runtime /usr/local/bin/python3.11 /usr/local/bin/python3.11
+COPY --from=python-runtime /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/libpython3.11.so.1.0
+COPY --from=python-runtime /usr/local/lib/python3.11/ /usr/local/lib/python3.11/
+COPY --from=python-runtime /opt/canvas-python/ /opt/canvas-python/
+COPY --from=python-runtime /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
+RUN /opt/canvas-python/bin/python3 -m pip check
+RUN /opt/canvas-python/bin/python3 - <<'PYTHON'
+import sqlite3
+import ssl
+import sys
+
+from bs4 import BeautifulSoup
+from markitdown import MarkItDown
+
+assert sys.version_info[:3] == (3, 11, 18)
+assert sys.prefix == "/opt/canvas-python"
+assert sqlite3.connect(":memory:").execute("SELECT 1").fetchone() == (1,)
+assert ssl.create_default_context()
+assert BeautifulSoup("<main><p>Canvas</p></main>", "html.parser").select_one("main > p").text == "Canvas"
+MarkItDown()
+PYTHON
 # The optional dictation lock is shipped as text only. An instance admin can
 # install its pinned wheels into persistent DATA after deployment.
 COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt
@@ -273,7 +303,7 @@ ENV NODE_ENV=production \
     ALLOW_SIGNUP=false \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
     BUN_INSTALL=/data/cache/.bun \
-    PATH=/data/cache/.bun/bin:/home/${APP_USER}/.npm-global/bin:${PATH} \
+    PATH=/opt/canvas-python/bin:/data/cache/.bun/bin:/home/${APP_USER}/.npm-global/bin:${PATH} \
     CANVAS_TERMINAL_SOCKET=/tmp/canvas-terminal.sock \
     CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
     XDG_CACHE_HOME=/data/cache
@@ -323,6 +353,7 @@ RUN node ./scripts/python-license-inventory-test.mjs
 RUN python3 ./scripts/capture-dictation-cpp-evidence.py /app/native/dictation/evidence.json
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
+  --python-runtime-image "${PYTHON_RUNTIME_IMAGE}" \
   --platform "${TARGETPLATFORM}" \
   --output /app/docs/compliance/runtime-components.json
 RUN node ./scripts/runtime-component-inventory-test.mjs \

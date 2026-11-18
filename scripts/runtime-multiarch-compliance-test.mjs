@@ -41,6 +41,11 @@ function verifyArchitecture(inventory, linkage, expectedArchitecture) {
   });
   assert.equal(inventory.nativeComponents.find((entry) => entry.name === 'node')?.version, policy.baseImage.nodeVersion);
 
+  const cpython = inventory.nativeComponents.find((entry) => entry.name === 'cpython');
+  for (const key of ['version', 'image', 'sourceUrl', 'license', 'licensePath', 'licenseSha256']) {
+    assert.equal(cpython?.[key], policy.pythonRuntime[key], `${expectedArchitecture} CPython evidence differs for ${key}`);
+  }
+
   const libvips = inventory.nativeComponents.find((entry) => entry.name === 'libvips');
   assert(libvips, `${expectedArchitecture} must inventory libvips`);
   assert.equal(libvips.version, policy.libvips.version);

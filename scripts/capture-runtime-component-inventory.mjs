@@ -349,6 +349,10 @@ try {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+const pythonRuntimePolicy = nativeDistributionPolicy.pythonRuntime;
+const pythonRuntimeImage = process.argv[process.argv.indexOf('--python-runtime-image') + 1];
+const pythonVersion = execFileSync('python3', ['-c', 'import platform; print(platform.python_version())'], { encoding: 'utf8' }).trim();
+
 const inventory = {
   schemaVersion: 5,
   generatedBy: 'scripts/capture-runtime-component-inventory.mjs',
@@ -389,6 +393,16 @@ const inventory = {
       version: process.version.replace(/^v/u, ''),
       sourceUrl: `https://github.com/nodejs/node/tree/v${process.version.replace(/^v/u, '')}`,
       noticeFiles: packageNoticeFiles('/usr/local'),
+    },
+    {
+      ecosystem: 'native',
+      name: 'cpython',
+      version: pythonVersion,
+      image: pythonRuntimeImage,
+      sourceUrl: pythonRuntimePolicy.sourceUrl,
+      license: pythonRuntimePolicy.license,
+      licensePath: pythonRuntimePolicy.licensePath,
+      licenseSha256: sha256File(pythonRuntimePolicy.licensePath),
     },
     {
       ecosystem: 'native',
