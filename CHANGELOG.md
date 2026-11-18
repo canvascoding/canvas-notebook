@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.11.18.2] - 2026-11-18
+## [2026.11.18.3] - 2026-11-18
 
 ### Added
 
@@ -22,6 +22,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Recover document-location checks after transient server errors so an open document can resume once its location is confirmed.
 - Refresh the signed Debian snapshot used by release images and restore Linux CLI lockfile compatibility with Node 22.
+- Ship a digest-pinned CPython 3.11.18 application runtime on amd64 and arm64 so the patched Soup Sieve release installs with its hash-locked dependencies.
 
 ### Security
 
