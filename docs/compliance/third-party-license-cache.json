@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "f500bd39c9e4439004f3db2214144257df9488dae592cbfb3ddc6e355da0de65",
+  "lockfileSha256": "15b980b50d9282a96c1bed14fb783db41c126e1075cc9e2a984edfe2bc07813d",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.74": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -114,24 +114,6 @@
       "noticeTexts": [],
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
-      ]
-    },
-    "node_modules/@earendil-works/pi-ai/node_modules/undici@6.29.1": {
-      "packagePath": "node_modules/@earendil-works/pi-ai/node_modules/undici",
-      "name": "undici",
-      "version": "6.29.1",
-      "packageResolved": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz",
-      "packageIntegrity": "sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/nodejs/undici/tree/8c57f6c68c95465338ae97bfc991cb1513d2f76e",
-      "sourceRevision": "8c57f6c68c95465338ae97bfc991cb1513d2f76e",
-      "verificationSource": "https://registry.npmjs.org/undici/-/undici-6.29.1.tgz#LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "LICENSE",
-      "licenseText": "MIT License\n\nCopyright (c) Matteo Collina and Undici contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) Matteo Collina and Undici contributors"
       ]
     },
     "node_modules/@earendil-works/pi-telemetry@1.0.4": {
@@ -1802,186 +1784,6 @@
       "copyrightNotices": [
         "Copyright (c) 2018 GitHub",
         "Copyright (c) 2020-present LongYinan"
-      ]
-    },
-    "node_modules/@next/env@16.4.3": {
-      "packagePath": "node_modules/@next/env",
-      "name": "@next/env",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/env/-/env-16.4.3.tgz",
-      "packageIntegrity": "sha512-a7tz1QCcWWkwC/rPJcPMJk/UNRu9CFhDd3OHYE5hddbJrs8BqRTalxI6GlKCWEGzRLHN+S/B7a4PAHCtm25aBQ==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/eslint-plugin-next@16.4.3": {
-      "packagePath": "node_modules/@next/eslint-plugin-next",
-      "name": "@next/eslint-plugin-next",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/eslint-plugin-next/-/eslint-plugin-next-16.4.3.tgz",
-      "packageIntegrity": "sha512-oxuC06wt/71h6ACYCV9GbKOfnf5a7VlRe/p80YHTut15TNgDEmynDnaq8t/xhy5rlvk7dhItIPs6H3rvIM4kyw==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-darwin-arm64@16.4.3": {
-      "packagePath": "node_modules/@next/swc-darwin-arm64",
-      "name": "@next/swc-darwin-arm64",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.4.3.tgz",
-      "packageIntegrity": "sha512-4yq5EXBt+VDtAZwTyfijaFp5D2C5oz3Ikw5a2kiX2K9nw72vrZX2q5UuAlkPtUMO1tQz6JTKpaKWjS7OOefTDQ==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-darwin-x64@16.4.3": {
-      "packagePath": "node_modules/@next/swc-darwin-x64",
-      "name": "@next/swc-darwin-x64",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-darwin-x64/-/swc-darwin-x64-16.4.3.tgz",
-      "packageIntegrity": "sha512-1Rvkn/LUhnEF8WxnRkOrqGhbwXui1bkWFxONKIbN+r7C+9KHDSZ+iUoj4CzymVMWUyZIyx9szcb9+kbKhD500A==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-linux-arm64-gnu@16.4.3": {
-      "packagePath": "node_modules/@next/swc-linux-arm64-gnu",
-      "name": "@next/swc-linux-arm64-gnu",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.4.3.tgz",
-      "packageIntegrity": "sha512-dCKpXErGg3abUM6t5JTJV/ottVBTStJB5lRJTbgdUdQaQ+jNHiK56Hsc0YAEg/rinSh42hYG3HWiYmEMdilnxg==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-linux-arm64-musl@16.4.3": {
-      "packagePath": "node_modules/@next/swc-linux-arm64-musl",
-      "name": "@next/swc-linux-arm64-musl",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.4.3.tgz",
-      "packageIntegrity": "sha512-WwYbhWkhYBvBtib1K4W0kL8MW2snBD2A5b3SN4vPpqalZbZs5+bQ1yzAdepVoOqrFfEW3dmREy4Zs1MrWcrFbw==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-linux-x64-gnu@16.4.3": {
-      "packagePath": "node_modules/@next/swc-linux-x64-gnu",
-      "name": "@next/swc-linux-x64-gnu",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.4.3.tgz",
-      "packageIntegrity": "sha512-QymWvfUwDEC5/lpJOsxX5VAbyoR2D13+2Jsjz4be7gT4LPqEgdpkeLIR/HFfCLgKzoMhpJbp6I/JnogyNZHcaA==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-linux-x64-musl@16.4.3": {
-      "packagePath": "node_modules/@next/swc-linux-x64-musl",
-      "name": "@next/swc-linux-x64-musl",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.4.3.tgz",
-      "packageIntegrity": "sha512-Vmjd9D7DpA4Vv3cUlr82QWgJD/BQZmns801vtC5VWHg6jCIA4a5vMKpQnfrM2pyCrp2eV0ENdUg4PlN3bAc2Yw==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-win32-arm64-msvc@16.4.3": {
-      "packagePath": "node_modules/@next/swc-win32-arm64-msvc",
-      "name": "@next/swc-win32-arm64-msvc",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.4.3.tgz",
-      "packageIntegrity": "sha512-lG1pPdPLk7gTyGb00n5JIMLdBJgjb+UEhSdZvFbhUMg0DyC6z4B7RnpSKF9VCd4imkLObVbXOFA0kFCpw7yFow==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
-    "node_modules/@next/swc-win32-x64-msvc@16.4.3": {
-      "packagePath": "node_modules/@next/swc-win32-x64-msvc",
-      "name": "@next/swc-win32-x64-msvc",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.4.3.tgz",
-      "packageIntegrity": "sha512-NmQC9RkJdnPXRaMxtkCzobB3teVjqF33oSOnwDfi+XYGWWYpt+xlGK3mtktSKLbdjwaWbJu2OkkMiRFGUUncKg==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
       ]
     },
     "node_modules/@parcel/watcher-android-arm64@2.5.6": {
@@ -5195,24 +4997,6 @@
         "Copyright (c) 2015 Ben Youngblood"
       ]
     },
-    "node_modules/eslint-config-next@16.4.3": {
-      "packagePath": "node_modules/eslint-config-next",
-      "name": "eslint-config-next",
-      "version": "16.4.3",
-      "packageResolved": "https://registry.npmjs.org/eslint-config-next/-/eslint-config-next-16.4.3.tgz",
-      "packageIntegrity": "sha512-j9IqBma6abp800frdUURaizYMgXOK+jNGyq6CsYcM9AxpSJs5D/TgMNGeAmRUilZvA7g9V1Tr71gNg9/SVTuMQ==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/vercel/next.js/tree/29bbeab09981148ade186e8599ecdede15abc281",
-      "sourceRevision": "29bbeab09981148ade186e8599ecdede15abc281",
-      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/29bbeab09981148ade186e8599ecdede15abc281/license.md",
-      "verificationNote": null,
-      "licenseFileName": "UPSTREAM:license.md",
-      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ]
-    },
     "node_modules/esrecurse@4.3.0": {
       "packagePath": "node_modules/esrecurse",
       "name": "esrecurse",
@@ -6400,6 +6184,204 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
+      ]
+    },
+    "node_modules/@next/env@16.4.6": {
+      "packagePath": "node_modules/@next/env",
+      "name": "@next/env",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/env/-/env-16.4.6.tgz",
+      "packageIntegrity": "sha512-SunBjJ6t+oBtecS3dTjdVuMhUogP5wD/vrGL5EVuQYM1iS4O5ilL51HkiJ3sPjMzRHiCChvr4dbaSJbR7F3lxA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/eslint-plugin-next@16.4.6": {
+      "packagePath": "node_modules/@next/eslint-plugin-next",
+      "name": "@next/eslint-plugin-next",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/eslint-plugin-next/-/eslint-plugin-next-16.4.6.tgz",
+      "packageIntegrity": "sha512-HdqERVOafOD8JaUSAkwf9aSu/1rsHlkN8C5GcXYBH3C/z1MxBhZFxB5rz/xqMMRiIj7r9tIv8OCLQ9JWUxCvWA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-darwin-arm64@16.4.6": {
+      "packagePath": "node_modules/@next/swc-darwin-arm64",
+      "name": "@next/swc-darwin-arm64",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.4.6.tgz",
+      "packageIntegrity": "sha512-kJ4VVZkley17xKaJx72QN2IBqjrj7zenCQZaUF0l9ShS/1Mt2kW4+Z5KGG6vgr3L/J562xTOizVyM1iA/u5nlg==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-darwin-x64@16.4.6": {
+      "packagePath": "node_modules/@next/swc-darwin-x64",
+      "name": "@next/swc-darwin-x64",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-darwin-x64/-/swc-darwin-x64-16.4.6.tgz",
+      "packageIntegrity": "sha512-eIPGZIqC+8JKaeZmvnCANJQF4xWkkHqSnAAajtFxgwDMAOnCgxNvP52SeWZ41PyVwoe+Le/NQuZSaQ8j7YshSA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-linux-arm64-gnu@16.4.6": {
+      "packagePath": "node_modules/@next/swc-linux-arm64-gnu",
+      "name": "@next/swc-linux-arm64-gnu",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.4.6.tgz",
+      "packageIntegrity": "sha512-9nI6O8vvczH2D9ZNdMGqb/3NuT15T9ksOZnAmx9/gjF2cOi74+xxyf1Hk96uIMfm14c9y6wHeBq6SH8g6udvcA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-linux-arm64-musl@16.4.6": {
+      "packagePath": "node_modules/@next/swc-linux-arm64-musl",
+      "name": "@next/swc-linux-arm64-musl",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.4.6.tgz",
+      "packageIntegrity": "sha512-7/qPhTxDp2ScluOJOhLuhWmlA17o1yZ0SIgpISBCpBxXgtnK4+KGywBpFkfLPiU1rnSM1faFGzYkH6i7JdTrqA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-linux-x64-gnu@16.4.6": {
+      "packagePath": "node_modules/@next/swc-linux-x64-gnu",
+      "name": "@next/swc-linux-x64-gnu",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.4.6.tgz",
+      "packageIntegrity": "sha512-oOpbNa8XOW1qCGd9VvzC4fbkkRxEls7/WI6tz+YHC0xRA7KpV1U7DrAnCPjzVyOk/karzWEepCOcTIDmwK8FwQ==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-linux-x64-musl@16.4.6": {
+      "packagePath": "node_modules/@next/swc-linux-x64-musl",
+      "name": "@next/swc-linux-x64-musl",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.4.6.tgz",
+      "packageIntegrity": "sha512-aM8CZ+OR2EwXaAYw7KGkW2GDmNDsLBIRe1MMRZCJPTdw/xhTD0IMUVO4sf3KqrzuRouGzwwLZn34+gFeVXiUQA==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-win32-arm64-msvc@16.4.6": {
+      "packagePath": "node_modules/@next/swc-win32-arm64-msvc",
+      "name": "@next/swc-win32-arm64-msvc",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.4.6.tgz",
+      "packageIntegrity": "sha512-U0p7/tEtqvHX2crhd841CDwKtp5CFkKXVjOhmfccR3Pvp64sj8KBwRqsvltqLOwVBbj0NtkxwXSDpEHYGbxeXQ==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/@next/swc-win32-x64-msvc@16.4.6": {
+      "packagePath": "node_modules/@next/swc-win32-x64-msvc",
+      "name": "@next/swc-win32-x64-msvc",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.4.6.tgz",
+      "packageIntegrity": "sha512-3ZG15/5WIdlTQsIEvc9sPTTSL5XFrlLklIKmfF4fwsDnoAhu6NcBDXsk3mbGxNyo6aVLEGex+fHCv2MahY7a9g==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
+      ]
+    },
+    "node_modules/eslint-config-next@16.4.6": {
+      "packagePath": "node_modules/eslint-config-next",
+      "name": "eslint-config-next",
+      "version": "16.4.6",
+      "packageResolved": "https://registry.npmjs.org/eslint-config-next/-/eslint-config-next-16.4.6.tgz",
+      "packageIntegrity": "sha512-IBGGrVf9E6pL0NGL0hmeicVGeSyv1VEzIWq6IecDqkw+YFByhEtDJS9u1r6s6a1VxK6rssh69KyNFQUgfaacqw==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/vercel/next.js/tree/54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "sourceRevision": "54b876b6b161b0ecda19562eb264bec637e60d6d",
+      "verificationSource": "https://raw.githubusercontent.com/vercel/next.js/54b876b6b161b0ecda19562eb264bec637e60d6d/license.md",
+      "verificationNote": null,
+      "licenseFileName": "UPSTREAM:license.md",
+      "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2025 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2025 Vercel, Inc."
       ]
     }
   }

@@ -66,3 +66,18 @@ unchanged validation bytes, binary reload, and the browser module entry. It
 does not start a server or use a database. Its access to the built validator
 depends on the installed Turbopack chunk format and fails explicitly if that
 format changes; update the probe rather than substituting source-only validation.
+
+## Picomatch 2.3.2 and 4.0.5
+
+The four Picomatch patches carry the parser changes from
+[micromatch/picomatch@7be3276](https://github.com/micromatch/picomatch/commit/7be3276fb8bd215a8c73fa066bcaf696c244ad88)
+for [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+The nested Micromatch copy is a development dependency. Builds that install
+with lifecycle scripts disabled run the repository patch command explicitly.
+
+Dependency Security runs the full npm audit. Its guard verifies the patched
+parser SHA-256 and locked version for every installed Picomatch copy. It
+excepts only this advisory and audit entries derived exclusively from it. A
+new advisory, unverified copy or invalid audit result blocks the check. Once
+official patched releases cover both dependency ranges, update the lockfile
+and remove the temporary patches and exception.
