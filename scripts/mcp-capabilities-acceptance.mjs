@@ -3,7 +3,7 @@ export async function verifyCapabilitiesAcceptance(call) {
   const result = await call('get_workspace_overview', {});
   assert.notEqual(result.isError, true, JSON.stringify(result));
   const { capabilities, limits } = result.structuredContent;
-  assert.ok(capabilities.server_version); assert.equal(capabilities.schema_version, 8);
+  assert.ok(capabilities.server_version); assert.equal(capabilities.schema_version, 9);
   assert.match(capabilities.schema_sha256, /^[a-f0-9]{64}$/u);
   assert(limits.upload_max_bytes > limits.upload_chunk_max_bytes);
   assert.equal(limits.upload_ttl_seconds, 900);

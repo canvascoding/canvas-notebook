@@ -1,0 +1,233 @@
+import 'server-only';
+import fs from 'node:fs/promises';
+import type { FileNode } from '@/app/lib/filesystem/workspace-files';
+import { buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
+import {
+  getStudioAssetEntityPath,
+  getStudioAssetsRoot,
+  getStudioEditsRoot,
+  getStudioWorkspaceVirtualRoot,
+} from '@/app/lib/integrations/studio-workspace';
+import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { db } from '@/app/lib/db';
+import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
+import { and, desc, eq } from 'drizzle-orm';
+import { studioVisibilityCondition, type StudioScope } from '@/app/lib/integrations/studio-scope';
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav']);
+const IMAGE_GRID_PREVIEW_WIDTH = 256;
+const DEFAULT_MEDIA_PREVIEW_WIDTH = 480;
+export type AssetKind = 'image' | 'video' | 'audio';
+
+function getExtension(filePath: string): string {
+  const ext = filePath.split('.').pop();
+  return ext ? ext.toLowerCase() : '';
+}
+
+function walkFiles(nodes: FileNode[], list: FileNode[] = []): FileNode[] {
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      list.push(node);
+    }
+    if (node.children?.length) {
+      walkFiles(node.children, list);
+    }
+  }
+  return list;
+}
+
+function getKind(extension: string): AssetKind | null {
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+  if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+  if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
+  return null;
+}
+
+function matchesKind(extension: string, requestedKind: AssetKind): boolean {
+  return getKind(extension) === requestedKind;
+}
+
+function getAssetPreviewUrl(filePath: string, kind: AssetKind, workspaceId: string): string {
+  if (kind === 'image') {
+    return toPreviewUrl(filePath, IMAGE_GRID_PREVIEW_WIDTH, { preset: 'mini', workspaceId });
+  }
+
+  return toPreviewUrl(filePath, DEFAULT_MEDIA_PREVIEW_WIDTH, { workspaceId });
+}
+
+interface AssetItem {
+  path: string;
+  name: string;
+  kind: AssetKind;
+  size?: number;
+  modified?: number;
+  mediaUrl: string;
+  previewUrl: string;
+}
+
+function isVeoGenerationOutput(outputMetadata: string | null, generationProvider: string | null, generationModel: string | null): boolean {
+  if (generationProvider === 'veo' && generationModel?.startsWith('veo-')) {
+    return true;
+  }
+
+  if (!outputMetadata) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(outputMetadata) as { provider?: unknown; model?: unknown };
+    return parsed.provider === 'gemini' && typeof parsed.model === 'string' && parsed.model.startsWith('veo-');
+  } catch {
+    return false;
+  }
+}
+
+async function safeBuildGenericFileTree(absoluteBasePath: string, depth: number): Promise<FileNode[]> {
+  try {
+    await fs.access(absoluteBasePath);
+  } catch {
+    await fs.mkdir(absoluteBasePath, { recursive: true });
+    return [];
+  }
+  try {
+    return await buildGenericFileTree(absoluteBasePath, '.', depth);
+  } catch {
+    return [];
+  }
+}
+
+export async function listStudioReferenceAssets(scope: StudioScope, options: {
+  requestedKind: AssetKind; query: string; limit: number; depth: number; veoOnly?: boolean;
+}) {
+  const { requestedKind, query, limit, depth, veoOnly } = options;
+  const studioVisibility = studioVisibilityCondition(scope, {
+    workspaceId: studioGenerations.workspaceId,
+    createdByUserId: studioGenerations.createdByUserId,
+  });
+
+  if (veoOnly) {
+    if (requestedKind !== 'video') {
+      return { success: true, data: [], total: 0 };
+    }
+
+    const rows = await db.select({
+      filePath: studioGenerationOutputs.filePath,
+      fileName: studioGenerationOutputs.fileName,
+      fileSize: studioGenerationOutputs.fileSize,
+      mimeType: studioGenerationOutputs.mimeType,
+      metadata: studioGenerationOutputs.metadata,
+      createdAt: studioGenerationOutputs.createdAt,
+      provider: studioGenerations.provider,
+      model: studioGenerations.model,
+    })
+      .from(studioGenerationOutputs)
+      .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+      .where(and(
+        studioVisibility,
+        eq(studioGenerationOutputs.type, 'video'),
+      ))
+      .orderBy(desc(studioGenerationOutputs.createdAt))
+      .limit(limit);
+
+    const filtered = rows
+      .filter((row) => row.filePath && isVeoGenerationOutput(row.metadata, row.provider, row.model))
+      .filter((row) => !query || row.filePath.toLowerCase().includes(query) || (row.fileName || '').toLowerCase().includes(query))
+      .map((row): AssetItem => ({
+        path: row.filePath.startsWith('studio/') ? row.filePath : `studio/outputs/${row.filePath}`,
+        name: row.fileName || row.filePath.split('/').pop() || row.filePath,
+        kind: 'video',
+        size: row.fileSize ?? undefined,
+        modified: row.createdAt?.getTime(),
+        mediaUrl: toMediaUrl(row.filePath, { workspaceId: scope.workspaceId }),
+        previewUrl: getAssetPreviewUrl(row.filePath, 'video', scope.workspaceId),
+      }));
+
+    return {
+      success: true,
+      data: filtered,
+      total: filtered.length,
+    };
+  }
+
+  const outputType = requestedKind === 'audio' ? 'sound' : requestedKind;
+  const outputRows = await db.select({
+    filePath: studioGenerationOutputs.filePath,
+    fileName: studioGenerationOutputs.fileName,
+    fileSize: studioGenerationOutputs.fileSize,
+    createdAt: studioGenerationOutputs.createdAt,
+    type: studioGenerationOutputs.type,
+  })
+    .from(studioGenerationOutputs)
+    .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+    .where(and(
+      studioVisibility,
+      eq(studioGenerationOutputs.type, outputType),
+    ))
+    .orderBy(desc(studioGenerationOutputs.createdAt))
+    .limit(limit);
+  // Scan aspect-ratio edits in this workspace's Studio edits directory.
+  const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(scope.storage), depth);
+  const referencesTree = await safeBuildGenericFileTree(
+    getStudioAssetsRoot(scope.storage) + '/references',
+    depth,
+  );
+
+  const allFiles = [
+    ...outputRows.map((row): FileNode => ({
+      type: 'file',
+      name: row.fileName || row.filePath.split('/').pop() || row.filePath,
+      path: row.filePath.startsWith('studio/') ? row.filePath : `studio/outputs/${row.filePath}`,
+      size: row.fileSize ?? undefined,
+      modified: row.createdAt ? Math.floor(row.createdAt.getTime() / 1000) : undefined,
+    })),
+    ...walkFiles(editsTree).map((n) => ({
+      ...n,
+      path: n.path.startsWith('studio/')
+        ? n.path
+        : `${getStudioWorkspaceVirtualRoot(scope.storage)}/edits/${n.path}`,
+    })),
+    ...walkFiles(referencesTree).map((n) => ({
+      ...n,
+      path: n.path.startsWith('studio/')
+        ? n.path
+        : `${getStudioAssetEntityPath(scope.storage, 'references')}/${n.path}`,
+    })),
+  ];
+
+  const filtered: AssetItem[] = [];
+  for (const file of allFiles) {
+    const ext = getExtension(file.path);
+    if (!matchesKind(ext, requestedKind)) {
+      continue;
+    }
+    const kind = getKind(ext) || requestedKind;
+
+    if (query && !file.path.toLowerCase().includes(query) && !file.name.toLowerCase().includes(query)) {
+      continue;
+    }
+
+    filtered.push({
+      path: file.path,
+      name: file.name,
+      kind,
+      size: file.size,
+      modified: file.modified,
+      mediaUrl: toMediaUrl(file.path, { workspaceId: scope.workspaceId }),
+      previewUrl: getAssetPreviewUrl(file.path, kind, scope.workspaceId),
+    });
+  }
+
+  filtered.sort((a, b) => {
+    const modifiedA = a.modified || 0;
+    const modifiedB = b.modified || 0;
+    return modifiedB - modifiedA;
+  });
+
+  return {
+    success: true,
+    data: filtered.slice(0, limit),
+    total: filtered.length,
+  };
+}

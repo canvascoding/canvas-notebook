@@ -14,6 +14,7 @@
 /coverage
 /.playwright-mcp
 /artifacts/mcp-file-ingest-e2e/
+/artifacts/mcp-studio-images-e2e/
 /tmp
 
 # next.js

@@ -16,6 +16,7 @@ import {
 } from './mcp-file-ingest-e2e-helpers.ts';
 
 const exec = promisify(execFile);
+const studioImagesOnly = process.env.CANVAS_MCP_STUDIO_IMAGES_ONLY === '1';
 const treeLinksOnly = process.env.CANVAS_MCP_TREE_LINKS_ONLY === '1';
 const cwd = process.cwd();
 await fs.access(path.join(cwd, '.next/BUILD_ID')).catch(() => {
@@ -27,7 +28,7 @@ const localEnv = parse(await fs.readFile(envFile));
 const port = Number(process.env.CANVAS_MCP_E2E_PORT || 3000);
 assert.ok(Number.isSafeInteger(port) && port >= 1024 && port <= 65535, 'A valid owned host port is required.');
 const baseURL = `http://127.0.0.1:${port}`;
-const artifactDirectory = path.join(cwd, 'artifacts', 'mcp-file-ingest-e2e', runId);
+const artifactDirectory = path.join(cwd, 'artifacts', studioImagesOnly ? 'mcp-studio-images-e2e' : 'mcp-file-ingest-e2e', runId);
 const isolatedDatabase = `canvas_mcp_file_e2e_${runId.replaceAll('-', '')}`;
 assert.match(isolatedDatabase, /^canvas_mcp_file_e2e_[a-f0-9]{32}$/u);
 const managedURL = new URL(localEnv.DATABASE_URL || '');
@@ -54,8 +55,9 @@ assert.ok(stackNames.every(name => ['canvas-local-prod-postgres', 'canvas-local-
 
 const tools = ['auth_probe', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
   'read_knowledge_asset', 'create_knowledge_source', 'import_knowledge_file', 'upload_knowledge_asset'];
+if (studioImagesOnly) tools.push('studio_image_catalog', 'studio_generate_image', 'studio_image_result');
 if (treeLinksOnly) tools.push('edit_knowledge_source', 'search_knowledge', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene');
-const isolatedData = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-file-e2e-'));
+const isolatedData = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'canvas-mcp-file-e2e-'));
 await fs.chmod(isolatedData, 0o700);
 await fs.mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
 const databaseURL = new URL(managedURL);
@@ -87,6 +89,7 @@ let serverLog;
 let browser;
 let owner;
 let mcp;
+let studioProvider;
 let cleanupPromise;
 const steps = [];
 const receipts = [];
@@ -99,6 +102,11 @@ const report = { runId, startedAt, passed: false, evidence: {
     : 'source-only original Markdown is checked in the real editor; BOM/CRLF originals are covered by focused validation/storage tests',
   containersBuilt: false, traceRecorded: false, videoRecorded: false,
 }, steps, receipts };
+if (studioImagesOnly) {
+  delete report.evidence.hostAttachment;
+  delete report.evidence.originalByteCases;
+  report.evidence.providers = 'Gemini and OpenAI SDKs connected to a loopback HTTP fixture with dummy credentials';
+}
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function step(name, work) {
   console.log(`[mcp-file-e2e] ${name}`);
@@ -236,6 +244,11 @@ try {
     }
     fixtureDatabase = new Client({ connectionString: databaseURL.href });
     await fixtureDatabase.connect();
+    if (studioImagesOnly) {
+      const { startImageProviderFixture } = await import('./mcp-studio-images-e2e.mjs');
+      studioProvider = await startImageProviderFixture();
+      Object.assign(env, studioProvider.environment);
+    }
     await startServer();
   });
   await step('log in with the managed identity and explicitly enable fixture capabilities', async () => {
@@ -262,11 +275,13 @@ try {
     for (const item of [workspace, deniedWorkspace]) await requireIngestE2EJson(
       await owner.request.put('/api/integrations/mcp-server/workspaces', { data: { workspaceId: item.id, enabled: true } }),
       'Opt in an owned disposable workspace');
-    mcp = await authorizeIngestE2EMcp(owner, baseURL, workspace.id, settings.data.protocolVersion);
+    mcp = await authorizeIngestE2EMcp(owner, baseURL, workspace.id, settings.data.protocolVersion, studioImagesOnly ? {
+      scopes: ['openid', 'offline_access', 'workspace:list', 'studio:read', 'studio:generate'],
+    } : {});
     const discovered = await mcp.rpc('server/discover');
     assert.ok(discovered.supportedVersions.includes(settings.data.protocolVersion));
   });
-  await step('discover full upload arguments and host file input metadata over authenticated MCP', async () => {
+  if (!studioImagesOnly) await step('discover full upload arguments and host file input metadata over authenticated MCP', async () => {
     const listing = await mcp.rpc('tools/list');
     for (const name of tools) assert.ok(listing.tools.some(tool => tool.name === name), `Missing enabled MCP tool ${name}`);
     const upload = listing.tools.find(tool => tool.name === 'upload_knowledge_asset');
@@ -281,7 +296,10 @@ try {
     assert.ok(allowed.workspaces.some(item => item.workspace_id === workspace.id || item.id === workspace.id));
     assert.ok(!allowed.workspaces.some(item => item.workspace_id === deniedWorkspace.id || item.id === deniedWorkspace.id));
   });
-  if (treeLinksOnly) {
+  if (studioImagesOnly) {
+    const { runStudioImagesE2E } = await import('./mcp-studio-images-e2e.mjs');
+    await runStudioImagesE2E({ owner, mcp, workspace, deniedWorkspace, physical, step, baseURL, provider: studioProvider });
+  } else if (treeLinksOnly) {
     const { runMcpTreeLinksE2E } = await import('./mcp-tree-links-e2e.mjs');
     await runMcpTreeLinksE2E({ owner, browser, mcp, workspace, deniedWorkspace, baseURL, physical, step,
       runId, artifactDirectory, fixtureDatabase, email: env.BOOTSTRAP_ADMIN_EMAIL, password: env.BOOTSTRAP_ADMIN_PASSWORD });
@@ -585,6 +603,7 @@ try {
   console.error(`[mcp-file-e2e] Failed: ${report.error}`);
   process.exitCode = 1;
 } finally {
+  await studioProvider?.close();
   let cleanupCompleted = false;
   try { await cleanup(); cleanupCompleted = true; }
   catch (error) {

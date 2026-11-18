@@ -113,6 +113,7 @@ export interface StudioGenerateRequest {
   source_output_id?: string;
   pi_session_id?: string;
   extra_reference_urls?: string[];
+  require_all_image_references?: boolean;
   video_reference_urls?: string[];
   audio_reference_urls?: string[];
   video_extend_source_path?: string | null;
@@ -1012,6 +1013,7 @@ export async function createStudioGeneration(
     videoWebSearch: request.video_web_search,
     videoNsfwChecker: request.video_nsfw_checker,
     extraReferenceUrls: request.extra_reference_urls,
+    requireAllImageReferences: request.require_all_image_references,
     videoReferenceUrls: request.video_reference_urls,
     audioReferenceUrls: request.audio_reference_urls,
     videoExtendSourcePath: request.video_extend_source_path || null,
@@ -1292,6 +1294,9 @@ async function executeStudioGenerationProcessing(
     const extraUrls = parsedMeta.extraReferenceUrls || [];
     if (extraUrls.length > 0) {
       const extraImgs = await loadExtraReferenceImages(scope, extraUrls, mode === 'video' && providerId === SEEDANCE_PROVIDER_ID);
+      if (parsedMeta.requireAllImageReferences && extraImgs.length !== extraUrls.length) {
+        throw new StudioServiceError('Missing image reference', 'A requested image reference could not be loaded.', 'INVALID_REQUEST');
+      }
       for (const img of extraImgs) {
         if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
           allReferenceImages.push(img);

@@ -19,7 +19,7 @@ export function describeWorkspaceCapabilities(input: {
       ...(!input.enabled || !input.enabledTools.includes(descriptor.name) ? ['TOOL_DISABLED'] : []),
       ...(scopes.some(scope => !input.scopes.includes(scope)) ? ['OAUTH_SCOPE_MISSING'] : []),
       ...(!permissions.canRead || !permissions.canRunAgent ? ['WORKSPACE_ACCESS_DENIED'] : []),
-      ...(write && !permissions.canWrite ? ['WORKSPACE_WRITE_DENIED'] : []),
+      ...((write || scopes.includes('studio:generate')) && !permissions.canWrite ? ['WORKSPACE_WRITE_DENIED'] : []),
       ...(requiresDelete && !permissions.canDelete ? ['WORKSPACE_DELETE_DENIED'] : []),
     ];
     return { name: descriptor.name, required_scopes: scopes, allowed_by_workspace_and_connection: reasons.length === 0,

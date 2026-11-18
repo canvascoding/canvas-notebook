@@ -627,6 +627,8 @@
       "knowledgeSearch": "Search permitted knowledge content",
       "knowledgeRead": "Read content from permitted knowledge sources",
       "knowledgeWrite": "Apply exact, conflict-protected edits to permitted knowledge sources",
+      "studioRead": "Read the image catalog and image results of permitted workspaces",
+      "studioGenerate": "Generate and edit Studio images (may incur charges)",
       "knowledgeAssets": "Read permitted images and PDFs for visual and document context"
     },
     "securityTitle": "Direct, local connection",
@@ -6003,6 +6005,18 @@
           "import_knowledge_file": {
             "title": "Import complete files",
             "description": "Imports files and photos through temporary HTTPS file references. Originals are preserved; existing files are never overwritten."
+          },
+          "studio_image_catalog": {
+            "title": "Read Studio image catalog",
+            "description": "List image models, presets, products, personas and styles."
+          },
+          "studio_generate_image": {
+            "title": "Generate Studio images",
+            "description": "Create or edit an image using Studio settings. May incur charges."
+          },
+          "studio_image_result": {
+            "title": "Retrieve Studio images",
+            "description": "Check a generation and view a selected output."
           },
           "create_excalidraw_scene": {
             "title": "Create Excalidraw diagrams",
